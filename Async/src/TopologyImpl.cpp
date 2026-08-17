@@ -23,6 +23,10 @@
 
 namespace SFT::Async {
 
+    /// Returns the current or globally available ranked logical cores value.
+    ///
+    /// @return Returns the current ranked logical cores value.
+    /// @note This function does not throw exceptions.
     std::vector<u32> ranked_logical_cores() noexcept {
         const Foundation::Cpu::CoreMap &map = Foundation::Cpu::CoreMap::instance();
 
@@ -30,8 +34,6 @@ namespace SFT::Async {
         for (Foundation::usize i = 0; i < cores.size(); ++i) {
             cores[i] = static_cast<u32>(i);
         }
-
-
 
 
         const auto rank_of_type = [](Foundation::Cpu::CoreType type) noexcept -> int {
@@ -60,13 +62,13 @@ namespace SFT::Async {
         return cores;
     }
 
+    /// Returns the current or globally available ranked physical cores value.
+    ///
+    /// @return Returns the current ranked physical cores value.
+    /// @note This function does not throw exceptions.
     std::vector<u32> ranked_physical_cores() noexcept {
         const Foundation::Cpu::CoreMap &map = Foundation::Cpu::CoreMap::instance();
         const std::vector<u32> ranked_logical = ranked_logical_cores();
-
-
-
-
 
 
         std::vector<u32> physical;
@@ -85,10 +87,21 @@ namespace SFT::Async {
 
 #if defined(STURDY_PLATFORM_WEB)
 
+    /// Performs the pin thread to core operation for `Async` using the supplied arguments.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool pin_thread_to_core(std::thread &           , u32               ) noexcept { return false; }
 
 #elif defined(_WIN32)
 
+    /// Performs the pin thread to core operation for `Async` using the supplied arguments.
+    ///
+    /// @param thread Thread used or affected by the operation.
+    /// @param core_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool pin_thread_to_core(std::thread &thread, u32 core_index) noexcept {
         if (!thread.joinable()) {
             return false;
@@ -100,8 +113,13 @@ namespace SFT::Async {
 #elif defined(__APPLE__)
 
 
-
-
+    /// Performs the pin thread to core operation for `Async` using the supplied arguments.
+    ///
+    /// @param thread Thread used or affected by the operation.
+    /// @param core_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool pin_thread_to_core(std::thread &thread, u32 core_index) noexcept {
         if (!thread.joinable()) {
             return false;
@@ -116,6 +134,13 @@ namespace SFT::Async {
 
 #elif defined(__linux__)
 
+    /// Performs the pin thread to core operation for `Async` using the supplied arguments.
+    ///
+    /// @param thread Thread used or affected by the operation.
+    /// @param core_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool pin_thread_to_core(std::thread &thread, u32 core_index) noexcept {
         if (!thread.joinable()) {
             return false;
@@ -129,8 +154,10 @@ namespace SFT::Async {
 #else
 
 
-
-
+    /// Performs the pin thread to core operation for `Async` using the supplied arguments.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool pin_thread_to_core(std::thread &           , u32               ) noexcept { return false; }
 
 #endif

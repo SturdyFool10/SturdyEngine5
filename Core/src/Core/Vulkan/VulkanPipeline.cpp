@@ -4,8 +4,16 @@
 
 namespace SFT::Core::Vulkan {
 
+/// Destroys the `Vulkan` and releases resources owned by it.
+///
+/// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
 VulkanPipelineLayout::~VulkanPipelineLayout() { destroy(); }
 
+/// Performs the vulkan pipeline layout operation for `Vulkan` using the supplied arguments.
+///
+/// @param o `o` value used by the operation.
+///
+/// @note This function does not throw exceptions.
 VulkanPipelineLayout::VulkanPipelineLayout(VulkanPipelineLayout &&o) noexcept
             : device_(o.device_), layout_(o.layout_) {
             ZoneScopedN("VulkanPipelineLayout::VulkanPipelineLayout");
@@ -13,6 +21,12 @@ VulkanPipelineLayout::VulkanPipelineLayout(VulkanPipelineLayout &&o) noexcept
             o.layout_ = VK_NULL_HANDLE;
         }
 
+/// Assigns a new value to this `Vulkan`.
+///
+/// @param o `o` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) noexcept {
             ZoneScopedN("VulkanPipelineLayout::operator=");
             if (this != &o) {
@@ -25,6 +39,15 @@ VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) 
             return *this;
         }
 
+/// Creates a `Vulkan` resource or value from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param info Description of the resource or operation to perform.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanPipelineLayout> VulkanPipelineLayout::create(
             VkDevice device,
             const VkPipelineLayoutCreateInfo &info) noexcept {
@@ -38,6 +61,15 @@ VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) 
             return out;
         }
 
+/// Creates a from sets from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param set_layouts `set_layouts` value used by the operation.
+/// @param push_constants `push_constants` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanPipelineLayout> VulkanPipelineLayout::create_from_sets(
             VkDevice device,
             span<const VkDescriptorSetLayout> set_layouts,
@@ -55,6 +87,13 @@ VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) 
             return create(device, info);
         }
 
+/// Creates a empty from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanPipelineLayout> VulkanPipelineLayout::create_empty(VkDevice device) noexcept {
             ZoneScopedN("VulkanPipelineLayout::create_empty");
             VkPipelineLayoutCreateInfo info{
@@ -69,10 +108,22 @@ VulkanPipelineLayout &VulkanPipelineLayout::operator=(VulkanPipelineLayout &&o) 
             return create(device, info);
         }
 
+/// Returns the Vulkan handle associated with this `Vulkan`.
+///
+/// @return Returns the current Vulkan handle value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] VkPipelineLayout VulkanPipelineLayout::vk_handle() const noexcept { return layout_; }
 
+/// Reports whether valid holds for this `Vulkan`.
+///
+/// @return Returns the current is valid value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool VulkanPipelineLayout::is_valid() const noexcept { return layout_ != VK_NULL_HANDLE; }
 
+/// Destroys or releases the `Vulkan` resource represented by the supplied parameters.
+///
+/// @return Returns the current destroy value.
+/// @note This function does not throw exceptions.
 void VulkanPipelineLayout::destroy() noexcept {
             ZoneScopedN("VulkanPipelineLayout::destroy");
             if (layout_ == VK_NULL_HANDLE)
@@ -82,18 +133,38 @@ void VulkanPipelineLayout::destroy() noexcept {
             device_ = VK_NULL_HANDLE;
         }
 
+/// Adds set layout using the supplied arguments and current state.
+///
+/// @param layout `layout` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 PipelineLayoutBuilder &PipelineLayoutBuilder::add_set_layout(VkDescriptorSetLayout layout) {
             ZoneScopedN("PipelineLayoutBuilder::add_set_layout");
             set_layouts_.push_back(layout);
             return *this;
         }
 
+/// Sets the set layouts for this `Vulkan`.
+///
+/// @param layouts `layouts` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 PipelineLayoutBuilder &PipelineLayoutBuilder::set_set_layouts(span<const VkDescriptorSetLayout> layouts) {
             ZoneScopedN("PipelineLayoutBuilder::set_set_layouts");
             set_layouts_.assign(layouts.begin(), layouts.end());
             return *this;
         }
 
+/// Adds push constant range using the supplied arguments and current state.
+///
+/// @param stages `stages` value used by the operation.
+/// @param offset Offset from the beginning of the relevant range or buffer.
+/// @param size Requested or available size for the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 PipelineLayoutBuilder &PipelineLayoutBuilder::add_push_constant_range(VkShaderStageFlags stages, u32 offset, u32 size) {
             ZoneScopedN("PipelineLayoutBuilder::add_push_constant_range");
             push_constants_.push_back(VkPushConstantRange{
@@ -104,11 +175,22 @@ PipelineLayoutBuilder &PipelineLayoutBuilder::add_push_constant_range(VkShaderSt
             return *this;
         }
 
+/// Creates a `Vulkan` resource or value from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanPipelineLayout> PipelineLayoutBuilder::create(VkDevice device) const noexcept {
             ZoneScopedN("PipelineLayoutBuilder::create");
             return VulkanPipelineLayout::create_from_sets(device, set_layouts_, push_constants_);
         }
 
+/// Returns the current rendering info.
+///
+/// @return Returns the current rendering info value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] VkPipelineRenderingCreateInfo VulkanGraphicsPipelineSignature::rendering_info() const noexcept {
             ZoneScopedN("VulkanGraphicsPipelineSignature::rendering_info");
             return VkPipelineRenderingCreateInfo{
@@ -122,8 +204,16 @@ PipelineLayoutBuilder &PipelineLayoutBuilder::add_push_constant_range(VkShaderSt
             };
         }
 
+/// Destroys the `Vulkan` and releases resources owned by it.
+///
+/// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
 VulkanPipeline::~VulkanPipeline() { destroy(); }
 
+/// Performs the vulkan pipeline operation for `Vulkan` using the supplied arguments.
+///
+/// @param o `o` value used by the operation.
+///
+/// @note This function does not throw exceptions.
 VulkanPipeline::VulkanPipeline(VulkanPipeline &&o) noexcept
             : device_(o.device_), pipeline_(o.pipeline_), bind_point_(o.bind_point_) {
             ZoneScopedN("VulkanPipeline::VulkanPipeline");
@@ -131,6 +221,12 @@ VulkanPipeline::VulkanPipeline(VulkanPipeline &&o) noexcept
             o.pipeline_ = VK_NULL_HANDLE;
         }
 
+/// Assigns a new value to this `Vulkan`.
+///
+/// @param o `o` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             ZoneScopedN("VulkanPipeline::operator=");
             if (this != &o) {
@@ -144,6 +240,16 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             return *this;
         }
 
+/// Creates a graphics from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param cache `cache` value used by the operation.
+/// @param info Description of the resource or operation to perform.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanPipeline> VulkanPipeline::create_graphics(
             VkDevice device,
             VkPipelineCache cache,
@@ -166,6 +272,16 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             return out;
         }
 
+/// Creates a graphics dynamic from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param cache `cache` value used by the operation.
+/// @param info Description of the resource or operation to perform.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanPipeline> VulkanPipeline::create_graphics_dynamic(
             VkDevice device,
             VkPipelineCache cache,
@@ -200,6 +316,16 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             return out;
         }
 
+/// Creates a compute from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param cache `cache` value used by the operation.
+/// @param info Description of the resource or operation to perform.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanPipeline> VulkanPipeline::create_compute(
             VkDevice device,
             VkPipelineCache cache,
@@ -217,6 +343,17 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             return out;
         }
 
+/// Creates a ray tracing from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param cache `cache` value used by the operation.
+/// @param info Description of the resource or operation to perform.
+/// @param deferred_op `deferred_op` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanPipeline> VulkanPipeline::create_ray_tracing(
             VkDevice device,
             VkPipelineCache cache,
@@ -236,6 +373,16 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             return out;
         }
 
+/// Returns the ray tracing shader group handles associated with this `Vulkan`.
+///
+/// @param first_group `first_group` value used by the operation.
+/// @param group_count Number of elements or operations to process.
+/// @param handle_data Data consumed or referenced by the operation.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererResult VulkanPipeline::get_ray_tracing_shader_group_handles(
             u32 first_group, u32 group_count, span<u8> handle_data) const noexcept {
             ZoneScopedN("VulkanPipeline::get_ray_tracing_shader_group_handles");
@@ -248,18 +395,46 @@ VulkanPipeline &VulkanPipeline::operator=(VulkanPipeline &&o) noexcept {
             return {};
         }
 
+/// Returns the Vulkan handle associated with this `Vulkan`.
+///
+/// @return Returns the current Vulkan handle value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] VkPipeline VulkanPipeline::vk_handle() const noexcept { return pipeline_; }
 
+/// Reports whether valid holds for this `Vulkan`.
+///
+/// @return Returns the current is valid value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool VulkanPipeline::is_valid() const noexcept { return pipeline_ != VK_NULL_HANDLE; }
 
+/// Binds point for subsequent operations.
+///
+/// @return Returns the current bind point value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] VkPipelineBindPoint VulkanPipeline::bind_point() const noexcept { return bind_point_; }
 
+/// Reports whether graphics holds for this `Vulkan`.
+///
+/// @return Returns the current is graphics value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool VulkanPipeline::is_graphics() const noexcept { return bind_point_ == VK_PIPELINE_BIND_POINT_GRAPHICS; }
 
+/// Reports whether compute holds for this `Vulkan`.
+///
+/// @return Returns the current is compute value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool VulkanPipeline::is_compute() const noexcept { return bind_point_ == VK_PIPELINE_BIND_POINT_COMPUTE; }
 
+/// Reports whether ray tracing holds for this `Vulkan`.
+///
+/// @return Returns the current is ray tracing value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool VulkanPipeline::is_ray_tracing() const noexcept { return bind_point_ == VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR; }
 
+/// Destroys or releases the `Vulkan` resource represented by the supplied parameters.
+///
+/// @return Returns the current destroy value.
+/// @note This function does not throw exceptions.
 void VulkanPipeline::destroy() noexcept {
             ZoneScopedN("VulkanPipeline::destroy");
             if (pipeline_ == VK_NULL_HANDLE)
@@ -269,42 +444,85 @@ void VulkanPipeline::destroy() noexcept {
             device_ = VK_NULL_HANDLE;
         }
 
+/// Sets the layout for this `Vulkan`.
+///
+/// @param layout `layout` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_layout(VkPipelineLayout layout) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_layout");
             layout_ = layout;
             return *this;
         }
 
+/// Sets the flags for this `Vulkan`.
+///
+/// @param flags Flags controlling optional behavior.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_flags(VkPipelineCreateFlags flags) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_flags");
             flags_ = flags;
             return *this;
         }
 
+/// Sets the next for this `Vulkan`.
+///
+/// @param next `next` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_next(const void *next) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_next");
             rendering_next_ = next;
             return *this;
         }
 
+/// Adds stage using the supplied arguments and current state.
+///
+/// @param stage `stage` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_stage(const VkPipelineShaderStageCreateInfo &stage) {
             ZoneScopedN("GraphicsPipelineBuilder::add_stage");
             stages_.push_back(stage);
             return *this;
         }
 
+/// Sets the stages for this `Vulkan`.
+///
+/// @param stages `stages` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_stages(span<const VkPipelineShaderStageCreateInfo> stages) {
             ZoneScopedN("GraphicsPipelineBuilder::set_stages");
             stages_.assign(stages.begin(), stages.end());
             return *this;
         }
 
+/// Sets the mesh shader frontend for this `Vulkan`.
+///
+/// @param enabled Whether the associated behavior is enabled.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_mesh_shader_frontend(bool enabled) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_mesh_shader_frontend");
             mesh_shader_frontend_ = enabled;
             return *this;
         }
 
+/// Sets the vertex input for this `Vulkan`.
+///
+/// @param bindings `bindings` value used by the operation.
+/// @param attributes `attributes` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_vertex_input(span<const VkVertexInputBindingDescription> bindings,
                                                   span<const VkVertexInputAttributeDescription> attributes) {
             ZoneScopedN("GraphicsPipelineBuilder::set_vertex_input");
@@ -313,6 +531,13 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_vertex_input(span<const Vk
             return *this;
         }
 
+/// Sets the topology for this `Vulkan`.
+///
+/// @param topology `topology` value used by the operation.
+/// @param primitive_restart `primitive_restart` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_topology(VkPrimitiveTopology topology, bool primitive_restart) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_topology");
             topology_ = topology;
@@ -320,18 +545,37 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_topology(VkPrimitiveTopolo
             return *this;
         }
 
+/// Sets the tessellation patch control points for this `Vulkan`.
+///
+/// @param points `points` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_tessellation_patch_control_points(u32 points) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_tessellation_patch_control_points");
             patch_control_points_ = points;
             return *this;
         }
 
+/// Sets the polygon mode for this `Vulkan`.
+///
+/// @param mode Mode controlling how the operation is performed.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_polygon_mode(VkPolygonMode mode) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_polygon_mode");
             polygon_mode_ = mode;
             return *this;
         }
 
+/// Sets the cull mode for this `Vulkan`.
+///
+/// @param mode Mode controlling how the operation is performed.
+/// @param front_face `front_face` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_cull_mode(VkCullModeFlags mode, VkFrontFace front_face) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_cull_mode");
             cull_mode_ = mode;
@@ -339,24 +583,50 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_cull_mode(VkCullModeFlags 
             return *this;
         }
 
+/// Sets the line width for this `Vulkan`.
+///
+/// @param width Width of the target extent.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_line_width(float width) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_line_width");
             line_width_ = width;
             return *this;
         }
 
+/// Sets the depth clamp for this `Vulkan`.
+///
+/// @param enable Whether the associated behavior is enabled.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_clamp(bool enable) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_depth_clamp");
             depth_clamp_ = enable;
             return *this;
         }
 
+/// Sets the rasterizer discard for this `Vulkan`.
+///
+/// @param enable Whether the associated behavior is enabled.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_rasterizer_discard(bool enable) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_rasterizer_discard");
             rasterizer_discard_ = enable;
             return *this;
         }
 
+/// Sets the depth bias for this `Vulkan`.
+///
+/// @param constant `constant` value used by the operation.
+/// @param clamp `clamp` value used by the operation.
+/// @param slope `slope` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_bias(float constant, float clamp, float slope) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_depth_bias");
             depth_bias_enable_ = true;
@@ -366,6 +636,13 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_bias(float constant,
             return *this;
         }
 
+/// Sets the samples for this `Vulkan`.
+///
+/// @param samples `samples` value used by the operation.
+/// @param alpha_to_coverage `alpha_to_coverage` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_samples(VkSampleCountFlagBits samples, bool alpha_to_coverage) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_samples");
             samples_ = samples;
@@ -373,12 +650,26 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_samples(VkSampleCountFlagB
             return *this;
         }
 
+/// Sets the sample mask for this `Vulkan`.
+///
+/// @param mask `mask` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_sample_mask(u32 mask) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_sample_mask");
             sample_mask_ = mask;
             return *this;
         }
 
+/// Sets the depth test for this `Vulkan`.
+///
+/// @param test `test` value used by the operation.
+/// @param write `write` value used by the operation.
+/// @param compare `compare` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_test(bool test, bool write,
                                                 VkCompareOp compare) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_depth_test");
@@ -388,12 +679,25 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_test(bool test, bool
             return *this;
         }
 
+/// Sets the depth bounds test for this `Vulkan`.
+///
+/// @param enable Whether the associated behavior is enabled.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_bounds_test(bool enable) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_depth_bounds_test");
             depth_bounds_test_ = enable;
             return *this;
         }
 
+/// Sets the stencil for this `Vulkan`.
+///
+/// @param front `front` value used by the operation.
+/// @param back `back` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_stencil(const VkStencilOpState &front, const VkStencilOpState &back) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_stencil");
             stencil_test_ = true;
@@ -402,6 +706,13 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_stencil(const VkStencilOpS
             return *this;
         }
 
+/// Adds color target using the supplied arguments and current state.
+///
+/// @param format Format used for the resource, render target, or conversion.
+/// @param blend `blend` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_color_target(VkFormat format,
                                                   const VkPipelineColorBlendAttachmentState &blend) {
             ZoneScopedN("GraphicsPipelineBuilder::add_color_target");
@@ -410,6 +721,12 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_color_target(VkFormat form
             return *this;
         }
 
+/// Adds color target using the supplied arguments and current state.
+///
+/// @param format Format used for the resource, render target, or conversion.
+///
+/// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_color_target(VkFormat format) {
             ZoneScopedN("GraphicsPipelineBuilder::add_color_target");
             return add_color_target(format, VkPipelineColorBlendAttachmentState{
@@ -419,36 +736,74 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_color_target(VkFormat form
                                             });
         }
 
+/// Sets the depth format for this `Vulkan`.
+///
+/// @param format Format used for the resource, render target, or conversion.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_format(VkFormat format) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_depth_format");
             depth_format_ = format;
             return *this;
         }
 
+/// Sets the stencil format for this `Vulkan`.
+///
+/// @param format Format used for the resource, render target, or conversion.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_stencil_format(VkFormat format) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_stencil_format");
             stencil_format_ = format;
             return *this;
         }
 
+/// Sets the view mask for this `Vulkan`.
+///
+/// @param mask `mask` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_view_mask(u32 mask) noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::set_view_mask");
             view_mask_ = mask;
             return *this;
         }
 
+/// Sets the dynamic states for this `Vulkan`.
+///
+/// @param states `states` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_dynamic_states(span<const VkDynamicState> states) {
             ZoneScopedN("GraphicsPipelineBuilder::set_dynamic_states");
             dynamic_states_.assign(states.begin(), states.end());
             return *this;
         }
 
+/// Adds dynamic state using the supplied arguments and current state.
+///
+/// @param state `state` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_dynamic_state(VkDynamicState state) {
             ZoneScopedN("GraphicsPipelineBuilder::add_dynamic_state");
             dynamic_states_.push_back(state);
             return *this;
         }
 
+/// Creates a `Vulkan` resource or value from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param cache `cache` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanPipeline> GraphicsPipelineBuilder::create(VkDevice device,
                                                               VkPipelineCache cache) const noexcept {
             ZoneScopedN("GraphicsPipelineBuilder::create");
@@ -528,7 +883,6 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_dynamic_state(VkDynamicSta
             };
 
 
-
             const bool has_depth_stencil_attachment =
                 depth_format_ != VK_FORMAT_UNDEFINED || stencil_format_ != VK_FORMAT_UNDEFINED;
             const VkGraphicsPipelineCreateInfo info{
@@ -552,8 +906,16 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_dynamic_state(VkDynamicSta
             return VulkanPipeline::create_graphics_dynamic(device, cache, info);
         }
 
+/// Destroys the `Vulkan` and releases resources owned by it.
+///
+/// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
 VulkanPipelineCache::~VulkanPipelineCache() { destroy(); }
 
+/// Performs the vulkan pipeline cache operation for `Vulkan` using the supplied arguments.
+///
+/// @param o `o` value used by the operation.
+///
+/// @note This function does not throw exceptions.
 VulkanPipelineCache::VulkanPipelineCache(VulkanPipelineCache &&o) noexcept
             : device_(o.device_), cache_(o.cache_) {
             ZoneScopedN("VulkanPipelineCache::VulkanPipelineCache");
@@ -561,6 +923,12 @@ VulkanPipelineCache::VulkanPipelineCache(VulkanPipelineCache &&o) noexcept
             o.cache_ = VK_NULL_HANDLE;
         }
 
+/// Assigns a new value to this `Vulkan`.
+///
+/// @param o `o` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 VulkanPipelineCache &VulkanPipelineCache::operator=(VulkanPipelineCache &&o) noexcept {
             ZoneScopedN("VulkanPipelineCache::operator=");
             if (this != &o) {
@@ -573,6 +941,15 @@ VulkanPipelineCache &VulkanPipelineCache::operator=(VulkanPipelineCache &&o) noe
             return *this;
         }
 
+/// Creates a `Vulkan` resource or value from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param initial_data Data consumed or referenced by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanPipelineCache> VulkanPipelineCache::create(
             VkDevice device,
             span<const u8> initial_data) noexcept {
@@ -593,10 +970,23 @@ VulkanPipelineCache &VulkanPipelineCache::operator=(VulkanPipelineCache &&o) noe
             return out;
         }
 
+/// Returns the Vulkan handle associated with this `Vulkan`.
+///
+/// @return Returns the current Vulkan handle value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] VkPipelineCache VulkanPipelineCache::vk_handle() const noexcept { return cache_; }
 
+/// Reports whether valid holds for this `Vulkan`.
+///
+/// @return Returns the current is valid value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool VulkanPipelineCache::is_valid() const noexcept { return cache_ != VK_NULL_HANDLE; }
 
+/// Returns the current or globally available serialize value.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
 [[nodiscard]] RendererExpected<vector<u8>> VulkanPipelineCache::serialize() const {
             ZoneScopedN("VulkanPipelineCache::serialize");
             usize size = 0;
@@ -608,6 +998,10 @@ VulkanPipelineCache &VulkanPipelineCache::operator=(VulkanPipelineCache &&o) noe
             return data;
         }
 
+/// Destroys or releases the `Vulkan` resource represented by the supplied parameters.
+///
+/// @return Returns the current destroy value.
+/// @note This function does not throw exceptions.
 void VulkanPipelineCache::destroy() noexcept {
             ZoneScopedN("VulkanPipelineCache::destroy");
             if (cache_ == VK_NULL_HANDLE)

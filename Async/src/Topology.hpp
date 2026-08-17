@@ -8,31 +8,28 @@ namespace SFT::Async {
 
     using u32 = std::uint32_t;
 
-    /// Logical core indices (as understood by Foundation::Cpu::CoreMap / pin_thread_to_core below),
-    /// best-first. Ranking key: `CoreType` (Performance > Unknown > Efficiency) first, then L3 size
-    /// descending, then L2 size descending. One ranking captures both signals a hybrid machine can
-    /// expose: ISA-heterogeneous designs (Intel P/E -- `CoreType` differs) and cache-only-heterogeneous
-    /// ones (AMD multi-CCD X3D -- `CoreType` stays Unknown on every core, but L3 size differs between
-    /// CCDs). On a uniform machine every core ties, so the returned order is simply core index order.
+
+    /// Returns the current or globally available ranked logical cores value.
     ///
-    /// Empty only if Foundation::Cpu::CoreMap somehow reports zero cores (it never does -- core_count()
-    /// >= 1 is a documented invariant there) -- callers should still treat an empty result as "topology
-    /// unavailable, don't pin anything" defensively.
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] std::vector<u32> ranked_logical_cores() noexcept;
 
-    /// One representative logical core index per *physical* core (SMT siblings collapsed to their
-    /// first/lowest logical index -- see Foundation::Cpu::CoreMap::physical_core_count()), ranked
-    /// best-first with the same key as ranked_logical_cores(). Size == CoreMap::physical_core_count().
-    /// This is what CPU-bound work-stealing pools should size/pin against: spawning one OS thread per
-    /// SMT sibling oversubscribes the physical core's shared execution units for compute-bound work,
-    /// it doesn't add real parallelism. Falls back to one entry per logical core (identical to
-    /// ranked_logical_cores()) wherever physical-core grouping isn't known (see CoreMap's own fallback).
+
+    /// Returns the current or globally available ranked physical cores value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] std::vector<u32> ranked_physical_cores() noexcept;
 
-    /// Pins `thread` to logical `core_index`. Shared by DedicatedThread::pin_to_core (Affinity.hpp) and
-    /// Scheduler's own worker threads (SchedulerImpl.cpp) so the platform-`#ifdef` body exists exactly
-    /// once. Best-effort: returns false (and leaves the thread's affinity unchanged) on platforms/cases
-    /// where pinning isn't available -- see TopologyImpl.cpp for the per-platform caveats.
+
+    /// Performs the pin thread to core operation for `Async` using the supplied arguments.
+    ///
+    /// @param thread Thread used or affected by the operation.
+    /// @param core_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool pin_thread_to_core(std::thread &thread, u32 core_index) noexcept;
 
 } // namespace SFT::Async

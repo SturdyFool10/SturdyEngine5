@@ -2,6 +2,13 @@
 
 namespace SFT::RHI {
 
+/// Performs the name contains ci operation for `RHI` using the supplied arguments.
+///
+/// @param haystack `haystack` value used by the operation.
+/// @param needle `needle` value used by the operation.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
 bool name_contains_ci(string_view haystack, string_view needle) noexcept {
         if (needle.empty()) {
             return true;
@@ -27,6 +34,13 @@ bool name_contains_ci(string_view haystack, string_view needle) noexcept {
         return false;
     }
 
+/// Performs the adapter matches operation for `RHI` using the supplied arguments.
+///
+/// @param adapter `adapter` value used by the operation.
+/// @param criteria `criteria` value used by the operation.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 bool adapter_matches(const RhiAdapter &adapter, const AdapterCriteria &criteria) {
         const AdapterInfo &info = adapter.info();
         if (!has_any(criteria.allowed_types, device_type_bit(info.device_type))) {
@@ -46,6 +60,13 @@ bool adapter_matches(const RhiAdapter &adapter, const AdapterCriteria &criteria)
         return true;
     }
 
+/// Selects adapter that best satisfies the supplied requirements.
+///
+/// @param adapters `adapters` value used by the operation.
+/// @param criteria `criteria` value used by the operation.
+///
+/// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RhiAdapter *select_adapter(span<const unique_ptr<RhiAdapter>> adapters,
                                                     const AdapterCriteria &criteria) {
         RhiAdapter *best = nullptr;
@@ -63,6 +84,13 @@ RhiAdapter *select_adapter(span<const unique_ptr<RhiAdapter>> adapters,
         return best;
     }
 
+/// Performs the filter adapters operation for `RHI` using the supplied arguments.
+///
+/// @param adapters `adapters` value used by the operation.
+/// @param criteria `criteria` value used by the operation.
+///
+/// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<RhiAdapter *> filter_adapters(span<const unique_ptr<RhiAdapter>> adapters,
                                                               const AdapterCriteria &criteria) {
         vector<RhiAdapter *> matched;
@@ -79,6 +107,14 @@ vector<RhiAdapter *> filter_adapters(span<const unique_ptr<RhiAdapter>> adapters
         return matched;
     }
 
+/// Returns a human-readable name for the supplied find adapter by value.
+///
+/// @param adapters `adapters` value used by the operation.
+/// @param name Name used to identify or label the target.
+///
+/// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+/// @note Absence is represented by a null pointer rather than an exception.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RhiAdapter *find_adapter_by_name(span<const unique_ptr<RhiAdapter>> adapters,
                                                           string_view name) {
         for (const unique_ptr<RhiAdapter> &adapter : adapters) {
@@ -89,6 +125,14 @@ RhiAdapter *find_adapter_by_name(span<const unique_ptr<RhiAdapter>> adapters,
         return nullptr;
     }
 
+/// Selects and create device that best satisfies the supplied requirements.
+///
+/// @param registry `registry` value used by the operation.
+/// @param selection `selection` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`.
 RhiExpected<SelectedDevice> select_and_create_device(
         const BackendRegistry &registry, const DeviceSelection &selection) {
         optional<BackendType> backend = selection.backend;

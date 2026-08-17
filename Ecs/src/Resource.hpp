@@ -8,16 +8,28 @@
 
 namespace SFT::Ecs {
 
-    /// Resources are singleton objects bound to a World. Their stable key uses a separate type and
-    /// namespace from ComponentKey so the eventual C/FFI API can describe global engine services
-    /// without pretending they are per-entity data.
+
     struct ResourceKey {
         u64 high = 0;
         u64 low = 0;
 
+        /// Converts the `ResourceKey` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return high != 0 || low != 0; }
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend constexpr bool operator==(ResourceKey, ResourceKey) noexcept = default;
 
+        /// Returns a human-readable name for the supplied from value.
+        ///
+        /// @param canonical_name Name used to identify or label the target.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static constexpr ResourceKey from_name(std::string_view canonical_name) noexcept {
             const ComponentKey key = ComponentKey::from_name(canonical_name);
             return ResourceKey{.high = key.high, .low = key.low};
@@ -29,6 +41,12 @@ namespace SFT::Ecs {
     static_assert(std::is_trivially_copyable_v<ResourceKey>);
 
     struct ResourceKeyHash {
+        /// Invokes the callable behavior provided by `ResourceKeyHash`.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize operator()(ResourceKey key) const noexcept;
     };
 
@@ -39,6 +57,10 @@ namespace SFT::Ecs {
 
     namespace Detail {
 
+        /// Returns a human-readable name for the supplied resource value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         [[nodiscard]] consteval std::string_view resource_name() {
             using ResourceT = std::remove_cv_t<T>;
@@ -53,24 +75,42 @@ namespace SFT::Ecs {
 
     } // namespace Detail
 
+    /// Returns the current or globally available resource key value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class T>
     [[nodiscard]] consteval ResourceKey resource_key() {
         return ResourceKey::from_name(Detail::resource_name<std::remove_cv_t<T>>());
     }
 
-    /// Explicit system parameters make singleton access visible to the scheduler:
-    ///   ReadResource<T>  -> shared, immutable access
-    ///   WriteResource<T> -> exclusive access; the system's chunks execute serially
-    /// Values are lightweight non-owning views and are valid only for one system invocation.
+
     template <class T>
     class ReadResource {
       public:
+        /// Returns the value or resource currently represented by `ReadResource`.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const T &get() const noexcept { return *resource_; }
+        /// Accesses the object referenced by this `ReadResource`.
+        ///
+        /// @return Returns a pointer through which the referenced object can be accessed.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const T *operator->() const noexcept { return resource_; }
+        /// Dereferences this iterator or handle.
+        ///
+        /// @return Returns the value or reference currently addressed by the iterator/handle.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const T &operator*() const noexcept { return *resource_; }
 
       private:
         friend struct Detail::ResourceViewFactory;
+        /// Constructs a `ReadResource` from the supplied initialization values.
+        ///
+        /// @param resource `resource` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         explicit ReadResource(const T &resource) noexcept : resource_(&resource) {}
 
         const T *resource_ = nullptr;
@@ -79,12 +119,29 @@ namespace SFT::Ecs {
     template <class T>
     class WriteResource {
       public:
+        /// Returns the value or resource currently represented by `WriteResource`.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] T &get() const noexcept { return *resource_; }
+        /// Accesses the object referenced by this `WriteResource`.
+        ///
+        /// @return Returns a pointer through which the referenced object can be accessed.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] T *operator->() const noexcept { return resource_; }
+        /// Dereferences this iterator or handle.
+        ///
+        /// @return Returns the value or reference currently addressed by the iterator/handle.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] T &operator*() const noexcept { return *resource_; }
 
       private:
         friend struct Detail::ResourceViewFactory;
+        /// Constructs a `WriteResource` from the supplied initialization values.
+        ///
+        /// @param resource `resource` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         explicit WriteResource(T &resource) noexcept : resource_(&resource) {}
 
         T *resource_ = nullptr;
@@ -93,11 +150,19 @@ namespace SFT::Ecs {
     namespace Detail {
 
         struct ResourceViewFactory {
+            /// Reads the requested data from the associated source.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function does not throw exceptions.
             template <class T>
             [[nodiscard]] static ReadResource<T> read(const T &resource) noexcept {
                 return ReadResource<T>{resource};
             }
 
+            /// Writes the supplied data to the associated destination.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function does not throw exceptions.
             template <class T>
             [[nodiscard]] static WriteResource<T> write(T &resource) noexcept {
                 return WriteResource<T>{resource};
@@ -109,12 +174,7 @@ namespace SFT::Ecs {
             static constexpr bool IsResource = false;
         };
 
-        /// Every resource-view argument type (ReadResource/WriteResource here, EventReader/EventWriter
-        /// in Ecs/Event.hpp) implements this same trait shape: IsWrite/IsEvent declare the argument's
-        /// access for Schedule's conflict analysis, Resource names the singleton it resolves against,
-        /// and construct() builds the argument value from that singleton. resolve_resource() in
-        /// Ecs/System.hpp calls Traits::construct() generically, so a new resource-view kind never
-        /// needs a change there — only a new ResourceArgumentTraits specialization.
+
         template <class T>
         struct ResourceArgumentTraits<ReadResource<T>> {
             static constexpr bool IsResource = true;
@@ -122,6 +182,12 @@ namespace SFT::Ecs {
             static constexpr bool IsEvent = false;
             using Resource = T;
 
+            /// Constructs the supplied or associated value/state using the supplied arguments and current state.
+            ///
+            /// @param resource `resource` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] static ReadResource<T> construct(Resource &resource) noexcept {
                 return ResourceViewFactory::read(std::as_const(resource));
             }
@@ -134,6 +200,12 @@ namespace SFT::Ecs {
             static constexpr bool IsEvent = false;
             using Resource = T;
 
+            /// Constructs the supplied or associated value/state using the supplied arguments and current state.
+            ///
+            /// @param resource `resource` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] static WriteResource<T> construct(Resource &resource) noexcept {
                 return ResourceViewFactory::write(resource);
             }

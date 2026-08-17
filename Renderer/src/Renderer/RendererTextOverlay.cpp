@@ -36,9 +36,14 @@ namespace SFT::Renderer {
     namespace {
 
 
-
         constexpr f32 overlay_pixel_size = 18.0f;
 
+        /// Computes the read file bytes required by the supplied values.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<vector<std::byte>> read_file_bytes(const string &path) {
             std::ifstream file(path, std::ios::binary | std::ios::ate);
             if (!file) {
@@ -57,8 +62,10 @@ namespace SFT::Renderer {
         }
 
 
-
-
+        /// Builds font database.
+        ///
+        /// @return Returns the current build font database value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Text::FontDatabase build_font_database() {
             vector<string> search_dirs{"Fonts"};
             const vector<string> platform_dirs = Platform::font_search_directories();
@@ -66,6 +73,13 @@ namespace SFT::Renderer {
             return Text::FontDatabase::create(span<const string>{search_dirs.data(), search_dirs.size()});
         }
 
+        /// Finds first available in the available state.
+        ///
+        /// @param database `database` value used by the operation.
+        /// @param preferred_families `preferred_families` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<string> find_first_available(const Text::FontDatabase &database,
                                                              span<const UString> preferred_families) {
             for (const UString &family : preferred_families) {
@@ -77,8 +91,12 @@ namespace SFT::Renderer {
         }
 
 
-
-
+        /// Finds default font path in the available state.
+        ///
+        /// @param database `database` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<string> find_default_font_path(const Text::FontDatabase &database) {
             static const array<UString, 12> preferred_families{
                 UString{"Maple Mono NF"_ustr}, UString{"Segoe UI"_ustr}, UString{"SF Pro Text"_ustr},
@@ -96,11 +114,11 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
-
+        /// Finds default emoji font path in the available state.
+        ///
+        /// @param database `database` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         [[nodiscard]] optional<string> find_default_emoji_font_path(const Text::FontDatabase &database) {
             static const array<UString, 3> preferred_families{
                 UString{"Noto Color Emoji"_ustr}, UString{"Apple Color Emoji"_ustr},
@@ -111,6 +129,11 @@ namespace SFT::Renderer {
 
     } // namespace
 
+    /// Finds or creates the text overlay resources required by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_text_overlay_resources() {
         ZoneScopedN("Renderer::ensure_text_overlay_resources");
         auto guard = text_overlay_.lock();
@@ -136,9 +159,6 @@ namespace SFT::Renderer {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Failed to read the debug text overlay font file: " + *font_path);
         }
-
-
-
 
 
         auto font = Text::Font::load_hinted(span<const std::byte>{font_bytes->data(), font_bytes->size()}, overlay_pixel_size);
@@ -168,7 +188,6 @@ namespace SFT::Renderer {
         guard->visible_layout = {};
 
 
-
         guard->has_emoji_font = false;
         if (optional<string> emoji_path = find_default_emoji_font_path(database)) {
             if (optional<vector<std::byte>> emoji_bytes = read_file_bytes(*emoji_path)) {
@@ -185,6 +204,20 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Prepares text overlay for a later operation.
+    ///
+    /// @param encoder `encoder` value used by the operation.
+    /// @param lines `lines` value used by the operation.
+    /// @param origin_px `origin_px` value used by the operation.
+    /// @param viewport_size_px `viewport_size_px` value used by the operation.
+    /// @param frame_resources `frame_resources` value used by the operation.
+    /// @param transient_buffers Buffer used or affected by the operation.
+    /// @param retired_atlas_resources `retired_atlas_resources` value used by the operation.
+    /// @param out_batches `out_batches` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::prepare_text_overlay(RHI::CommandEncoder &encoder, span<const UString> lines,
                                                         glm::vec2 origin_px, glm::vec2 viewport_size_px,
                                                         TextFrameResources &frame_resources,
@@ -214,8 +247,6 @@ namespace SFT::Renderer {
         const f32 font_line_height =
             static_cast<f32>(guard->font.ascender() - guard->font.descender() + guard->font.line_gap()) * scale;
         const f32 line_height = std::max(font_line_height, overlay_pixel_size);
-
-
 
 
         auto clamp_line_index = [&](f32 index) noexcept -> usize {
@@ -268,8 +299,6 @@ namespace SFT::Renderer {
         };
 
 
-
-
         Text::ShapeOptions shape_options;
         shape_options.features.calt = 1;
         shape_options.features.ccmp = 1;
@@ -283,8 +312,6 @@ namespace SFT::Renderer {
 
 
         shape_options.features.zero = 1;
-
-
 
 
         vector<TextOverlayResources::CachedLine> next_line_cache;
@@ -415,6 +442,14 @@ namespace SFT::Renderer {
                                        paint_groups, frame_resources, out_batches);
     }
 
+    /// Draws text overlay using the current rendering state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param batches `batches` value used by the operation.
+    /// @param viewport_size_px `viewport_size_px` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::draw_text_overlay(RHI::RenderPassEncoder &pass, span<const TextDrawBatch> batches,
                                                       glm::vec2 viewport_size_px) {
         ZoneScopedN("Renderer::draw_text_overlay");
@@ -430,6 +465,12 @@ namespace SFT::Renderer {
         return guard->pipeline.draw(pass, batches, viewport_size_px);
     }
 
+    /// Destroys the text overlay resources locked identified by the supplied parameters.
+    ///
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_text_overlay_resources_locked(TextOverlayResources &resources) noexcept {
         ZoneScopedN("Renderer::destroy_text_overlay_resources_locked");
         if (RHI::RhiDevice *device = rhi_device()) {
@@ -443,6 +484,10 @@ namespace SFT::Renderer {
         resources.ready = false;
     }
 
+    /// Destroys the text overlay resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy text overlay resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_text_overlay_resources() noexcept {
         ZoneScopedN("Renderer::destroy_text_overlay_resources");
         auto guard = text_overlay_.lock();

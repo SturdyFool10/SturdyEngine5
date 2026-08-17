@@ -47,6 +47,12 @@ namespace SFT::Core::Vulkan {
 
     namespace {
 
+        /// Performs the feature set message operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param features `features` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] string feature_set_message(const RHI::FeatureSet &features) {
             string out;
             features.for_each([&](RHI::Feature feature) {
@@ -58,6 +64,13 @@ namespace SFT::Core::Vulkan {
             return out.empty() ? string{"none"} : out;
         }
 
+        /// Returns the available queue count for this `Vulkan`.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param family `family` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 available_queue_count(const VulkanPhysicalDevice &device, optional<u32> family) noexcept {
             if (!family || *family >= device.queue_families().size()) {
                 return 0;
@@ -65,11 +78,24 @@ namespace SFT::Core::Vulkan {
             return device.queue_families()[*family].queueCount;
         }
 
+        /// Returns the preferred lane count for this `Vulkan`.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param family `family` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 preferred_lane_count(const VulkanPhysicalDevice &device, optional<u32> family) noexcept {
             const u32 count = available_queue_count(device, family);
             return count == 0 ? 0 : std::min(2u, count);
         }
 
+        /// Performs the physical device ID operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param device Device used or affected by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::string physical_device_id(const VulkanPhysicalDevice &device) {
             VkPhysicalDeviceIDProperties ids{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
             VkPhysicalDeviceProperties2 properties{
@@ -86,6 +112,14 @@ namespace SFT::Core::Vulkan {
             return format("windows-luid:{:016x}", bits);
         }
 
+        /// Finds dedicated queue family in the available state.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param required `required` value used by the operation.
+        /// @param forbidden `forbidden` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> find_dedicated_queue_family(const VulkanPhysicalDevice &device,
                                                                 VkQueueFlags required,
                                                                 VkQueueFlags forbidden) noexcept {
@@ -101,6 +135,14 @@ namespace SFT::Core::Vulkan {
 
     } // namespace
 
+    /// Finds the requested entry in the available state.
+    ///
+    /// @param init `init` value used by the operation.
+    /// @param primary_surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::Unsupported`, `GraphicsBackendErrorCode::InitializationFailed`.
     RendererResult VulkanBackend::findPhysicalDevice(const RendererCreateInfo &init, VkSurfaceKHR primary_surface) {
         ZoneScopedN("VulkanBackend::findPhysicalDevice");
         (void)init;
@@ -154,6 +196,14 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
+    /// Performs the discover graphics queue operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param init `init` value used by the operation.
+    /// @param primary_surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::InitializationFailed`.
     RendererResult VulkanBackend::discoverGraphicsQueue(const RendererCreateInfo &init, VkSurfaceKHR primary_surface) {
         ZoneScopedN("VulkanBackend::discoverGraphicsQueue");
         (void)init;
@@ -164,22 +214,22 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
+    /// Performs the create device operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param init `init` value used by the operation.
+    /// @param primary_surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::InitializationFailed`, `GraphicsBackendErrorCode::Unsupported`.
     RendererResult VulkanBackend::createDevice(const RendererCreateInfo &init, VkSurfaceKHR primary_surface) {
         ZoneScopedN("VulkanBackend::createDevice");
         (void)init;
 
 
-
-
-
-
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR supportedPresentModeFifoLatestReadyFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR,
             .pNext = nullptr};
-
-
-
-
 
 
         VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR supportedSwapchainMaintenance1Features{
@@ -214,8 +264,6 @@ namespace SFT::Core::Vulkan {
             return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
                                           "Required Vulkan features missing: dynamicRendering, synchronization2, timelineSemaphore, and bufferDeviceAddress are all required.");
         }
-
-
 
 
         if (not supportedFeatures11.shaderDrawParameters) [[unlikely]] {
@@ -293,18 +341,12 @@ namespace SFT::Core::Vulkan {
 #if defined(_WIN32)
 
 
-
-
-
-
         if (this->physicalDevice.supports_extension("VK_KHR_external_memory_win32")) {
             supported_rhi_features.set(RHI::Feature::ExternalMemory).set(RHI::Feature::ExternalMemoryWin32);
         }
         if (this->physicalDevice.supports_extension("VK_KHR_external_semaphore_win32")) {
             supported_rhi_features.set(RHI::Feature::ExternalSemaphore).set(RHI::Feature::ExternalSemaphoreWin32);
         }
-
-
 
 
         if (surface_capabilities2_enabled_ &&
@@ -424,28 +466,20 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
         optional_rhi_features.set(RHI::Feature::PresentModeFifoLatestReady);
 
 
         optional_rhi_features.set(RHI::Feature::RenderBundles);
 
 
-
         optional_rhi_features.set(RHI::Feature::SwapchainMaintenance);
 #if defined(_WIN32)
-
-
-
-
 
 
         optional_rhi_features.set(RHI::Feature::ExternalMemory)
             .set(RHI::Feature::ExternalMemoryWin32)
             .set(RHI::Feature::ExternalSemaphore)
             .set(RHI::Feature::ExternalSemaphoreWin32);
-
-
 
 
         optional_rhi_features.set(RHI::Feature::FullScreenExclusive);
@@ -470,9 +504,6 @@ namespace SFT::Core::Vulkan {
         capabilities_.bindless = enabled_rhi_features.has(RHI::Feature::BindlessResources);
 
 
-
-
-
         if (auto resolution = resolve_frames_in_flight(init.features.desired_frames_in_flight, DEFAULT_FRAMES_IN_FLIGHT, 0)) {
             capabilities_.max_frames_in_flight = resolution->resolved;
             TracyPlot("frames_in_flight.requested", static_cast<i64>(resolution->requested));
@@ -490,7 +521,6 @@ namespace SFT::Core::Vulkan {
                                      resolution->upper_bound);
             }
         } else {
-
 
 
             TracyMessageLC("invalid frames-in-flight bounds -- falling back to default", tracy::Color::Red);
@@ -563,10 +593,6 @@ namespace SFT::Core::Vulkan {
         };
 
 
-
-
-
-
         VkPhysicalDeviceVulkan14Features features14{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
             .pNext = (enable_mesh_shader || enable_acceleration_structures || enable_ray_tracing_pipeline ||
@@ -601,12 +627,9 @@ namespace SFT::Core::Vulkan {
         VkPhysicalDeviceFeatures2 features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &features11};
 
 
-
         if (supportedFeatures.features.samplerAnisotropy) {
             features.features.samplerAnisotropy = VK_TRUE;
         }
-
-
 
 
         if (supportedFeatures.features.textureCompressionBC) {
@@ -615,7 +638,6 @@ namespace SFT::Core::Vulkan {
         if (enabled_rhi_features.has(RHI::Feature::ImageCubeArray)) {
             features.features.imageCubeArray = VK_TRUE;
         }
-
 
 
         auto gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);
@@ -642,7 +664,6 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
         hdr_metadata_enabled_ = false;
         vector<const char *> extensions{
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -665,7 +686,6 @@ namespace SFT::Core::Vulkan {
             extensions.push_back(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);
         }
         if (enable_swapchain_maintenance1) {
-
 
 
             extensions.push_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
@@ -692,22 +712,15 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
         if (this->physicalDevice.supports_extension(VK_EXT_HDR_METADATA_EXTENSION_NAME)) {
             extensions.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
             hdr_metadata_enabled_ = true;
         }
 
 
-
-
         if (this->physicalDevice.supports_extension(PORTABILITY_SUBSET_EXTENSION_NAME)) {
             extensions.push_back(PORTABILITY_SUBSET_EXTENSION_NAME);
         }
-
-
-
-
 
 
         const u32 graphics_queue_count = preferred_lane_count(this->physicalDevice, gfx_family);
@@ -747,7 +760,6 @@ namespace SFT::Core::Vulkan {
             this->physicalDevice.name());
 
 
-
         auto &device_graphics_queue = this->logicalDevice.graphics_queue();
         if (!device_graphics_queue.has_value()) [[unlikely]] {
             Foundation::log_error("Failed to produce a VkQueue for graphics!");
@@ -784,6 +796,12 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
+    /// Performs the initialize vma operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param init `init` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     RendererResult VulkanBackend::initializeVMA(const RendererCreateInfo &init) {
         ZoneScopedN("VulkanBackend::initializeVMA");
         (void)init;

@@ -23,14 +23,17 @@ namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
+    /// Creates a sampler from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::SamplerHandle> VulkanRhiDeviceBridge::create_sampler(const rhi::SamplerDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_sampler");
         if (logical_device_ == nullptr) {
             return device_not_ready<rhi::SamplerHandle>("create_sampler");
         }
-
-
-
 
 
         const bool anisotropy_available = physical_device_ != nullptr &&
@@ -67,6 +70,12 @@ namespace SFT::Core::Vulkan {
         return samplers_.insert(std::move(*sampler));
     }
 
+    /// Destroys the sampler identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_sampler(rhi::SamplerHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_sampler");
         samplers_.erase(handle);

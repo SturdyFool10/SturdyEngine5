@@ -9,66 +9,142 @@
 
 namespace SFT::Ecs {
 
-    /// Owns one contiguous, growable column per component in its Signature (SoA storage — the whole
-    /// point of the archetype model: a system iterating one component type across every entity that
-    /// has it gets cache-friendly linear access, not a pointer-chase per entity). Rows across all
-    /// columns move in lockstep, indexed 0..size()-1; `entities_[row]` gives the Entity owning that row.
+
     class Archetype {
       public:
+        /// Constructs a `Archetype` from the supplied initialization values.
+        ///
+        /// @param signature `signature` value used by the operation.
+        /// @param registry `registry` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         Archetype(Signature signature, const ComponentRegistry &registry);
+        /// Destroys the `Archetype` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~Archetype();
 
+        /// Disables this construction form for `Archetype`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Archetype(const Archetype &) = delete;
+        /// Assigns a new value to this `Archetype`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Archetype &operator=(const Archetype &) = delete;
+        /// Constructs a `Archetype` from another instance.
+        ///
+        /// @note This function does not throw exceptions.
         Archetype(Archetype &&) noexcept = default;
+        /// Assigns a new value to this `Archetype`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         Archetype &operator=(Archetype &&) noexcept = default;
 
+        /// Returns the current or globally available signature value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const Signature &signature() const noexcept;
 
+        /// Returns the size for this `Archetype`.
+        ///
+        /// @return Returns the current size value.
+        /// @note This function does not throw exceptions.
+        /// Returns the size for this `Archetype`.
+        ///
+        /// @return Returns the current size value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize size() const noexcept;
 
+        /// Performs the entity at operation for `Archetype` using the supplied arguments.
+        ///
+        /// @param row `row` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Entity entity_at(u32 row) const noexcept;
 
-        /// Index into this archetype's columns for `id`, or ~0u if this archetype doesn't have it.
+
+        /// Performs the column index of operation for `Archetype` using the supplied arguments.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 column_index_of(ComponentId id) const noexcept;
 
+        /// Performs the row pointer operation for `Archetype` using the supplied arguments.
+        ///
+        /// @param column_index Zero-based index of the target element or entry.
+        /// @param row `row` value used by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] void *row_pointer(u32 column_index, u32 row) noexcept;
+        /// Performs the row pointer operation for `Archetype` using the supplied arguments.
+        ///
+        /// @param column_index Zero-based index of the target element or entry.
+        /// @param row `row` value used by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const void *row_pointer(u32 column_index, u32 row) const noexcept;
 
-        /// Grows column storage if needed and records `entity` at the new row. Every column's slot at
-        /// the returned row is raw, uninitialized memory — the caller (World::spawn) must
-        /// placement-construct every column before the row is considered live.
+
+        /// Adds row using the supplied arguments and current state.
+        ///
+        /// @param entity Entity used or affected by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] u32 add_row(Entity entity);
 
-        /// Destroys `row`'s live components and swap-removes it (moves the last row into `row`'s slot
-        /// to keep storage dense). Returns the Entity that got moved into `row` (a default-constructed,
-        /// invalid Entity{} if `row` was already the last row, i.e. nothing needed moving) — the caller
-        /// (World::destroy) must update that entity's recorded row.
+
+        /// Removes the row from its owning collection or system.
+        ///
+        /// @param row `row` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         Entity remove_row(u32 row);
 
-        /// Archetype-transition primitive backing World::add_component/remove_component. Moves every
-        /// column `this` shares with `destination` from `row` into `destination`'s already-reserved
-        /// `destination_row` (via destination.add_row()), then destroys whichever of `row`'s columns
-        /// `destination` does not have, and swap-removes `row` here exactly like remove_row. Columns
-        /// `destination` has that `this` doesn't (the newly added component, for an add_component call)
-        /// are left uninitialized — the caller must placement-construct them into `destination` itself.
-        /// Returns the Entity swap-moved into `row` here, with the same semantics as remove_row.
+
+        /// Moves row into using the supplied arguments and current state.
+        ///
+        /// @param row `row` value used by the operation.
+        /// @param destination Destination value or resource.
+        /// @param destination_row `destination_row` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         Entity move_row_into(u32 row, Archetype &destination, u32 destination_row);
 
       private:
         struct Column {
             ComponentId id{};
-            /// Copied by value so archetype storage can invoke lifecycle operations without taking a
-            /// registry lock per row or retaining a descriptor borrow across plugin/type activity.
+
+
             ComponentInfo info{};
             std::byte *data = nullptr;
         };
 
+        /// Grows the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @param new_capacity `new_capacity` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void grow(usize new_capacity);
 
-        /// Shared tail of remove_row/move_row_into: assumes `row`'s components have already been
-        /// destroyed (or moved out) by the caller, and only needs to fill the resulting hole by
-        /// swap-moving the last row into it (or just popping, if `row` already was the last row).
+
+        /// Performs the compact removed row operation for `Archetype` using the supplied arguments.
+        ///
+        /// @param row `row` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         Entity compact_removed_row(u32 row) noexcept;
 
         Signature signature_;

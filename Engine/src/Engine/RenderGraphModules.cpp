@@ -2,6 +2,12 @@
 
 namespace SFT::Engine::RenderModules {
 
+    /// Builds the requested object or derived state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle DeferredScene::build(RenderGraph &graph) const {
         return graph.add_builtin_pass(
             RenderGraphPassKind::DeferredScene,
@@ -14,6 +20,12 @@ namespace SFT::Engine::RenderModules {
             UString{"deferred scene"_ustr});
     }
 
+    /// Builds the requested object or derived state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle AntiAliasing::build(RenderGraph &graph) const {
         return graph.add_builtin_pass(
             RenderGraphPassKind::AntiAliasing,
@@ -26,6 +38,12 @@ namespace SFT::Engine::RenderModules {
             UString{"anti-aliasing"_ustr});
     }
 
+    /// Builds the requested object or derived state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle Bloom::build(RenderGraph &graph) const {
         return graph.add_builtin_pass(
             RenderGraphPassKind::Bloom,
@@ -38,22 +56,52 @@ namespace SFT::Engine::RenderModules {
             UString{"bloom"_ustr});
     }
 
+    /// Builds the requested object or derived state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle FullscreenEffect::build(RenderGraph &graph) const {
         return graph.add_fullscreen_effect(input, effect);
     }
 
+    /// Builds the requested object or derived state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle RasterEffect::build(RenderGraph &graph) const {
         return graph.add_fullscreen_effect(input, effect);
     }
 
+    /// Builds the requested object or derived state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle ComputeEffect::build(RenderGraph &graph) const {
         return graph.add_compute_effect(input, effect);
     }
 
+    /// Builds the requested object or derived state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle Copy::build(RenderGraph &graph) const {
         return graph.add_copy(input, copy);
     }
 
+    /// Builds the requested object or derived state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle ToneMapping::build(RenderGraph &graph) const {
         return graph.add_builtin_pass(
             RenderGraphPassKind::ToneMapping,
@@ -66,6 +114,12 @@ namespace SFT::Engine::RenderModules {
             UString{"tone mapping"_ustr});
     }
 
+    /// Builds the requested object or derived state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle DebugOverlay::build(RenderGraph &graph) const {
         return graph.add_builtin_pass(
             RenderGraphPassKind::DebugOverlay,
@@ -78,6 +132,12 @@ namespace SFT::Engine::RenderModules {
             UString{"debug overlay"_ustr});
     }
 
+    /// Builds the requested object or derived state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphPassHandle Present::build(RenderGraph &graph) const {
         return graph.add_present_pass(input, target);
     }

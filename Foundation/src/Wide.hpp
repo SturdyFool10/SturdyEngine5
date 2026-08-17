@@ -9,7 +9,6 @@
 #include <utility>
 
 
-
 using std::fma;
 using std::integral;
 using std::is_constant_evaluated;
@@ -22,11 +21,6 @@ using std::strong_ordering;
 namespace SFT::Foundation {
 
 
-
-
-
-
-
 #if !defined(__SIZEOF_INT128__)
 #error "SturdyEngine's wide integer types require a compiler with __int128 (GCC/Clang)."
 #endif
@@ -35,22 +29,33 @@ namespace SFT::Foundation {
 #error "SturdyEngine's f128/f256 require IEEE FP semantics; -ffast-math/-Ofast breaks them."
 #endif
 
-    /// Native 128-bit integers supplied by GCC/Clang. They are re-exported with engine aliases so the
-    /// rest of the codebase does not name compiler extension types directly.
+
     using i128 = __int128;
     using u128 = unsigned __int128;
 
-    /// Unsigned 256-bit integer represented as two 128-bit limbs (`hi:lo`). Arithmetic intentionally
-    /// wraps modulo 2^256, matching built-in unsigned integer behavior. Division by zero returns zero
-    /// quotient/remainder through `divmod()` rather than throwing or trapping, keeping the type usable in
-    /// `constexpr` and `noexcept` generic code.
+
     class u256 {
       public:
         u128 lo{};
         u128 hi{};
 
+        /// Constructs a `u256` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr u256() noexcept = default;
+        /// Constructs a `u256` from the supplied initialization values.
+        ///
+        /// @param low `low` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr u256(u128 low) noexcept : lo(low) {}
+        /// Creates or converts a value from parts representation.
+        ///
+        /// @param high `high` value used by the operation.
+        /// @param low `low` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         static constexpr u256 from_parts(u128 high, u128 low) noexcept {
             u256 v;
             v.hi = high;
@@ -58,13 +63,36 @@ namespace SFT::Foundation {
             return v;
         }
 
+        /// Converts the `u256` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return lo != 0 || hi != 0; }
+        /// Converts the `u256` to `unsigned __int128`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator u128() const noexcept { return lo; }
+        /// Converts the `u256` to `unsigned long`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator u64() const noexcept { return static_cast<u64>(lo); }
+        /// Converts the `u256` to `double`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator f64() const noexcept {
             return static_cast<f64>(hi) * 0x1p128 + static_cast<f64>(lo);
         }
 
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         friend constexpr strong_ordering operator<=>(const u256 &a, const u256 &b) noexcept {
             if (a.hi != b.hi)
                 return a.hi < b.hi ? strong_ordering::less : strong_ordering::greater;
@@ -72,13 +100,52 @@ namespace SFT::Foundation {
                 return a.lo < b.lo ? strong_ordering::less : strong_ordering::greater;
             return strong_ordering::equal;
         }
+        /// Compares the operands for equality.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend constexpr bool operator==(const u256 &a, const u256 &b) noexcept { return a.hi == b.hi && a.lo == b.lo; }
 
+        /// Implements `operator~` for `u256`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr u256 operator~() const noexcept { return from_parts(~hi, ~lo); }
+        /// Combines the operands with bitwise AND.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr u256 operator&(u256 a, u256 b) noexcept { return from_parts(a.hi & b.hi, a.lo & b.lo); }
+        /// Combines the operands with bitwise OR.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr u256 operator|(u256 a, u256 b) noexcept { return from_parts(a.hi | b.hi, a.lo | b.lo); }
+        /// Combines the operands with bitwise XOR.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr u256 operator^(u256 a, u256 b) noexcept { return from_parts(a.hi ^ b.hi, a.lo ^ b.lo); }
 
+        /// Writes or shifts the left-hand operand using the right-hand value.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param s `s` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr u256 operator<<(u256 a, unsigned s) noexcept {
             if (s == 0)
                 return a;
@@ -88,6 +155,13 @@ namespace SFT::Foundation {
                 return from_parts(a.lo << (s - 128), 0);
             return from_parts((a.hi << s) | (a.lo >> (128 - s)), a.lo << s);
         }
+        /// Reads or shifts the left-hand operand using the right-hand value.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param s `s` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr u256 operator>>(u256 a, unsigned s) noexcept {
             if (s == 0)
                 return a;
@@ -98,55 +172,185 @@ namespace SFT::Foundation {
             return from_parts(a.hi >> s, (a.lo >> s) | (a.hi << (128 - s)));
         }
 
+        /// Adds the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr u256 operator+(u256 a, u256 b) noexcept {
             const u128 lo = a.lo + b.lo;
             const u128 carry = lo < a.lo ? 1 : 0;
             return from_parts(a.hi + b.hi + carry, lo);
         }
+        /// Subtracts the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr u256 operator-(u256 a, u256 b) noexcept {
             const u128 lo = a.lo - b.lo;
             const u128 borrow = a.lo < b.lo ? 1 : 0;
             return from_parts(a.hi - b.hi - borrow, lo);
         }
+        /// Multiplies the operands and returns the product.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr u256 operator*(u256 a, u256 b) noexcept {
             u256 r = full_mul(a.lo, b.lo);
             r.hi = r.hi + a.lo * b.hi + a.hi * b.lo;
             return r;
         }
+        /// Divides the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr u256 operator/(u256 a, u256 b) noexcept { return divmod(a, b).first; }
+        /// Implements `operator%` for `Foundation`.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr u256 operator%(u256 a, u256 b) noexcept { return divmod(a, b).second; }
 
+        /// Adds the operands and returns the result.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 operator+() const noexcept { return *this; }
+        /// Subtracts the operands and returns the result.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr u256 operator-() const noexcept { return ~*this + u256{1}; }
+        /// Adds the right-hand value to this object in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator+=(u256 o) noexcept { return *this = *this + o; }
+        /// Subtracts the right-hand value from this object in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator-=(u256 o) noexcept { return *this = *this - o; }
+        /// Multiplies this object by the right-hand value in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator*=(u256 o) noexcept { return *this = *this * o; }
+        /// Divides this object by the right-hand value in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator/=(u256 o) noexcept { return *this = *this / o; }
+        /// Implements `operator%=` for `u256`.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator%=(u256 o) noexcept { return *this = *this % o; }
+        /// Combines this object with the right-hand operand using bitwise AND.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator&=(u256 o) noexcept { return *this = *this & o; }
+        /// Combines this object with the right-hand operand using bitwise OR.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator|=(u256 o) noexcept { return *this = *this | o; }
+        /// Combines this object with the right-hand operand using bitwise XOR.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator^=(u256 o) noexcept { return *this = *this ^ o; }
+        /// Implements `operator<<=` for `u256`.
+        ///
+        /// @param s `s` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator<<=(unsigned s) noexcept { return *this = *this << s; }
+        /// Implements `operator>>=` for `u256`.
+        ///
+        /// @param s `s` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator>>=(unsigned s) noexcept { return *this = *this >> s; }
+        /// Advances the `u256` to its next value or element.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator++() noexcept { return *this = *this + u256{1}; }
+        /// Moves the `u256` to its previous value or element.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr u256 &operator--() noexcept { return *this = *this - u256{1}; }
+        /// Advances the `u256` to its next value or element.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr u256 operator++(int) noexcept {
             u256 t = *this;
             ++*this;
             return t;
         }
+        /// Moves the `u256` to its previous value or element.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr u256 operator--(int) noexcept {
             u256 t = *this;
             --*this;
             return t;
         }
 
+        /// Returns the current or globally available bit length value.
+        ///
+        /// @return Returns the current bit length value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr unsigned bit_length() const noexcept {
             if (hi != 0)
                 return 128u + u128_bit_length(hi);
             return u128_bit_length(lo);
         }
 
+        /// Performs the full mul operation for `u256` using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         static constexpr u256 full_mul(u128 a, u128 b) noexcept {
             const u128 mask = ~static_cast<u128>(0) >> 64;
             const u64 aL = static_cast<u64>(a), aH = static_cast<u64>(a >> 64);
@@ -161,6 +365,13 @@ namespace SFT::Foundation {
             return from_parts(high, low);
         }
 
+        /// Performs the divmod operation for `u256` using the supplied arguments.
+        ///
+        /// @param n `n` value used by the operation.
+        /// @param d `d` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         static constexpr pair<u256, u256> divmod(u256 n, u256 d) noexcept {
             if (!static_cast<bool>(d))
                 return {u256{}, u256{}};
@@ -197,6 +408,12 @@ namespace SFT::Foundation {
         }
 
       private:
+        /// Performs the u128 bit length operation for `u256` using the supplied arguments.
+        ///
+        /// @param v `v` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         static constexpr unsigned u128_bit_length(u128 v) noexcept {
             const u64 high = static_cast<u64>(v >> 64);
             if (high != 0)
@@ -206,38 +423,101 @@ namespace SFT::Foundation {
         }
     };
 
-    /// Signed 256-bit integer stored as two's-complement bits. Arithmetic and bit operations reuse the
-    /// underlying `u256` representation, so overflow wraps just like fixed-width machine integers.
+
     class i256 {
       public:
         u256 bits{};
 
+        /// Constructs a `i256` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr i256() noexcept = default;
+        /// Constructs a `i256` from the supplied initialization values.
+        ///
+        /// @param v `v` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr i256(i128 v) noexcept {
             bits.lo = static_cast<u128>(v);
             bits.hi = v < 0 ? ~static_cast<u128>(0) : 0;
         }
+        /// Creates or converts a value from bits representation.
+        ///
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         static constexpr i256 from_bits(u256 b) noexcept {
             i256 v;
             v.bits = b;
             return v;
         }
 
+        /// Reports whether negative holds for this `i256`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr bool is_negative() const noexcept { return (bits.hi >> 127) & 1; }
+        /// Converts the `i256` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return static_cast<bool>(bits); }
+        /// Converts the `i256` to `u256`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr operator u256() const noexcept { return bits; }
+        /// Converts the `i256` to `__int128`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator i128() const noexcept { return static_cast<i128>(bits.lo); }
+        /// Converts the `i256` to `long`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator i64() const noexcept { return static_cast<i64>(bits.lo); }
+        /// Converts the `i256` to `double`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator f64() const noexcept {
             const f64 m = static_cast<f64>(magnitude());
             return is_negative() ? -m : m;
         }
 
+        /// Adds the operands and returns the result.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 operator+() const noexcept { return *this; }
+        /// Subtracts the operands and returns the result.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr i256 operator-() const noexcept { return from_bits(~bits + u256{1}); }
+        /// Implements `operator~` for `i256`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr i256 operator~() const noexcept { return from_bits(~bits); }
 
+        /// Compares the operands for equality.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend constexpr bool operator==(const i256 &a, const i256 &b) noexcept { return a.bits == b.bits; }
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         friend constexpr strong_ordering operator<=>(const i256 &a, const i256 &b) noexcept {
             if (a.is_negative() != b.is_negative()) {
                 return a.is_negative() ? strong_ordering::less : strong_ordering::greater;
@@ -245,23 +525,93 @@ namespace SFT::Foundation {
             return a.bits <=> b.bits;
         }
 
+        /// Adds the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr i256 operator+(i256 a, i256 b) noexcept { return from_bits(a.bits + b.bits); }
+        /// Subtracts the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr i256 operator-(i256 a, i256 b) noexcept { return from_bits(a.bits - b.bits); }
+        /// Multiplies the operands and returns the product.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr i256 operator*(i256 a, i256 b) noexcept { return from_bits(a.bits * b.bits); }
+        /// Divides the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr i256 operator/(i256 a, i256 b) noexcept {
             const bool neg = a.is_negative() != b.is_negative();
             const u256 q = u256::divmod(a.magnitude(), b.magnitude()).first;
             return neg ? -from_bits(q) : from_bits(q);
         }
+        /// Implements `operator%` for `Foundation`.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr i256 operator%(i256 a, i256 b) noexcept {
             const u256 r = u256::divmod(a.magnitude(), b.magnitude()).second;
             return a.is_negative() ? -from_bits(r) : from_bits(r);
         }
 
+        /// Combines the operands with bitwise AND.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr i256 operator&(i256 a, i256 b) noexcept { return from_bits(a.bits & b.bits); }
+        /// Combines the operands with bitwise OR.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr i256 operator|(i256 a, i256 b) noexcept { return from_bits(a.bits | b.bits); }
+        /// Combines the operands with bitwise XOR.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr i256 operator^(i256 a, i256 b) noexcept { return from_bits(a.bits ^ b.bits); }
+        /// Writes or shifts the left-hand operand using the right-hand value.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param s `s` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr i256 operator<<(i256 a, unsigned s) noexcept { return from_bits(a.bits << s); }
+        /// Reads or shifts the left-hand operand using the right-hand value.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param s `s` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr i256 operator>>(i256 a, unsigned s) noexcept {
             if (s == 0)
                 return a;
@@ -273,23 +623,99 @@ namespace SFT::Foundation {
             return from_bits(r);
         }
 
+        /// Adds the right-hand value to this object in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator+=(i256 o) noexcept { return *this = *this + o; }
+        /// Subtracts the right-hand value from this object in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator-=(i256 o) noexcept { return *this = *this - o; }
+        /// Multiplies this object by the right-hand value in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator*=(i256 o) noexcept { return *this = *this * o; }
+        /// Divides this object by the right-hand value in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator/=(i256 o) noexcept { return *this = *this / o; }
+        /// Implements `operator%=` for `i256`.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator%=(i256 o) noexcept { return *this = *this % o; }
+        /// Combines this object with the right-hand operand using bitwise AND.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator&=(i256 o) noexcept { return *this = *this & o; }
+        /// Combines this object with the right-hand operand using bitwise OR.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator|=(i256 o) noexcept { return *this = *this | o; }
+        /// Combines this object with the right-hand operand using bitwise XOR.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator^=(i256 o) noexcept { return *this = *this ^ o; }
+        /// Implements `operator<<=` for `i256`.
+        ///
+        /// @param s `s` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator<<=(unsigned s) noexcept { return *this = *this << s; }
+        /// Implements `operator>>=` for `i256`.
+        ///
+        /// @param s `s` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator>>=(unsigned s) noexcept { return *this = *this >> s; }
+        /// Advances the `i256` to its next value or element.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator++() noexcept { return *this = *this + i256((i128)1); }
+        /// Moves the `i256` to its previous value or element.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr i256 &operator--() noexcept { return *this = *this - i256((i128)1); }
+        /// Advances the `i256` to its next value or element.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr i256 operator++(int) noexcept {
             i256 t = *this;
             ++*this;
             return t;
         }
+        /// Moves the `i256` to its previous value or element.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr i256 operator--(int) noexcept {
             i256 t = *this;
             --*this;
@@ -297,6 +723,10 @@ namespace SFT::Foundation {
         }
 
       private:
+        /// Returns the current or globally available magnitude value.
+        ///
+        /// @return Returns the current magnitude value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr u256 magnitude() const noexcept { return is_negative() ? (-*this).bits : bits; }
     };
 
@@ -306,6 +736,10 @@ namespace SFT::Foundation {
         concept WideFloatConvertibleInteger =
             integral<T> || same_as<T, i128> || same_as<T, u128> || same_as<T, i256> || same_as<T, u256>;
 
+        /// Returns the current or globally available u128 to expansion float value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class F>
         [[nodiscard]] constexpr F u128_to_expansion_float(u128 v) noexcept {
             const F radix(0x1p32);
@@ -315,10 +749,18 @@ namespace SFT::Foundation {
             acc = acc * radix + F(static_cast<f64>(static_cast<u32>(v)));
             return acc;
         }
+        /// Returns the current or globally available u256 to expansion float value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class F>
         [[nodiscard]] constexpr F u256_to_expansion_float(const u256 &v) noexcept {
             return u128_to_expansion_float<F>(v.hi) * F(0x1p128) + u128_to_expansion_float<F>(v.lo);
         }
+        /// Returns the current or globally available integer to expansion float value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class F, class T>
         [[nodiscard]] constexpr F integer_to_expansion_float(const T &value) noexcept {
             if constexpr (same_as<T, u256>) {
@@ -340,27 +782,62 @@ namespace SFT::Foundation {
             f64 hi;
             f64 lo;
         };
+        /// Performs the quick two sum operation using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr TwoF64 quick_two_sum(f64 a, f64 b) noexcept {
             const f64 s = a + b;
             return {s, b - (s - a)};
         }
+        /// Performs the two sum operation using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr TwoF64 two_sum(f64 a, f64 b) noexcept {
             const f64 s = a + b;
             const f64 v = s - a;
             return {s, (a - (s - v)) + (b - v)};
         }
+        /// Splits product operand using the supplied arguments and current state.
+        ///
+        /// @param a `a` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr TwoF64 split_product_operand(f64 a) noexcept {
             constexpr f64 splitter = 134217729.0;
             const f64 c = splitter * a;
             const f64 hi = c - (c - a);
             return {hi, a - hi};
         }
+        /// Performs the two prod constexpr operation using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param p `p` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr TwoF64 two_prod_constexpr(f64 a, f64 b, f64 p) noexcept {
             const TwoF64 as = split_product_operand(a);
             const TwoF64 bs = split_product_operand(b);
             const f64 err = ((as.hi * bs.hi - p) + as.hi * bs.lo + as.lo * bs.hi) + as.lo * bs.lo;
             return {p, err};
         }
+        /// Performs the two prod operation using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr TwoF64 two_prod(f64 a, f64 b) noexcept {
             const f64 p = a * b;
             if (is_constant_evaluated())
@@ -370,29 +847,71 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    /// Double-double floating point: the value is the unevaluated sum `hi + lo`, where each limb is an
-    /// IEEE `f64`. Operations use error-free transforms and renormalization to keep roughly 106 bits of
-    /// precision while remaining usable in constant evaluation.
+
     class f128 {
       public:
         f64 hi{};
         f64 lo{};
 
+        /// Constructs a `f128` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr f128() noexcept = default;
+        /// Constructs a `f128` from the supplied initialization values.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr f128(f64 value) noexcept : hi(value) {}
+        /// Constructs a `f128` from the supplied initialization values.
+        ///
+        /// @param high `high` value used by the operation.
+        /// @param low `low` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr f128(f64 high, f64 low) noexcept : hi(high), lo(low) {}
+        /// Performs the f128 operation for `f128` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         template <Detail::WideFloatConvertibleInteger T>
         constexpr f128(const T &value) noexcept : f128(Detail::integer_to_expansion_float<f128>(value)) {}
 
+        /// Converts the `f128` to `double`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator f64() const noexcept { return hi + lo; }
+        /// Converts the `f128` to `float`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator f32() const noexcept { return static_cast<f32>(hi + lo); }
+        /// Converts the `f128` to `long`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator i64() const noexcept {
             return static_cast<i64>(hi) + static_cast<i64>(lo);
         }
 
+        /// Adds the operands and returns the result.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f128 operator+() const noexcept { return *this; }
+        /// Subtracts the operands and returns the result.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr f128 operator-() const noexcept { return {-hi, -lo}; }
 
+        /// Adds the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr f128 operator+(f128 a, f128 b) noexcept {
             Detail::TwoF64 s = Detail::two_sum(a.hi, b.hi);
             const Detail::TwoF64 e = Detail::two_sum(a.lo, b.lo);
@@ -402,13 +921,34 @@ namespace SFT::Foundation {
             s = Detail::quick_two_sum(s.hi, s.lo);
             return {s.hi, s.lo};
         }
+        /// Subtracts the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr f128 operator-(f128 a, f128 b) noexcept { return a + (-b); }
+        /// Multiplies the operands and returns the product.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr f128 operator*(f128 a, f128 b) noexcept {
             Detail::TwoF64 p = Detail::two_prod(a.hi, b.hi);
             p.lo += a.hi * b.lo + a.lo * b.hi;
             p = Detail::quick_two_sum(p.hi, p.lo);
             return {p.hi, p.lo};
         }
+        /// Divides the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr f128 operator/(f128 a, f128 b) noexcept {
             const f64 q1 = a.hi / b.hi;
             a = a - b * f128(q1);
@@ -420,24 +960,78 @@ namespace SFT::Foundation {
             return res + f128(q3);
         }
 
+        /// Adds the right-hand value to this object in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f128 &operator+=(f128 o) noexcept { return *this = *this + o; }
+        /// Subtracts the right-hand value from this object in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f128 &operator-=(f128 o) noexcept { return *this = *this - o; }
+        /// Multiplies this object by the right-hand value in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f128 &operator*=(f128 o) noexcept { return *this = *this * o; }
+        /// Divides this object by the right-hand value in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f128 &operator/=(f128 o) noexcept { return *this = *this / o; }
+        /// Advances the `f128` to its next value or element.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f128 &operator++() noexcept { return *this = *this + f128(1.0); }
+        /// Moves the `f128` to its previous value or element.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f128 &operator--() noexcept { return *this = *this - f128(1.0); }
+        /// Advances the `f128` to its next value or element.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr f128 operator++(int) noexcept {
             f128 t = *this;
             ++*this;
             return t;
         }
+        /// Moves the `f128` to its previous value or element.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr f128 operator--(int) noexcept {
             f128 t = *this;
             --*this;
             return t;
         }
 
+        /// Compares the operands for equality.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend constexpr bool operator==(f128 a, f128 b) noexcept { return a.hi == b.hi && a.lo == b.lo; }
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         friend constexpr partial_ordering operator<=>(f128 a, f128 b) noexcept {
             if (a.hi != b.hi)
                 return a.hi <=> b.hi;
@@ -447,34 +1041,81 @@ namespace SFT::Foundation {
 
     namespace Detail {
 
+        /// Performs the qsum operation using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param err `err` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr f64 qsum(f64 a, f64 b, f64 &err) noexcept {
             const f64 s = a + b;
             err = b - (s - a);
             return s;
         }
+        /// Performs the tsum operation using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param err `err` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr f64 tsum(f64 a, f64 b, f64 &err) noexcept {
             const f64 s = a + b;
             const f64 v = s - a;
             err = (a - (s - v)) + (b - v);
             return s;
         }
+        /// Performs the tprod operation using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param err `err` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr f64 tprod(f64 a, f64 b, f64 &err) noexcept {
             const TwoF64 p = two_prod(a, b);
             err = p.lo;
             return p.hi;
         }
+        /// Performs the three sum operation using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param c `c` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr void three_sum(f64 &a, f64 &b, f64 &c) noexcept {
             f64 t1, t2, t3;
             t1 = tsum(a, b, t2);
             a = tsum(c, t1, t3);
             b = tsum(t2, t3, c);
         }
+        /// Performs the three sum2 operation using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param c `c` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr void three_sum2(f64 &a, f64 &b, f64 c) noexcept {
             f64 t1, t2, t3;
             t1 = tsum(a, b, t2);
             a = tsum(c, t1, t3);
             b = t2 + t3;
         }
+        /// Performs the renorm5 operation using the supplied arguments.
+        ///
+        /// @param c0 `c0` value used by the operation.
+        /// @param c1 `c1` value used by the operation.
+        /// @param c2 `c2` value used by the operation.
+        /// @param c3 `c3` value used by the operation.
+        /// @param c4 `c4` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr void renorm5(f64 &c0, f64 &c1, f64 &c2, f64 &c3, f64 c4) noexcept {
             f64 s0, s1, s2 = 0.0, s3 = 0.0;
             s0 = qsum(c3, c4, c4);
@@ -523,22 +1164,52 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    /// Quad-double floating point: four ordered `f64` limbs representing a high-precision expansion.
-    /// Operations keep roughly 212 bits of precision. The type supports infinities/NaNs through the lead
-    /// limb, but it is not an IEEE interchange format; `numeric_limits` in `WideTraits.cppm` documents
-    /// the supported range and precision.
+
     class f256 {
       public:
         f64 x[4]{};
 
+        /// Constructs a `f256` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr f256() noexcept = default;
+        /// Constructs a `f256` from the supplied initialization values.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr f256(f64 value) noexcept : x{value, 0.0, 0.0, 0.0} {}
+        /// Constructs a `f256` from the supplied initialization values.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param c `c` value used by the operation.
+        /// @param d `d` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr f256(f64 a, f64 b, f64 c, f64 d) noexcept : x{a, b, c, d} {}
+        /// Constructs a `f256` from the supplied initialization values.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr f256(f128 value) noexcept : x{value.hi, value.lo, 0.0, 0.0} {}
+        /// Constructs a `f256` from another instance.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr f256(const f256 &) noexcept = default;
+        /// Performs the f256 operation for `f256` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         template <Detail::WideFloatConvertibleInteger T>
         constexpr f256(const T &value) noexcept : f256(Detail::integer_to_expansion_float<f256>(value)) {}
 
+        /// Assigns a new value to this `f256`.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f256 &operator=(const f256 &other) noexcept {
             x[0] = other.x[0];
             x[1] = other.x[1];
@@ -547,6 +1218,12 @@ namespace SFT::Foundation {
             return *this;
         }
 
+        /// Assigns a new value to this `f256`.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f256 &operator=(f256 &&other) noexcept {
             x[0] = other.x[0];
             x[1] = other.x[1];
@@ -555,16 +1232,47 @@ namespace SFT::Foundation {
             return *this;
         }
 
+        /// Converts the `f256` to `double`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator f64() const noexcept { return x[0]; }
+        /// Converts the `f256` to `float`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator f32() const noexcept { return static_cast<f32>(x[0]); }
+        /// Converts the `f256` to `f128`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator f128() const noexcept { return f128(x[0], x[1]); }
+        /// Converts the `f256` to `long`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator i64() const noexcept {
             return static_cast<i64>(x[0]) + static_cast<i64>(x[1]);
         }
 
+        /// Adds the operands and returns the result.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f256 operator+() const noexcept { return *this; }
+        /// Subtracts the operands and returns the result.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr f256 operator-() const noexcept { return {-x[0], -x[1], -x[2], -x[3]}; }
 
+        /// Adds the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr f256 operator+(const f256 &a, const f256 &b) noexcept {
             f64 t0, t1, t2, t3;
             f64 s0 = Detail::tsum(a.x[0], b.x[0], t0);
@@ -578,7 +1286,21 @@ namespace SFT::Foundation {
             Detail::renorm5(s0, s1, s2, s3, t0);
             return {s0, s1, s2, s3};
         }
+        /// Subtracts the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr f256 operator-(const f256 &a, const f256 &b) noexcept { return a + (-b); }
+        /// Multiplies the operands and returns the product.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr f256 operator*(const f256 &a, const f256 &b) noexcept {
             f64 p0, p1, p2, p3, p4, p5;
             f64 q0, q1, q2, q3, q4, q5;
@@ -605,6 +1327,13 @@ namespace SFT::Foundation {
             Detail::renorm5(p0, p1, s0, s1, s2);
             return {p0, p1, s0, s1};
         }
+        /// Divides the operands and returns the result.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend constexpr f256 operator/(const f256 &a, const f256 &b) noexcept {
             f64 q0 = a.x[0] / b.x[0];
             f256 r = a - b * f256(q0);
@@ -619,26 +1348,80 @@ namespace SFT::Foundation {
             return {q0, q1, q2, q3};
         }
 
+        /// Adds the right-hand value to this object in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f256 &operator+=(const f256 &o) noexcept { return *this = *this + o; }
+        /// Subtracts the right-hand value from this object in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f256 &operator-=(const f256 &o) noexcept { return *this = *this - o; }
+        /// Multiplies this object by the right-hand value in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f256 &operator*=(const f256 &o) noexcept { return *this = *this * o; }
+        /// Divides this object by the right-hand value in place.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f256 &operator/=(const f256 &o) noexcept { return *this = *this / o; }
+        /// Advances the `f256` to its next value or element.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f256 &operator++() noexcept { return *this = *this + f256(1.0); }
+        /// Moves the `f256` to its previous value or element.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         constexpr f256 &operator--() noexcept { return *this = *this - f256(1.0); }
+        /// Advances the `f256` to its next value or element.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr f256 operator++(int) noexcept {
             f256 t = *this;
             ++*this;
             return t;
         }
+        /// Moves the `f256` to its previous value or element.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         constexpr f256 operator--(int) noexcept {
             f256 t = *this;
             --*this;
             return t;
         }
 
+        /// Compares the operands for equality.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend constexpr bool operator==(const f256 &a, const f256 &b) noexcept {
             return a.x[0] == b.x[0] && a.x[1] == b.x[1] && a.x[2] == b.x[2] && a.x[3] == b.x[3];
         }
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         friend constexpr partial_ordering operator<=>(const f256 &a, const f256 &b) noexcept {
             for (int i = 0; i < 4; ++i) {
                 if (a.x[i] != b.x[i])
@@ -650,6 +1433,10 @@ namespace SFT::Foundation {
 
     namespace Detail {
 
+        /// Returns the current or globally available wide constexpr smoke test value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] consteval bool wide_constexpr_smoke_test() noexcept {
             constexpr u256 shifted = u256::from_parts(1, 0) >> 128;
             if (static_cast<u64>(shifted) != 1)
@@ -681,6 +1468,10 @@ namespace SFT::Foundation {
 
         static_assert(wide_constexpr_smoke_test());
 
+        /// Returns the current or globally available wide conversion smoke test value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] consteval bool wide_conversion_smoke_test() noexcept {
             if (static_cast<f64>(f256(42)) != 42.0 || static_cast<f64>(f128(-7)) != -7.0)
                 return false;
@@ -702,6 +1493,10 @@ namespace SFT::Foundation {
 
         static_assert(wide_conversion_smoke_test());
 
+        /// Parses wide unsigned into structured state.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class U>
         [[nodiscard]] constexpr U parse_wide_unsigned(const char *text) noexcept {
             U base = U(10);
@@ -736,6 +1531,12 @@ namespace SFT::Foundation {
             return value;
         }
 
+        /// Performs the literal digit value operation using the supplied arguments.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr int literal_digit_value(char c) noexcept {
             if (c >= '0' && c <= '9')
                 return static_cast<int>(c - '0');
@@ -746,6 +1547,12 @@ namespace SFT::Foundation {
             return -1;
         }
 
+        /// Parses literal exponent into structured state.
+        ///
+        /// @param text Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr int parse_literal_exponent(const char *&text) noexcept {
             bool negative = false;
             if (*text == '+')
@@ -767,6 +1574,10 @@ namespace SFT::Foundation {
             return negative ? -magnitude : magnitude;
         }
 
+        /// Returns the current or globally available scale pow value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class F>
         [[nodiscard]] constexpr F scale_pow(F value, F base, int exponent) noexcept {
             if (exponent == 0)
@@ -782,6 +1593,10 @@ namespace SFT::Foundation {
             return exponent < 0 ? value / factor : value * factor;
         }
 
+        /// Parses wide decimal float into structured state.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class F>
         [[nodiscard]] constexpr F parse_wide_decimal_float(const char *text) noexcept {
             F value(0.0);
@@ -811,6 +1626,10 @@ namespace SFT::Foundation {
             return scale_pow(value, F(10.0), exponent - fraction_digits);
         }
 
+        /// Parses wide hex float into structured state.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class F>
         [[nodiscard]] constexpr F parse_wide_hex_float(const char *text) noexcept {
             F value(0.0);
@@ -840,6 +1659,10 @@ namespace SFT::Foundation {
             return scale_pow(value, F(2.0), exponent - fraction_digits * 4);
         }
 
+        /// Parses wide float into structured state.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class F>
         [[nodiscard]] constexpr F parse_wide_float(const char *text) noexcept {
             if (text[0] == '0' && (text[1] == 'x' || text[1] == 'X'))
@@ -850,27 +1673,59 @@ namespace SFT::Foundation {
     } // namespace Detail
 
 
-
-
-
-
 } // namespace SFT::Foundation
 
+/// Implements `operator""_u128` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Wide.hpp`.
+///
+/// @param text Text consumed by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::u128 operator""_u128(const char *text) noexcept {
     return SFT::Foundation::Detail::parse_wide_unsigned<SFT::Foundation::u128>(text);
 }
+/// Implements `operator""_i128` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Wide.hpp`.
+///
+/// @param text Text consumed by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::i128 operator""_i128(const char *text) noexcept {
     return static_cast<SFT::Foundation::i128>(SFT::Foundation::Detail::parse_wide_unsigned<SFT::Foundation::u128>(text));
 }
+/// Implements `operator""_u256` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Wide.hpp`.
+///
+/// @param text Text consumed by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::u256 operator""_u256(const char *text) noexcept {
     return SFT::Foundation::Detail::parse_wide_unsigned<SFT::Foundation::u256>(text);
 }
+/// Implements `operator""_i256` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Wide.hpp`.
+///
+/// @param text Text consumed by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::i256 operator""_i256(const char *text) noexcept {
     return SFT::Foundation::i256::from_bits(SFT::Foundation::Detail::parse_wide_unsigned<SFT::Foundation::u256>(text));
 }
+/// Implements `operator""_f128` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Wide.hpp`.
+///
+/// @param text Text consumed by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::f128 operator""_f128(const char *text) noexcept {
     return SFT::Foundation::Detail::parse_wide_float<SFT::Foundation::f128>(text);
 }
+/// Implements `operator""_f256` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Wide.hpp`.
+///
+/// @param text Text consumed by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::f256 operator""_f256(const char *text) noexcept {
     return SFT::Foundation::Detail::parse_wide_float<SFT::Foundation::f256>(text);
 }
@@ -888,6 +1743,10 @@ namespace SFT::Foundation {
 
     namespace Detail {
 
+        /// Returns the current or globally available wide literal smoke test value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] consteval bool wide_literal_smoke_test() noexcept {
             using namespace SFT::Foundation::Literals;
             if (static_cast<u64>(255_u128) != 255u || static_cast<u64>(0xFF_u128) != 255u)

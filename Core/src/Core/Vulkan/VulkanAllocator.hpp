@@ -29,8 +29,7 @@ using SFT::Core::RendererExpected;
 
 namespace SFT::Core::Vulkan {
 
-    /// Owns a VmaAllocator. Move-only; destroyed via destroy() or the destructor (whichever
-    /// comes first).
+
     class VulkanAllocator {
       public:
         struct CreateDesc {
@@ -38,42 +37,98 @@ namespace SFT::Core::Vulkan {
             VkDevice device = VK_NULL_HANDLE;
             VkInstance instance = VK_NULL_HANDLE;
             u32 api_version = 0;
-            /// VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT is deliberately not on by default: it
-            /// makes VMA tag *every* allocation with VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, which is a
-            /// validation error unless the bufferDeviceAddress physical device feature is also
-            /// enabled at device-creation time (see VulkanBackendDevice.cpp's createDevice()) — only
-            /// pass it here once something actually requests
-            /// VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT and that feature has been enabled to match.
+
+
             VmaAllocatorCreateFlags flags = 0;
         };
 
+        /// Constructs a `VulkanAllocator` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanAllocator() = default;
 
+        /// Destroys the `VulkanAllocator` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~VulkanAllocator();
 
+        /// Disables this construction form for `VulkanAllocator`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanAllocator(const VulkanAllocator &) = delete;
+        /// Assigns a new value to this `VulkanAllocator`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanAllocator &operator=(const VulkanAllocator &) = delete;
 
+        /// Constructs a `VulkanAllocator` from the supplied initialization values.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanAllocator(VulkanAllocator &&o) noexcept;
 
+        /// Assigns a new value to this `VulkanAllocator`.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanAllocator &operator=(VulkanAllocator &&o) noexcept;
 
-        /// Imports Vulkan entry points from volk, then creates the allocator.
+
+        /// Creates a `VulkanAllocator` resource or value from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static RendererExpected<VulkanAllocator> create(const CreateDesc &desc) noexcept;
 
+        /// Returns the Vulkan handle associated with this `VulkanAllocator`.
+        ///
+        /// @return Returns the current Vulkan handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VmaAllocator vk_handle() const noexcept;
+        /// Reports whether valid holds for this `VulkanAllocator`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
 
+        /// Creates a image from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param image_info Description of the resource or operation to perform.
+        /// @param allocation_info Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererExpected<VulkanImage> create_image(
             VkDevice device,
             const VkImageCreateInfo &image_info,
             const VmaAllocationCreateInfo &allocation_info) const noexcept;
 
+        /// Creates a buffer from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param buffer_info Description of the resource or operation to perform.
+        /// @param allocation_info Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererExpected<VulkanBuffer> create_buffer(
             VkDevice device,
             const VkBufferCreateInfo &buffer_info,
             const VmaAllocationCreateInfo &allocation_info) const noexcept;
 
+        /// Destroys or releases the `VulkanAllocator` resource represented by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy() noexcept;
 
       private:

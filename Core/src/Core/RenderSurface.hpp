@@ -8,8 +8,7 @@
 
 namespace SFT::Core {
 
-    /// Which provider owns the presentation window. Surface creation itself is dispatched through
-    /// Window's provider-owned virtual seam; this identity remains useful for diagnostics and policy.
+
     enum class SurfaceProvider {
         Unknown,
         Native,
@@ -17,8 +16,7 @@ namespace SFT::Core {
         GLFW,
     };
 
-    /// The windowing system backing a render surface. API-agnostic: a Vulkan backend turns
-    /// this into a VkSurfaceKHR, a future Metal backend into a CAMetalLayer, etc.
+
     enum class SurfaceSystem {
         Unknown,
         Win32,
@@ -27,8 +25,7 @@ namespace SFT::Core {
         Cocoa,
     };
 
-    /// A neutral, non-owning description of a window the renderer can present into.
-    /// `display`/`window` are native OS handles retained for RHI import and diagnostics.
+
     struct RenderSurfaceDescriptor {
         SurfaceProvider provider = SurfaceProvider::Unknown;
         SurfaceSystem system = SurfaceSystem::Unknown;
@@ -36,25 +33,35 @@ namespace SFT::Core {
         void *window = nullptr;
     };
 
-    /// Pixel dimensions of a window, swapchain, or attachment. Plain glm::uvec2 so extents take
-    /// part in the engine's vector math (and swizzles) directly instead of being converted at every
-    /// seam that already speaks glm — `.x` is the width, `.y` the height.
+
     using Extent2D = glm::uvec2;
 
+    /// Reports whether zero holds.
+    ///
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool is_zero(Extent2D extent) noexcept {
         return extent.x == 0 || extent.y == 0;
     }
 
-    /// Stable handle used by the engine/glue to address one window's backend-side surface.
-    /// Backed directly by the owning window's WindowId; renderer-owned presentation resources are
-    /// addressed through RHI handles.
+
     struct RenderSurfaceHandle {
         Platform::Windowing::WindowId window_id = Platform::Windowing::invalid_window_id;
 
+        /// Reports whether valid holds for this `RenderSurfaceHandle`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr bool is_valid() const noexcept {
             return window_id != Platform::Windowing::invalid_window_id;
         }
 
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend constexpr bool operator==(RenderSurfaceHandle, RenderSurfaceHandle) noexcept = default;
     };
 

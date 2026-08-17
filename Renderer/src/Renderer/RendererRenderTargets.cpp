@@ -15,6 +15,12 @@ using std::unexpected;
 
 namespace SFT::Renderer {
     namespace {
+        /// Creates an error result describing the supplied offscreen target failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError offscreen_target_error(string message) {
             return Core::GraphicsBackendError{
                 Core::GraphicsBackendErrorCode::OperationFailed,
@@ -23,6 +29,12 @@ namespace SFT::Renderer {
         }
     } // namespace
 
+    /// Creates a offscreen render target GPU resources from the supplied parameters.
+    ///
+    /// @param description Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<Renderer::OffscreenRenderTargetGpuResources>
     Renderer::create_offscreen_render_target_gpu_resources(
         const OffscreenRenderTargetDescription &description) {
@@ -89,6 +101,12 @@ namespace SFT::Renderer {
         };
     }
 
+    /// Creates a offscreen render target from the supplied parameters.
+    ///
+    /// @param description Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<OffscreenRenderTargetHandle> Renderer::create_offscreen_render_target(
         const OffscreenRenderTargetDescription &description) {
         ZoneScopedN("Renderer::create_offscreen_render_target");
@@ -140,12 +158,17 @@ namespace SFT::Renderer {
         return handle;
     }
 
+    /// Destroys the offscreen render target identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_offscreen_render_target(OffscreenRenderTargetHandle handle) noexcept {
         ZoneScopedN("Renderer::destroy_offscreen_render_target");
         if (!handle) {
             return;
         }
-
 
 
         wait_idle();
@@ -172,6 +195,12 @@ namespace SFT::Renderer {
         target = {};
     }
 
+    /// Performs the offscreen render target description operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<OffscreenRenderTargetDescription> Renderer::offscreen_render_target_description(
         OffscreenRenderTargetHandle handle) const {
         ZoneScopedN("Renderer::offscreen_render_target_description");
@@ -183,6 +212,12 @@ namespace SFT::Renderer {
         return target.alive ? optional<OffscreenRenderTargetDescription>{target.description} : std::nullopt;
     }
 
+    /// Performs the offscreen render target texture operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     TextureHandle Renderer::offscreen_render_target_texture(OffscreenRenderTargetHandle handle) const noexcept {
         ZoneScopedN("Renderer::offscreen_render_target_texture");
         auto targets = offscreen_render_targets_.lock();
@@ -193,6 +228,13 @@ namespace SFT::Renderer {
         return target.alive ? target.sampled_texture : TextureHandle{};
     }
 
+    /// Resolves offscreen render target into the concrete value used by the engine.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note This function does not throw exceptions.
     optional<Renderer::ResolvedOffscreenRenderTarget> Renderer::resolve_offscreen_render_target(
         OffscreenRenderTargetHandle handle) const noexcept {
         ZoneScopedN("Renderer::resolve_offscreen_render_target");
@@ -212,6 +254,12 @@ namespace SFT::Renderer {
         };
     }
 
+    /// Marks offscreen render target initialized using the supplied arguments and current state.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::mark_offscreen_render_target_initialized(OffscreenRenderTargetHandle handle) noexcept {
         ZoneScopedN("Renderer::mark_offscreen_render_target_initialized");
         auto targets = offscreen_render_targets_.lock();
@@ -224,6 +272,10 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Returns the current or globally available invalidate offscreen render targets after device loss value.
+    ///
+    /// @return Returns the current invalidate offscreen render targets after device loss value.
+    /// @note This function does not throw exceptions.
     void Renderer::invalidate_offscreen_render_targets_after_device_loss() noexcept {
         ZoneScopedN("Renderer::invalidate_offscreen_render_targets_after_device_loss");
         auto targets = offscreen_render_targets_.lock();
@@ -238,6 +290,10 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Returns the current or globally available restore offscreen render targets after recovery value.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::restore_offscreen_render_targets_after_recovery() {
         ZoneScopedN("Renderer::restore_offscreen_render_targets_after_recovery");
         auto targets = offscreen_render_targets_.lock();
@@ -283,6 +339,10 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the all offscreen render targets identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy all offscreen render targets value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_all_offscreen_render_targets() noexcept {
         ZoneScopedN("Renderer::destroy_all_offscreen_render_targets");
         auto targets = offscreen_render_targets_.lock();

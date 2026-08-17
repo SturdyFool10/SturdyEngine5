@@ -7,6 +7,12 @@
 
 namespace SFT::Ecs {
 
+/// Performs the archetype operation for `Ecs` using the supplied arguments.
+///
+/// @param signature `signature` value used by the operation.
+/// @param registry `registry` value used by the operation.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 Archetype::Archetype(Signature signature, const ComponentRegistry &registry) : signature_(std::move(signature)) {
     ZoneScopedN("Archetype::Archetype");
     columns_.reserve(signature_.size());
@@ -21,6 +27,9 @@ Archetype::Archetype(Signature signature, const ComponentRegistry &registry) : s
     }
 }
 
+/// Destroys the `Ecs` and releases resources owned by it.
+///
+/// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
 Archetype::~Archetype() {
     ZoneScopedN("Archetype::~Archetype");
     for (Column &column : columns_) {
@@ -36,6 +45,12 @@ Archetype::~Archetype() {
     }
 }
 
+/// Performs the column index of operation for `Ecs` using the supplied arguments.
+///
+/// @param id Identifier of the target object or resource.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] u32 Archetype::column_index_of(ComponentId id) const noexcept {
     ZoneScopedN("Archetype::column_index_of");
     for (usize i = 0; i < columns_.size(); ++i) {
@@ -46,18 +61,38 @@ Archetype::~Archetype() {
     return ~0u;
 }
 
+/// Performs the row pointer operation for `Ecs` using the supplied arguments.
+///
+/// @param column_index Zero-based index of the target element or entry.
+/// @param row `row` value used by the operation.
+///
+/// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+/// @note This function does not throw exceptions.
 [[nodiscard]] void *Archetype::row_pointer(u32 column_index, u32 row) noexcept {
     ZoneScopedN("Archetype::row_pointer");
     Column &column = columns_[column_index];
     return column.data + static_cast<usize>(row) * column.info.size;
 }
 
+/// Performs the row pointer operation for `Ecs` using the supplied arguments.
+///
+/// @param column_index Zero-based index of the target element or entry.
+/// @param row `row` value used by the operation.
+///
+/// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+/// @note This function does not throw exceptions.
 [[nodiscard]] const void *Archetype::row_pointer(u32 column_index, u32 row) const noexcept {
     ZoneScopedN("Archetype::row_pointer");
     const Column &column = columns_[column_index];
     return column.data + static_cast<usize>(row) * column.info.size;
 }
 
+/// Grows the supplied or associated value/state using the supplied arguments and current state.
+///
+/// @param new_capacity `new_capacity` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void Archetype::grow(usize new_capacity) {
     ZoneScopedN("Archetype::grow");
     for (Column &column : columns_) {
@@ -83,6 +118,12 @@ void Archetype::grow(usize new_capacity) {
     capacity_ = new_capacity;
 }
 
+/// Adds row using the supplied arguments and current state.
+///
+/// @param entity Entity used or affected by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] u32 Archetype::add_row(Entity entity) {
     ZoneScopedN("Archetype::add_row");
     const usize row = entities_.size();
@@ -93,6 +134,12 @@ void Archetype::grow(usize new_capacity) {
     return static_cast<u32>(row);
 }
 
+/// Removes the row from its owning collection or system.
+///
+/// @param row `row` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 Entity Archetype::remove_row(u32 row) {
     ZoneScopedN("Archetype::remove_row");
     for (Column &column : columns_) {
@@ -104,6 +151,14 @@ Entity Archetype::remove_row(u32 row) {
     return compact_removed_row(row);
 }
 
+/// Moves row into using the supplied arguments and current state.
+///
+/// @param row `row` value used by the operation.
+/// @param destination Destination value or resource.
+/// @param destination_row `destination_row` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 Entity Archetype::move_row_into(u32 row, Archetype &destination, u32 destination_row) {
     ZoneScopedN("Archetype::move_row_into");
     for (Column &column : columns_) {
@@ -124,6 +179,12 @@ Entity Archetype::move_row_into(u32 row, Archetype &destination, u32 destination
     return compact_removed_row(row);
 }
 
+/// Performs the compact removed row operation for `Ecs` using the supplied arguments.
+///
+/// @param row `row` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 Entity Archetype::compact_removed_row(u32 row) noexcept {
     ZoneScopedN("Archetype::compact_removed_row");
     const usize last = entities_.size() - 1;

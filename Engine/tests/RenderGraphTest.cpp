@@ -6,6 +6,13 @@
 
 namespace {
 
+    /// Checks the supplied condition and reports the accompanying diagnostic message when it is false.
+    ///
+    /// @param condition Condition controlling whether the operation proceeds.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool check(bool condition, const char *message) {
         if (!condition) {
             std::cerr << "FAILED: " << message << '\n';
@@ -13,6 +20,10 @@ namespace {
         return condition;
     }
 
+    /// Reports whether standard graph is explicit.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool standard_graph_is_explicit() {
         const SFT::Engine::RenderGraph graph = SFT::Engine::RenderGraph::standard();
         bool passed = check(graph.validate().has_value(), "standard graph failed validation");
@@ -31,6 +42,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available overlay only disables scene post processing value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool overlay_only_disables_scene_post_processing() {
         const SFT::Engine::RenderGraph graph = SFT::Engine::RenderGraph::overlay_only();
         bool passed = check(graph.validate().has_value(), "overlay-only graph failed validation");
@@ -45,6 +60,12 @@ namespace {
     struct ApplicationEffectPair {
         SFT::Engine::RenderGraphTextureHandle input{};
 
+        /// Builds the requested object or derived state.
+        ///
+        /// @param graph `graph` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] SFT::Engine::RenderGraphTextureHandle build(
             SFT::Engine::RenderGraph &graph) const {
             using namespace SFT::Engine;
@@ -68,6 +89,10 @@ namespace {
         }
     };
 
+    /// Returns the current or globally available application module can declare safe passes value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool application_module_can_declare_safe_passes() {
         using namespace SFT::Engine;
 
@@ -88,6 +113,10 @@ namespace {
         return passed;
     }
 
+    /// Reports whether branches are valid and presentation lowering is reachable only.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool branches_are_valid_and_presentation_lowering_is_reachable_only() {
         using namespace SFT::Engine;
 
@@ -107,7 +136,6 @@ namespace {
         color = graph.compose(RenderModules::ToneMapping{.input = color});
         color = graph.compose(RenderModules::DebugOverlay{.input = color});
         (void)graph.compose(RenderModules::Present{.input = color});
-
 
 
         diagnostic_branch = graph.add_fullscreen_effect(
@@ -137,6 +165,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available fullscreen modules compose by dataflow value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool fullscreen_modules_compose_by_dataflow() {
         using namespace SFT::Engine;
 
@@ -181,6 +213,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available explicit compute copy outputs control execution value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool explicit_compute_copy_outputs_control_execution() {
         using namespace SFT::Engine;
 
@@ -237,6 +273,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available offscreen target survives graph copies without rebasing value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool offscreen_target_survives_graph_copies_without_rebasing() {
         using namespace SFT::Engine;
 
@@ -271,6 +311,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available copied graphs rebase graph local handles value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool copied_graphs_rebase_graph_local_handles() {
         using namespace SFT::Engine;
 
@@ -296,6 +340,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available spectral integrator contracts are explicit value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool spectral_integrator_contracts_are_explicit() {
         using namespace SFT::Renderer;
         const SpectralIntegratorPolicy shadow = spectral_integrator_policy(SpectralRenderMode::ShadowOnly);
@@ -318,6 +366,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available spectral settings validate and normalize value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool spectral_settings_validate_and_normalize() {
         using namespace SFT::Engine;
         RenderGraph graph = RenderGraph::standard();
@@ -339,6 +391,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available invalid graph normalizes to safe standard value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool invalid_graph_normalizes_to_safe_standard() {
         using namespace SFT::Engine;
 
@@ -368,6 +424,10 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     bool passed = true;
     passed &= standard_graph_is_explicit();

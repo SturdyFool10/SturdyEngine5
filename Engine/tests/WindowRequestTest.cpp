@@ -5,6 +5,13 @@
 #include <variant>
 #include <vector>
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @pre `spawn_id`; debug builds assert if this precondition is violated.
+/// @pre `close_id`; debug builds assert if this precondition is violated.
+/// @pre `spawn_id != close_id`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     using namespace SFT::Engine;
     using namespace SFT::Platform::Windowing;

@@ -11,6 +11,9 @@
 
 namespace SFT::Async::Ranges {
 
+    /// Invokes the supplied function once for each element in the input range.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <AsyncRuntime Rt = DefaultRuntime, std::ranges::random_access_range R, typename Fn>
         requires std::ranges::sized_range<R> && AsyncWork<Fn, std::ranges::range_reference_t<R>>
     void for_each(R &&range, Fn fn) {
@@ -40,6 +43,9 @@ namespace SFT::Async::Ranges {
         }
     }
 
+    /// Transforms each input element with the supplied function and writes the results to the output range.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <AsyncRuntime Rt = DefaultRuntime, std::ranges::random_access_range In, std::ranges::random_access_range Out, typename Fn>
         requires std::ranges::sized_range<In> && AsyncWork<Fn, std::ranges::range_reference_t<In>> &&
                  std::indirectly_writable<std::ranges::iterator_t<Out>, std::invoke_result_t<Fn &, std::ranges::range_reference_t<In>>>

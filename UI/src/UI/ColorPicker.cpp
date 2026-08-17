@@ -3,6 +3,12 @@
 
 namespace SFT::UI {
 
+    /// Performs the color picker components operation for `UI` using the supplied arguments.
+    ///
+    /// @param color_space `color_space` value used by the operation.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     span<const ColorPickerComponent> color_picker_components(ColorPickerColorSpace color_space) noexcept {
         static constexpr array<ColorPickerComponent, 3> rgb{{{"R", 0.0, 1.0}, {"G", 0.0, 1.0}, {"B", 0.0, 1.0}}};
         static constexpr array<ColorPickerComponent, 3> xyz{{{"X", 0.0, 1.1}, {"Y", 0.0, 1.0}, {"Z", 0.0, 1.1}}};
@@ -44,6 +50,12 @@ namespace SFT::UI {
         return rgb;
     }
 
+    /// Returns a human-readable name for the supplied color picker space value.
+    ///
+    /// @param color_space `color_space` value used by the operation.
+    ///
+    /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+    /// @note This function does not throw exceptions.
     const char *color_picker_space_name(ColorPickerColorSpace color_space) noexcept {
         switch (color_space) {
             case ColorPickerColorSpace::Srgb:
@@ -80,6 +92,12 @@ namespace SFT::UI {
         return "sRGB";
     }
 
+    /// Performs the color picker component values operation for `UI` using the supplied arguments.
+    ///
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     array<f64, 4> color_picker_component_values(const ColorPickerValue &value) noexcept {
         using namespace Foundation::Color;
         return std::visit(
@@ -110,6 +128,14 @@ namespace SFT::UI {
             value);
     }
 
+    /// Performs the color picker part ID operation for `UI` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param part `part` value used by the operation.
+    /// @param target `target` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString color_picker_part_id(const ustr &id, ColorPickerVisualPart part, ColorPickerVisualPart target) {
         const char *suffix = part == ColorPickerVisualPart::Dropdown                ? "#color-space"
                              : part == ColorPickerVisualPart::SaturationValue       ? "#sv"
@@ -134,48 +160,169 @@ namespace SFT::UI {
         return result;
     }
 
+    /// Performs the color picker part ID operation for `UI` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param part `part` value used by the operation.
+    /// @param target `target` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString color_picker_part_id(const UString &id, ColorPickerVisualPart part, ColorPickerVisualPart target) {
         return color_picker_part_id(id.as_ustr(), part, target);
     }
 
+    /// Returns the current or globally available active part value.
+    ///
+    /// @return Returns the current active part value.
+    /// @note This function does not throw exceptions.
     ColorPickerPart ColorPickerState::active_part() const noexcept { return active_part_; }
 
+    /// Returns the current or globally available color space value.
+    ///
+    /// @return Returns the current color space value.
+    /// @note This function does not throw exceptions.
     ColorPickerColorSpace ColorPickerState::color_space() const noexcept { return color_space_; }
 
+    /// Sets the color space for this `UI`.
+    ///
+    /// @param color_space `color_space` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void ColorPickerState::set_color_space(ColorPickerColorSpace color_space) noexcept {
         if (color_space < ColorPickerColorSpace::Count) {
             color_space_ = color_space;
         }
     }
 
+    /// Performs the initialized operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     bool &DetailColorPickerAccess::initialized(ColorPickerState &s) noexcept { return s.initialized_; }
 
+    /// Performs the hue operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     f64 &DetailColorPickerAccess::hue(ColorPickerState &s) noexcept { return s.hue_; }
 
+    /// Performs the saturation operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     f64 &DetailColorPickerAccess::saturation(ColorPickerState &s) noexcept { return s.saturation_; }
 
+    /// Performs the value operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     f64 &DetailColorPickerAccess::value(ColorPickerState &s) noexcept { return s.value_; }
 
+    /// Performs the alpha operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     f64 &DetailColorPickerAccess::alpha(ColorPickerState &s) noexcept { return s.alpha_; }
 
+    /// Performs the last output operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     Color &DetailColorPickerAccess::last_output(ColorPickerState &s) noexcept { return s.last_output_; }
 
+    /// Performs the active operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     ColorPickerPart &DetailColorPickerAccess::active(ColorPickerState &s) noexcept { return s.active_part_; }
 
+    /// Performs the gesture changed operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     bool &DetailColorPickerAccess::gesture_changed(ColorPickerState &s) noexcept { return s.changed_during_gesture_; }
 
+    /// Performs the color space operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     ColorPickerColorSpace &DetailColorPickerAccess::color_space(ColorPickerState &s) noexcept { return s.color_space_; }
 
+    /// Performs the color space dropdown operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     DropdownState &DetailColorPickerAccess::color_space_dropdown(ColorPickerState &s) noexcept { return s.color_space_dropdown_; }
 
+    /// Performs the component sliders operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     array<SliderState, 3> &DetailColorPickerAccess::component_sliders(ColorPickerState &s) noexcept { return s.component_sliders_; }
 
+    /// Performs the component cache operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     array<f64, 3> &DetailColorPickerAccess::component_cache(ColorPickerState &s) noexcept { return s.component_cache_; }
 
+    /// Performs the component cache source operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     Color &DetailColorPickerAccess::component_cache_source(ColorPickerState &s) noexcept { return s.component_cache_source_; }
 
+    /// Performs the component cache space operation for `UI` using the supplied arguments.
+    ///
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     ColorPickerColorSpace &DetailColorPickerAccess::component_cache_space(ColorPickerState &s) noexcept { return s.component_cache_space_; }
 
+    /// Performs the color picker operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param id Identifier of the target object or resource.
+    /// @param decl `decl` value used by the operation.
+    /// @param config Configuration values controlling the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param color `color` value used by the operation.
+    /// @param input `input` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    /// @param composition `composition` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     ColorPickerResult color_picker(Context &ctx, const UString &id, const ElementDecl &decl, const ColorPickerConfig &config, const ColorPickerStyle &style, ColorPickerState &state, const Color &color, const ColorPickerInput &input, bool enabled, const ColorPickerComposition &composition) {
         bool &initialized = DetailColorPickerAccess::initialized(state);
         f64 &hue = DetailColorPickerAccess::hue(state);
@@ -215,8 +362,6 @@ namespace SFT::UI {
         const bool picker_enabled = enabled && root_visible && composition.root.enabled;
         const bool show_sv = composition.saturation_value.visible;
         const bool show_dropdown = config.show_color_space_dropdown && composition.dropdown.visible;
-
-
 
 
         const bool show_hue = composition.hue.visible && !show_dropdown;
@@ -675,7 +820,6 @@ namespace SFT::UI {
                         .capture_pointer = false,
 
 
-
                         .clip_to = FloatingClipTo::AttachedParent,
                     },
                 };
@@ -730,7 +874,6 @@ namespace SFT::UI {
             if (part_slot.render_default) {
 
 
-
                 const f64 opacity = part_opacity(part_enabled);
                 const CustomShaderRef shader =
                     alpha_bar ? Detail::alpha_bar_shader(Detail::picker_hsv_to_srgb(hue, saturation, brightness), opacity, style.checker_light, style.checker_dark, style.checker_cell_size, bar_decl.corner_radius)
@@ -782,19 +925,12 @@ namespace SFT::UI {
         };
 
 
-
-
-
-
         if (show_dropdown) {
             const span<const ColorPickerComponent> components = color_picker_components(color_space);
             array<SliderState, 3> &component_states = DetailColorPickerAccess::component_sliders(state);
             array<f64, 3> &component_values = DetailColorPickerAccess::component_cache(state);
             Color &cache_source = DetailColorPickerAccess::component_cache_source(state);
             ColorPickerColorSpace &cache_space = DetailColorPickerAccess::component_cache_space(state);
-
-
-
 
 
             const bool cache_stale = cache_space != color_space ||
@@ -826,9 +962,6 @@ namespace SFT::UI {
                     const ustr label_text{string_view{component.label}};
                     ctx.text(label_text, style.color_space_text);
                 }
-
-
-
 
 
                 SliderComposition bar_composition{};
@@ -878,7 +1011,6 @@ namespace SFT::UI {
                     const Detail::SrgbHsv edited_hsv = Detail::srgb_to_picker_hsv(edited);
 
 
-
                     if (edited_hsv.s > 1.0e-8 && edited_hsv.v > 1.0e-8) {
                         hue = edited_hsv.h;
                     }
@@ -889,7 +1021,6 @@ namespace SFT::UI {
                     result.value = Detail::color_picker_value(result.color, color_space);
                     result.changed = true;
                     result.committed = result.committed || slider_result.committed;
-
 
 
                     cache_source = result.color;
@@ -922,8 +1053,6 @@ namespace SFT::UI {
             auto preview = ctx.element(preview_decl);
             (void)preview;
             if (composition.preview.render_default) {
-
-
 
 
                 auto swatch = ctx.custom_element(
@@ -985,7 +1114,6 @@ namespace SFT::UI {
                     .capture_pointer = false,
 
 
-
                 },
             };
             if (!composition.tooltip.render_default)
@@ -1010,6 +1138,20 @@ namespace SFT::UI {
         return result;
     }
 
+    /// Performs the color picker operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param id Identifier of the target object or resource.
+    /// @param decl `decl` value used by the operation.
+    /// @param config Configuration values controlling the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param color `color` value used by the operation.
+    /// @param input `input` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     ColorPickerResult color_picker(Context &ctx, const UString &id, const ElementDecl &decl, const ColorPickerConfig &config, const ColorPickerStyle &style, ColorPickerState &state, const Color &color, const ColorPickerInput &input, bool enabled) {
         return color_picker(ctx, id, decl, config, style, state, color, input, enabled, ColorPickerComposition{});
     }
@@ -1018,6 +1160,12 @@ namespace SFT::UI {
 
 namespace SFT::UI::Detail {
 
+    /// Performs the sRGB to picker hsv operation for `Detail` using the supplied arguments.
+    ///
+    /// @param color `color` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     SrgbHsv srgb_to_picker_hsv(const Color &color) noexcept {
         const auto finite_channel = [](f64 channel) noexcept {
             return std::isfinite(channel) ? std::clamp(channel, 0.0, 1.0) : 0.0;
@@ -1044,6 +1192,15 @@ namespace SFT::UI::Detail {
         return result;
     }
 
+    /// Performs the picker hsv to sRGB operation for `Detail` using the supplied arguments.
+    ///
+    /// @param hue `hue` value used by the operation.
+    /// @param saturation `saturation` value used by the operation.
+    /// @param value Value consumed by the operation.
+    /// @param alpha `alpha` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     Color picker_hsv_to_srgb(f64 hue, f64 saturation, f64 value, f64 alpha) noexcept {
         hue = std::isfinite(hue) ? std::fmod(hue, 360.0) : 0.0;
         if (hue < 0.0)
@@ -1080,11 +1237,25 @@ namespace SFT::UI::Detail {
         return Color{r + match, g + match, b + match, alpha};
     }
 
+    /// Returns a copy or derived value with opacity applied.
+    ///
+    /// @param color `color` value used by the operation.
+    /// @param opacity `opacity` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     Color with_opacity(Color color, f64 opacity) noexcept {
         color.a *= std::clamp(opacity, 0.0, 1.0);
         return color;
     }
 
+    /// Performs the composite opaque operation for `Detail` using the supplied arguments.
+    ///
+    /// @param foreground `foreground` value used by the operation.
+    /// @param background `background` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     Color composite_opaque(const Color &foreground, const Color &background) noexcept {
         const f64 alpha = std::clamp(foreground.a, 0.0, 1.0);
         return Color{
@@ -1095,6 +1266,12 @@ namespace SFT::UI::Detail {
         };
     }
 
+    /// Packs gradient shader params using the supplied arguments and current state.
+    ///
+    /// @param vec4_fields `vec4_fields` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     vector<std::byte> pack_gradient_shader_params(initializer_list<glm::vec4> vec4_fields) {
         vector<f32> words;
         words.reserve(vec4_fields.size() * 4);
@@ -1109,10 +1286,24 @@ namespace SFT::UI::Detail {
         return bytes;
     }
 
+    /// Performs the corner radius vec4 operation for `Detail` using the supplied arguments.
+    ///
+    /// @param radius `radius` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     glm::vec4 corner_radius_vec4(const CornerRadius &radius) noexcept {
         return glm::vec4{radius.top_left, radius.top_right, radius.bottom_left, radius.bottom_right};
     }
 
+    /// Performs the sv plane shader operation for `Detail` using the supplied arguments.
+    ///
+    /// @param hue `hue` value used by the operation.
+    /// @param opacity `opacity` value used by the operation.
+    /// @param corner_radius `corner_radius` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     CustomShaderRef sv_plane_shader(f64 hue, f64 opacity, const CornerRadius &corner_radius) {
         return CustomShaderRef{
             .shader_path = "Shaders/ui_color_picker_sv_plane.slang",
@@ -1124,6 +1315,13 @@ namespace SFT::UI::Detail {
         };
     }
 
+    /// Performs the hue bar shader operation for `Detail` using the supplied arguments.
+    ///
+    /// @param opacity `opacity` value used by the operation.
+    /// @param corner_radius `corner_radius` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     CustomShaderRef hue_bar_shader(f64 opacity, const CornerRadius &corner_radius) {
         return CustomShaderRef{
             .shader_path = "Shaders/ui_color_picker_hue_bar.slang",
@@ -1135,6 +1333,17 @@ namespace SFT::UI::Detail {
         };
     }
 
+    /// Performs the alpha bar shader operation for `Detail` using the supplied arguments.
+    ///
+    /// @param foreground `foreground` value used by the operation.
+    /// @param opacity `opacity` value used by the operation.
+    /// @param checker_light `checker_light` value used by the operation.
+    /// @param checker_dark `checker_dark` value used by the operation.
+    /// @param checker_cell_size Requested or available size for the operation.
+    /// @param corner_radius `corner_radius` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     CustomShaderRef alpha_bar_shader(const Color &foreground, f64 opacity, const Color &checker_light, const Color &checker_dark, f32 checker_cell_size, const CornerRadius &corner_radius) {
         return CustomShaderRef{
             .shader_path = "Shaders/ui_color_picker_alpha_bar.slang",
@@ -1149,6 +1358,17 @@ namespace SFT::UI::Detail {
         };
     }
 
+    /// Performs the component bar shader operation for `Detail` using the supplied arguments.
+    ///
+    /// @param color_space `color_space` value used by the operation.
+    /// @param component_index Zero-based index of the target element or entry.
+    /// @param component Component used or affected by the operation.
+    /// @param values `values` value used by the operation.
+    /// @param opacity `opacity` value used by the operation.
+    /// @param corner_radius `corner_radius` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     CustomShaderRef component_bar_shader(ColorPickerColorSpace color_space, usize component_index, const ColorPickerComponent &component, const array<f64, 3> &values, f64 opacity, const CornerRadius &corner_radius) {
         return CustomShaderRef{
             .shader_path = "Shaders/ui_color_picker_component_bar.slang",
@@ -1161,6 +1381,17 @@ namespace SFT::UI::Detail {
         };
     }
 
+    /// Performs the preview shader operation for `Detail` using the supplied arguments.
+    ///
+    /// @param color `color` value used by the operation.
+    /// @param opacity `opacity` value used by the operation.
+    /// @param checker_light `checker_light` value used by the operation.
+    /// @param checker_dark `checker_dark` value used by the operation.
+    /// @param checker_cell_size Requested or available size for the operation.
+    /// @param corner_radius `corner_radius` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     CustomShaderRef preview_shader(const Color &color, f64 opacity, const Color &checker_light, const Color &checker_dark, f32 checker_cell_size, const CornerRadius &corner_radius) {
         return CustomShaderRef{
             .shader_path = "Shaders/ui_color_picker_preview.slang",
@@ -1175,6 +1406,13 @@ namespace SFT::UI::Detail {
         };
     }
 
+    /// Performs the color picker value operation for `Detail` using the supplied arguments.
+    ///
+    /// @param color `color` value used by the operation.
+    /// @param color_space `color_space` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     ColorPickerValue color_picker_value(const Color &color,
                                                              ColorPickerColorSpace color_space) noexcept {
         switch (color_space) {
@@ -1212,11 +1450,28 @@ namespace SFT::UI::Detail {
         return color;
     }
 
+    /// Renders color space label using the current rendering state.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param color_space `color_space` value used by the operation.
+    /// @param style `style` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void render_color_space_label(Context &ctx, ColorPickerColorSpace color_space, const TextStyle &style) {
         const ustr name{string_view{color_picker_space_name(color_space)}};
         ctx.text(name, style);
     }
 
+    /// Performs the color from components operation for `Detail` using the supplied arguments.
+    ///
+    /// @param color_space `color_space` value used by the operation.
+    /// @param c0 `c0` value used by the operation.
+    /// @param c1 `c1` value used by the operation.
+    /// @param c2 `c2` value used by the operation.
+    /// @param alpha `alpha` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     Color color_from_components(ColorPickerColorSpace color_space, f64 c0, f64 c1, f64 c2, f64 alpha) noexcept {
         using namespace Foundation::Color;
         switch (color_space) {
@@ -1254,6 +1509,13 @@ namespace SFT::UI::Detail {
         return Color{c0, c1, c2, alpha};
     }
 
+    /// Performs the picker part ID operation for `Detail` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param part `part` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString picker_part_id(const ustr &id, ColorPickerPart part) {
         const char *suffix = part == ColorPickerPart::SaturationValue ? "#sv"
                              : part == ColorPickerPart::Hue           ? "#hue"
@@ -1264,6 +1526,16 @@ namespace SFT::UI::Detail {
         return result;
     }
 
+    /// Performs the focused picker part operation for `Detail` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param id Identifier of the target object or resource.
+    /// @param show_sv `show_sv` value used by the operation.
+    /// @param show_hue `show_hue` value used by the operation.
+    /// @param show_alpha `show_alpha` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     ColorPickerPart focused_picker_part(const Context &ctx, const ustr &id, bool show_sv, bool show_hue, bool show_alpha) noexcept {
         if (show_sv && ctx.has_focus(picker_part_id(id, ColorPickerPart::SaturationValue)))
             return ColorPickerPart::SaturationValue;

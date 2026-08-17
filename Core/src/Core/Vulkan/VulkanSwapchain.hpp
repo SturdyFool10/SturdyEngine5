@@ -20,99 +20,253 @@ using std::vector;
 
 namespace SFT::Core::Vulkan {
 
-    /// Owns a VkSwapchainKHR and caches the swapchain images (non-owning — the
-    /// driver owns swapchain images). Destroyed via destroy() or destructor.
+
     class VulkanSwapchain {
       public:
+        /// Constructs a `VulkanSwapchain` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanSwapchain() = default;
+        /// Destroys the `VulkanSwapchain` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~VulkanSwapchain();
 
+        /// Disables this construction form for `VulkanSwapchain`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanSwapchain(const VulkanSwapchain &) = delete;
+        /// Assigns a new value to this `VulkanSwapchain`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanSwapchain &operator=(const VulkanSwapchain &) = delete;
 
+        /// Constructs a `VulkanSwapchain` from the supplied initialization values.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanSwapchain(VulkanSwapchain &&o) noexcept;
 
+        /// Assigns a new value to this `VulkanSwapchain`.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanSwapchain &operator=(VulkanSwapchain &&o) noexcept;
 
+        /// Creates a `VulkanSwapchain` resource or value from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param info Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static RendererExpected<VulkanSwapchain> create(
             VkDevice device,
             const VkSwapchainCreateInfoKHR &info) noexcept;
 
+        /// Returns the Vulkan handle associated with this `VulkanSwapchain`.
+        ///
+        /// @return Returns the current Vulkan handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkSwapchainKHR vk_handle() const noexcept;
+        /// Reports whether valid holds for this `VulkanSwapchain`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
+        /// Formats the supplied value into the provided formatting context.
+        ///
+        /// @return Returns the current format value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkFormat format() const noexcept;
+        /// Returns the current or globally available color space value.
+        ///
+        /// @return Returns the current color space value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkColorSpaceKHR color_space() const noexcept;
+        /// Returns the current or globally available extent value.
+        ///
+        /// @return Returns the current extent value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkExtent2D extent() const noexcept;
+        /// Presents the completed frame to the target surface or swapchain.
+        ///
+        /// @return Returns the current present mode value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkPresentModeKHR present_mode() const noexcept;
+        /// Returns the image count for this `VulkanSwapchain`.
+        ///
+        /// @return Returns the current image count value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 image_count() const noexcept;
+        /// Returns the current or globally available images value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const vector<VkImage> &images() const noexcept;
+        /// Performs the image operation for `VulkanSwapchain` using the supplied arguments.
+        ///
+        /// @param i Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkImage image(u32 i) const noexcept;
 
-        /// Populated separately from create(), once per swapchain build — one view per
-        /// swapchain image, in the same order as images(). Replacing the views (e.g. after a
-        /// swapchain rebuild) destroys whatever views were set previously.
+
+        /// Sets the image views for this `VulkanSwapchain`.
+        ///
+        /// @param views `views` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_image_views(vector<VulkanImageView> views) noexcept;
+        /// Returns the current or globally available image views value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const vector<VulkanImageView> &image_views() const noexcept;
+        /// Performs the image view operation for `VulkanSwapchain` using the supplied arguments.
+        ///
+        /// @param i Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkImageView image_view(u32 i) const noexcept;
 
+        /// Sets the depth attachment for this `VulkanSwapchain`.
+        ///
+        /// @param image `image` value used by the operation.
+        /// @param view `view` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_depth_attachment(VulkanImage image, VulkanImageView view) noexcept;
+        /// Returns the current or globally available depth image value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const VulkanImage &depth_image() const noexcept;
+        /// Returns the current or globally available depth image view value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const VulkanImageView &depth_image_view() const noexcept;
+        /// Returns the depth image view handle associated with this `VulkanSwapchain`.
+        ///
+        /// @return Returns the current depth image view handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkImageView depth_image_view_handle() const noexcept;
 
-        /// One binary semaphore per swapchain image, signaled when that image's rendering work
-        /// is done and it's safe to present. Keyed by swapchain image index (the index returned
-        /// by acquire_next_image), not by frame-in-flight index — reusing a single semaphore
-        /// across frames risks a present/wait-twice hazard if images are acquired out of order.
+
+        /// Sets the render finished semaphores for this `VulkanSwapchain`.
+        ///
+        /// @param semaphores Semaphore used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_render_finished_semaphores(vector<VulkanSemaphore> semaphores) noexcept;
+        /// Renders finished semaphores using the current rendering state.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const vector<VulkanSemaphore> &render_finished_semaphores() const noexcept;
+        /// Renders finished semaphore using the current rendering state.
+        ///
+        /// @param image_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkSemaphore render_finished_semaphore(u32 image_index) const noexcept;
 
-        /// Bundles the color+depth VkRenderingAttachmentInfo for one dynamic-rendering pass. Kept
-        /// together (rather than returned separately) since rendering_info() hands out pointers into
-        /// this object — callers must keep it alive across the vkCmdBeginRendering() call it feeds.
+
         struct RenderingAttachments {
             VkRenderingAttachmentInfo color{};
             VkRenderingAttachmentInfo depth{};
 
+            /// Renders info using the current rendering state.
+            ///
+            /// @param render_area `render_area` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] VkRenderingInfo rendering_info(VkRect2D render_area) const noexcept;
         };
 
-        /// Builds the color+depth attachment infos for image_index, clearing both on load.
+
+        /// Renders attachments using the current rendering state.
+        ///
+        /// @param image_index Zero-based index of the target element or entry.
+        /// @param clear_color `clear_color` value used by the operation.
+        /// @param clear_depth `clear_depth` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RenderingAttachments rendering_attachments(
             u32 image_index,
             VkClearColorValue clear_color = {{0.0f, 0.0f, 0.0f, 1.0f}},
             VkClearDepthStencilValue clear_depth = {1.0f, 0}) const noexcept;
 
-        /// Transitions the color image at image_index and the shared depth image from UNDEFINED to
-        /// their respective attachment-optimal layouts, ready for dynamic rendering to write into.
+
+        /// Performs the undefined to attachment barriers operation for `VulkanSwapchain` using the supplied arguments.
+        ///
+        /// @param image_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] vector<VkImageMemoryBarrier2> undefined_to_attachment_barriers(u32 image_index) const noexcept;
 
-        /// Transitions the color image at image_index from attachment-optimal to PRESENT_SRC once
-        /// rendering into it has finished, ready to be handed to vkQueuePresentKHR.
+
+        /// Performs the attachment to present barrier operation for `VulkanSwapchain` using the supplied arguments.
+        ///
+        /// @param image_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] vector<VkImageMemoryBarrier2> attachment_to_present_barrier(u32 image_index) const noexcept;
 
-        /// Bundles the fields a VkPresentInfoKHR needs pointers into — kept together so callers
-        /// keep this object alive across the vkQueuePresentKHR() call it feeds, same rationale as
-        /// RenderingAttachments above.
+
         struct PresentRequest {
             VkSwapchainKHR swapchain{};
             u32 image_index{};
             VkSemaphore wait_semaphore{};
 
+            /// Returns the current present info.
+            ///
+            /// @return Returns the current present info value.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] VkPresentInfoKHR present_info() const noexcept;
         };
 
-        /// Waits on this swapchain image's render-finished semaphore (signaled by the submit that
-        /// rendered into it) before presenting image_index.
+
+        /// Presents the completed frame to the target surface or swapchain.
+        ///
+        /// @param image_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] PresentRequest present_request(u32 image_index) const noexcept;
 
-        /// VK_SUBOPTIMAL_KHR is treated as success — caller should rebuild the swapchain after the frame.
+
+        /// Acquires next image.
+        ///
+        /// @param signal_semaphore Semaphore used or affected by the operation.
+        /// @param fence Fence used or affected by the operation.
+        /// @param timeout_ns Maximum amount of time to wait before giving up.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::DeviceLost`, `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererExpected<u32> acquire_next_image(
             VkSemaphore signal_semaphore,
             VkFence fence = VK_NULL_HANDLE,
             u64 timeout_ns = UINT64_MAX) noexcept;
 
+        /// Destroys or releases the `VulkanSwapchain` resource represented by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy() noexcept;
 
       private:

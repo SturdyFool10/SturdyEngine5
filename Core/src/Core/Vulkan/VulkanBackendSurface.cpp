@@ -39,9 +39,12 @@ namespace SFT::Core::Vulkan {
     namespace {
 
 
-
-
-
+        /// Converts the backend-specific value to the corresponding RHI representation.
+        ///
+        /// @param system `system` value used by the operation.
+        ///
+        /// @return Returns the value converted to RHI window system representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::WindowSystem to_rhi_window_system(SurfaceSystem system) noexcept {
             switch (system) {
                 case SurfaceSystem::Win32: return RHI::WindowSystem::Win32;
@@ -55,6 +58,13 @@ namespace SFT::Core::Vulkan {
 
     } // namespace
 
+    /// Performs the surface slot operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     VulkanSurface *VulkanBackend::surface_slot(RenderSurfaceHandle handle) noexcept {
         ZoneScopedN("VulkanBackend::surface_slot");
         if (!handle.is_valid()) {
@@ -64,6 +74,13 @@ namespace SFT::Core::Vulkan {
         return it != surfaces_.end() ? &it->second : nullptr;
     }
 
+    /// Performs the surface slot operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const VulkanSurface *VulkanBackend::surface_slot(RenderSurfaceHandle handle) const noexcept {
         ZoneScopedN("VulkanBackend::surface_slot");
         if (!handle.is_valid()) {
@@ -73,6 +90,12 @@ namespace SFT::Core::Vulkan {
         return it != surfaces_.end() ? &it->second : nullptr;
     }
 
+    /// Performs the destroy surface operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanBackend::destroySurface(VulkanSurface &surface) noexcept {
         ZoneScopedN("VulkanBackend::destroySurface");
         if (surface.rhi_surface() && rhiDevice) {
@@ -82,6 +105,10 @@ namespace SFT::Core::Vulkan {
         surface.destroy(vulkan_instance);
     }
 
+    /// Destroys the all surfaces identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy all surfaces value.
+    /// @note This function does not throw exceptions.
     void VulkanBackend::destroy_all_surfaces() noexcept {
         ZoneScopedN("VulkanBackend::destroy_all_surfaces");
         for (VulkanSurface &surface : surfaces_ | std::views::values) {
@@ -90,6 +117,12 @@ namespace SFT::Core::Vulkan {
         surfaces_.clear();
     }
 
+    /// Destroys the window surface identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanBackend::destroy_window_surface(RenderSurfaceHandle handle) noexcept {
         ZoneScopedN("VulkanBackend::destroy_window_surface");
         if (!handle.is_valid()) [[unlikely]] {
@@ -103,6 +136,13 @@ namespace SFT::Core::Vulkan {
         surfaces_.erase(it);
     }
 
+    /// Handles the on surface resize needed callback and updates the associated platform state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanBackend::on_surface_resize_needed(RenderSurfaceHandle surface, Extent2D extent) noexcept {
         ZoneScopedN("VulkanBackend::on_surface_resize_needed");
         VulkanSurface *s = surface_slot(surface);
@@ -114,6 +154,14 @@ namespace SFT::Core::Vulkan {
 
     }
 
+    /// Performs the surface create info from window operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param desired_frames_in_flight `desired_frames_in_flight` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::InitializationFailed`.
     RendererExpected<VulkanBackend::SurfaceCreateInfo>
     VulkanBackend::surface_create_info_from_window(Window &window, u32 desired_frames_in_flight) const {
         ZoneScopedN("VulkanBackend::surface_create_info_from_window");
@@ -145,6 +193,14 @@ namespace SFT::Core::Vulkan {
         return info;
     }
 
+    /// Performs the create surface operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param init `init` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::InitializationFailed`, `GraphicsBackendErrorCode::OutOfMemory`.
+    /// @note Allocation failure is converted to the implementation's out-of-memory error/status rather than escaping as `std::bad_alloc`.
     RendererExpected<RenderSurfaceHandle> VulkanBackend::createSurface(const SurfaceCreateInfo &init) {
         ZoneScopedN("VulkanBackend::createSurface");
         if (!initialized_) [[unlikely]] {
@@ -166,8 +222,6 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
         VkSurfaceKHR vk_surface = VK_NULL_HANDLE;
         auto created = init.window->create_vulkan_surface(
             static_cast<void *>(vulkan_instance),
@@ -179,8 +233,6 @@ namespace SFT::Core::Vulkan {
                 format("Window provider failed to create a Vulkan surface: {}", created.error().message),
             });
         }
-
-
 
 
         VulkanSurface vulkan_surface(vk_surface, init.descriptor, init.window, init.framebuffer_extent, sanitize_frames_in_flight(init.desired_frames_in_flight));
@@ -200,6 +252,13 @@ namespace SFT::Core::Vulkan {
         return RenderSurfaceHandle{window_id};
     }
 
+    /// Resolves the RHI surface associated with the supplied key, handle, or resource.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     RendererExpected<RHI::SurfaceHandle> VulkanBackend::rhi_surface_for(RenderSurfaceHandle handle) {
         ZoneScopedN("VulkanBackend::rhi_surface_for");
         VulkanSurface *surface = surface_slot(handle);
@@ -236,6 +295,14 @@ namespace SFT::Core::Vulkan {
         return *imported;
     }
 
+    /// Creates a window surface from the supplied parameters.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param desired_frames_in_flight `desired_frames_in_flight` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::InitializationFailed`.
     RendererExpected<RenderSurfaceHandle> VulkanBackend::create_window_surface(Window &window, u32 desired_frames_in_flight) {
         ZoneScopedN("VulkanBackend::create_window_surface");
         if (!initialized_) [[unlikely]] {

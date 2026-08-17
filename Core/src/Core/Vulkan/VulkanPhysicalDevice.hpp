@@ -26,115 +26,285 @@ using std::vector;
 
 namespace SFT::Core::Vulkan {
 
-    /// Wraps a VkPhysicalDevice. Properties, features, memory properties, and queue families
-    /// are queried and cached at construction time — they are immutable for the lifetime of the
-    /// VkInstance. Surface-dependent queries (capabilities, formats, present modes) are per-call
-    /// since they change as the surface or window is resized or recreated.
+
     class VulkanPhysicalDevice {
       public:
+        /// Constructs a `VulkanPhysicalDevice` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanPhysicalDevice() = default;
 
+        /// Constructs a `VulkanPhysicalDevice` from the supplied initialization values.
+        ///
+        /// @param device Device used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         explicit VulkanPhysicalDevice(VkPhysicalDevice device);
 
-        /// Enumerates every physical device visible to instance, wrapped and pre-queried.
+
+        /// Enumerates the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @param instance Instance used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] static RendererExpected<vector<VulkanPhysicalDevice>> enumerate(VkInstance instance);
 
+        /// Returns the Vulkan handle associated with this `VulkanPhysicalDevice`.
+        ///
+        /// @return Returns the current Vulkan handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkPhysicalDevice vk_handle() const noexcept;
+        /// Reports whether valid holds for this `VulkanPhysicalDevice`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
 
+        /// Returns the current or globally available properties value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const VkPhysicalDeviceProperties &properties() const noexcept;
+        /// Returns the current or globally available features value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const VkPhysicalDeviceFeatures &features() const noexcept;
 
-        /// Populates the extended feature chain rooted at `features` (the VkPhysicalDeviceFeatures2
-        /// counterpart to features(), which exposes only the cached core 1.0 set). Chain the version
-        /// or extension feature structs you want to probe into features.pNext before calling; each is
-        /// filled in place. Requires Vulkan 1.1+ / VK_KHR_get_physical_device_properties2.
+
+        /// Queries features2 from the active backend or runtime state.
+        ///
+        /// @param features `features` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void query_features2(VkPhysicalDeviceFeatures2 &features) const noexcept;
+        /// Returns the current or globally available memory properties value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const VkPhysicalDeviceMemoryProperties &memory_properties() const noexcept;
+        /// Returns the current or globally available queue families value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const vector<VkQueueFamilyProperties> &queue_families() const noexcept;
-        /// `deviceName` is a fixed-size C array the driver fills and NUL-terminates. `from_c_str` scans
-        /// only within `VK_MAX_PHYSICAL_DEVICE_NAME_SIZE`, so a driver that forgot the terminator can't make
-        /// us over-read. Borrows the array (no copy), so the returned slice lives as long as this device.
-        /// Not `noexcept`: `ustr` validates UTF-8 and throws on a non-UTF-8 name (there is no non-throwing
-        /// borrowed constructor) — a real friction point versus the old `string_view` return.
+
+
+        /// Returns the current or globally available name value.
+        ///
+        /// @return Returns the current name value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ustr name() const;
+        /// Returns a human-readable name for the supplied type value.
+        ///
+        /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const char *type_name() const noexcept;
 
-        /// PCI vendor ID and its readable name (AMD / NVIDIA / Intel / ...).
+
+        /// Returns the current or globally available vendor ID value.
+        ///
+        /// @return Returns the current vendor ID value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 vendor_id() const noexcept;
+        /// Returns a human-readable name for the supplied vendor value.
+        ///
+        /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const char *vendor_name() const noexcept;
+        /// Returns the current or globally available device ID value.
+        ///
+        /// @return Returns the current device ID value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 device_id() const noexcept;
 
-        /// Raw, vendor-encoded driver version, plus a decoded human-readable form. The raw value's
-        /// bit layout differs per vendor — use driver_version_string() for anything user-facing.
+
+        /// Returns the current or globally available driver version value.
+        ///
+        /// @return Returns the current driver version value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 driver_version() const noexcept;
+        /// Returns the current or globally available driver version string value.
+        ///
+        /// @return Returns the current driver version string value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UString driver_version_string() const;
 
-        /// The Vulkan API version this device supports (standard VK_API_VERSION_* layout).
+
+        /// Returns the current or globally available API version value.
+        ///
+        /// @return Returns the current API version value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 api_version() const noexcept;
+        /// Returns the current or globally available API version string value.
+        ///
+        /// @return Returns the current API version string value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UString api_version_string() const;
 
-        /// Nanoseconds per GPU timestamp tick — multiply raw tick deltas by this value.
+
+        /// Returns the current or globally available timestamp period value.
+        ///
+        /// @return Returns the current timestamp period value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 timestamp_period() const noexcept;
 
-        /// Number of valid high bits in timestamp values written by queue family i.
-        /// 0 means the queue family does not support timestamps.
+
+        /// Performs the timestamp valid bits operation for `VulkanPhysicalDevice` using the supplied arguments.
+        ///
+        /// @param queue_family_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 timestamp_valid_bits(u32 queue_family_index) const noexcept;
 
-        /// Returns the time domains available for calibrated timestamp queries on this device.
-        /// Requires VK_KHR_calibrated_timestamps / Vulkan 1.4 core.
+
+        /// Returns the current or globally available calibrateable time domains value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererExpected<vector<VkTimeDomainKHR>> calibrateable_time_domains() const noexcept;
 
-        /// Heuristic score used during device selection. Higher is better.
+
+        /// Returns the current or globally available score value.
+        ///
+        /// @return Returns the current score value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f64 score() const noexcept;
 
-        /// Returns the index of a queue family that supports graphics commands.
+
+        /// Finds the requested entry in the available state.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> findGraphicsQueue(VkSurfaceKHR surface) noexcept;
 
-        /// Returns the index of a queue family that can present to the given surface.
+
+        /// Finds present queue family in the available state.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> find_present_queue_family(VkSurfaceKHR surface) noexcept;
 
-        /// Direct per-family presentation-support query (vkGetPhysicalDeviceSurfaceSupportKHR), not
-        /// cached like findGraphicsQueue/find_present_queue_family above since it's parameterized by an
-        /// arbitrary family index rather than "the" graphics/present family — used to check whether a
-        /// *specific already-chosen* family (e.g. the dedicated compute family) happens to also support
-        /// presenting on a surface, for RHI::SwapchainDesc::allow_present_from_compute.
+
+        /// Performs the queue family supports present operation for `VulkanPhysicalDevice` using the supplied arguments.
+        ///
+        /// @param family_index Zero-based index of the target element or entry.
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool queue_family_supports_present(u32 family_index, VkSurfaceKHR surface) const noexcept;
 
+        /// Finds compute queue family in the available state.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> find_compute_queue_family() noexcept;
 
+        /// Finds transfer queue family in the available state.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> find_transfer_queue_family() noexcept;
 
+        /// Finds sparse binding queue family in the available state.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> find_sparse_binding_queue_family() noexcept;
 
+        /// Finds protected queue family in the available state.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> find_protected_queue_family() noexcept;
 
+        /// Finds video decode queue family in the available state.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> find_video_decode_queue_family() noexcept;
 
+        /// Finds video encode queue family in the available state.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> find_video_encode_queue_family() noexcept;
 
+        /// Finds optical flow queue family in the available state.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> find_optical_flow_queue_family() noexcept;
 
-        /// Every device extension this physical device advertises support for. Used to probe for
-        /// extensions that only exist on some backends (e.g. VK_KHR_portability_subset on MoltenVK)
-        /// instead of assuming a fixed vendor-specific set.
+
+        /// Enumerates extensions using the supplied arguments and current state.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] RendererExpected<vector<VkExtensionProperties>> enumerate_extensions() const;
 
-        /// Whether this device advertises support for a given device extension by name.
+
+        /// Reports whether extension holds for this `VulkanPhysicalDevice`.
+        ///
+        /// @param name Name used to identify or label the target.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool supports_extension(string_view name) const;
 
-        /// Surface capability queries used during swapchain creation and resize.
+
+        /// Performs the surface capabilities operation for `VulkanPhysicalDevice` using the supplied arguments.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererExpected<VkSurfaceCapabilitiesKHR>
         surface_capabilities(VkSurfaceKHR surface) const noexcept;
 
+        /// Performs the surface formats operation for `VulkanPhysicalDevice` using the supplied arguments.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] RendererExpected<vector<VkSurfaceFormatKHR>>
         surface_formats(VkSurfaceKHR surface) const;
 
+        /// Performs the surface present modes operation for `VulkanPhysicalDevice` using the supplied arguments.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] RendererExpected<vector<VkPresentModeKHR>>
         surface_present_modes(VkSurfaceKHR surface) const;
 
       private:
-        /// Index of the first queue family whose flags include every bit in `flags`, or nullopt.
+
+        /// Finds queue family with in the available state.
+        ///
+        /// @param flags Flags controlling optional behavior.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<u32> find_queue_family_with(VkQueueFlags flags) const noexcept;
 
         VkPhysicalDevice device_ = VK_NULL_HANDLE;

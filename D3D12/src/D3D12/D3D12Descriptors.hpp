@@ -1,26 +1,6 @@
 #pragma once
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #include <D3D12/D3D12Common.hpp>
 
 #pragma region Imports
@@ -33,43 +13,80 @@
 
 namespace SFT::D3D12 {
 
-    /// A contiguous run of `count` descriptors owned by a CpuDescriptorAllocator. Contiguity is not a
-    /// convenience here: a D3D12 descriptor table is addressed as "base handle + offset", so every
-    /// descriptor a bind group exposes through one table must be adjacent in the heap.
+
     struct DescriptorRange {
         u32 chunk = 0;
         u32 offset = 0;
         u32 count = 0;
 
+        /// Reports whether valid holds for this `DescriptorRange`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
     };
 
-    /// A chained allocator of non-shader-visible descriptors of one heap type. Grows by adding fixed-
-    /// size chunks; freed ranges go onto a per-size free list and are handed back out before any new
-    /// chunk space is consumed. Never shrinks — a descriptor heap is cheap to hold and re-creating one
-    /// whenever live usage briefly dipped would reintroduce exactly the per-allocation heap-creation
-    /// cost this exists to avoid (the same reasoning the Vulkan bridge's descriptor-pool chunks use).
-    ///
-    /// Internally synchronized: bind-group and texture-view creation are documented as callable
-    /// concurrently, and both allocate from here.
+
     class CpuDescriptorAllocator {
       public:
+        /// Constructs a `CpuDescriptorAllocator` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         CpuDescriptorAllocator() = default;
 
+        /// Disables this construction form for `CpuDescriptorAllocator`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         CpuDescriptorAllocator(const CpuDescriptorAllocator &) = delete;
+        /// Assigns a new value to this `CpuDescriptorAllocator`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         CpuDescriptorAllocator &operator=(const CpuDescriptorAllocator &) = delete;
 
+        /// Initializes the `CpuDescriptorAllocator` for use.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param type Type value to inspect, select, or convert.
+        /// @param chunk_capacity `chunk_capacity` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] rhi::RhiResult initialize(ID3D12Device *device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 chunk_capacity);
 
+        /// Allocates storage or a resource.
+        ///
+        /// @param count Number of elements or operations to process.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] rhi::RhiExpected<DescriptorRange> allocate(u32 count);
+        /// Releases the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @param range Range of values to process.
+        ///
+        /// @note This function does not throw exceptions.
         void release(const DescriptorRange &range) noexcept;
 
-        /// The CPU handle of descriptor `index` within `range`. Asserts nothing — an out-of-range index
-        /// is a backend bug, and every caller derives the index from the same layout that sized the
-        /// range.
+
+        /// Returns the CPU handle associated with this `CpuDescriptorAllocator`.
+        ///
+        /// @param range Range of values to process.
+        /// @param index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle(const DescriptorRange &range, u32 index) const noexcept;
 
+        /// Returns the current or globally available increment value.
+        ///
+        /// @return Returns the current increment value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 increment() const noexcept;
+        /// Returns the current or globally available heap type value.
+        ///
+        /// @return Returns the current heap type value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_DESCRIPTOR_HEAP_TYPE heap_type() const noexcept;
 
       private:
@@ -81,11 +98,8 @@ namespace SFT::D3D12 {
 
         struct State {
             std::vector<Chunk> chunks;
-            /// Keyed by descriptor count, because a table's size is fixed by its layout: a freed
-            /// 6-descriptor range is only ever reusable by another 6-descriptor request. Splitting or
-            /// coalescing ranges would need a real suballocator; descriptor demand in practice is a
-            /// small number of distinct sizes reused constantly, which an exact-fit free list serves
-            /// without any of that machinery.
+
+
             std::unordered_map<u32, std::vector<DescriptorRange>> free_ranges;
         };
 
@@ -96,31 +110,68 @@ namespace SFT::D3D12 {
         mutable Async::Mutex<State> state_;
     };
 
-    /// One shader-visible heap, used as a linear bump allocator for the lifetime of a single command
-    /// list's recording. Not internally synchronized: a CommandEncoder is documented single-threaded,
-    /// and this belongs to exactly one encoder at a time.
-    ///
-    /// `reset()` rewinds the cursor for reuse by the next encoder that checks this heap out of the
-    /// device's free list — safe only once that encoder's prior submission has completed, which is the
-    /// same condition the RHI already places on destroy_command_buffer().
+
     class ShaderVisibleDescriptorHeap {
       public:
+        /// Initializes the `ShaderVisibleDescriptorHeap` for use.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param type Type value to inspect, select, or convert.
+        /// @param capacity `capacity` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] rhi::RhiResult initialize(ID3D12Device *device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 capacity);
 
-        /// Reserves `count` adjacent descriptors, or nullopt when this heap is full — the caller's
-        /// signal to swap in a fresh heap and re-upload its currently-bound tables (see
-        /// D3D12CommandEncoder's own handling; a table's GPU handle is only valid while the heap it
-        /// was allocated from is the bound one).
+
+        /// Allocates storage or a resource.
+        ///
+        /// @param count Number of elements or operations to process.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<u32> allocate(u32 count) noexcept;
 
+        /// Resets the object to its baseline state.
+        ///
+        /// @note This function does not throw exceptions.
         void reset() noexcept;
 
+        /// Returns the current or globally available heap value.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ID3D12DescriptorHeap *heap() const noexcept;
+        /// Reports whether valid holds for this `ShaderVisibleDescriptorHeap`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
+        /// Returns the current or globally available increment value.
+        ///
+        /// @return Returns the current increment value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 increment() const noexcept;
+        /// Returns the current or globally available capacity value.
+        ///
+        /// @return Returns the current capacity value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 capacity() const noexcept;
 
+        /// Returns the CPU handle associated with this `ShaderVisibleDescriptorHeap`.
+        ///
+        /// @param index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle(u32 index) const noexcept;
+        /// Returns the GPU handle associated with this `ShaderVisibleDescriptorHeap`.
+        ///
+        /// @param index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle(u32 index) const noexcept;
 
       private:
@@ -132,11 +183,7 @@ namespace SFT::D3D12 {
         u32 increment_ = 0;
     };
 
-    /// Default capacities. The CBV/SRV/UAV figure is a per-encoder scratch budget, not a global limit —
-    /// it caps how many descriptors one command list may *bind* (not own), and an encoder that exhausts
-    /// it transparently switches to a fresh heap. The sampler figure is the hardware maximum:
-    /// D3D12_MAX_SHADER_VISIBLE_SAMPLER_HEAP_SIZE is 2048 on every resource-binding tier, so a sampler
-    /// heap simply cannot be made larger.
+
     inline constexpr u32 default_shader_visible_resource_descriptors = 16384;
     inline constexpr u32 default_shader_visible_sampler_descriptors = D3D12_MAX_SHADER_VISIBLE_SAMPLER_HEAP_SIZE;
     inline constexpr u32 default_cpu_descriptor_chunk_capacity = 4096;

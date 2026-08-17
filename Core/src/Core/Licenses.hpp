@@ -12,21 +12,18 @@ using std::string_view;
 
 namespace SFT::Core {
 
-    /// One third-party dependency's license, embedded into the binary at compile time (see
-    /// cmake/SturdyLicenses.cmake and thirdparty/licenses/) so an application built on this
-    /// engine can render an in-app "Open Source Licenses" screen with zero runtime file I/O and
-    /// no dependency on thirdparty/licenses/ existing next to the shipped binary.
+
     struct ThirdPartyLicense {
         string_view project;
         string_view license_file_name;
         Foundation::EmbeddedText text;
     };
 
-    /// Every third-party dependency's license known at compile time — one entry per dependency
-    /// that was actually fetched for this build (see sturdy_configure_dependencies()). Regenerated
-    /// at configure time, so it always matches exactly the dependency set built into this binary,
-    /// regardless of whether STURDY_PREFER_SYSTEM_DEPENDENCIES caused any of them to resolve to a
-    /// system package rather than a vendored checkout.
+
+    /// Returns the current or globally available third party licenses value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] span<const ThirdPartyLicense> third_party_licenses() noexcept;
 
 } // namespace SFT::Core

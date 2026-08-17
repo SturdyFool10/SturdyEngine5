@@ -1,14 +1,5 @@
 
 
-
-
-
-
-
-
-
-
-
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -26,7 +17,12 @@ namespace SFT::D3D12 {
     namespace {
 
 
-
+        /// Converts the value to wait milliseconds representation.
+        ///
+        /// @param timeout_ns Maximum amount of time to wait before giving up.
+        ///
+        /// @return Returns the value converted to wait milliseconds representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DWORD to_wait_milliseconds(u64 timeout_ns) noexcept {
             if (timeout_ns == rhi::wait_forever) {
                 return INFINITE;
@@ -91,6 +87,13 @@ namespace SFT::D3D12 {
         return {};
     }
 
+    /// Signals semaphore.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::signal_semaphore(rhi::SemaphoreHandle handle, u64 value) {
         const SemaphoreRecord *record = semaphores_.find(handle);
         if (record == nullptr) {
@@ -103,7 +106,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Creates a fence from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::FenceHandle> D3D12Device::create_fence(const rhi::FenceDesc &desc) {
         FenceRecord record{};
         if (const HRESULT hr = device_->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&record.fence));
@@ -119,6 +127,12 @@ namespace SFT::D3D12 {
         return fences_.insert(std::move(record));
     }
 
+    /// Destroys the fence identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_fence(rhi::FenceHandle handle) noexcept {
         if (auto record = fences_.extract(handle)) {
             if (record->event != nullptr) {
@@ -127,14 +141,20 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Waits for fences to complete.
+    ///
+    /// @param fences Fence used or affected by the operation.
+    /// @param wait_all `wait_all` value used by the operation.
+    /// @param timeout_ns Maximum amount of time to wait before giving up.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<bool> D3D12Device::wait_fences(span<const rhi::FenceHandle> fences, bool wait_all,
                                                      u64 timeout_ns) {
         ZoneScopedN("D3D12Device::wait_fences");
         if (fences.empty()) {
             return true;
         }
-
-
 
 
         std::vector<HANDLE> events;
@@ -151,8 +171,6 @@ namespace SFT::D3D12 {
                 continue;
             }
             if (record->wait_value == 0) {
-
-
 
 
                 return invalid_argument("wait_fences: the fence has not been armed by any submission "
@@ -189,13 +207,18 @@ namespace SFT::D3D12 {
         return true;
     }
 
+    /// Resets fences to its baseline state.
+    ///
+    /// @param fences Fence used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::reset_fences(span<const rhi::FenceHandle> fences) {
         for (rhi::FenceHandle handle : fences) {
             FenceRecord *record = fences_.find(handle);
             if (record == nullptr) {
                 return invalid_argument("reset_fences: unknown fence handle.");
             }
-
 
 
             record->wait_value = 0;
@@ -205,7 +228,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Submits the requested work.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::submit(const rhi::SubmitDesc &desc) {
         ZoneScopedN("D3D12Device::submit");
         if (auto valid = validate_queue_lane(desc.queue, "submit"); !valid) {
@@ -217,14 +245,11 @@ namespace SFT::D3D12 {
         }
 
 
-
         for (const rhi::QueueSemaphoreWait &wait : desc.waits) {
             const SemaphoreRecord *semaphore = semaphores_.find(wait.semaphore);
             if (semaphore == nullptr) {
                 return invalid_argument("submit: a wait names an unknown semaphore handle.");
             }
-
-
 
 
             (void)wait.stages;
@@ -272,9 +297,6 @@ namespace SFT::D3D12 {
                 return hresult_error(hr, "submit (fence Signal)");
             }
         }
-
-
-
 
 
         (void)desc.presented_textures;

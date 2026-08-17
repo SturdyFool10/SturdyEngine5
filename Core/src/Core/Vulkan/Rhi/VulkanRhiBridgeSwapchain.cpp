@@ -9,15 +9,10 @@
 #define VK_USE_PLATFORM_WAYLAND_KHR
 
 
-
-
-
 #define Window X11Window
 #include <X11/Xlib.h>
 #include <wayland-client.h>
 #include <xcb/xcb.h>
-
-
 
 
 #if defined(Success)
@@ -75,6 +70,12 @@ namespace SFT::Core::Vulkan {
 
     namespace {
 
+        /// Presents the completed frame to the target surface or swapchain.
+        ///
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr VkPresentModeKHR present_mode_to_vk(rhi::PresentMode mode) noexcept {
             switch (mode) {
                 case rhi::PresentMode::Fifo: return VK_PRESENT_MODE_FIFO_KHR;
@@ -83,12 +84,18 @@ namespace SFT::Core::Vulkan {
                 case rhi::PresentMode::Immediate: return VK_PRESENT_MODE_IMMEDIATE_KHR;
 
 
-
                 case rhi::PresentMode::FifoLatestReady: return VK_PRESENT_MODE_FIFO_LATEST_READY_KHR;
             }
             return VK_PRESENT_MODE_FIFO_KHR;
         }
 
+        /// Performs the Vulkan present mode to RHI operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr std::optional<rhi::PresentMode> vk_present_mode_to_rhi(VkPresentModeKHR mode) noexcept {
             switch (mode) {
                 case VK_PRESENT_MODE_FIFO_KHR: return rhi::PresentMode::Fifo;
@@ -101,13 +108,13 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
-
-
-
-
+        /// Performs the supported RHI present modes operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param vk_modes `vk_modes` value used by the operation.
+        /// @param fifo_latest_ready_enabled `fifo_latest_ready_enabled` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] vector<rhi::PresentMode> supported_rhi_present_modes(span<const VkPresentModeKHR> vk_modes,
                                                                            bool fifo_latest_ready_enabled) {
             vector<rhi::PresentMode> supported;
@@ -124,9 +131,14 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
+        /// Resolves present mode into the concrete value used by the engine.
+        ///
+        /// @param vk_modes `vk_modes` value used by the operation.
+        /// @param strategy `strategy` value used by the operation.
+        /// @param fifo_latest_ready_enabled `fifo_latest_ready_enabled` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] rhi::PresentationResolution resolve_present_mode(span<const VkPresentModeKHR> vk_modes,
                                                                        rhi::PresentStrategy strategy,
                                                                        bool fifo_latest_ready_enabled) {
@@ -143,13 +155,18 @@ namespace SFT::Core::Vulkan {
             return rhi::PresentationResolution{.strategy = strategy, .effective_mode = effective, .degraded = degraded};
         }
 
+        /// Performs the color space to Vulkan operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param color_space `color_space` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkColorSpaceKHR color_space_to_vk(rhi::ColorSpace color_space) noexcept {
             switch (color_space) {
                 case rhi::ColorSpace::SrgbNonlinear: return VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
                 case rhi::ColorSpace::Hdr10St2084: return VK_COLOR_SPACE_HDR10_ST2084_EXT;
                 case rhi::ColorSpace::ScrgbLinear: return VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
                 case rhi::ColorSpace::Hdr10Hlg: return VK_COLOR_SPACE_HDR10_HLG_EXT;
-
 
 
                 case rhi::ColorSpace::DolbyVision: return VK_COLOR_SPACE_DOLBYVISION_EXT;
@@ -163,14 +180,25 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
-
+        /// Performs the requires swapchain colorspace extension operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param color_space `color_space` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool requires_swapchain_colorspace_extension(rhi::ColorSpace color_space) noexcept {
             return color_space != rhi::ColorSpace::SrgbNonlinear;
         }
 
+        /// Selects surface format that best satisfies the supplied requirements.
+        ///
+        /// @param formats Format used for the resource, render target, or conversion.
+        /// @param requested `requested` value used by the operation.
+        /// @param requested_color_space `requested_color_space` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<VkSurfaceFormatKHR> choose_surface_format(span<const VkSurfaceFormatKHR> formats,
                                                                               rhi::Format requested,
                                                                               rhi::ColorSpace requested_color_space) noexcept {
@@ -198,6 +226,13 @@ namespace SFT::Core::Vulkan {
                                    : formats.front();
         }
 
+        /// Selects image count that best satisfies the supplied requirements.
+        ///
+        /// @param caps `caps` value used by the operation.
+        /// @param requested `requested` value used by the operation.
+        ///
+        /// @return Returns the requested count or size.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 choose_image_count(const VkSurfaceCapabilitiesKHR &caps, u32 requested) noexcept {
             u32 count = requested == 0 ? caps.minImageCount + 1 : requested;
             count = std::max(count, caps.minImageCount);
@@ -207,6 +242,12 @@ namespace SFT::Core::Vulkan {
             return count;
         }
 
+        /// Performs the composite alpha to Vulkan operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkCompositeAlphaFlagBitsKHR composite_alpha_to_vk(rhi::CompositeAlphaMode mode) noexcept {
             switch (mode) {
                 case rhi::CompositeAlphaMode::Opaque: return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -218,6 +259,13 @@ namespace SFT::Core::Vulkan {
             return VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         }
 
+        /// Returns a human-readable name for the supplied Vulkan result value.
+        ///
+        /// @param result `result` value used by the operation.
+        ///
+        /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const char *vk_result_name(VkResult result) noexcept {
             switch (result) {
                 case VK_SUCCESS: return "VK_SUCCESS";
@@ -248,16 +296,13 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
-
-
-
-
-
-
-
+        /// Resolves composite alpha into the concrete value used by the engine.
+        ///
+        /// @param supported `supported` value used by the operation.
+        /// @param requested `requested` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] rhi::CompositeAlphaMode resolve_composite_alpha(VkCompositeAlphaFlagsKHR supported,
                                                                      rhi::CompositeAlphaMode requested) noexcept {
             const auto is_supported = [supported](rhi::CompositeAlphaMode mode) noexcept {
@@ -290,15 +335,12 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
-
-
-
-
-
-
+        /// Builds HDR metadata.
+        ///
+        /// @param hdr_query `hdr_query` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkHdrMetadataEXT build_hdr_metadata(const rhi::SurfaceHdrCapabilityQuery &hdr_query) noexcept {
             VkHdrMetadataEXT metadata{
                 .sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT,
@@ -333,6 +375,14 @@ namespace SFT::Core::Vulkan {
 
     } // namespace
 
+    /// Creates a surface record value from the supplied arguments.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param owns_surface Surface used or affected by the operation.
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     VulkanRhiDeviceBridge::SurfaceRecord VulkanRhiDeviceBridge::make_surface_record(VkSurfaceKHR surface, bool owns_surface,
                                                                                     const rhi::SurfaceDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::make_surface_record");
@@ -347,6 +397,13 @@ namespace SFT::Core::Vulkan {
         return record;
     }
 
+    /// Creates a surface from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::OperationFailed`, `RhiErrorCode::Unsupported`.
     rhi::RhiExpected<rhi::SurfaceHandle> VulkanRhiDeviceBridge::create_surface(const rhi::SurfaceDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_surface");
         if (instance_ == VK_NULL_HANDLE) {
@@ -421,6 +478,14 @@ namespace SFT::Core::Vulkan {
         return surfaces_.insert(make_surface_record(surface,                  true, desc));
     }
 
+    /// Imports surface using the supplied arguments and current state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<rhi::SurfaceHandle> VulkanRhiDeviceBridge::import_surface(VkSurfaceKHR surface, const rhi::SurfaceDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::import_surface");
         if (surface == VK_NULL_HANDLE) {
@@ -430,6 +495,12 @@ namespace SFT::Core::Vulkan {
         return surfaces_.insert(make_surface_record(surface,                  false, desc));
     }
 
+    /// Destroys the surface identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_surface(rhi::SurfaceHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_surface");
         SurfaceRecord *record = surfaces_.find(handle);
@@ -439,6 +510,13 @@ namespace SFT::Core::Vulkan {
         surfaces_.erase(handle);
     }
 
+    /// Creates a swapchain from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`, `RhiErrorCode::Unsupported`, `GraphicsBackendErrorCode::DeviceLost`, `GraphicsBackendErrorCode::OperationFailed`.
     rhi::RhiExpected<rhi::SwapchainHandle> VulkanRhiDeviceBridge::create_swapchain(const rhi::SwapchainDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_swapchain");
         if (logical_device_ == nullptr || physical_device_ == nullptr) {
@@ -503,14 +581,6 @@ namespace SFT::Core::Vulkan {
             resolve_present_mode(*modes, desc.present_strategy, fifo_latest_ready_enabled);
 
 
-
-
-
-
-
-
-
-
         bool present_via_compute = false;
         if (desc.allow_present_from_compute && compute_queue_ != nullptr &&
             compute_queue_->family_index() != graphics_queue_->family_index()) {
@@ -533,7 +603,6 @@ namespace SFT::Core::Vulkan {
         if (resolution.composite_alpha_degraded) {
 
 
-
             Foundation::log_warn(
                 "Swapchain requested composite alpha {} for transparent composition, but this surface only "
                 "supports {:#x} — falling back to Opaque. The compositor will discard the alpha this "
@@ -548,24 +617,10 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
         resolution.supports_completion_fence = enabled_features_.has(rhi::Feature::SwapchainMaintenance);
 
 
-
-
-
-
-
-
-
-
-
         if (GraphicsPlatform::composition_present_compiled() && !desc.request_full_screen_exclusive) {
-
-
 
 
             const VkImageUsageFlags composition_usage =
@@ -579,16 +634,9 @@ namespace SFT::Core::Vulkan {
             };
 
 
-
-
             const GraphicsPlatform::CompositionAlphaMode composition_alpha_mode =
                 transparency_requested ? GraphicsPlatform::CompositionAlphaMode::Premultiplied
                                        : GraphicsPlatform::CompositionAlphaMode::Ignore;
-
-
-
-
-
 
 
             const bool can_resize_in_place = old_record != nullptr && old_record->owns_composition_resources &&
@@ -603,11 +651,6 @@ namespace SFT::Core::Vulkan {
                 if (can_resize_in_place) {
 
 
-
-
-
-
-
                     auto resized = resize_composition_swapchain_resources(
                         logical_device_->vk_handle(), physical_device_->vk_handle(),
                         std::move(old_record->composition), format.format, composition_usage, extent.width,
@@ -617,17 +660,10 @@ namespace SFT::Core::Vulkan {
                     }
 
 
-
-
-
-
                     Foundation::log_warn(
                         "Composition presenter resize-in-place failed ({}); rebuilding from scratch.",
                         resized.error().message);
                 }
-
-
-
 
 
                 if (old_record != nullptr && old_record->owns_composition_resources &&
@@ -654,13 +690,9 @@ namespace SFT::Core::Vulkan {
                 record.composition_alpha_mode = composition_alpha_mode;
 
 
-
-
-
                 resolution.effective_composite_alpha =
                     transparency_requested ? rhi::CompositeAlphaMode::Premultiplied : rhi::CompositeAlphaMode::Opaque;
                 resolution.composite_alpha_degraded = false;
-
 
 
                 resolution.via_composition_present = true;
@@ -715,9 +747,6 @@ namespace SFT::Core::Vulkan {
                 }
 
 
-
-
-
                 record.composition_sync_interval = (resolution.effective_mode == rhi::PresentMode::Immediate ||
                                                     resolution.effective_mode == rhi::PresentMode::Mailbox)
                                                        ? 0u
@@ -733,25 +762,10 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
-
-
-
-
         const std::array<u32, 2> concurrent_queue_families{
             graphics_queue_->family_index(),
             compute_queue_ != nullptr ? compute_queue_->family_index() : graphics_queue_->family_index(),
         };
-
-
-
-
-
-
-
-
 
 
         std::unique_ptr<FullScreenExclusiveRequest> full_screen_exclusive_request;
@@ -788,9 +802,6 @@ namespace SFT::Core::Vulkan {
         if (!swapchain && resolution.effective_mode != rhi::PresentMode::Fifo) {
 
 
-
-
-
             Foundation::log_warn(
                 "Swapchain creation with present mode {} failed; retrying with the guaranteed-available Fifo.",
                 rhi::present_mode_name(resolution.effective_mode));
@@ -804,10 +815,6 @@ namespace SFT::Core::Vulkan {
         if (!swapchain) {
             return rhi_error_from_graphics(swapchain.error());
         }
-
-
-
-
 
 
         bool full_screen_exclusive_active = false;
@@ -824,9 +831,6 @@ namespace SFT::Core::Vulkan {
             }
         }
         resolution.full_screen_exclusive_active = full_screen_exclusive_active;
-
-
-
 
 
         VkHdrMetadataEXT initial_hdr_metadata{};
@@ -850,11 +854,9 @@ namespace SFT::Core::Vulkan {
         record.surface = desc.surface;
 
 
-
         record.presentation_resolution = resolution;
         record.present_via_compute = present_via_compute;
         record.full_screen_exclusive_active = full_screen_exclusive_active;
-
 
 
         record.stored_hdr_metadata = initial_hdr_metadata;
@@ -864,13 +866,7 @@ namespace SFT::Core::Vulkan {
         record.render_finished_semaphores.reserve(record.swapchain.image_count());
 
 
-
-
         record.image_available_signal_indices.resize(record.swapchain.image_count(), 0);
-
-
-
-
 
 
         const u32 frames_in_flight_count = desc.frames_in_flight != 0
@@ -926,6 +922,13 @@ namespace SFT::Core::Vulkan {
         return swapchains_.insert(std::move(record));
     }
 
+    /// Queries HDR capabilities from the active backend or runtime state.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<rhi::SurfaceHdrCapabilityQuery> VulkanRhiDeviceBridge::query_hdr_capabilities(
         rhi::SurfaceHandle handle) const {
         ZoneScopedN("VulkanRhiDeviceBridge::query_hdr_capabilities");
@@ -936,6 +939,14 @@ namespace SFT::Core::Vulkan {
         return rhi::query_platform_hdr_display_capabilities(surface->desc);
     }
 
+    /// Updates HDR content light level from the supplied values.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param update `update` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`, `RhiErrorCode::Unsupported`.
     rhi::RhiResult VulkanRhiDeviceBridge::update_hdr_content_light_level(
         rhi::SwapchainHandle handle, const rhi::HdrContentLightLevelUpdate &update) {
         ZoneScopedN("VulkanRhiDeviceBridge::update_hdr_content_light_level");
@@ -956,6 +967,12 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
+    /// Destroys the swapchain identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_swapchain(rhi::SwapchainHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_swapchain");
         SwapchainRecord *record = swapchains_.find(handle);
@@ -968,22 +985,9 @@ namespace SFT::Core::Vulkan {
             }
 
 
-
-
-
-
-
-
-
-
-
             if (record->owns_composition_resources) {
                 destroy_composition_swapchain_resources(logical_device_->vk_handle(), record->composition);
             }
-
-
-
-
 
 
             if (record->full_screen_exclusive_active) {
@@ -993,12 +997,26 @@ namespace SFT::Core::Vulkan {
         swapchains_.erase(handle);
     }
 
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     rhi::PresentationResolution VulkanRhiDeviceBridge::presentation_resolution(rhi::SwapchainHandle handle) const noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::presentation_resolution");
         const SwapchainRecord *record = swapchains_.find(handle);
         return record != nullptr ? record->presentation_resolution : rhi::PresentationResolution{};
     }
 
+    /// Acquires next texture.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param frame_slot_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`, `RhiErrorCode::OperationFailed`, `RhiErrorCode::DeviceLost`, `RhiErrorCode::SurfaceLost`, `RhiErrorCode::NotReady`.
     rhi::RhiExpected<rhi::SurfaceTexture> VulkanRhiDeviceBridge::acquire_next_texture(rhi::SwapchainHandle handle, u32 frame_slot_index) {
         ZoneScopedN("VulkanRhiDeviceBridge::acquire_next_texture");
         SwapchainRecord *record = swapchains_.find(handle);
@@ -1013,10 +1031,6 @@ namespace SFT::Core::Vulkan {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
                                   "acquire_next_texture: frame_slot_index is out of range for this swapchain's frame ring.");
         }
-
-
-
-
 
 
         const u32 semaphore_index = frame_slot_index;
@@ -1035,12 +1049,6 @@ namespace SFT::Core::Vulkan {
                                       "acquire_next_texture: composition presenter returned an out-of-range "
                                       "image index.");
             }
-
-
-
-
-
-
 
 
             const VkSemaphoreSubmitInfo wait_info = record->composition.present_complete_semaphore.submit_info(
@@ -1111,6 +1119,14 @@ namespace SFT::Core::Vulkan {
         };
     }
 
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    /// @param queue_lock_wait_ms Queue used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::OperationFailed`, `RhiErrorCode::InvalidArgument`, `RhiErrorCode::Unsupported`.
     rhi::RhiExpected<rhi::PresentOutcome> VulkanRhiDeviceBridge::present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms) {
         ZoneScopedN("VulkanRhiDeviceBridge::present");
         if (present_queue_ == nullptr) {
@@ -1127,8 +1143,6 @@ namespace SFT::Core::Vulkan {
 
         if (record->is_composition_present()) {
             if (desc.completion_fence) {
-
-
 
 
                 return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
@@ -1155,7 +1169,6 @@ namespace SFT::Core::Vulkan {
             if (queue_lock_wait_ms != nullptr) {
 
 
-
                 *queue_lock_wait_ms = 0.0;
             }
 
@@ -1166,9 +1179,6 @@ namespace SFT::Core::Vulkan {
                                       string("present: composition presenter present failed: ") +
                                           present_message.message);
             }
-
-
-
 
 
             return desc.texture.suboptimal ? rhi::PresentOutcome::Suboptimal : rhi::PresentOutcome::Success;
@@ -1208,17 +1218,12 @@ namespace SFT::Core::Vulkan {
         };
 
 
-
-
-
         VulkanQueue &present_queue =
             (record->present_via_compute && compute_queue_ != nullptr) ? *compute_queue_ : *present_queue_;
         auto result = present_queue.present(info, queue_lock_wait_ms);
         if (!result) {
             return rhi_error_from_graphics(result.error());
         }
-
-
 
 
         switch (*result) {

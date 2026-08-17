@@ -20,6 +20,13 @@ namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
+    /// Creates a compute pipeline from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<rhi::ComputePipelineHandle> VulkanRhiDeviceBridge::create_compute_pipeline(
         const rhi::ComputePipelineDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_compute_pipeline");
@@ -63,6 +70,12 @@ namespace SFT::Core::Vulkan {
         return compute_pipelines_.insert(PipelineRecord{std::move(*pipeline), desc.layout});
     }
 
+    /// Destroys the compute pipeline identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_compute_pipeline(rhi::ComputePipelineHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_compute_pipeline");
         compute_pipelines_.erase(handle);

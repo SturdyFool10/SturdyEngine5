@@ -13,6 +13,10 @@ using std::vector;
 
 namespace SFT::Platform {
 
+    /// Returns the current or globally available font search directories value.
+    ///
+    /// @return Returns the current font search directories value.
+    /// @note This function does not throw exceptions.
     vector<string> font_search_directories() noexcept {
         vector<string> directories;
         if (const char *windir = std::getenv("WINDIR"); windir != nullptr && windir[0] != '\0') {

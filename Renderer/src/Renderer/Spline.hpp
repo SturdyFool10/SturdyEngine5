@@ -21,20 +21,23 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    /// A curve through caller-supplied waypoints — **centripetal Catmull-Rom**, not Bezier: the
-    /// curve interpolates *through* every waypoint (what "fit text to a path drawn through these
-    /// points" wants), and the centripetal parameterization (alpha = 0.5) avoids the
-    /// cusps/self-intersections uniform Catmull-Rom produces when waypoints are unevenly spaced.
-    /// Works in both `glm::vec2` and `glm::vec3` (see `Spline2D`/`Spline3D` below) — the Barry-Goldman
-    /// evaluation only needs vector +/-/scalar-* and `length()`, which both types provide.
+
     template <typename Vec>
     class CatmullRomSpline {
       public:
+        /// Constructs a `CatmullRomSpline` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         CatmullRomSpline() noexcept = default;
 
-        /// `waypoints` needs at least 2 points. `samples_per_segment` controls the arc-length
-        /// table's resolution (used by t_at_arc_length() for even glyph spacing) — 32 is a good
-        /// default; raise it for very sharp/high-curvature paths.
+
+        /// Creates a `CatmullRomSpline` resource or value from the supplied parameters.
+        ///
+        /// @param waypoints `waypoints` value used by the operation.
+        /// @param samples_per_segment `samples_per_segment` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static CatmullRomSpline create(vector<Vec> waypoints, u32 samples_per_segment = 32) {
             CatmullRomSpline spline;
             if (waypoints.size() < 2) {
@@ -52,12 +55,25 @@ namespace SFT::Renderer {
             return spline;
         }
 
+        /// Returns the current or globally available valid value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool valid() const noexcept { return segment_count_ > 0; }
 
-        /// `t` in [0, segment_count()] — segment index is floor(t), local position within the
-        /// segment is frac(t).
+
+        /// Returns the segment count for this `CatmullRomSpline`.
+        ///
+        /// @return Returns the current segment count value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 segment_count() const noexcept { return segment_count_; }
 
+        /// Performs the position operation for `CatmullRomSpline` using the supplied arguments.
+        ///
+        /// @param t `t` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Vec position(f32 t) const noexcept {
             if (!valid()) {
                 return Vec{};
@@ -71,8 +87,13 @@ namespace SFT::Renderer {
             return evaluate_segment(segment, local);
         }
 
-        /// Central-difference tangent (not normalized) — robust for any segment shape without
-        /// needing a closed-form derivative of the Barry-Goldman recursion.
+
+        /// Performs the tangent operation for `CatmullRomSpline` using the supplied arguments.
+        ///
+        /// @param t `t` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Vec tangent(f32 t) const noexcept {
             constexpr f32 epsilon = 1.0e-3f;
             const f32 max_t = static_cast<f32>(segment_count_);
@@ -84,11 +105,19 @@ namespace SFT::Renderer {
             return (position(t1) - position(t0)) / (t1 - t0);
         }
 
+        /// Returns the current or globally available total length value.
+        ///
+        /// @return Returns the current total length value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 total_length() const noexcept { return arc_length_table_.empty() ? 0.0f : arc_length_table_.back().length; }
 
-        /// Maps an arc-length distance along the curve (from its start) to the equivalent `t` —
-        /// this is what makes glyph spacing along the path even by actual advance width instead of
-        /// bunching up wherever the raw parameter moves slower than the curve's real speed.
+
+        /// Performs the t at arc length operation for `CatmullRomSpline` using the supplied arguments.
+        ///
+        /// @param arc_length `arc_length` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 t_at_arc_length(f32 arc_length) const noexcept {
             if (arc_length_table_.empty()) {
                 return 0.0f;
@@ -122,6 +151,13 @@ namespace SFT::Renderer {
             f32 length = 0.0f;
         };
 
+        /// Performs the evaluate segment operation for `CatmullRomSpline` using the supplied arguments.
+        ///
+        /// @param segment `segment` value used by the operation.
+        /// @param local `local` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Vec evaluate_segment(u32 segment, f32 local) const noexcept {
             const Vec &p0 = points_[segment];
             const Vec &p1 = points_[segment + 1];
@@ -138,11 +174,29 @@ namespace SFT::Renderer {
             return barry_goldman(p0, p1, p2, p3, t0, t1, t2, t3, t);
         }
 
+        /// Performs the knot delta operation for `CatmullRomSpline` using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param alpha `alpha` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static f32 knot_delta(const Vec &a, const Vec &b, f32 alpha) noexcept {
             const f32 distance = glm::length(b - a);
             return distance > 0.0f ? std::pow(distance, alpha) : 1.0e-4f;
         }
 
+        /// Performs the lerp knots operation for `CatmullRomSpline` using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param ta `ta` value used by the operation.
+        /// @param tb `tb` value used by the operation.
+        /// @param t `t` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Vec lerp_knots(const Vec &a, const Vec &b, f32 ta, f32 tb, f32 t) noexcept {
             const f32 span_length = tb - ta;
             if (span_length <= 0.0f) {
@@ -151,6 +205,20 @@ namespace SFT::Renderer {
             return a * ((tb - t) / span_length) + b * ((t - ta) / span_length);
         }
 
+        /// Performs the barry goldman operation for `CatmullRomSpline` using the supplied arguments.
+        ///
+        /// @param p0 `p0` value used by the operation.
+        /// @param p1 `p1` value used by the operation.
+        /// @param p2 `p2` value used by the operation.
+        /// @param p3 `p3` value used by the operation.
+        /// @param t0 `t0` value used by the operation.
+        /// @param t1 `t1` value used by the operation.
+        /// @param t2 `t2` value used by the operation.
+        /// @param t3 `t3` value used by the operation.
+        /// @param t `t` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Vec barry_goldman(const Vec &p0, const Vec &p1, const Vec &p2, const Vec &p3, f32 t0, f32 t1,
                                                f32 t2, f32 t3, f32 t) noexcept {
             const Vec a1 = lerp_knots(p0, p1, t0, t1, t);
@@ -161,6 +229,11 @@ namespace SFT::Renderer {
             return lerp_knots(b1, b2, t1, t2, t);
         }
 
+        /// Builds arc length table.
+        ///
+        /// @param samples_per_segment `samples_per_segment` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void build_arc_length_table(u32 samples_per_segment) {
             arc_length_table_.clear();
             if (!valid()) {
@@ -189,31 +262,40 @@ namespace SFT::Renderer {
     using Spline2D = CatmullRomSpline<glm::vec2>;
     using Spline3D = CatmullRomSpline<glm::vec3>;
 
-    /// Where and how a glyph sits on a 2D path: `position` is the glyph's pen origin, `rotation`
-    /// (radians) is the path's tangent angle at that point — the caller applies this the same way
-    /// a rotated GlyphPlacement would be built for any other 2D text (copy both fields into the
-    /// placement; make_glyph_instance applies the rotation around its pen origin).
+
     struct GlyphPathPlacement2D {
         glm::vec2 position{0.0f};
         f32 rotation = 0.0f;
     };
 
-    /// Walks `spline`'s arc length by each glyph's advance width (scaled from font units to
-    /// pixels), placing glyph `i`'s pen origin at that point and rotating it to the path's tangent
-    /// there. `start_offset` shifts the whole run's starting arc-length position (e.g. to center
-    /// a string on the path, pass `-total_advance_px / 2`).
+
+    /// Performs the layout text on spline 2d operation using the supplied arguments.
+    ///
+    /// @param spline `spline` value used by the operation.
+    /// @param glyphs `glyphs` value used by the operation.
+    /// @param units_per_em `units_per_em` value used by the operation.
+    /// @param pixel_size Requested or available size for the operation.
+    /// @param start_offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<GlyphPathPlacement2D> layout_text_on_spline_2d(const Spline2D &spline,
                                                                                span<const Text::PositionedGlyph> glyphs,
                                                                                u32 units_per_em, f32 pixel_size,
                                                                                f32 start_offset = 0.0f);
 
-    /// Same idea in full 3D: one world-space transform per glyph, built from a **rotation-minimizing
-    /// frame** (tangent + `up_hint` orthogonalized via Gram-Schmidt) rather than a raw Frenet-Serret
-    /// frame, which is known to flip its normal unpredictably through inflection points and straight
-    /// segments — the practical fix for "follow the curve's frame in 3D" without that artifact.
-    /// `up_hint` is a world-space reference direction (typically world up); if the path's tangent
-    /// ever runs parallel to it, an arbitrary stable perpendicular is substituted so the frame never
-    /// degenerates. Column-major: transform[0]=right, [1]=up, [2]=forward(tangent), [3]=position.
+
+    /// Performs the layout text on spline 3d operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param spline `spline` value used by the operation.
+    /// @param glyphs `glyphs` value used by the operation.
+    /// @param units_per_em `units_per_em` value used by the operation.
+    /// @param pixel_size Requested or available size for the operation.
+    /// @param up_hint `up_hint` value used by the operation.
+    /// @param start_offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<glm::mat4> layout_text_on_spline_3d(const Spline3D &spline,
                                                                     span<const Text::PositionedGlyph> glyphs,
                                                                     u32 units_per_em, f32 pixel_size, glm::vec3 up_hint,

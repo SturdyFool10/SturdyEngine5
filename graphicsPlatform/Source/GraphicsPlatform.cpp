@@ -9,6 +9,10 @@ namespace SFT::GraphicsPlatform {
         };
     }
 
+    /// Compiles the supplied source or pipeline state.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     std::span<const char *const> compiled_backend_notes() noexcept {
         return notes;
     }

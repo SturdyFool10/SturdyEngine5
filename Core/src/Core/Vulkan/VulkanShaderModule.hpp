@@ -21,29 +21,64 @@ using std::span;
 
 namespace SFT::Core::Vulkan {
 
-    /// Maps a reflected Slang stage onto its Vulkan stage bit. Returns 0 for stages that have no
-    /// direct VkShaderStageFlagBits (Unknown / Dispatch); callers treat 0 as "unmappable".
+
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param stage `stage` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan shader stage representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] VkShaderStageFlagBits to_vk_shader_stage(Slang::ShaderStage stage) noexcept;
 
-    /// A single compiled SPIR-V entry point. The backend builds one of these per (source file, entry
-    /// point) pair. It carries the source file it came from, the entry point name and Vulkan stage,
-    /// and a shared handle to the full reflection of its source file — so pipeline construction can
-    /// read bindings/parameters without re-reflecting, and several entry points from one file share
-    /// a single reflection copy.
+
     class VulkanShaderModule {
       public:
+        /// Constructs a `VulkanShaderModule` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanShaderModule() = default;
+        /// Destroys the `VulkanShaderModule` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~VulkanShaderModule();
 
+        /// Disables this construction form for `VulkanShaderModule`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanShaderModule(const VulkanShaderModule &) = delete;
+        /// Assigns a new value to this `VulkanShaderModule`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanShaderModule &operator=(const VulkanShaderModule &) = delete;
 
+        /// Constructs a `VulkanShaderModule` from the supplied initialization values.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanShaderModule(VulkanShaderModule &&o) noexcept;
+        /// Assigns a new value to this `VulkanShaderModule`.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanShaderModule &operator=(VulkanShaderModule &&o) noexcept;
 
-        /// Takes SPIR-V as a span of 32-bit words (the natural format from glslc / slangc) plus the
-        /// provenance the backend keeps around: source file, entry point name + stage, and a shared
-        /// pointer to the source file's reflection.
+
+        /// Creates a `VulkanShaderModule` resource or value from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param spirv `spirv` value used by the operation.
+        /// @param source_file `source_file` value used by the operation.
+        /// @param entry_point `entry_point` value used by the operation.
+        /// @param stage `stage` value used by the operation.
+        /// @param reflection `reflection` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static RendererExpected<VulkanShaderModule> create(
             VkDevice device,
             span<const u32> spirv,
@@ -52,24 +87,54 @@ namespace SFT::Core::Vulkan {
             VkShaderStageFlagBits stage,
             shared_ptr<const Slang::ShaderReflection> reflection) noexcept;
 
-        /// Build the pipeline stage create info for this module. Uses the stored stage and entry point;
-        /// pass overrides only when intentionally reusing the module's SPIR-V under a different stage.
+
+        /// Performs the stage info operation for `VulkanShaderModule` using the supplied arguments.
+        ///
+        /// @param specialization `specialization` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkPipelineShaderStageCreateInfo stage_info(
             const VkSpecializationInfo *specialization = nullptr) const noexcept;
 
+        /// Returns the Vulkan handle associated with this `VulkanShaderModule`.
+        ///
+        /// @return Returns the current Vulkan handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkShaderModule vk_handle() const noexcept;
+        /// Reports whether valid holds for this `VulkanShaderModule`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
-        /// Borrowed views over the owned members. `ustr` can't be moved, but a prvalue built in the return
-        /// is elided into the caller — the one shape in which a borrowed return works.
+
+
+        /// Returns the current or globally available source file value.
+        ///
+        /// @return Returns the current source file value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ustr source_file() const noexcept;
+        /// Returns the current or globally available entry point value.
+        ///
+        /// @return Returns the current entry point value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ustr entry_point() const noexcept;
+        /// Returns the current or globally available stage value.
+        ///
+        /// @return Returns the current stage value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkShaderStageFlagBits stage() const noexcept;
 
-        /// The full reflection of the source file this entry point was compiled from. Shared with
-        /// every other module compiled from the same file; never null for a module created via
-        /// create() with a valid reflection.
+
+        /// Returns the current or globally available reflection value.
+        ///
+        /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const shared_ptr<const Slang::ShaderReflection> &reflection() const noexcept;
 
+        /// Destroys or releases the `VulkanShaderModule` resource represented by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy() noexcept;
 
       private:
@@ -81,20 +146,26 @@ namespace SFT::Core::Vulkan {
         shared_ptr<const Slang::ShaderReflection> reflection_;
     };
 
-    /// Identity for a compiled shader module: the source file it came from plus its entry point.
-    /// The backend keeps every VulkanShaderModule in a map under this key so a pipeline can ask for
-    /// "the vertex entry point of triangle.slang" directly.
+
     struct VulkanShaderModuleKey {
         UString source_file;
         UString entry_point;
 
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool operator==(const VulkanShaderModuleKey &) const = default;
     };
 
-    /// Hash functor for VulkanShaderModuleKey. Kept as a standalone functor (rather than a std::hash
-    /// specialization) so the map can be declared without exporting an addition to namespace std
-    /// across the module boundary.
+
     struct VulkanShaderModuleKeyHash {
+        /// Invokes the callable behavior provided by `VulkanShaderModuleKeyHash`.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::size_t operator()(const VulkanShaderModuleKey &key) const noexcept;
     };
 

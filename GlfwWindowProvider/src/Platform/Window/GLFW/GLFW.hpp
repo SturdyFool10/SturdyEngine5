@@ -5,8 +5,14 @@
 
 namespace SFT::Platform::Windowing::GLFW {
 
-    /// Explicit factory referenced by products that choose the optional provider. Merely building or
-    /// linking Sturdy::GlfwWindowProvider does not retain it in a static executable.
+
+    /// Creates a window from the supplied parameters.
+    ///
+    /// @param config Configuration values controlling the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] expected<unique_ptr<Window>, WindowError>
     create_window(const WindowConfig &config) noexcept;
 

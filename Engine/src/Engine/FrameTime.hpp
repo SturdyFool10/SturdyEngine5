@@ -5,22 +5,31 @@
 
 namespace SFT::Engine {
 
-    /// Global, window-independent frame timing for Ecs::ReadResource<FrameTime> consumers. Engine owns
-    /// the persistent instance; Engine::update(delta_seconds) advances it once per call, before running
-    /// update_schedule_, so every system in that schedule's stages sees the same delta for the whole
-    /// tick regardless of how many (or how few) windows are attached — unlike Core::FrameInput, which
-    /// is deliberately per-window (see WindowState.hpp's own doc comment on why that split exists).
-    ///
-    /// delta_seconds() is scaled by TimeScale (see TimeScale.hpp) — the delta most gameplay systems
-    /// want, since it's what pauses/slows/speeds up under a game's own time controls.
-    /// unscaled_delta_seconds() is real wall-clock time, for UI/editor/profiling systems that must keep
-    /// moving at normal speed even while gameplay is paused or in slow motion.
+
     class FrameTime {
       public:
+        /// Performs the advance operation for `FrameTime` using the supplied arguments.
+        ///
+        /// @param unscaled_delta_seconds `unscaled_delta_seconds` value used by the operation.
+        /// @param scale `scale` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void advance(f64 unscaled_delta_seconds, f64 scale) noexcept;
 
+        /// Returns the current or globally available delta seconds value.
+        ///
+        /// @return Returns the current delta seconds value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f64 delta_seconds() const noexcept;
+        /// Returns the current or globally available unscaled delta seconds value.
+        ///
+        /// @return Returns the current unscaled delta seconds value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f64 unscaled_delta_seconds() const noexcept;
+        /// Computes the tick index required by the supplied values.
+        ///
+        /// @return Returns the current tick index value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 tick_index() const noexcept;
 
       private:

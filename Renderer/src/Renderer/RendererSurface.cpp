@@ -13,6 +13,14 @@ using std::unexpected;
 
 namespace SFT::Renderer {
 
+    /// Creates a window surface from the supplied parameters.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param desired_frames_in_flight `desired_frames_in_flight` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<Core::RenderSurfaceHandle> Renderer::create_window_surface(
         Platform::Windowing::Window &window,
         u32 desired_frames_in_flight) {
@@ -35,14 +43,6 @@ namespace SFT::Renderer {
                 .desired_frames_in_flight = desired_frames_in_flight,
 
 
-
-
-
-
-
-
-
-
                 .presentation = recovery_create_info_.features.presentation,
                 .primary = false,
                 .frames_in_flight = {},
@@ -61,10 +61,14 @@ namespace SFT::Renderer {
         return *surface;
     }
 
+    /// Destroys the window surface identified by the supplied parameters.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_window_surface(Core::RenderSurfaceHandle surface) noexcept {
         ZoneScopedN("Renderer::destroy_window_surface");
-
-
 
 
         unique_ptr<WindowSurfaceRecord> record;
@@ -84,8 +88,6 @@ namespace SFT::Renderer {
         destroy_rhi_presentation_resources(*record);
 
 
-
-
         destroy_scene_gpu_resources(record->scene_frame_resources);
 
 
@@ -95,6 +97,13 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Handles the on surface resize needed callback and updates the associated platform state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::on_surface_resize_needed(Core::RenderSurfaceHandle surface, Core::Extent2D extent) noexcept {
         ZoneScopedN("Renderer::on_surface_resize_needed");
         if (graphics_backend_) {
@@ -105,6 +114,14 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Sets the presentation settings for this `Renderer`.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param settings Configuration values controlling the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::set_presentation_settings(Core::RenderSurfaceHandle surface,
                                                              const Core::PresentationSettings &settings) {
         ZoneScopedN("Renderer::set_presentation_settings");
@@ -118,12 +135,25 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     Core::PresentationSettings Renderer::presentation_settings(Core::RenderSurfaceHandle surface) const noexcept {
         ZoneScopedN("Renderer::presentation_settings");
         const WindowSurfaceRecord *record = window_surface(surface);
         return record != nullptr ? record->presentation : Core::PresentationSettings{};
     }
 
+    /// Queries HDR capabilities from the active backend or runtime state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`, `RhiErrorCode::OperationFailed`.
     RHI::RhiExpected<RHI::SurfaceHdrCapabilityQuery> Renderer::query_hdr_capabilities(
         Core::RenderSurfaceHandle surface) const {
         ZoneScopedN("Renderer::query_hdr_capabilities");
@@ -142,6 +172,14 @@ namespace SFT::Renderer {
         return device->query_hdr_capabilities(record->rhi_surface);
     }
 
+    /// Updates HDR content light level from the supplied values.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param update `update` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`, `RhiErrorCode::OperationFailed`.
     RHI::RhiResult Renderer::update_hdr_content_light_level(Core::RenderSurfaceHandle surface,
                                                              const RHI::HdrContentLightLevelUpdate &update) {
         ZoneScopedN("Renderer::update_hdr_content_light_level");
@@ -160,11 +198,16 @@ namespace SFT::Renderer {
         return device->update_hdr_content_light_level(record->rhi_swapchain, update);
     }
 
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     RHI::PresentationResolution Renderer::presentation_resolution(Core::RenderSurfaceHandle surface) const noexcept {
         ZoneScopedN("Renderer::presentation_resolution");
         const WindowSurfaceRecord *record = window_surface(surface);
         if (record == nullptr || !record->rhi_swapchain) {
-
 
 
             return RHI::PresentationResolution{};
@@ -176,6 +219,12 @@ namespace SFT::Renderer {
         return device->presentation_resolution(record->rhi_swapchain);
     }
 
+    /// Performs the last frame timings operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     FrameTimingSnapshot Renderer::last_frame_timings(Core::RenderSurfaceHandle surface) const noexcept {
         ZoneScopedN("Renderer::last_frame_timings");
         const WindowSurfaceRecord *record = window_surface(surface);
@@ -186,6 +235,13 @@ namespace SFT::Renderer {
         return *snapshot;
     }
 
+    /// Performs the window surface operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) noexcept {
         ZoneScopedN("Renderer::window_surface");
         auto guard = window_surfaces_.lock();
@@ -197,6 +253,13 @@ namespace SFT::Renderer {
         return nullptr;
     }
 
+    /// Performs the window surface operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const Renderer::WindowSurfaceRecord *Renderer::window_surface(Core::RenderSurfaceHandle surface) const noexcept {
         ZoneScopedN("Renderer::window_surface");
         auto guard = window_surfaces_.lock();

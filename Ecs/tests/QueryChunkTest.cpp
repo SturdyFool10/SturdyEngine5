@@ -59,6 +59,13 @@ namespace {
     using SFT::Ecs::World;
     using TestTypes::Position;
 
+    /// Checks the supplied condition and reports the accompanying diagnostic message when it is false.
+    ///
+    /// @param condition Condition controlling whether the operation proceeds.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool check(bool condition, const char *message) {
         if (!condition) {
             std::cerr << "FAILED: " << message << '\n';
@@ -66,6 +73,13 @@ namespace {
         return condition;
     }
 
+    /// Spawns rows.
+    ///
+    /// @param world World used or affected by the operation.
+    /// @param count Number of elements or operations to process.
+    /// @param next_value Value consumed by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class Marker>
     void spawn_rows(World &world, std::uint32_t count, std::uint32_t &next_value) {
         for (std::uint32_t row = 0; row < count; ++row) {
@@ -73,6 +87,12 @@ namespace {
         }
     }
 
+    /// Spawns fragmented rows.
+    ///
+    /// @param world World used or affected by the operation.
+    /// @param rows_per_archetype `rows_per_archetype` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void spawn_fragmented_rows(World &world, std::uint32_t rows_per_archetype) {
         std::uint32_t next_value = 0;
         spawn_rows<TestTypes::Marker00>(world, rows_per_archetype, next_value);
@@ -93,6 +113,10 @@ namespace {
         spawn_rows<TestTypes::Marker15>(world, rows_per_archetype, next_value);
     }
 
+    /// Returns the current or globally available fragmented query uses global budget value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool fragmented_query_uses_global_budget() {
         constexpr std::uint32_t archetype_count = 16;
         constexpr std::uint32_t rows_per_archetype = 4096;
@@ -172,6 +196,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available single archetype and normalized inputs value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool single_archetype_and_normalized_inputs() {
         constexpr std::uint32_t row_count = 4096;
         ComponentRegistry registry;
@@ -187,6 +215,10 @@ namespace {
                check(normalized_chunks.size() == 1, "zero chunk arguments were not normalized to one");
     }
 
+    /// Returns the current or globally available uneven archetypes preserve boundaries value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool uneven_archetypes_preserve_boundaries() {
         constexpr std::size_t total_rows = 1 + 129 + 257;
         ComponentRegistry registry;
@@ -211,6 +243,10 @@ namespace {
                check(chunk_sizes_valid, "uneven archetype chunk exceeded the global chunk size");
     }
 
+    /// Reports whether empty query has no chunks.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool empty_query_has_no_chunks() {
         ComponentRegistry registry;
         World world{registry};
@@ -220,6 +256,10 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     bool passed = true;
     passed &= fragmented_query_uses_global_budget();

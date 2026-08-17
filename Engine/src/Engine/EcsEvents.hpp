@@ -15,8 +15,7 @@ namespace SFT::Engine {
         Released,
     };
 
-    /// Every translated platform event, preserved losslessly for consumers that need an event kind not
-    /// covered by one of the typed convenience streams below.
+
     struct WindowEvent {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowEvent event{};
@@ -30,12 +29,19 @@ namespace SFT::Engine {
         KeyboardKey key_code = KeyboardKey::Unknown;
         ButtonAction action = ButtonAction::Pressed;
         bool repeat = false;
-        /// Monotonic capture time (steady_clock epoch, ns) inherited from the originating
-        /// Platform::Windowing::WindowEvent -- see that struct's doc comment for how each backend
-        /// populates it.
+
+
         u64 timestamp_ns = 0;
 
+        /// Returns the current or globally available pressed value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool pressed() const noexcept;
+        /// Returns the current or globally available released value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool released() const noexcept;
     };
 
@@ -45,8 +51,7 @@ namespace SFT::Engine {
         u64 timestamp_ns = 0;
     };
 
-    /// IME composition/preedit update — see Platform::Windowing::WindowTextEditingEvent's own doc
-    /// comment, in particular that an empty `text.utf8` means composition just ended.
+
     struct TextEditingEvent {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowTextEditingEvent text{};
@@ -80,15 +85,27 @@ namespace SFT::Engine {
         u64 timestamp_ns = 0;
     };
 
-    /// Ordinary resource populated by Application's platform pump. It deliberately is not Events<T>:
-    /// Schedule::run() clears event resources before producer systems execute, so this inbox survives
-    /// until the built-in producer system publishes its contents into the typed event streams.
+
     class PlatformEventInbox {
       public:
+        /// Adds the supplied value to the end or work queue.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param event Event used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void push(Platform::Windowing::WindowId window, Platform::Windowing::WindowEvent event);
 
+        /// Drains the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @return Returns the current drain value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::vector<WindowEvent> drain() noexcept;
 
+        /// Reports whether this `PlatformEventInbox` contains no elements or payload.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool empty() const noexcept;
 
       private:

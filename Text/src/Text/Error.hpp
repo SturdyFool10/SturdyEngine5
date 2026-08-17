@@ -12,19 +12,16 @@ using std::unexpected;
 
 namespace SFT::Text {
 
-    /// The Text package's own error taxonomy — deliberately separate from RHI::RhiError/
-    /// Core::GraphicsBackendError so this stays a standalone, GPU-independent contract. Mirrors the
-    /// same `expected`-based, exception-free shape used everywhere else in the engine
-    /// (see RHI/Error.cppm).
+
     enum class TextErrorCode {
-        /// A caller-supplied argument was structurally invalid (empty font data, an out-of-range
-        /// glyph id, ...) — a caller-side bug rather than a runtime condition.
+
+
         InvalidArgument,
-        /// Font data could not be parsed into a usable HarfBuzz face/font.
+
         LoadFailed,
-        /// HarfBuzz shaping did not produce a usable glyph run.
+
         ShapingFailed,
-        /// Outline extraction (hb-draw) or SDF/MSDF generation (msdfgen) failed for a glyph.
+
         RasterizationFailed,
     };
 
@@ -33,12 +30,19 @@ namespace SFT::Text {
         UString message;
     };
 
-    /// `TextResult` — a fallible Text call with no value; `TextExpected<T>` — one that yields a `T`.
+
     using TextResult = expected<void, TextError>;
 
     template <typename Value>
     using TextExpected = expected<Value, TextError>;
 
+    /// Creates an error result describing the supplied text failure.
+    ///
+    /// @param code `code` value used by the operation.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     [[nodiscard]] unexpected<TextError> text_error(TextErrorCode code, UString message);
 
 } // namespace SFT::Text

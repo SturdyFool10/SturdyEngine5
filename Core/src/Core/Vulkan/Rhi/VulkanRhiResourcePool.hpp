@@ -12,22 +12,16 @@
 
 namespace SFT::Core::Vulkan {
 
-    /// Maps an opaque Sturdy.RHI handle (see Sturdy.RHI :Handles — `Handle<Tag>{u64 value}`) onto the
-    /// move-only Vulkan RAII object that backs it. One instance per resource kind in
-    /// VulkanRhiDeviceBridge. Handles are minted from a monotonically increasing counter and never
-    /// reused; there is no generation check because the RHI documents destroying a resource still
-    /// referenced by in-flight work as caller error, not something the pool needs to catch.
-    ///
-    /// Mutex-guarded so multiple windows' render calls can create/look up/destroy resources
-    /// concurrently (see plans/parallel-renderer-submission.md) — each call's critical section is a
-    /// single map operation, never cross-pool, so one mutex per pool instance is sufficient.
-    /// Async::Mutex<T> rather than a bare std::mutex + map so the map is simply unreachable without
-    /// holding the lock. find()'s returned pointer is only valid while some lock on this pool is held
-    /// (or trusted single-threaded use) — same contract a bare mutex + map would have given no
-    /// generation check, just enforced by construction here instead of by convention.
+
     template <typename HandleT, typename Stored>
     class VulkanRhiResourcePool {
       public:
+        /// Inserts the supplied value or range at the requested position.
+        ///
+        /// @param object `object` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] HandleT insert(Stored &&object) {
             const u64 id = next_id_.fetch_add(1, std::memory_order_relaxed);
             auto storage = storage_.lock();
@@ -35,26 +29,44 @@ namespace SFT::Core::Vulkan {
             return HandleT{id};
         }
 
+        /// Finds the requested entry in the available state.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Stored *find(HandleT handle) noexcept {
             auto storage = storage_.lock();
             auto it = storage->find(handle.value);
             return it != storage->end() ? &it->second : nullptr;
         }
 
+        /// Finds the requested entry in the available state.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const Stored *find(HandleT handle) const noexcept {
             auto storage = storage_.lock();
             auto it = storage->find(handle.value);
             return it != storage->end() ? &it->second : nullptr;
         }
 
+        /// Erases the selected element or range from the container.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note This function does not throw exceptions.
         void erase(HandleT handle) noexcept {
             auto storage = storage_.lock();
             storage->erase(handle.value);
         }
 
-        /// Applies `destroy` to every remaining object while exclusively owning the pool, then clears
-        /// all handle mappings. Intended for device teardown after the caller has made the device idle;
-        /// ordinary lifetime management should continue using the typed destroy_* RHI entry points.
+
+        /// Drains the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @note This function does not throw exceptions.
         template <typename Destroy>
         void drain(Destroy &&destroy) noexcept {
             auto storage = storage_.lock();

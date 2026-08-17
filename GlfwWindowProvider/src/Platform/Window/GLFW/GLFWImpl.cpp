@@ -34,6 +34,13 @@ using std::vector;
 
 namespace SFT::Platform::Windowing::GLFW {
 
+    /// Creates a window from the supplied parameters.
+    ///
+    /// @param config Configuration values controlling the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<unique_ptr<Window>, WindowError> create_window(const WindowConfig &config) noexcept {
         ZoneScopedN("GLFW::create_window");
         auto created = Window::create<GLFWWindow>(config);
@@ -45,6 +52,12 @@ namespace SFT::Platform::Windowing::GLFW {
 
     namespace {
 
+        /// Performs the keyboard key operation for `GLFW` using the supplied arguments.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] KeyboardKey keyboard_key(int key) noexcept {
             const KeyboardKey ascii_key = keyboard_key_from_ascii(key);
             if (ascii_key != KeyboardKey::Unknown) {
@@ -85,11 +98,12 @@ namespace SFT::Platform::Windowing::GLFW {
         }
 
 
-
-
-
-
-
+        /// Applies raw mouse motion using the supplied arguments and current state.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @note This function does not throw exceptions.
         void apply_raw_mouse_motion(GLFWwindow *window, bool enabled) noexcept {
             if (enabled && glfwRawMouseMotionSupported()) {
                 glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
@@ -98,12 +112,25 @@ namespace SFT::Platform::Windowing::GLFW {
             }
         }
 
+        /// Creates an error result describing the supplied GLFW failure.
+        ///
+        /// @param code `code` value used by the operation.
+        /// @param fallback Fallback value used when the primary value is unavailable.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         WindowError glfw_error(WindowErrorCode code, const char *fallback) noexcept {
             const char *description = nullptr;
             glfwGetError(&description);
             return WindowError{code, description && description[0] != '\0' ? description : fallback};
         }
 
+        /// Reports whether valid extent is valid for the current operation.
+        ///
+        /// @param extent `extent` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool valid_extent(WindowExtent extent) noexcept {
             return extent.x > 0 && extent.y > 0 &&
                    extent.x <=
@@ -112,6 +139,11 @@ namespace SFT::Platform::Windowing::GLFW {
                        static_cast<u32>(numeric_limits<int>::max());
         }
 
+        /// Applies window hints using the supplied arguments and current state.
+        ///
+        /// @param config Configuration values controlling the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void apply_window_hints(const WindowConfig &config) noexcept {
             glfwDefaultWindowHints();
             glfwWindowHint(GLFW_VISIBLE, config.visible ? GLFW_TRUE : GLFW_FALSE);
@@ -130,6 +162,13 @@ namespace SFT::Platform::Windowing::GLFW {
             }
         }
 
+        /// Performs the monitor for mode operation for `GLFW` using the supplied arguments.
+        ///
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] GLFWmonitor *monitor_for_mode(WindowMode mode) noexcept {
             if (mode == WindowMode::Windowed) [[likely]] {
                 return nullptr;
@@ -138,6 +177,12 @@ namespace SFT::Platform::Windowing::GLFW {
             return glfwGetPrimaryMonitor();
         }
 
+        /// Returns the current or globally available GLFW success value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> glfw_success() noexcept {
             const int code = glfwGetError(nullptr);
             if (code == GLFW_NO_ERROR) [[likely]] {
@@ -151,26 +196,41 @@ namespace SFT::Platform::Windowing::GLFW {
         }
 
 
-
-
-
-
-
+        /// Returns the current or globally available GLFW window mutex value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         Async::Mutex<std::monostate> &glfw_window_mutex() noexcept {
             static Async::Mutex<std::monostate> mutex;
             return mutex;
         }
 
+        /// Returns the GLFW window count for this `GLFW`.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         int &glfw_window_count() noexcept {
             static int count = 0;
             return count;
         }
 
+        /// Creates an error result describing the supplied destroyed window failure.
+        ///
+        /// @return Returns the current destroyed window error value.
+        /// @note This function does not throw exceptions.
         WindowError destroyed_window_error() noexcept {
             return WindowError{WindowErrorCode::OperationFailed,
                                "GLFW window has already been destroyed."};
         }
 
+        /// Performs the require live window operation for `GLFW` using the supplied arguments.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param operation `operation` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> require_live_window(GLFWwindow *window,
                                                         const char *operation) noexcept {
             if (window) [[likely]] {
@@ -183,6 +243,12 @@ namespace SFT::Platform::Windowing::GLFW {
             return unexpected(destroyed_window_error());
         }
 
+        /// Converts the value to GLFW standard cursor representation.
+        ///
+        /// @param icon `icon` value used by the operation.
+        ///
+        /// @return Returns the value converted to GLFW standard cursor representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] int to_glfw_standard_cursor(CursorIcon icon) noexcept {
             switch (icon) {
                 case CursorIcon::Default: return GLFW_ARROW_CURSOR;
@@ -201,21 +267,34 @@ namespace SFT::Platform::Windowing::GLFW {
             return GLFW_ARROW_CURSOR;
         }
 
+        /// Performs the window from GLFW operation for `GLFW` using the supplied arguments.
+        ///
+        /// @param window Window used or affected by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note This function does not throw exceptions.
         GLFWWindow *window_from_glfw(GLFWwindow *window) noexcept {
             return window ? static_cast<GLFWWindow *>(glfwGetWindowUserPointer(window))
                           : nullptr;
         }
 
 
-
-
-
+        /// Returns the current or globally available steady now ns value.
+        ///
+        /// @return Returns the current steady now ns value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 steady_now_ns() noexcept {
             return static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                          std::chrono::steady_clock::now().time_since_epoch())
                                          .count());
         }
 
+        /// Performs the mouse button state operation for `GLFW` using the supplied arguments.
+        ///
+        /// @param window Window used or affected by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         u32 mouse_button_state(GLFWwindow *window) noexcept {
             if (!window) [[unlikely]] {
                 return 0;
@@ -233,6 +312,11 @@ namespace SFT::Platform::Windowing::GLFW {
 
     } // namespace
 
+    /// Handles the GLFW close callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_close_callback(GLFWwindow *window) {
         ZoneScopedN("GLFW::glfw_close_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -242,6 +326,13 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Handles the GLFW window pos callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_window_pos_callback(GLFWwindow *window, int x, int y) {
         ZoneScopedN("GLFW::glfw_window_pos_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -252,6 +343,13 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Handles the GLFW window size callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_window_size_callback(GLFWwindow *window, int width, int height) {
         ZoneScopedN("GLFW::glfw_window_size_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -275,6 +373,13 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Handles the GLFW framebuffer size callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_framebuffer_size_callback(GLFWwindow *window, int width, int height) {
         ZoneScopedN("GLFW::glfw_framebuffer_size_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -298,6 +403,12 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Handles the GLFW window focus callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param focused `focused` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_window_focus_callback(GLFWwindow *window, int focused) {
         ZoneScopedN("GLFW::glfw_window_focus_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -308,6 +419,12 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Handles the GLFW cursor enter callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param entered `entered` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_cursor_enter_callback(GLFWwindow *window, int entered) {
         ZoneScopedN("GLFW::glfw_cursor_enter_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -318,6 +435,15 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Handles the GLFW key callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param key Key used to identify the requested entry.
+    /// @param scancode `scancode` value used by the operation.
+    /// @param action `action` value used by the operation.
+    /// @param mods `mods` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, int mods) {
         ZoneScopedN("GLFW::glfw_key_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -340,6 +466,12 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Handles the GLFW char callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param codepoint `codepoint` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_char_callback(GLFWwindow *window, unsigned int codepoint) {
         ZoneScopedN("GLFW::glfw_char_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -368,11 +500,13 @@ namespace SFT::Platform::Windowing::GLFW {
     }
 
 
-
-
-
-
-
+    /// Performs the GLFW native preedit trampoline operation for `GLFW` using the supplied arguments.
+    ///
+    /// @param text Text consumed by the operation.
+    /// @param cursor_pos `cursor_pos` value used by the operation.
+    /// @param user_data Data consumed or referenced by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_native_preedit_trampoline(const char *text, int cursor_pos, void *user_data) {
         ZoneScopedN("GLFW::glfw_native_preedit_trampoline");
         auto *target = static_cast<GLFWWindow *>(user_data);
@@ -389,6 +523,13 @@ namespace SFT::Platform::Windowing::GLFW {
         target->events_.push_back(event);
     }
 
+    /// Handles the GLFW cursor pos callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_cursor_pos_callback(GLFWwindow *window, f64 x, f64 y) {
         ZoneScopedN("GLFW::glfw_cursor_pos_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -410,6 +551,13 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Handles the GLFW mouse button callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param button `button` value used by the operation.
+    /// @param action `action` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_mouse_button_callback(GLFWwindow *window, int button, int action, int) {
         ZoneScopedN("GLFW::glfw_mouse_button_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -435,6 +583,13 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Handles the GLFW scroll callback callback and updates the associated platform state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_scroll_callback(GLFWwindow *window, f64 x, f64 y) {
         ZoneScopedN("GLFW::glfw_scroll_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
@@ -454,6 +609,12 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Performs the glfwwindow operation for `GLFW` using the supplied arguments.
+    ///
+    /// @param key Key used to identify the requested entry.
+    /// @param window Window used or affected by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     GLFWWindow::GLFWWindow(ConstructorKey key, GLFWwindow *window) noexcept
         : Window(key), window_(window) {
         ZoneScopedN("GLFWWindow::GLFWWindow");
@@ -470,6 +631,9 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Destroys the `GLFW` and releases resources owned by it.
+    ///
+    /// @note This function does not throw exceptions.
     GLFWWindow::~GLFWWindow() noexcept {
         ZoneScopedN("GLFWWindow::~GLFWWindow");
         auto lock = glfw_window_mutex().lock();
@@ -508,6 +672,16 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Constructs the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param key Key used to identify the requested entry.
+    /// @param config Configuration values controlling the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`, `WindowErrorCode::Unsupported`, `WindowErrorCode::BackendUnavailable`, `WindowErrorCode::CreationFailed`, `WindowErrorCode::OutOfMemory`.
+    /// @note Allocation failure is converted to the implementation's out-of-memory error/status rather than escaping as `std::bad_alloc`.
+    /// @note This function does not throw exceptions.
     expected<unique_ptr<GLFWWindow>, WindowError>
     GLFWWindow::construct(ConstructorKey key, const WindowConfig &config) noexcept {
         ZoneScopedN("GLFWWindow::construct");
@@ -623,7 +797,6 @@ namespace SFT::Platform::Windowing::GLFW {
             auto wrapper = unique_ptr<GLFWWindow>(new GLFWWindow(key, window));
 
 
-
             wrapper->fullscreen_mode_ = config.mode;
             glfwSetWindowUserPointer(window, wrapper.get());
             glfwSetWindowCloseCallback(window, glfw_close_callback);
@@ -637,7 +810,6 @@ namespace SFT::Platform::Windowing::GLFW {
             glfwSetCursorPosCallback(window, glfw_cursor_pos_callback);
             glfwSetMouseButtonCallback(window, glfw_mouse_button_callback);
             glfwSetScrollCallback(window, glfw_scroll_callback);
-
 
 
             (void)Detail::install_ime_composition_hook(window, &glfw_native_preedit_trampoline, wrapper.get());
@@ -658,16 +830,29 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Returns the current or globally available backend kind value.
+    ///
+    /// @return Returns the current backend kind value.
+    /// @note This function does not throw exceptions.
     WindowBackendKind GLFWWindow::backend_kind() const noexcept {
         ZoneScopedN("GLFWWindow::backend_kind");
         return WindowBackendKind::GLFW;
     }
 
+    /// Returns the runtime or backend type represented by `GLFW`.
+    ///
+    /// @return Returns the current type value.
+    /// @note This function does not throw exceptions.
     WindowingSystem GLFWWindow::type() const noexcept {
         ZoneScopedN("GLFWWindow::type");
         return WindowingSystem::GLFW;
     }
 
+    /// Returns the native backend handle associated with this `GLFW`.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void *, WindowError> GLFWWindow::native_backend_handle() const noexcept {
         ZoneScopedN("GLFWWindow::native_backend_handle");
         auto lock = glfw_window_mutex().lock();
@@ -681,12 +866,22 @@ namespace SFT::Platform::Windowing::GLFW {
         return window_;
     }
 
+    /// Returns the native window handle associated with this `GLFW`.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<NativeWindowHandle, WindowError> GLFWWindow::native_window_handle() const noexcept {
         ZoneScopedN("GLFWWindow::native_window_handle");
         auto lock = glfw_window_mutex().lock();
         return native_window_handle_locked();
     }
 
+    /// Returns the current or globally available native window handle locked value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<NativeWindowHandle, WindowError> GLFWWindow::native_window_handle_locked() const noexcept {
         ZoneScopedN("GLFWWindow::native_window_handle_locked");
         if (!window_) [[unlikely]] {
@@ -712,6 +907,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return *handle;
     }
 
+    /// Pumps events using the supplied arguments and current state.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::pump_events() noexcept {
         ZoneScopedN("GLFWWindow::pump_events");
         auto lock = glfw_window_mutex().lock();
@@ -734,6 +934,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return {};
     }
 
+    /// Polls event for available work or state changes.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note This function does not throw exceptions.
     optional<WindowEvent> GLFWWindow::poll_event() noexcept {
         ZoneScopedN("GLFWWindow::poll_event");
         auto lock = glfw_window_mutex().lock();
@@ -746,12 +951,20 @@ namespace SFT::Platform::Windowing::GLFW {
         return event;
     }
 
+    /// Closes requested using the supplied arguments and current state.
+    ///
+    /// @return Returns the current close requested value.
+    /// @note This function does not throw exceptions.
     bool GLFWWindow::close_requested() const noexcept {
         ZoneScopedN("GLFWWindow::close_requested");
         auto lock = glfw_window_mutex().lock();
         return close_requested_locked();
     }
 
+    /// Closes requested locked using the supplied arguments and current state.
+    ///
+    /// @return Returns the current close requested locked value.
+    /// @note This function does not throw exceptions.
     bool GLFWWindow::close_requested_locked() const noexcept {
         ZoneScopedN("GLFWWindow::close_requested_locked");
         if (!window_) [[unlikely]] {
@@ -763,6 +976,10 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfwWindowShouldClose(window_) == GLFW_TRUE;
     }
 
+    /// Requests close using the supplied arguments and current state.
+    ///
+    /// @return Returns the current request close value.
+    /// @note This function does not throw exceptions.
     void GLFWWindow::request_close() noexcept {
         ZoneScopedN("GLFWWindow::request_close");
         auto lock = glfw_window_mutex().lock();
@@ -782,12 +999,20 @@ namespace SFT::Platform::Windowing::GLFW {
         events_.push_back(close_event);
     }
 
+    /// Changes the logical size to the requested value, creating or removing elements as needed.
+    ///
+    /// @return Returns the current resized value.
+    /// @note This function does not throw exceptions.
     bool GLFWWindow::resized() const noexcept {
         ZoneScopedN("GLFWWindow::resized");
         auto lock = glfw_window_mutex().lock();
         return pending_resize_.has_value();
     }
 
+    /// Returns the current or globally available consume resize value.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note This function does not throw exceptions.
     optional<WindowResize> GLFWWindow::consume_resize() noexcept {
         ZoneScopedN("GLFWWindow::consume_resize");
         auto lock = glfw_window_mutex().lock();
@@ -796,6 +1021,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return resize;
     }
 
+    /// Returns the current or globally available show value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::show() noexcept {
         ZoneScopedN("GLFWWindow::show");
         auto lock = glfw_window_mutex().lock();
@@ -809,6 +1039,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Returns the current or globally available hide value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::hide() noexcept {
         ZoneScopedN("GLFWWindow::hide");
         auto lock = glfw_window_mutex().lock();
@@ -822,6 +1057,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Returns the current or globally available focus value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::focus() noexcept {
         ZoneScopedN("GLFWWindow::focus");
         auto lock = glfw_window_mutex().lock();
@@ -835,6 +1075,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Returns the current or globally available raise value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::raise() noexcept {
         ZoneScopedN("GLFWWindow::raise");
         auto lock = glfw_window_mutex().lock();
@@ -849,6 +1094,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Returns the current or globally available maximize value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::maximize() noexcept {
         ZoneScopedN("GLFWWindow::maximize");
         auto lock = glfw_window_mutex().lock();
@@ -862,6 +1112,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Returns the current or globally available minimize value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::minimize() noexcept {
         ZoneScopedN("GLFWWindow::minimize");
         auto lock = glfw_window_mutex().lock();
@@ -875,6 +1130,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Returns the current or globally available restore value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::restore() noexcept {
         ZoneScopedN("GLFWWindow::restore");
         auto lock = glfw_window_mutex().lock();
@@ -888,6 +1148,14 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Sets the title for this `GLFW`.
+    ///
+    /// @param title `title` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_title(const char *title) noexcept {
         ZoneScopedN("GLFWWindow::set_title");
         auto lock = glfw_window_mutex().lock();
@@ -907,6 +1175,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Returns the current or globally available position value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<WindowPosition, WindowError> GLFWWindow::position() const noexcept {
         ZoneScopedN("GLFWWindow::position");
         auto lock = glfw_window_mutex().lock();
@@ -924,6 +1197,13 @@ namespace SFT::Platform::Windowing::GLFW {
         return WindowPosition{x, y};
     }
 
+    /// Sets the position for this `GLFW`.
+    ///
+    /// @param position `position` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_position(WindowPosition position) noexcept {
         ZoneScopedN("GLFWWindow::set_position");
         auto lock = glfw_window_mutex().lock();
@@ -939,6 +1219,12 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Returns the current or globally available global cursor position value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::Unsupported`.
+    /// @note This function does not throw exceptions.
     expected<WindowPosition, WindowError> GLFWWindow::global_cursor_position() const noexcept {
         ZoneScopedN("GLFWWindow::global_cursor_position");
         auto lock = glfw_window_mutex().lock();
@@ -955,9 +1241,6 @@ namespace SFT::Platform::Windowing::GLFW {
 #endif
 
 
-
-
-
         f64 x = 0.0;
         f64 y = 0.0;
         glfwGetCursorPos(window_, &x, &y);
@@ -967,12 +1250,22 @@ namespace SFT::Platform::Windowing::GLFW {
         return WindowPosition{window_x + static_cast<i32>(x), window_y + static_cast<i32>(y)};
     }
 
+    /// Returns the size for this `GLFW`.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<WindowExtent, WindowError> GLFWWindow::size() const noexcept {
         ZoneScopedN("GLFWWindow::size");
         auto lock = glfw_window_mutex().lock();
         return size_locked();
     }
 
+    /// Returns the current or globally available size locked value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<WindowExtent, WindowError> GLFWWindow::size_locked() const noexcept {
         ZoneScopedN("GLFWWindow::size_locked");
         if (auto live = require_live_window(window_, "size"); !live) [[unlikely]] {
@@ -991,6 +1284,14 @@ namespace SFT::Platform::Windowing::GLFW {
                             static_cast<u32>(height)};
     }
 
+    /// Sets the size for this `GLFW`.
+    ///
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_size(WindowExtent extent) noexcept {
         ZoneScopedN("GLFWWindow::set_size");
         auto lock = glfw_window_mutex().lock();
@@ -1019,6 +1320,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Returns the framebuffer size for this `GLFW`.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<WindowExtent, WindowError> GLFWWindow::framebuffer_size() const noexcept {
         ZoneScopedN("GLFWWindow::framebuffer_size");
         auto lock = glfw_window_mutex().lock();
@@ -1038,6 +1344,14 @@ namespace SFT::Platform::Windowing::GLFW {
                             static_cast<u32>(height)};
     }
 
+    /// Sets the minimum size for this `GLFW`.
+    ///
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_minimum_size(WindowExtent extent) noexcept {
         ZoneScopedN("GLFWWindow::set_minimum_size");
         auto lock = glfw_window_mutex().lock();
@@ -1066,6 +1380,14 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Sets the maximum size for this `GLFW`.
+    ///
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_maximum_size(WindowExtent extent) noexcept {
         ZoneScopedN("GLFWWindow::set_maximum_size");
         auto lock = glfw_window_mutex().lock();
@@ -1094,6 +1416,13 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Sets the resizable for this `GLFW`.
+    ///
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_resizable(bool enabled) noexcept {
         ZoneScopedN("GLFWWindow::set_resizable");
         auto lock = glfw_window_mutex().lock();
@@ -1109,6 +1438,13 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Sets the decorated for this `GLFW`.
+    ///
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_decorated(bool enabled) noexcept {
         ZoneScopedN("GLFWWindow::set_decorated");
         auto lock = glfw_window_mutex().lock();
@@ -1124,6 +1460,14 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Sets the fullscreen for this `GLFW`.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_fullscreen(WindowMode mode) noexcept {
         ZoneScopedN("GLFWWindow::set_fullscreen");
         auto lock = glfw_window_mutex().lock();
@@ -1184,15 +1528,26 @@ namespace SFT::Platform::Windowing::GLFW {
         glfwSetWindowMonitor(window_, monitor, 0, 0, mode_info->width, mode_info->height, mode_info->refreshRate);
 
 
-
         fullscreen_mode_ = mode;
         return glfw_success();
     }
 
+    /// Returns the current or globally available fullscreen mode value.
+    ///
+    /// @return Returns the current fullscreen mode value.
+    /// @note This function does not throw exceptions.
     WindowMode GLFWWindow::fullscreen_mode() const noexcept {
         return fullscreen_mode_;
     }
 
+    /// Sets the opacity for this `GLFW`.
+    ///
+    /// @param opacity `opacity` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_opacity(f32 opacity) noexcept {
         ZoneScopedN("GLFWWindow::set_opacity");
         auto lock = glfw_window_mutex().lock();
@@ -1217,6 +1572,11 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Returns the current or globally available opacity value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<f32, WindowError> GLFWWindow::opacity() const noexcept {
         ZoneScopedN("GLFWWindow::opacity");
         auto lock = glfw_window_mutex().lock();
@@ -1231,6 +1591,13 @@ namespace SFT::Platform::Windowing::GLFW {
         return result;
     }
 
+    /// Sets the cursor visible for this `GLFW`.
+    ///
+    /// @param visible `visible` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_cursor_visible(bool visible) noexcept {
         ZoneScopedN("GLFWWindow::set_cursor_visible");
         auto lock = glfw_window_mutex().lock();
@@ -1246,13 +1613,20 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Sets the cursor icon for this `GLFW`.
+    ///
+    /// @param icon `icon` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_cursor_icon(CursorIcon icon) noexcept {
         ZoneScopedN("GLFWWindow::set_cursor_icon");
         auto lock = glfw_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_cursor_icon"); !live) [[unlikely]] {
             return live;
         }
-
 
 
         if (current_cursor_icon_.has_value() && *current_cursor_icon_ == icon) {
@@ -1277,6 +1651,13 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Sets the cursor grabbed for this `GLFW`.
+    ///
+    /// @param grabbed `grabbed` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_cursor_grabbed(bool grabbed) noexcept {
         ZoneScopedN("GLFWWindow::set_cursor_grabbed");
         auto lock = glfw_window_mutex().lock();
@@ -1292,6 +1673,13 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Sets the relative mouse mode for this `GLFW`.
+    ///
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_relative_mouse_mode(bool enabled) noexcept {
         ZoneScopedN("GLFWWindow::set_relative_mouse_mode");
         auto lock = glfw_window_mutex().lock();
@@ -1309,6 +1697,13 @@ namespace SFT::Platform::Windowing::GLFW {
         return glfw_success();
     }
 
+    /// Sets the mouse locked for this `GLFW`.
+    ///
+    /// @param locked `locked` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_mouse_locked(bool locked) noexcept {
         ZoneScopedN("GLFWWindow::set_mouse_locked");
         auto lock = glfw_window_mutex().lock();
@@ -1337,12 +1732,23 @@ namespace SFT::Platform::Windowing::GLFW {
         return {};
     }
 
+    /// Returns the current or globally available mouse locked value.
+    ///
+    /// @return Returns the current mouse locked value.
+    /// @note This function does not throw exceptions.
     bool GLFWWindow::mouse_locked() const noexcept {
         ZoneScopedN("GLFWWindow::mouse_locked");
         auto lock = glfw_window_mutex().lock();
         return mouse_locked_;
     }
 
+    /// Enables window effect using the supplied arguments and current state.
+    ///
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     WindowEffectResult
     GLFWWindow::enable_window_effect(WindowEffect effect) noexcept {
         ZoneScopedN("GLFWWindow::enable_window_effect");
@@ -1374,21 +1780,48 @@ namespace SFT::Platform::Windowing::GLFW {
         return enable_native_window_effect(*handle, effect);
     }
 
+    /// Sets the effect for this `GLFW`.
+    ///
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_effect(WindowEffect effect) noexcept {
         ZoneScopedN("GLFWWindow::set_effect");
         return window_result_from_effect_result(enable_window_effect(effect));
     }
 
+    /// Sets the blur enabled for this `GLFW`.
+    ///
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_blur_enabled(bool enabled) noexcept {
         ZoneScopedN("GLFWWindow::set_blur_enabled");
         return set_effect(WindowEffect::blur(enabled));
     }
 
+    /// Sets the transparent for this `GLFW`.
+    ///
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_transparent(bool enabled) noexcept {
         ZoneScopedN("GLFWWindow::set_transparent");
         return set_effect(WindowEffect::transparent(enabled));
     }
 
+    /// Returns the current or globally available required vulkan instance extensions value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`, `WindowErrorCode::OutOfMemory`.
+    /// @note This function does not throw exceptions.
     expected<vector<const char *>, WindowError>
     GLFWWindow::required_vulkan_instance_extensions() const noexcept {
         ZoneScopedN("GLFWWindow::required_vulkan_instance_extensions");
@@ -1407,6 +1840,16 @@ namespace SFT::Platform::Windowing::GLFW {
         }
     }
 
+    /// Creates a vulkan surface from the supplied parameters.
+    ///
+    /// @param instance Instance used or affected by the operation.
+    /// @param allocation_callbacks Callable invoked by the operation.
+    /// @param surface_out Surface used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`, `WindowErrorCode::CreationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::create_vulkan_surface(
         void *instance,
         const void *allocation_callbacks,
@@ -1431,12 +1874,23 @@ namespace SFT::Platform::Windowing::GLFW {
         return {};
     }
 
+    /// Returns the current or globally available clipboard text value.
+    ///
+    /// @return Returns the current clipboard text value.
+    /// @note This function does not throw exceptions.
     std::string GLFWWindow::clipboard_text() const noexcept {
         ZoneScopedN("GLFWWindow::clipboard_text");
         const char *text = glfwGetClipboardString(window_);
         return text ? std::string(text) : std::string();
     }
 
+    /// Sets the clipboard text for this `GLFW`.
+    ///
+    /// @param text Text consumed by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_clipboard_text(std::string_view text) noexcept {
         ZoneScopedN("GLFWWindow::set_clipboard_text");
 
@@ -1446,6 +1900,13 @@ namespace SFT::Platform::Windowing::GLFW {
         return {};
     }
 
+    /// Sets the text input area for this `GLFW`.
+    ///
+    /// @param area `area` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_text_input_area(TextInputArea area) noexcept {
         ZoneScopedN("GLFWWindow::set_text_input_area");
         Detail::set_ime_composition_exclude_rect(window_, static_cast<int>(area.x), static_cast<int>(area.y),
@@ -1453,12 +1914,22 @@ namespace SFT::Platform::Windowing::GLFW {
         return {};
     }
 
+    /// Starts text input using the supplied arguments and current state.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::start_text_input() noexcept {
         ZoneScopedN("GLFWWindow::start_text_input");
         Detail::set_ime_enabled(window_, true);
         return {};
     }
 
+    /// Stops text input using the supplied arguments and current state.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::stop_text_input() noexcept {
         ZoneScopedN("GLFWWindow::stop_text_input");
         Detail::set_ime_enabled(window_, false);

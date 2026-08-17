@@ -38,6 +38,12 @@ namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkAccelerationStructureTypeKHR to_vk(rhi::AccelerationStructureType type) noexcept {
             switch (type) {
                 case rhi::AccelerationStructureType::BottomLevel: return VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
@@ -46,6 +52,12 @@ namespace SFT::Core::Vulkan {
             return VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
         }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param flags Flags controlling optional behavior.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkBuildAccelerationStructureFlagsKHR to_vk(rhi::AccelerationStructureBuildFlags flags) noexcept {
             VkBuildAccelerationStructureFlagsKHR out = 0;
             if (rhi::has_any(flags, rhi::AccelerationStructureBuildFlags::AllowUpdate)) out |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
@@ -56,6 +68,12 @@ namespace SFT::Core::Vulkan {
             return out;
         }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param flags Flags controlling optional behavior.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkGeometryFlagsKHR to_vk(rhi::AccelerationStructureGeometryFlags flags) noexcept {
             VkGeometryFlagsKHR out = 0;
             if (rhi::has_any(flags, rhi::AccelerationStructureGeometryFlags::Opaque)) out |= VK_GEOMETRY_OPAQUE_BIT_KHR;
@@ -63,6 +81,12 @@ namespace SFT::Core::Vulkan {
             return out;
         }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkCopyAccelerationStructureModeKHR to_vk(rhi::AccelerationStructureCopyMode mode) noexcept {
             switch (mode) {
                 case rhi::AccelerationStructureCopyMode::Clone: return VK_COPY_ACCELERATION_STRUCTURE_MODE_CLONE_KHR;
@@ -73,18 +97,37 @@ namespace SFT::Core::Vulkan {
             return VK_COPY_ACCELERATION_STRUCTURE_MODE_CLONE_KHR;
         }
 
+    /// Performs the device address const operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param address `address` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] VkDeviceOrHostAddressConstKHR device_address_const(VkDeviceAddress address) noexcept {
             VkDeviceOrHostAddressConstKHR out{};
             out.deviceAddress = address;
             return out;
         }
 
+    /// Performs the device address operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param address `address` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] VkDeviceOrHostAddressKHR device_address(VkDeviceAddress address) noexcept {
             VkDeviceOrHostAddressKHR out{};
             out.deviceAddress = address;
             return out;
         }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param geometry `geometry` value used by the operation.
+    /// @param bridge `bridge` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan geometry representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] VkAccelerationStructureGeometryKHR to_vk_geometry(
             const rhi::AccelerationStructureGeometryDesc &geometry,
             const VulkanRhiDeviceBridge &bridge) noexcept {
@@ -137,6 +180,12 @@ namespace SFT::Core::Vulkan {
             return out;
         }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param range Range of values to process.
+    ///
+    /// @return Returns the value converted to Vulkan range representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] VkAccelerationStructureBuildRangeInfoKHR to_vk_range(
             const rhi::AccelerationStructureBuildRangeInfo &range) noexcept {
             return VkAccelerationStructureBuildRangeInfoKHR{
@@ -147,6 +196,13 @@ namespace SFT::Core::Vulkan {
             };
         }
 
+    /// Performs the acceleration structure build sizes operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`.
     rhi::RhiExpected<rhi::AccelerationStructureBuildSizes> VulkanRhiDeviceBridge::acceleration_structure_build_sizes(
         const rhi::AccelerationStructureBuildDesc &desc) const {
         ZoneScopedN("VulkanRhiDeviceBridge::acceleration_structure_build_sizes");
@@ -195,6 +251,13 @@ namespace SFT::Core::Vulkan {
         };
     }
 
+    /// Creates a acceleration structure from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`, `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<rhi::AccelerationStructureHandle> VulkanRhiDeviceBridge::create_acceleration_structure(
         const rhi::AccelerationStructureDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_acceleration_structure");
@@ -237,11 +300,24 @@ namespace SFT::Core::Vulkan {
                                                                            std::move(*acceleration_structure)});
     }
 
+    /// Destroys the acceleration structure identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_acceleration_structure(rhi::AccelerationStructureHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_acceleration_structure");
         acceleration_structures_.erase(handle);
     }
 
+    /// Performs the buffer device address operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`, `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<u64> VulkanRhiDeviceBridge::buffer_device_address(rhi::BufferHandle handle) const {
         ZoneScopedN("VulkanRhiDeviceBridge::buffer_device_address");
         if (!enabled_features_.has(rhi::Feature::BufferDeviceAddress)) {
@@ -256,6 +332,13 @@ namespace SFT::Core::Vulkan {
         return record->buffer.device_address();
     }
 
+    /// Performs the acceleration structure device address operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`, `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<u64> VulkanRhiDeviceBridge::acceleration_structure_device_address(
         rhi::AccelerationStructureHandle handle) const {
         ZoneScopedN("VulkanRhiDeviceBridge::acceleration_structure_device_address");

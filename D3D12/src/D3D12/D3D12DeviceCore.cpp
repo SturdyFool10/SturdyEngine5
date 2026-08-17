@@ -20,11 +20,12 @@ namespace SFT::D3D12 {
     namespace {
 
 
-
-
-
         constexpr const wchar_t *pipeline_library_cache_path = L".cache/d3d12_pipeline_library.bin";
 
+        /// Reads pipeline library blob from the associated source.
+        ///
+        /// @return Returns the current read pipeline library blob value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] vector<std::byte> read_pipeline_library_blob() {
             std::error_code ec;
             const std::filesystem::path path(pipeline_library_cache_path);
@@ -44,10 +45,12 @@ namespace SFT::D3D12 {
         }
 
 
-
-
-
-
+        /// Loads pipeline library.
+        ///
+        /// @param device Device used or affected by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ComPtr<ID3D12PipelineLibrary1> load_pipeline_library(ID3D12Device *device) {
             ComPtr<ID3D12Device1> device1;
             if (FAILED(device->QueryInterface(IID_PPV_ARGS(&device1)))) {
@@ -66,8 +69,11 @@ namespace SFT::D3D12 {
         }
 
 
-
-
+        /// Saves pipeline library.
+        ///
+        /// @param library `library` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void save_pipeline_library(ID3D12PipelineLibrary1 *library) {
             if (library == nullptr) {
                 return;
@@ -102,6 +108,14 @@ namespace SFT::D3D12 {
             }
         }
 
+        /// Creates a queue from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param type Type value to inspect, select, or convert.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] rhi::RhiExpected<ComPtr<ID3D12CommandQueue>> create_queue(
             ID3D12Device *device, D3D12_COMMAND_LIST_TYPE type, const char *label) {
             const D3D12_COMMAND_QUEUE_DESC desc{
@@ -120,6 +134,11 @@ namespace SFT::D3D12 {
 
     } // namespace
 
+    /// Performs the d3 d12 device operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param info Description of the resource or operation to perform.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     D3D12Device::D3D12Device(D3D12DeviceCreateInfo &&info)
         : factory_(std::move(info.factory)), adapter_(std::move(info.adapter)), device_(std::move(info.device)),
           adapter_info_(std::move(info.adapter_info)), limits_(info.limits),
@@ -131,13 +150,13 @@ namespace SFT::D3D12 {
         enabled_features_ = feature_report_.enabled_features();
     }
 
+    /// Destroys the `D3D12` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     D3D12Device::~D3D12Device() {
 
 
-
-
         wait_idle();
-
 
 
         if (pipeline_library_supported_) {
@@ -162,6 +181,10 @@ namespace SFT::D3D12 {
         swapchains_.for_each([this](SwapchainRecord &record) { destroy_swapchain_textures(record); });
     }
 
+    /// Initializes the `D3D12` for use.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::initialize() {
         ZoneScopedN("D3D12Device::initialize");
         if (device_ == nullptr) {
@@ -169,14 +192,9 @@ namespace SFT::D3D12 {
         }
 
 
-
         (void)device_.As(&device5_);
         (void)device_.As(&device8_);
         (void)device_.As(&device10_);
-
-
-
-
 
 
         if (pipeline_library_supported_) {
@@ -193,7 +211,6 @@ namespace SFT::D3D12 {
         } else {
             return std::unexpected(queue.error());
         }
-
 
 
         if (auto queue = create_queue(device_.Get(), D3D12_COMMAND_LIST_TYPE_COMPUTE, "Sturdy compute queue")) {
@@ -233,8 +250,6 @@ namespace SFT::D3D12 {
                 return initialized;
             }
         }
-
-
 
 
         UINT64 timestamp_frequency = 0;

@@ -11,25 +11,16 @@
 
 namespace SFT::D3D12 {
 
-    /// Maps an opaque Sturdy.RHI handle (see Sturdy.RHI :Handles — `Handle<Tag>{u64 value}`) onto the
-    /// move-only D3D12 record that backs it. One instance per resource kind in D3D12Device. Handles are
-    /// minted from a monotonically increasing counter and never reused; there is no generation check
-    /// because the RHI documents destroying a resource still referenced by in-flight work as caller
-    /// error, not something the pool needs to catch.
-    ///
-    /// Mutex-guarded so multiple windows' render calls can create/look up/destroy resources
-    /// concurrently — each call's critical section is a single map operation, never cross-pool, so one
-    /// mutex per pool instance is sufficient. `Async::Mutex<T>` rather than a bare std::mutex + map so
-    /// the map is simply unreachable without holding the lock. find()'s returned pointer is only valid
-    /// while some lock on this pool is held (or under trusted single-threaded use) — the same contract
-    /// a bare mutex + map would have given, enforced by construction instead of by convention.
-    ///
-    /// Deliberately a near-copy of Core::Vulkan::VulkanRhiResourcePool rather than a shared base: the
-    /// two backends are independent implementations of the same contract, and a common pool type would
-    /// have to live in the RHI, which must not grow backend-implementation machinery.
+
     template <typename HandleT, typename Stored>
     class D3D12ResourcePool {
       public:
+        /// Inserts the supplied value or range at the requested position.
+        ///
+        /// @param object `object` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] HandleT insert(Stored &&object) {
             const u64 id = next_id_.fetch_add(1, std::memory_order_relaxed);
             auto storage = storage_.lock();
@@ -37,22 +28,37 @@ namespace SFT::D3D12 {
             return HandleT{id};
         }
 
+        /// Finds the requested entry in the available state.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Stored *find(HandleT handle) noexcept {
             auto storage = storage_.lock();
             auto it = storage->find(handle.value);
             return it != storage->end() ? &it->second : nullptr;
         }
 
+        /// Finds the requested entry in the available state.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const Stored *find(HandleT handle) const noexcept {
             auto storage = storage_.lock();
             auto it = storage->find(handle.value);
             return it != storage->end() ? &it->second : nullptr;
         }
 
-        /// Removes `handle`'s record and hands it back to the caller instead of destroying it in place.
-        /// Needed wherever teardown has to run outside the pool's lock — releasing a descriptor range
-        /// reaches back into the device's descriptor allocators, and doing that while still holding a
-        /// resource pool's lock is the one lock-ordering hazard this design can produce.
+
+        /// Performs the extract operation for `D3D12ResourcePool` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<Stored> extract(HandleT handle) noexcept {
             auto storage = storage_.lock();
             auto it = storage->find(handle.value);
@@ -64,13 +70,20 @@ namespace SFT::D3D12 {
             return record;
         }
 
+        /// Erases the selected element or range from the container.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note This function does not throw exceptions.
         void erase(HandleT handle) noexcept {
             auto storage = storage_.lock();
             storage->erase(handle.value);
         }
 
-        /// Applies `fn` to every live record. Used only by teardown paths that must release resources
-        /// in a specific order before the D3D12 device itself goes away.
+
+        /// Invokes the supplied function once for each element in the input range.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename Fn>
         void for_each(Fn &&fn) {
             auto storage = storage_.lock();

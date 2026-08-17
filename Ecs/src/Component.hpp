@@ -22,25 +22,32 @@ namespace SFT::Ecs {
     using ComponentId = u32;
     inline constexpr ComponentId invalid_component_id = std::numeric_limits<ComponentId>::max();
 
-    /// Stable, public identity for a component schema. Unlike ComponentId, this key is independent
-    /// of registration order and can cross a C ABI, language binding, serialized scene, or plugin
-    /// boundary. The dense ComponentId resolved by ComponentRegistry remains the hot-path value.
+
     struct ComponentKey {
         u64 high = 0;
         u64 low = 0;
 
+        /// Converts the `ComponentKey` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator bool() const noexcept {
             return high != 0 || low != 0;
         }
 
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend constexpr bool operator==(ComponentKey, ComponentKey) noexcept = default;
 
-        /// Two independently seeded FNV-style lanes provide a deterministic 128-bit key. The high
-        /// lane uses ordinary UTF-8 bytes/FNV prime; the low lane salts each byte by 0x9d and uses
-        /// the next odd multiplier. This does not depend on RTTI, compiler type names, process
-        /// addresses, or registration order and is straightforward to reproduce in FFI bindings.
-        /// ComponentRegistry still checks the canonical name/schema when a key already exists, so
-        /// a hash collision becomes a registration error instead of silent type aliasing.
+
+        /// Returns a human-readable name for the supplied from value.
+        ///
+        /// @param canonical_name Name used to identify or label the target.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static constexpr ComponentKey from_name(std::string_view canonical_name) noexcept {
             constexpr u64 fnv_prime = 1099511628211ull;
             u64 high_hash = 14695981039346656037ull;
@@ -59,6 +66,12 @@ namespace SFT::Ecs {
     static_assert(std::is_trivially_copyable_v<ComponentKey>);
 
     struct ComponentKeyHash {
+        /// Invokes the callable behavior provided by `ComponentKeyHash`.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize operator()(ComponentKey key) const noexcept;
     };
 
@@ -71,10 +84,24 @@ namespace SFT::Ecs {
         Tag = 1u << 4u,
     };
 
+    /// Combines the operands with bitwise OR.
+    ///
+    /// @param lhs Left-hand operand.
+    /// @param rhs Right-hand operand.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr ComponentFlags operator|(ComponentFlags lhs, ComponentFlags rhs) noexcept {
         return static_cast<ComponentFlags>(static_cast<u32>(lhs) | static_cast<u32>(rhs));
     }
 
+    /// Reports whether flag is available.
+    ///
+    /// @param value Value consumed by the operation.
+    /// @param flag `flag` value used by the operation.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool has_flag(ComponentFlags value, ComponentFlags flag) noexcept {
         return (static_cast<u32>(value) & static_cast<u32>(flag)) != 0;
     }
@@ -84,9 +111,7 @@ namespace SFT::Ecs {
     using ComponentMoveConstructFn = void (*)(void *destination, void *source, void *user_data) noexcept;
     using ComponentDestroyFn = void (*)(void *object, void *user_data) noexcept;
 
-    /// Complete runtime descriptor used by the non-templated storage core. `user_data` belongs to
-    /// the registering module/language runtime and is passed to every lifecycle callback. It must
-    /// outlive every World using this registry entry.
+
     struct ComponentInfo {
         ComponentKey key{};
         UString canonical_name;
@@ -117,8 +142,7 @@ namespace SFT::Ecs {
     template <class Value>
     using ComponentRegistryExpected = std::expected<Value, ComponentRegistryError>;
 
-    /// Native component types specialize this trait with a stable canonical name. Schema version
-    /// and flags are optional members; the helpers below provide defaults when omitted.
+
     template <class T>
     struct ComponentTraits {
         static constexpr std::string_view name{};
@@ -126,6 +150,10 @@ namespace SFT::Ecs {
 
     namespace Detail {
 
+        /// Returns a human-readable name for the supplied component value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         [[nodiscard]] consteval std::string_view component_name() {
             using ComponentT = std::remove_cv_t<T>;
@@ -136,6 +164,10 @@ namespace SFT::Ecs {
             return name;
         }
 
+        /// Returns the current or globally available component schema version value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         [[nodiscard]] consteval u32 component_schema_version() {
             using ComponentT = std::remove_cv_t<T>;
@@ -146,6 +178,10 @@ namespace SFT::Ecs {
             }
         }
 
+        /// Returns the current or globally available component flags value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         [[nodiscard]] consteval ComponentFlags component_flags() {
             using ComponentT = std::remove_cv_t<T>;
@@ -162,6 +198,10 @@ namespace SFT::Ecs {
             return flags;
         }
 
+        /// Returns the current or globally available matches native component value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         template <class T>
         [[nodiscard]] bool matches_native_component(const ComponentInfo &info) noexcept {
             using ComponentT = std::remove_cv_t<T>;
@@ -174,6 +214,10 @@ namespace SFT::Ecs {
                    info.flags == component_flags<ComponentT>();
         }
 
+        /// Returns the current make component info.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         [[nodiscard]] ComponentInfo make_component_info() {
             using ComponentT = std::remove_cv_t<T>;
@@ -208,26 +252,59 @@ namespace SFT::Ecs {
 
     } // namespace Detail
 
+    /// Returns the current or globally available component key value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class T>
     [[nodiscard]] consteval ComponentKey component_key() {
         return ComponentKey::from_name(Detail::component_name<std::remove_cv_t<T>>());
     }
 
-    /// Engine-owned registry shared by every World that needs interoperable component IDs. It is
-    /// intentionally non-copyable/non-movable: Worlds keep a non-owning reference and the registry
-    /// must outlive them. Descriptor addresses remain stable as later types register.
+
     class ComponentRegistry {
       public:
+        /// Constructs a `ComponentRegistry` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         ComponentRegistry() = default;
+        /// Destroys the `ComponentRegistry` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~ComponentRegistry() = default;
 
+        /// Disables this construction form for `ComponentRegistry`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         ComponentRegistry(const ComponentRegistry &) = delete;
+        /// Assigns a new value to this `ComponentRegistry`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         ComponentRegistry &operator=(const ComponentRegistry &) = delete;
+        /// Disables this construction form for `ComponentRegistry`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         ComponentRegistry(ComponentRegistry &&) = delete;
+        /// Assigns a new value to this `ComponentRegistry`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         ComponentRegistry &operator=(ComponentRegistry &&) = delete;
 
+        /// Registers component using the supplied arguments and current state.
+        ///
+        /// @param info Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `ComponentRegistryErrorCode::InvalidDescriptor`, `ComponentRegistryErrorCode::UnsupportedStoragePolicy`, `ComponentRegistryErrorCode::StableKeyCollision`, `ComponentRegistryErrorCode::CanonicalNameCollision`, `ComponentRegistryErrorCode::ComponentLimitReached`.
         [[nodiscard]] ComponentRegistryExpected<ComponentId> register_component(ComponentInfo info);
 
+        /// Attempts to register without requiring normal failure to be exceptional.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         template <class T>
         [[nodiscard]] ComponentRegistryExpected<ComponentId> try_register() {
             ZoneScopedN("ComponentRegistry::try_register");
@@ -240,9 +317,11 @@ namespace SFT::Ecs {
             return register_component(Detail::make_component_info<std::remove_cv_t<T>>());
         }
 
-        /// Native typed operations use this contract form after startup validation. A duplicate
-        /// canonical name/key with incompatible metadata is a programming/configuration error, so
-        /// it terminates instead of injecting expected-handling into every spawn/query hot path.
+
+        /// Returns the current or globally available component value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         [[nodiscard]] ComponentId component() {
             ZoneScopedN("ComponentRegistry::component");
@@ -256,9 +335,37 @@ namespace SFT::Ecs {
             return *registered;
         }
 
+        /// Finds the requested entry in the available state.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<ComponentId> find(ComponentKey key) const noexcept;
+        /// Finds the requested entry in the available state.
+        ///
+        /// @param canonical_name Name used to identify or label the target.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<ComponentId> find(const ustr &canonical_name) const noexcept;
+        /// Performs the info operation for `ComponentRegistry` using the supplied arguments.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const ComponentInfo *info(ComponentId id) const noexcept;
+        /// Returns the size for this `ComponentRegistry`.
+        ///
+        /// @return Returns the current size value.
+        /// @note This function does not throw exceptions.
+        /// Returns the size for this `ComponentRegistry`.
+        ///
+        /// @return Returns the current size value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize size() const noexcept;
 
       private:
@@ -269,7 +376,6 @@ namespace SFT::Ecs {
     };
 
 } // namespace SFT::Ecs
-
 
 
 #define SFT_ECS_COMPONENT(TYPE, CANONICAL_NAME)                 \

@@ -2,12 +2,31 @@
 
 namespace SFT::RHI {
 
+/// Converts the `RHI` to `bool`.
+///
+/// @return Returns the boolean result of the operation.
+/// @note Error/status alternatives explicitly produced by this implementation include `PlatformQueryStatus::Ok`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] PlatformQueryMessage::operator bool() const noexcept { return status == PlatformQueryStatus::Ok; }
 
+/// Converts the `RHI` to `bool`.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] SurfaceHdrCapabilityQuery::operator bool() const noexcept { return static_cast<bool>(message); }
 
+/// Converts the `RHI` to `bool`.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] DisplayQuery::operator bool() const noexcept { return static_cast<bool>(message); }
 
+/// Converts the value to graphics platform representation.
+///
+/// @param system `system` value used by the operation.
+///
+/// @return Returns the value converted to graphics platform representation.
+/// @note This function does not throw exceptions.
 GraphicsPlatform::WindowSystem to_graphics_platform(WindowSystem system) noexcept {
         switch (system) {
             case WindowSystem::Unknown: return GraphicsPlatform::WindowSystem::Unknown;
@@ -22,6 +41,12 @@ GraphicsPlatform::WindowSystem to_graphics_platform(WindowSystem system) noexcep
         return GraphicsPlatform::WindowSystem::Unknown;
     }
 
+/// Converts the backend-specific value to the corresponding RHI representation.
+///
+/// @param transfer `transfer` value used by the operation.
+///
+/// @return Returns the value converted to RHI representation.
+/// @note This function does not throw exceptions.
 HdrTransferFunction to_rhi(GraphicsPlatform::HdrTransferFunction transfer) noexcept {
         switch (transfer) {
             case GraphicsPlatform::HdrTransferFunction::Unknown: return HdrTransferFunction::Unknown;
@@ -33,6 +58,12 @@ HdrTransferFunction to_rhi(GraphicsPlatform::HdrTransferFunction transfer) noexc
         return HdrTransferFunction::Unknown;
     }
 
+/// Converts the backend-specific value to the corresponding RHI representation.
+///
+/// @param gamut `gamut` value used by the operation.
+///
+/// @return Returns the value converted to RHI representation.
+/// @note This function does not throw exceptions.
 HdrColorGamut to_rhi(GraphicsPlatform::HdrColorGamut gamut) noexcept {
         switch (gamut) {
             case GraphicsPlatform::HdrColorGamut::Unknown: return HdrColorGamut::Unknown;
@@ -43,6 +74,12 @@ HdrColorGamut to_rhi(GraphicsPlatform::HdrColorGamut gamut) noexcept {
         return HdrColorGamut::Unknown;
     }
 
+/// Converts the backend-specific value to the corresponding RHI representation.
+///
+/// @param source Source value or resource.
+///
+/// @return Returns the value converted to RHI representation.
+/// @note This function does not throw exceptions.
 HdrMetadataSource to_rhi(GraphicsPlatform::HdrMetadataSource source) noexcept {
         switch (source) {
             case GraphicsPlatform::HdrMetadataSource::Unknown: return HdrMetadataSource::Unknown;
@@ -56,6 +93,12 @@ HdrMetadataSource to_rhi(GraphicsPlatform::HdrMetadataSource source) noexcept {
         return HdrMetadataSource::Unknown;
     }
 
+/// Converts the backend-specific value to the corresponding RHI representation.
+///
+/// @param confidence `confidence` value used by the operation.
+///
+/// @return Returns the value converted to RHI representation.
+/// @note This function does not throw exceptions.
 HdrMetadataConfidence to_rhi(GraphicsPlatform::HdrMetadataConfidence confidence) noexcept {
         switch (confidence) {
             case GraphicsPlatform::HdrMetadataConfidence::Unknown: return HdrMetadataConfidence::Unknown;
@@ -67,6 +110,13 @@ HdrMetadataConfidence to_rhi(GraphicsPlatform::HdrMetadataConfidence confidence)
         return HdrMetadataConfidence::Unknown;
     }
 
+/// Converts the backend-specific value to the corresponding RHI representation.
+///
+/// @param status `status` value used by the operation.
+///
+/// @return Returns the value converted to RHI representation.
+/// @note Error/status alternatives explicitly produced by this implementation include `QueryStatus::Ok`, `PlatformQueryStatus::Ok`, `QueryStatus::Unsupported`, `PlatformQueryStatus::Unsupported`, `QueryStatus::NotAvailable`, `PlatformQueryStatus::NotAvailable` among others.
+/// @note This function does not throw exceptions.
 PlatformQueryStatus to_rhi(GraphicsPlatform::QueryStatus status) noexcept {
         switch (status) {
             case GraphicsPlatform::QueryStatus::Ok: return PlatformQueryStatus::Ok;
@@ -78,6 +128,12 @@ PlatformQueryStatus to_rhi(GraphicsPlatform::QueryStatus status) noexcept {
         return PlatformQueryStatus::PlatformError;
     }
 
+/// Converts the backend-specific value to the corresponding RHI representation.
+///
+/// @param capabilities `capabilities` value used by the operation.
+///
+/// @return Returns the value converted to RHI representation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 SurfaceHdrCapabilities to_rhi(const GraphicsPlatform::HdrDisplayCapabilities &capabilities) {
         SurfaceHdrCapabilities out{
             .hdr_supported = capabilities.hdr_supported,
@@ -112,6 +168,12 @@ SurfaceHdrCapabilities to_rhi(const GraphicsPlatform::HdrDisplayCapabilities &ca
         return out;
     }
 
+/// Converts the backend-specific value to the corresponding RHI representation.
+///
+/// @param display `display` value used by the operation.
+///
+/// @return Returns the value converted to RHI representation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 DisplayInfo to_rhi(const GraphicsPlatform::DisplayInfo &display) {
         return DisplayInfo{
             .stable_id = display.stable_id,
@@ -122,6 +184,10 @@ DisplayInfo to_rhi(const GraphicsPlatform::DisplayInfo &display) {
         };
     }
 
+/// Queries platform displays from the active backend or runtime state.
+///
+/// @return Returns the current query platform displays value.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 DisplayQuery query_platform_displays() {
         const GraphicsPlatform::QueryResult<vector<GraphicsPlatform::DisplayInfo>> query =
             GraphicsPlatform::query_displays();
@@ -138,6 +204,12 @@ DisplayQuery query_platform_displays() {
         return out;
     }
 
+/// Queries platform HDR display capabilities from the active backend or runtime state.
+///
+/// @param surface Surface used or affected by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 SurfaceHdrCapabilityQuery query_platform_hdr_display_capabilities(const SurfaceDesc &surface) {
         const GraphicsPlatform::NativeSurfaceHandle platform_surface{
             .system = to_graphics_platform(surface.system),

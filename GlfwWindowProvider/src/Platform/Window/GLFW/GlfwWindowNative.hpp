@@ -7,52 +7,66 @@
 
 namespace SFT::Platform::Windowing::GLFW::Detail {
 
+    /// Returns the requested native window handle.
+    ///
+    /// @param window Window used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`, `WindowErrorCode::Unsupported`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] std::expected<NativeWindowHandle, WindowError>
     native_window_handle(void *window) noexcept;
 
-    /// Windows only, no-op elsewhere: sets WS_EX_NOREDIRECTIONBITMAP on `window_handle`'s HWND — see
-    /// this function's own doc comment in GlfwWindowNative.cpp for why every Vulkan/Direct3D window
-    /// needs this applied before it is ever shown, mirroring SDL3Impl.cpp's identically-named
-    /// apply_composition_window_style() (the same fix, same reasoning, both backends need it
-    /// independently since neither wraps the other).
+
+    /// Applies composition window style using the supplied arguments and current state.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void apply_composition_window_style(void *window_handle) noexcept;
 
-    /// Invoked whenever the platform's input method updates its in-progress composition (preedit)
-    /// string. `utf8Text` is NUL-terminated; an empty string means composition has ended — matches
-    /// Platform::Windowing::WindowTextEditingEvent's own "empty = ended" contract exactly (see that
-    /// struct's doc comment), so a caller wiring this into a WindowEvent needs no platform-specific
-    /// special case. `cursorPos` is the composition string's own cursor position, or -1 when not
-    /// applicable (composition ended, or the platform didn't report one). `userData` is whatever was
-    /// passed to install_ime_composition_hook(), unchanged.
+
     using ImePreeditCallback = void (*)(const char *utf8Text, int cursorPos, void *userData);
 
-    /// Installs a native IME composition hook for `window_handle` (opaque, same contract as
-    /// native_window_handle()'s own parameter — a live GLFWwindow*), independent of GLFW's own event
-    /// handling: GLFW never needs to know this exists, since it never patches or intercepts GLFW's
-    /// own window procedure/event loop, only adds a platform-native listener alongside it (a Win32
-    /// window-message subclass, an X11 XIM preedit-callback input context, or an independently-bound
-    /// Wayland text-input-v3 object, depending on the platform file actually compiled in — see each
-    /// platform's own GlfwWindowNative.cpp). Returns false, doing nothing further, on a platform this
-    /// isn't implemented for yet; the caller treats that exactly like "this window happens to never
-    /// receive composition events," not an error condition, so nothing above this interface — not
-    /// GLFWWindow, not Engine, not UI — ever needs to know which platform (or whether any) is active.
+
+    /// Performs the install ime composition hook operation using the supplied arguments.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    /// @param callback Callable invoked by the operation.
+    /// @param user_data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool install_ime_composition_hook(void *window_handle, ImePreeditCallback callback, void *user_data) noexcept;
 
-    /// Reverses install_ime_composition_hook() — must be called before `window_handle` is destroyed.
-    /// A no-op if no hook was ever successfully installed (including on a platform where
-    /// install_ime_composition_hook() returned false).
+
+    /// Removes the ime composition hook from its owning collection or system.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void remove_ime_composition_hook(void *window_handle) noexcept;
 
-    /// The window-client-area pixel rectangle (same coordinate space native_window_handle()'s own
-    /// caller already works in) the platform's native composition/candidate UI should avoid drawing
-    /// over — typically the focused text field's own bounds. No-op where IME support isn't
-    /// implemented. Takes effect the next time composition starts, not retroactively.
+
+    /// Sets the ime composition exclude rect from the supplied value.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @note This function does not throw exceptions.
     void set_ime_composition_exclude_rect(void *window_handle, int x, int y, int width, int height) noexcept;
 
-    /// Enables or disables routing keystrokes through the platform's input method for this window at
-    /// all (as opposed to raw keystrokes bypassing it entirely) — the native-layer counterpart of
-    /// Platform::Windowing::Window::start_text_input()/stop_text_input(). No-op where IME support
-    /// isn't implemented.
+
+    /// Sets the ime enabled for this `Detail`.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @note This function does not throw exceptions.
     void set_ime_enabled(void *window_handle, bool enabled) noexcept;
 
 } // namespace SFT::Platform::Windowing::GLFW::Detail

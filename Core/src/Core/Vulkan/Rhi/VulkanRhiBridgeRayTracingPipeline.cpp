@@ -28,6 +28,12 @@ namespace SFT::Core::Vulkan {
 
     namespace {
 
+        /// Performs the shader group type to Vulkan operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param type Type value to inspect, select, or convert.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr VkRayTracingShaderGroupTypeKHR shader_group_type_to_vk(rhi::RayTracingShaderGroupType type) noexcept {
             switch (type) {
                 case rhi::RayTracingShaderGroupType::General: return VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
@@ -37,11 +43,23 @@ namespace SFT::Core::Vulkan {
             return VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
         }
 
+        /// Reports whether single stage holds for this `Vulkan`.
+        ///
+        /// @param stage `stage` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_single_stage(rhi::ShaderStage stage) noexcept {
             const VkShaderStageFlags flags = SFT::Core::Vulkan::to_vk(stage);
             return flags != 0 && (flags & (flags - 1)) == 0;
         }
 
+        /// Reports whether valid general stage holds for this `Vulkan`.
+        ///
+        /// @param stage `stage` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid_general_stage(rhi::ShaderStage stage) noexcept {
             return stage == rhi::ShaderStage::RayGeneration || stage == rhi::ShaderStage::Miss ||
                    stage == rhi::ShaderStage::Callable;
@@ -50,6 +68,13 @@ namespace SFT::Core::Vulkan {
 
     } // namespace
 
+    /// Creates a ray tracing pipeline from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`, `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<rhi::RayTracingPipelineHandle> VulkanRhiDeviceBridge::create_ray_tracing_pipeline(
         const rhi::RayTracingPipelineDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_ray_tracing_pipeline");
@@ -166,11 +191,27 @@ namespace SFT::Core::Vulkan {
         return ray_tracing_pipelines_.insert(PipelineRecord{std::move(*pipeline), desc.layout});
     }
 
+    /// Destroys the ray tracing pipeline identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_ray_tracing_pipeline(rhi::RayTracingPipelineHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_ray_tracing_pipeline");
         ray_tracing_pipelines_.erase(handle);
     }
 
+    /// Writes ray tracing shader group handles to the associated destination.
+    ///
+    /// @param pipeline Pipeline used or affected by the operation.
+    /// @param first_group `first_group` value used by the operation.
+    /// @param group_count Number of elements or operations to process.
+    /// @param dst Destination value or resource.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`, `RhiErrorCode::InvalidArgument`.
     rhi::RhiResult VulkanRhiDeviceBridge::write_ray_tracing_shader_group_handles(
         rhi::RayTracingPipelineHandle pipeline, u32 first_group, u32 group_count, span<std::byte> dst) {
         ZoneScopedN("VulkanRhiDeviceBridge::write_ray_tracing_shader_group_handles");

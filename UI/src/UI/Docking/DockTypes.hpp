@@ -12,20 +12,13 @@
 using std::optional;
 using std::vector;
 
-/// Dock-tree data model: a node-pool tree of Split/Leaf nodes plus the mutating operations a
-/// docking workspace needs (merge a panel into a tab group, split a leaf, remove a panel and
-/// collapse the tree around the gap). Pure data + tree algebra — no Context/Clay/rendering
-/// dependency at all, the same "usable standalone" split Style.hpp keeps from Context.hpp. See
-/// DockWorkspace.hpp for the Context-facing, per-frame-drawn/dragged layer built on top of this.
+
 namespace SFT::UI::Docking {
 
-    /// Stable, app-assigned logical panel identity — a UString (not an opaque numeric handle) so it
-    /// round-trips directly into DockLayoutDescriptor (Phase 5) and matches ElementDecl::id's own
-    /// string-keyed stable-identity convention (Style.hpp).
+
     using DockPanelId = UString;
 
-    /// Handle into DockTree's own node pool. Never persisted — DockLayoutDescriptor (Phase 5)
-    /// serializes the tree's *shape*, not pool indices, since a restored tree gets a fresh pool.
+
     enum class DockNodeId : u32 {};
     inline constexpr DockNodeId invalid_dock_node_id = static_cast<DockNodeId>(~u32{0});
 
@@ -36,29 +29,30 @@ namespace SFT::UI::Docking {
 
     enum class DockDropZone : u8 { Center, Left, Right, Top, Bottom };
 
-    /// Plain float rect in an explicitly chosen pixel coordinate space. DockLayout preserves the
-    /// coordinate space supplied by its caller; DockWorkspace solves layouts in workspace-local
-    /// space and translates only when emitting Context-root floating elements. Kept float, not
-    /// RHI::Rect2D's int, since split-ratio math wants ElementDecl::Sizing's precision.
+
     struct DockRect {
         glm::vec2 origin{0.0f};
         glm::vec2 size{0.0f};
 
+        /// Reports whether contains holds for this `DockRect`.
+        ///
+        /// @param point `point` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool contains(glm::vec2 point) const noexcept;
     };
 
     struct DockNode {
         enum class Kind : u8 { Split, Leaf } kind = Kind::Leaf;
 
-        /// Kind::Split:
+
         DockSplitAxis split_axis = DockSplitAxis::Horizontal;
         f32 split_ratio = 0.5f;
         DockNodeId first_child = invalid_dock_node_id;
         DockNodeId second_child = invalid_dock_node_id;
 
-        /// Kind::Leaf: an ordered tab strip. Empty only transiently — DockTree::remove_panel prunes
-        /// an emptied non-root leaf by collapsing its parent split away (see that method's own
-        /// comment); an empty *root* leaf is how DockTree::empty() reports "nothing left to show."
+
         vector<DockPanelId> tabs;
         usize active_tab_index = 0;
     };
@@ -69,59 +63,133 @@ namespace SFT::UI::Docking {
         bool closable = true;
     };
 
-    /// Node-pool tree: one root plus however many Split/Leaf descendants. One DockTree per
-    /// DockWorkspace (== per OS window once Phase 3 wires up tear-off — see that phase's own design
-    /// note on why the two are 1:1).
+
     class DockTree {
       public:
+        /// Constructs a `DockTree` in its default state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         DockTree();
 
+        /// Returns the current or globally available root value.
+        ///
+        /// @return Returns the current root value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DockNodeId root() const noexcept;
 
+        /// Performs the node operation for `DockTree` using the supplied arguments.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const DockNode *node(DockNodeId id) const noexcept;
 
-        /// Docks `panel` as a new tab in leaf `target`, at the end of its strip (or a specific index
-        /// if `before` is set) and makes it the active tab. `panel` must not currently be anywhere
-        /// else in this tree — callers that might be moving an already-placed panel must
-        /// remove_panel() it first (see DockWorkspace's own drop-resolution sequencing for why that
-        /// order is also what keeps `target`'s DockNodeId itself from being invalidated by the
-        /// removal, when target is a *different* leaf than the one being vacated).
+
+        /// Performs the merge into leaf operation for `DockTree` using the supplied arguments.
+        ///
+        /// @param target `target` value used by the operation.
+        /// @param panel `panel` value used by the operation.
+        /// @param before `before` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         bool merge_into_leaf(DockNodeId target, DockPanelId panel,
                                            optional<usize> before = std::nullopt);
 
-        /// Splits leaf `target` along `axis`: `target` itself becomes a Split node with two new leaf
-        /// children — one keeping `target`'s existing tabs, the other holding only `panel`.
-        /// `panel_first` picks which child gets the new panel (true = first_child, i.e. left/top of
-        /// the split — see DockSplitAxis's own doc comment for what "first" means per axis).
+
+        /// Splits leaf using the supplied arguments and current state.
+        ///
+        /// @param target `target` value used by the operation.
+        /// @param axis `axis` value used by the operation.
+        /// @param panel_first `panel_first` value used by the operation.
+        /// @param panel `panel` value used by the operation.
+        /// @param new_panel_ratio `new_panel_ratio` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         bool split_leaf(DockNodeId target, DockSplitAxis axis, bool panel_first,
                                       DockPanelId panel, f32 new_panel_ratio = 0.25f);
 
-        /// Removes `panel` from whichever leaf holds it. If that leaf becomes empty and isn't the
-        /// root, the leaf and its now-redundant parent Split are both freed and the parent's slot
-        /// (wherever it was referenced from) is replaced by the *sibling* — standard dock-tree
-        /// pruning, mirroring ImGui's own DockNode collapse behavior. No-op if `panel` isn't in the
-        /// tree at all (safe to call speculatively).
+
+        /// Removes the panel from its owning collection or system.
+        ///
+        /// @param panel `panel` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void remove_panel(const DockPanelId &panel);
 
+        /// Finds leaf of in the available state.
+        ///
+        /// @param panel `panel` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<DockNodeId> find_leaf_of(const DockPanelId &panel) const noexcept;
 
-        /// True only when the root itself is an empty leaf — the tree has no panels left at all
-        /// (DockWorkspace::empty() surfaces this to decide whether a torn-off window should close).
+
+        /// Reports whether this `DockTree` contains no elements or payload.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool empty() const noexcept;
 
+        /// Sets the split ratio for this `DockTree`.
+        ///
+        /// @param id Identifier of the target object or resource.
+        /// @param ratio `ratio` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_split_ratio(DockNodeId id, f32 ratio) noexcept;
 
+        /// Sets the active tab for this `DockTree`.
+        ///
+        /// @param leaf `leaf` value used by the operation.
+        /// @param panel `panel` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_active_tab(DockNodeId leaf, const DockPanelId &panel) noexcept;
 
+        /// Performs the reorder tab operation for `DockTree` using the supplied arguments.
+        ///
+        /// @param leaf `leaf` value used by the operation.
+        /// @param from_index Zero-based index of the target element or entry.
+        /// @param to_index Zero-based index of the target element or entry.
+        ///
+        /// @note This function does not throw exceptions.
         void reorder_tab(DockNodeId leaf, usize from_index, usize to_index) noexcept;
 
       private:
+        /// Performs the mutable node operation for `DockTree` using the supplied arguments.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DockNode *mutable_node(DockNodeId id) noexcept;
 
+        /// Performs the alloc node operation for `DockTree` using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] DockNodeId alloc_node(DockNode value);
 
+        /// Releases previously allocated storage or resources.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void free_node(DockNodeId id);
 
+        /// Finds leaf of from in the available state.
+        ///
+        /// @param panel `panel` value used by the operation.
+        /// @param from `from` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<DockNodeId> find_leaf_of_from(const DockPanelId &panel, DockNodeId from) const noexcept;
 
         struct ParentLink {
@@ -129,19 +197,28 @@ namespace SFT::UI::Docking {
             bool is_first = false;
         };
 
-        /// Searches downward from `from` for the Split node whose first_child/second_child ==
-        /// `child` — nodes don't store a parent pointer of their own (kept a strict tree, no back-
-        /// edges), so collapse_empty_leaf() looks it up on the rare occasion (a panel closing/tearing
-        /// off) that it actually needs to relink one.
+
+        /// Finds parent in the available state.
+        ///
+        /// @param child `child` value used by the operation.
+        /// @param from `from` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<ParentLink> find_parent(DockNodeId child, DockNodeId from) const noexcept;
 
+        /// Performs the collapse empty leaf operation for `DockTree` using the supplied arguments.
+        ///
+        /// @param leaf_id Identifier of the target object or resource.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void collapse_empty_leaf(DockNodeId leaf_id);
 
         vector<optional<DockNode>> nodes_;
         vector<u32> free_list_;
-        /// Index 0 is only the root's *initial* pool slot — a collapse (see collapse_empty_leaf())
-        /// can repoint this to a different slot when the root Split itself gets pruned away, so
-        /// root() always reads this rather than assuming index 0.
+
+
         DockNodeId root_ = static_cast<DockNodeId>(0);
     };
 

@@ -2,6 +2,13 @@
 
 #include <cassert>
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @pre `input.key_down(KeyboardKey::Space)`; debug builds assert if this precondition is violated.
+/// @pre `input.key_just_pressed(KeyboardKey::Space)`; debug builds assert if this precondition is violated.
+/// @pre `!input.key_just_released(KeyboardKey::Space)`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     using namespace SFT::Engine;
     using namespace SFT::Platform::Windowing;
@@ -38,7 +45,6 @@ int main() {
     assert(input.key_just_pressed(KeyboardKey::A));
 
 
-
     input.begin_tick();
     input.apply(KeyboardEvent{.key_code = KeyboardKey::LeftShift, .action = ButtonAction::Released});
     assert(!input.key_down(KeyboardKey::LeftShift));
@@ -50,7 +56,6 @@ int main() {
     assert(input.mouse_down(MouseButton::Extra9));
     assert(input.mouse_just_pressed(MouseButton::Extra9));
     assert(!input.mouse_down(MouseButton::Left));
-
 
 
     input.begin_tick();
@@ -68,7 +73,6 @@ int main() {
     assert(input.text_this_tick() == "Hi");
     input.begin_tick();
     assert(input.text_this_tick().empty());
-
 
 
     assert(!input.composing());

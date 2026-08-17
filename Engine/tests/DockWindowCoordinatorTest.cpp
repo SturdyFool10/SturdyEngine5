@@ -2,6 +2,13 @@
 
 #include <cassert>
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @pre `origin.add_panel(DockPanelDesc{.id = UString{"inspector"}, .title = UString{"Inspector"}, .closable = false})`; debug builds assert if this precondition is violated.
+/// @pre `coordinator.register_workspace(WindowId{1}, origin, true, false)`; debug builds assert if this precondition is violated.
+/// @pre `coordinator.register_workspace(WindowId{2}, target, false, true)`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     using namespace SFT;
     using namespace Engine;

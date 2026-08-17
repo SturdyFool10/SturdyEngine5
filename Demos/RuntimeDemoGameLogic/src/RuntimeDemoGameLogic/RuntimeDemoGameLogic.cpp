@@ -20,12 +20,14 @@ namespace SFT::Runtime {
         static_assert(sizeof(ThresholdConstants) == 8);
     } // namespace
 
+    /// Runs the requested work.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RuntimeDemoGameLogic::RuntimeDemoGameLogic() {
         camera_ = Engine::Camera::perspective(55.0f, 16.0f / 9.0f, 0.05f, 200.0f);
 
         camera_.set_position({-10.5f, 2.2f, 0.0f});
         camera_.look_at({0.0f, 1.0f, 0.0f});
-
 
 
         render_graph_ = Engine::RenderGraph::standard();
@@ -43,6 +45,12 @@ namespace SFT::Runtime {
         render_graph_.anti_aliasing().msaa_samples = 1;
     }
 
+    /// Handles the on engine initialized callback and updates the associated platform state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Engine::GameLogicResult RuntimeDemoGameLogic::on_engine_initialized(Engine::Engine &engine) {
         engine_config_ = engine.config();
         if (Engine::AssetResult content = create_demo_content(engine); !content) {
@@ -55,6 +63,12 @@ namespace SFT::Runtime {
     }
 
 
+    /// Creates a demo content from the supplied parameters.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Engine::AssetResult RuntimeDemoGameLogic::create_demo_content(Engine::Engine &engine) {
         Engine::AssetManager &assets = engine.assets();
         auto shader = assets.load_shader(Engine::ShaderAssetDesc{
@@ -87,11 +101,6 @@ namespace SFT::Runtime {
             .label = UString{"dispersive glass sphere"_ustr},
             .primitives = {
                 Engine::ModelPrimitiveDesc{
-
-
-
-
-
 
 
                     .mesh = RendererApi::Mesh::uv_sphere(
@@ -154,6 +163,12 @@ namespace SFT::Runtime {
         return {};
     }
 
+    /// Configures render extraction using the supplied arguments and current state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void RuntimeDemoGameLogic::configure_render_extraction(Engine::Engine &engine) {
         engine.ecs_world().bind_resource(engine.render_frame_requests());
         engine.render_extraction_schedule().add_system(
@@ -195,6 +210,12 @@ namespace SFT::Runtime {
             });
     }
 
+    /// Configures event systems using the supplied arguments and current state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void RuntimeDemoGameLogic::configure_event_systems(Engine::Engine &engine) {
         bloom_threshold_events_.build(engine.ecs_world(), engine.update_schedule());
         bloom_controls_entity_ = engine.ecs_world().spawn(
@@ -255,7 +276,6 @@ namespace SFT::Runtime {
             });
 
 
-
         engine.update_schedule().add_system(
             [](Ecs::EventReader<BloomThresholdChanged> changes) noexcept {
                 for (const BloomThresholdChanged &change : changes.read()) {
@@ -263,8 +283,6 @@ namespace SFT::Runtime {
                                          change.threshold, change.threshold_view ? "on" : "off");
                 }
             });
-
-
 
 
         spectral_path_tracing_events_.build(engine.ecs_world(), engine.update_schedule());
@@ -313,8 +331,6 @@ namespace SFT::Runtime {
             });
 
 
-
-
         const glm::vec3 initial_euler = camera_.euler_degrees();
         camera_control_entity_ = engine.ecs_world().spawn(FlyCameraState{
             .yaw_degrees = initial_euler.y,
@@ -340,7 +356,6 @@ namespace SFT::Runtime {
                 }
 
 
-
                 constexpr u32 right_mouse_button_mask = 0x4u;
                 for (const Engine::MouseMoveEvent &event : mouse.read()) {
                     if ((event.mouse.buttons & right_mouse_button_mask) != 0) {
@@ -351,6 +366,12 @@ namespace SFT::Runtime {
             });
     }
 
+    /// Spawns demo entities.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void RuntimeDemoGameLogic::spawn_demo_entities(Engine::Engine &engine) {
 #ifdef STURDY_GLTF_SAMPLE_ASSETS_DIR
         for (const Engine::GltfNodeInstance &instance : gltf_instances_) {
@@ -392,7 +413,6 @@ namespace SFT::Runtime {
             Engine::ModelRenderer{.model = spectral_glass_model_});
 
 
-
         {
             const glm::vec3 sun_direction = glm::normalize(glm::vec3{0.18f, -1.0f, 0.12f});
             glm::mat4 sun_transform =
@@ -407,6 +427,12 @@ namespace SFT::Runtime {
     }
 
     namespace {
+        /// Returns a human-readable name for the supplied HDR color space value.
+        ///
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const char *hdr_color_space_name(Core::HdrColorSpaceMode mode) noexcept {
             switch (mode) {
                 case Core::HdrColorSpaceMode::Hdr10St2084: return "HDR10 (ST2084/PQ)";
@@ -418,6 +444,13 @@ namespace SFT::Runtime {
         }
     } // namespace
 
+    /// Performs the handle HDR controls operation for `Runtime` using the supplied arguments.
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void RuntimeDemoGameLogic::handle_hdr_controls(Engine::Engine &engine, Core::RenderSurfaceHandle surface) {
         auto state = engine.ecs_world().get_component<HdrToggleState>(hdr_controls_entity_);
         if (!state) {
@@ -426,10 +459,6 @@ namespace SFT::Runtime {
 
         if (state->toggle_requested) {
             state->toggle_requested = false;
-
-
-
-
 
 
             if (const auto capability = engine.query_hdr_capabilities(surface)) {
@@ -459,9 +488,6 @@ namespace SFT::Runtime {
             state->cycle_color_space_requested = false;
 
 
-
-
-
             Engine::EngineConfig new_config = engine_config_;
             const auto current = static_cast<u8>(new_config.features.presentation.hdr_color_space);
             constexpr u8 mode_count = 4;
@@ -483,10 +509,6 @@ namespace SFT::Runtime {
             state->refresh_metadata_requested = false;
 
 
-
-
-
-
             constexpr RHI::HdrContentLightLevelUpdate demo_update{
                 .max_content_light_level_nits = 600.0f,
                 .max_frame_average_light_level_nits = 150.0f,
@@ -501,6 +523,13 @@ namespace SFT::Runtime {
         }
     }
 
+    /// Requests render frame using the supplied arguments and current state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param surface Surface used or affected by the operation.
+    /// @param frame `frame` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     std::optional<Engine::RenderFrameParameters> RuntimeDemoGameLogic::request_render_frame(
         Engine::Engine &engine,
         Core::RenderSurfaceHandle surface,
@@ -591,8 +620,16 @@ namespace SFT::Runtime {
         return parameters;
     }
 
+    /// Handles the on shutdown callback and updates the associated platform state.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void RuntimeDemoGameLogic::on_shutdown(Engine::Engine &           ) noexcept {}
 
+    /// Creates a runtime demo game logic from the supplied parameters.
+    ///
+    /// @return Returns the current create runtime demo game logic value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     std::unique_ptr<Engine::GameLogic> create_runtime_demo_game_logic() {
         return std::make_unique<RuntimeDemoGameLogic>();
     }

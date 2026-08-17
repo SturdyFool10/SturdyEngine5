@@ -5,7 +5,6 @@
 #include <string>
 
 
-
 using SFT::Foundation::f64;
 using SFT::Foundation::u32;
 using SFT::Foundation::usize;
@@ -14,11 +13,6 @@ using std::string;
 namespace SFT::Foundation::Memory {
 
 
-
-
-
-
-    /// Unit for byte formatting / conversion.
     enum class ByteUnit {
         Bytes,
         Kilobytes,
@@ -26,13 +20,7 @@ namespace SFT::Foundation::Memory {
         Gigabytes,
     };
 
-    /// Formatting knobs for `format_bytes()` / `format_heap_bytes()`.
-    ///
-    /// - `unit`             — which `ByteUnit` to render in.
-    /// - `decimal_places`   — digits after the point.
-    /// - `include_unit`     — append the unit suffix (e.g. `" MB"`).
-    /// - `include_bytes`    — also append the exact byte count in parentheses.
-    /// - `space_before_unit`— put a space between the number and the suffix.
+
     struct ByteFormatOptions {
         ByteUnit unit = ByteUnit::Megabytes;
         u32 decimal_places = 2;
@@ -41,11 +29,7 @@ namespace SFT::Foundation::Memory {
         bool space_before_unit = true;
     };
 
-    /// A snapshot of allocator/process memory use, all in bytes (plus a fault count).
-    ///
-    /// - `current_bytes` / `peak_bytes`                   — live and high-water heap allocated by mimalloc.
-    /// - `current_resident_bytes` / `peak_resident_bytes` — physical (resident) memory, OS-reported.
-    /// - `page_faults`                                    — page faults since process start.
+
     struct HeapUsage {
         usize current_bytes;
         usize peak_bytes;
@@ -54,77 +38,187 @@ namespace SFT::Foundation::Memory {
         usize page_faults;
     };
 
-    /// Install mimalloc as the process allocator. Idempotent; called automatically during
-    /// `Sturdy.Foundation` load, so you normally never call it yourself.
+
+    /// Initializes the associated runtime state for use.
+    ///
+    /// @note This function does not throw exceptions.
     void initialize() noexcept;
 
-    /// Whether `initialize()` has run.
+
+    /// Reports whether initialized holds.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool is_initialized() noexcept;
 
-    /// The linked mimalloc version, encoded as `major*100 + minor*10 + patch` (e.g. `210` for 2.1.0).
+
+    /// Returns the current or globally available mimalloc version value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] u32 mimalloc_version() noexcept;
 
-    /// Allocate `size` bytes (uninitialized). Returns `nullptr` on failure. Free with `deallocate()`.
+
+    /// Allocates storage or a resource.
+    ///
+    /// @param size Requested or available size for the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] void *allocate(usize size) noexcept;
 
-    /// Allocate `size` zero-initialized bytes. Returns `nullptr` on failure.
+
+    /// Allocates zeroed.
+    ///
+    /// @param size Requested or available size for the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] void *allocate_zeroed(usize size) noexcept;
 
-    /// Allocate `size` bytes aligned to `alignment` (a power of two) — for SIMD/cache-line/GPU-upload
-    /// buffers. Returns `nullptr` on failure. Free with `deallocate()`.
+
+    /// Allocates aligned.
+    ///
+    /// @param size Requested or available size for the operation.
+    /// @param alignment `alignment` value used by the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] void *allocate_aligned(usize size, usize alignment) noexcept;
 
-    /// Aligned + zero-initialized allocation. Returns `nullptr` on failure.
+
+    /// Allocates zeroed aligned.
+    ///
+    /// @param size Requested or available size for the operation.
+    /// @param alignment `alignment` value used by the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] void *allocate_zeroed_aligned(usize size, usize alignment) noexcept;
 
-    /// Resize the block at `pointer` to `size` bytes, preserving contents (moving if needed). Passing
-    /// `nullptr` behaves like `allocate`. Returns `nullptr` on failure (the original block stays valid).
+
+    /// Performs the reallocate operation using the supplied arguments.
+    ///
+    /// @param pointer Pointer to the object or storage used by the operation.
+    /// @param size Requested or available size for the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] void *reallocate(void *pointer, usize size) noexcept;
 
-    /// `reallocate` preserving a power-of-two `alignment`.
+
+    /// Performs the reallocate aligned operation using the supplied arguments.
+    ///
+    /// @param pointer Pointer to the object or storage used by the operation.
+    /// @param size Requested or available size for the operation.
+    /// @param alignment `alignment` value used by the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] void *reallocate_aligned(void *pointer, usize size, usize alignment) noexcept;
 
-    /// Free a block from any `allocate*` / `reallocate*` above. `nullptr` is a no-op.
+
+    /// Releases previously allocated storage or resources.
+    ///
+    /// @param pointer Pointer to the object or storage used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void deallocate(void *pointer) noexcept;
 
-    /// Actual usable size of the block at `pointer` — may exceed the requested size (mimalloc rounds up
-    /// to a size class). `0` for `nullptr`.
+
+    /// Returns the requested usable size.
+    ///
+    /// @param pointer Pointer to the object or storage used by the operation.
+    ///
+    /// @return Returns the requested count or size.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] usize usable_size(const void *pointer) noexcept;
 
-    /// The size mimalloc would actually reserve for a request of `size` bytes — query it up front to
-    /// size a buffer to its real capacity and skip a later reallocation.
+
+    /// Returns the requested good size.
+    ///
+    /// @param size Requested or available size for the operation.
+    ///
+    /// @return Returns the requested count or size.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] usize good_size(usize size) noexcept;
 
-    /// Full `HeapUsage` snapshot (see above).
+
+    /// Returns the current or globally available heap usage value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] HeapUsage heap_usage() noexcept;
 
-    /// Shorthand for `heap_usage().current_bytes` — bytes currently allocated.
+
+    /// Computes the heap bytes required by the supplied values.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] usize heap_bytes() noexcept;
 
-    /// Shorthand for `heap_usage().peak_bytes` — high-water bytes allocated.
+
+    /// Computes the peak heap bytes required by the supplied values.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] usize peak_heap_bytes() noexcept;
 
-    /// Convert a raw byte count into `unit`, as a `f64` (e.g. `bytes_as(1<<20, ByteUnit::Megabytes) == 1.0`).
+
+    /// Performs the bytes as operation using the supplied arguments.
+    ///
+    /// @param bytes Size of the relevant data in bytes.
+    /// @param unit `unit` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f64 bytes_as(usize bytes, ByteUnit unit) noexcept;
 
-    /// Render `bytes` as a human-readable string per `options`, e.g. `"12.50 MB"`.
+
+    /// Computes the format bytes required by the supplied values.
+    ///
+    /// @param bytes Size of the relevant data in bytes.
+    /// @param options Configuration values controlling the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] string format_bytes(usize bytes, ByteFormatOptions options = {});
 
-    /// `format_bytes(heap_bytes(), options)` — the current heap size, formatted.
+
+    /// Computes the format heap bytes required by the supplied values.
+    ///
+    /// @param options Configuration values controlling the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] string format_heap_bytes(ByteFormatOptions options = {});
 
-    /// Ask mimalloc to return free memory to the OS. `force` collects more aggressively (slower). Handy
-    /// after a large transient spike (e.g. asset loading).
+
+    /// Collects the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param force `force` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void collect(bool force = false) noexcept;
 
-    /// Reset the allocator's peak/statistics counters.
+
+    /// Resets stats to its baseline state.
+    ///
+    /// @note This function does not throw exceptions.
     void reset_stats() noexcept;
 
-    /// Fold the calling thread's per-thread stats into the process totals — call before reading stats on
-    /// a thread that did significant allocation.
+
+    /// Performs the merge thread stats operation using the supplied arguments.
+    ///
+    /// @note This function does not throw exceptions.
     void merge_thread_stats() noexcept;
 
-    /// Dump mimalloc's own statistics to the log, prefixed with `tag`.
+
+    /// Logs stats using the supplied arguments and current state.
+    ///
+    /// @param tag `tag` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void log_stats(const char *tag = "mimalloc") noexcept;
 
 } // namespace SFT::Foundation::Memory

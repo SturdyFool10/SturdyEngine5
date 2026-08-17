@@ -43,6 +43,12 @@ namespace SFT::Engine {
             return AssetError{.code = code, .message = UString{message}, .source = std::move(source)};
         }
 
+        /// Performs the cgltf result message operation for `Engine` using the supplied arguments.
+        ///
+        /// @param result `result` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::string_view cgltf_result_message(cgltf_result result) noexcept {
             switch (result) {
                 case cgltf_result_data_too_short: return "data too short";
@@ -58,6 +64,13 @@ namespace SFT::Engine {
             }
         }
 
+        /// Returns a human-readable name for the supplied label from value.
+        ///
+        /// @param name Name used to identify or label the target.
+        /// @param fallback Fallback value used when the primary value is unavailable.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UString label_from_name(const char *name, std::string_view fallback) {
             if (name != nullptr && name[0] != '\0') {
                 if (auto converted = UString::try_from_utf8(std::string_view{name})) {
@@ -69,6 +82,9 @@ namespace SFT::Engine {
 
         struct CgltfDataGuard {
             cgltf_data *data = nullptr;
+            /// Destroys the `CgltfDataGuard` and releases resources owned by it.
+            ///
+            /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
             ~CgltfDataGuard() {
                 if (data != nullptr) {
                     cgltf_free(data);
@@ -77,30 +93,39 @@ namespace SFT::Engine {
         };
 
 
-
-
-
-
-
-
         struct ImageCache {
             std::vector<std::array<std::array<std::optional<Asset>, 5>, 2>> entries;
         };
 
+        /// Performs the color space slot operation for `Engine` using the supplied arguments.
+        ///
+        /// @param color_space `color_space` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize color_space_slot(TextureColorSpace color_space) noexcept {
             return color_space == TextureColorSpace::Srgb ? 0 : 1;
         }
 
+        /// Performs the kind slot operation for `Engine` using the supplied arguments.
+        ///
+        /// @param kind `kind` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize kind_slot(TextureKind kind) noexcept {
             return static_cast<usize>(kind);
         }
 
 
-
-
-
-
-
+        /// Computes the fetch gltf image bytes required by the supplied values.
+        ///
+        /// @param image `image` value used by the operation.
+        /// @param base_dir `base_dir` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::DecodeFailure`, `AssetErrorCode::InvalidDescription`, `AssetErrorCode::IoFailure`.
         [[nodiscard]] AssetExpected<std::vector<std::byte>> fetch_gltf_image_bytes(
             const cgltf_image &image, const std::filesystem::path &base_dir) {
             if (image.buffer_view != nullptr) {
@@ -175,8 +200,13 @@ namespace SFT::Engine {
         }
 
 
-
-
+        /// Decodes gltf image pixels.
+        ///
+        /// @param image `image` value used by the operation.
+        /// @param base_dir `base_dir` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] AssetExpected<Detail::DecodedImage> decode_gltf_image_pixels(
             const cgltf_image &image, const std::filesystem::path &base_dir) {
             auto encoded = fetch_gltf_image_bytes(image, base_dir);
@@ -186,6 +216,18 @@ namespace SFT::Engine {
             return Detail::decode_image_rgba8(*encoded, {});
         }
 
+        /// Loads image.
+        ///
+        /// @param assets `assets` value used by the operation.
+        /// @param image `image` value used by the operation.
+        /// @param image_index Zero-based index of the target element or entry.
+        /// @param color_space `color_space` value used by the operation.
+        /// @param kind `kind` value used by the operation.
+        /// @param base_dir `base_dir` value used by the operation.
+        /// @param cache `cache` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] AssetExpected<Asset> load_image(
             AssetManager &assets,
             const cgltf_image &image,
@@ -203,7 +245,6 @@ namespace SFT::Engine {
             const UString label = label_from_name(image.name, "gltf_image");
 
             AssetExpected<Asset> loaded = [&]() -> AssetExpected<Asset> {
-
 
 
                 if (image.buffer_view == nullptr && image.uri != nullptr &&
@@ -228,10 +269,17 @@ namespace SFT::Engine {
         }
 
 
-
-
         constexpr f32 kPhotometricToRadiometric = 1.0f / 683.0f;
 
+        /// Collects node instances using the supplied arguments and current state.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param node `node` value used by the operation.
+        /// @param models `models` value used by the operation.
+        /// @param instances Instance used or affected by the operation.
+        /// @param lights `lights` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void collect_node_instances(
             const cgltf_data &data,
             const cgltf_node &node,
@@ -279,9 +327,6 @@ namespace SFT::Engine {
         }
 
 
-
-
-
         struct PendingMaterial {
             glm::vec4 base_color_factor{1.0f, 1.0f, 1.0f, 1.0f};
             f32 metallic_factor = 1.0f;
@@ -290,17 +335,12 @@ namespace SFT::Engine {
             f32 ior = 1.5f;
 
 
-
             f32 transmission_factor = 0.0f;
             f32 dispersion_cauchy_b = 0.0042f;
             f32 absorption_coefficient = 0.0f;
 
 
-
             f32 alpha_cutoff = 0.0f;
-
-
-
 
 
             f32 occlusion_strength = 1.0f;
@@ -309,12 +349,20 @@ namespace SFT::Engine {
             f32 emissive_strength = 1.0f;
 
 
-
             f32 metallic_roughness_channels_rg = 0.0f;
         };
 
     } // namespace
 
+    /// Imports gltf using the supplied arguments and current state.
+    ///
+    /// @param assets `assets` value used by the operation.
+    /// @param source Source value or resource.
+    /// @param shader Shader used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::NotFound`, `AssetErrorCode::DecodeFailure`, `AssetErrorCode::IoFailure`, `AssetErrorCode::Unsupported`, `AssetErrorCode::InvalidDescription`.
     AssetExpected<GltfImportResult> import_gltf(AssetManager &assets, const std::filesystem::path &source,
                                                 Asset shader) {
         const Foundation::Stopwatch stopwatch;
@@ -356,11 +404,7 @@ namespace SFT::Engine {
             .entries = std::vector<std::array<std::array<std::optional<Asset>, 5>, 2>>(data.images_count)};
 
 
-
         std::vector<Asset> packed_texture_assets;
-
-
-
 
 
         std::optional<Asset> flat_normal_texture;
@@ -404,7 +448,6 @@ namespace SFT::Engine {
 
             for (cgltf_size primitive_index = 0; primitive_index < mesh.primitives_count; ++primitive_index) {
                 const cgltf_primitive &primitive = mesh.primitives[primitive_index];
-
 
 
                 if (primitive.type != cgltf_primitive_type_triangles) {
@@ -515,8 +558,6 @@ namespace SFT::Engine {
                 }
 
 
-
-
                 if (normal_accessor == nullptr) {
                     std::vector<glm::vec3> accumulated(vertex_count, glm::vec3{0.0f});
                     for (usize i = 0; i + 2 < indices.size(); i += 3) {
@@ -535,10 +576,6 @@ namespace SFT::Engine {
                         vertices[v].normal = length > 1e-8f ? accumulated[v] / length : glm::vec3{0.0f, 1.0f, 0.0f};
                     }
                 }
-
-
-
-
 
 
                 if (tangent_accessor == nullptr && !uvs.empty()) {
@@ -600,13 +637,6 @@ namespace SFT::Engine {
                             : nullptr;
 
 
-
-
-
-
-
-
-
                     std::optional<Asset> packed_orm_texture;
                     if (mr_gltf_texture != nullptr && occlusion_gltf_texture != nullptr &&
                         mr_gltf_texture->image != occlusion_gltf_texture->image) {
@@ -627,8 +657,6 @@ namespace SFT::Engine {
                     }
 
 
-
-
                     const bool occlusion_shares_mr_image =
                         mr_gltf_texture != nullptr && occlusion_gltf_texture != nullptr &&
                         mr_gltf_texture->image == occlusion_gltf_texture->image;
@@ -647,8 +675,6 @@ namespace SFT::Engine {
                         if (const cgltf_texture *texture = pbr.base_color_texture.texture;
                             texture != nullptr && texture->image != nullptr) {
                             const auto image_index = static_cast<usize>(texture->image - data.images);
-
-
 
 
                             const TextureKind base_color_kind = material->alpha_mode == cgltf_alpha_mode_opaque
@@ -675,10 +701,6 @@ namespace SFT::Engine {
                             });
                         } else if (mr_gltf_texture != nullptr) {
                             const auto image_index = static_cast<usize>(mr_gltf_texture->image - data.images);
-
-
-
-
 
 
                             std::optional<Asset> mr_texture_bc5;
@@ -756,10 +778,6 @@ namespace SFT::Engine {
                             const auto image_index = static_cast<usize>(occlusion_gltf_texture->image - data.images);
 
 
-
-
-
-
                             AssetExpected<Asset> occlusion_texture = load_image(
                                 assets, *occlusion_gltf_texture->image, image_index, TextureColorSpace::Linear,
                                 occlusion_shares_mr_image ? TextureKind::ColorAlpha : TextureKind::Mask, base_dir,
@@ -795,16 +813,12 @@ namespace SFT::Engine {
                 }
 
 
-
-
-
                 AssetExpected<Asset> normal_texture = [&]() -> AssetExpected<Asset> {
                     if (const cgltf_texture *texture = primitive.material != nullptr
                                                             ? primitive.material->normal_texture.texture
                                                             : nullptr;
                         texture != nullptr && texture->image != nullptr) {
                         const auto image_index = static_cast<usize>(texture->image - data.images);
-
 
 
                         return load_image(
@@ -911,10 +925,6 @@ namespace SFT::Engine {
                 }
             }
         }
-
-
-
-
 
 
         {

@@ -31,9 +31,33 @@ namespace SFT::Foundation::Color {
     struct Oklab;
     struct Oklch;
 
+    /// Performs the clamp01 operation using the supplied arguments.
+    ///
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f64 clamp01(f64 value) noexcept;
+    /// Performs the wrap degrees operation using the supplied arguments.
+    ///
+    /// @param hue `hue` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f64 wrap_degrees(f64 hue) noexcept;
+    /// Performs the sRGB to linear channel operation using the supplied arguments.
+    ///
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f64 srgb_to_linear_channel(f64 value) noexcept;
+    /// Performs the linear to sRGB channel operation using the supplied arguments.
+    ///
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f64 linear_to_srgb_channel(f64 value) noexcept;
 
     struct Linear {
@@ -42,23 +66,97 @@ namespace SFT::Foundation::Color {
         f64 b = 0.0;
         f64 a = 1.0;
 
+        /// Performs the opaque operation for `Linear` using the supplied arguments.
+        ///
+        /// @param red `red` value used by the operation.
+        /// @param green `green` value used by the operation.
+        /// @param blue `blue` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static constexpr Linear opaque(f64 red, f64 green, f64 blue) noexcept { return {red, green, blue, 1.0}; }
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr Linear to_linear() const noexcept { return *this; }
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param color `color` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static constexpr Linear from_linear(const Linear &color) noexcept { return color; }
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Linear &) const = default;
 
+        /// Converts the value to sRGB representation.
+        ///
+        /// @return Returns the current to sRGB value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Srgb to_srgb() const noexcept;
+        /// Converts the value to xyz representation.
+        ///
+        /// @return Returns the current to xyz value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Xyz to_xyz() const noexcept;
+        /// Converts the value to adobe RGB representation.
+        ///
+        /// @return Returns the current to adobe RGB value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] AdobeRgb to_adobe_rgb() const noexcept;
+        /// Converts the value to display p3 representation.
+        ///
+        /// @return Returns the current to display p3 value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DisplayP3 to_display_p3() const noexcept;
+        /// Converts the value to rec2020 representation.
+        ///
+        /// @return Returns the current to rec2020 value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Rec2020 to_rec2020() const noexcept;
+        /// Converts the value to hsl representation.
+        ///
+        /// @return Returns the current to hsl value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Hsl to_hsl() const noexcept;
+        /// Converts the value to hsv representation.
+        ///
+        /// @return Returns the current to hsv value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Hsv to_hsv() const noexcept;
+        /// Converts the value to hwb representation.
+        ///
+        /// @return Returns the current to hwb value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Hwb to_hwb() const noexcept;
+        /// Converts the value to lab representation.
+        ///
+        /// @return Returns the current to lab value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Lab to_lab() const noexcept;
+        /// Converts the value to lch representation.
+        ///
+        /// @return Returns the current to lch value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Lch to_lch() const noexcept;
+        /// Converts the value to luv representation.
+        ///
+        /// @return Returns the current to luv value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Luv to_luv() const noexcept;
+        /// Converts the value to oklab representation.
+        ///
+        /// @return Returns the current to oklab value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Oklab to_oklab() const noexcept;
+        /// Converts the value to oklch representation.
+        ///
+        /// @return Returns the current to oklch value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Oklch to_oklch() const noexcept;
     };
 
@@ -67,8 +165,22 @@ namespace SFT::Foundation::Color {
         f64 g = 0.0;
         f64 b = 0.0;
         f64 a = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Srgb &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Srgb from_linear(const Linear &c) noexcept;
     };
 
@@ -77,8 +189,22 @@ namespace SFT::Foundation::Color {
         f64 y = 0.0;
         f64 z = 0.0;
         f64 alpha = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Xyz &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Xyz from_linear(const Linear &c) noexcept;
     };
 
@@ -87,8 +213,22 @@ namespace SFT::Foundation::Color {
         f64 g = 0.0;
         f64 b = 0.0;
         f64 a = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const AdobeRgb &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static AdobeRgb from_linear(const Linear &c) noexcept;
     };
 
@@ -97,8 +237,22 @@ namespace SFT::Foundation::Color {
         f64 g = 0.0;
         f64 b = 0.0;
         f64 a = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const DisplayP3 &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static DisplayP3 from_linear(const Linear &c) noexcept;
     };
 
@@ -107,8 +261,22 @@ namespace SFT::Foundation::Color {
         f64 g = 0.0;
         f64 b = 0.0;
         f64 a = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Rec2020 &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Rec2020 from_linear(const Linear &c) noexcept;
     };
 
@@ -117,8 +285,22 @@ namespace SFT::Foundation::Color {
         f64 s = 0.0;
         f64 l = 0.0;
         f64 a = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Hsl &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Hsl from_linear(const Linear &c) noexcept;
     };
 
@@ -127,8 +309,22 @@ namespace SFT::Foundation::Color {
         f64 s = 0.0;
         f64 v = 0.0;
         f64 a = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Hsv &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Hsv from_linear(const Linear &c) noexcept;
     };
 
@@ -137,8 +333,22 @@ namespace SFT::Foundation::Color {
         f64 w = 0.0;
         f64 b = 0.0;
         f64 a = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Hwb &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Hwb from_linear(const Linear &c) noexcept;
     };
 
@@ -147,10 +357,36 @@ namespace SFT::Foundation::Color {
         f64 a = 0.0;
         f64 b = 0.0;
         f64 alpha = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Lab &) const = default;
+        /// Performs the f operation for `Lab` using the supplied arguments.
+        ///
+        /// @param t `t` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static f64 f(f64 t) noexcept;
+        /// Performs the f inv operation for `Lab` using the supplied arguments.
+        ///
+        /// @param u `u` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static f64 f_inv(f64 u) noexcept;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Lab from_linear(const Linear &c) noexcept;
     };
 
@@ -159,8 +395,22 @@ namespace SFT::Foundation::Color {
         f64 c = 0.0;
         f64 h = 0.0;
         f64 a = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Lch &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param color `color` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Lch from_linear(const Linear &color) noexcept;
     };
 
@@ -169,10 +419,40 @@ namespace SFT::Foundation::Color {
         f64 u = 0.0;
         f64 v = 0.0;
         f64 alpha = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Luv &) const = default;
+        /// Performs the u prime operation for `Luv` using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        /// @param y `y` value used by the operation.
+        /// @param z `z` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static f64 u_prime(f64 x, f64 y, f64 z) noexcept;
+        /// Performs the v prime operation for `Luv` using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        /// @param y `y` value used by the operation.
+        /// @param z `z` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static f64 v_prime(f64 x, f64 y, f64 z) noexcept;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Luv from_linear(const Linear &c) noexcept;
     };
 
@@ -181,8 +461,22 @@ namespace SFT::Foundation::Color {
         f64 a = 0.0;
         f64 b = 0.0;
         f64 alpha = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Oklab &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param c `c` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Oklab from_linear(const Linear &c) noexcept;
     };
 
@@ -191,24 +485,25 @@ namespace SFT::Foundation::Color {
         f64 c = 0.0;
         f64 h = 0.0;
         f64 alpha = 1.0;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const Oklch &) const = default;
+        /// Converts the value to linear representation.
+        ///
+        /// @return Returns the current to linear value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Linear to_linear() const noexcept;
+        /// Creates or converts a value from linear representation.
+        ///
+        /// @param color `color` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static Oklch from_linear(const Linear &color) noexcept;
     };
 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
 
     namespace Detail {
 
@@ -221,9 +516,11 @@ namespace SFT::Foundation::Color {
         template <>                                                                         \
         struct ColorTraits<Type> {                                                          \
             static constexpr bool is_color = true;                                          \
+            /** @brief Performs the components operation for `ColorTraits` using the supplied arguments. @param c `c` value used by the operation. @return Returns the value produced by the operation. @note This function does not throw exceptions. */ \
             [[nodiscard]] static constexpr std::array<f64, 4> components(const Type &c) noexcept { \
                 return {c.C0, c.C1, c.C2, c.C3};                                           \
             }                                                                               \
+            /** @brief Creates or converts a value from components representation. @param v `v` value used by the operation. @return Returns the newly constructed or converted value. @note This function does not throw exceptions. */ \
             [[nodiscard]] static constexpr Type from_components(const std::array<f64, 4> &v) noexcept { \
                 return {v[0], v[1], v[2], v[3]};                                           \
             }                                                                               \
@@ -264,6 +561,10 @@ namespace SFT::Foundation::Color {
     template <typename T>
     concept ColorScalar = Detail::ColorScalar<T>;
 
+    /// Returns the current or globally available convert to value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Target, ColorSpace Source>
     [[nodiscard]] inline std::remove_cvref_t<Target> convert_to(const Source &source) noexcept {
         using TargetColor = std::remove_cvref_t<Target>;
@@ -275,6 +576,10 @@ namespace SFT::Foundation::Color {
         }
     }
 
+    /// Returns the current or globally available operate in left space value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right, typename Op>
     [[nodiscard]] inline std::remove_cvref_t<Left> operate_in_left_space(const Left &left, const Right &right, Op &&op) noexcept {
         using LeftColor = std::remove_cvref_t<Left>;
@@ -289,6 +594,10 @@ namespace SFT::Foundation::Color {
         });
     }
 
+    /// Returns the current or globally available operate RGB value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C, typename Op>
     [[nodiscard]] inline std::remove_cvref_t<C> operate_rgb(const C &color, Op &&op) noexcept {
         using Color = std::remove_cvref_t<C>;
@@ -299,134 +608,230 @@ namespace SFT::Foundation::Color {
         return Detail::ColorTraits<Color>::from_components(components);
     }
 
+    /// Adds the operands and returns the result.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     [[nodiscard]] inline std::remove_cvref_t<Left> operator+(const Left &left, const Right &right) noexcept {
         return operate_in_left_space(left, right, [](f64 a, f64 b) noexcept { return a + b; });
     }
 
+    /// Subtracts the operands and returns the result.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     [[nodiscard]] inline std::remove_cvref_t<Left> operator-(const Left &left, const Right &right) noexcept {
         return operate_in_left_space(left, right, [](f64 a, f64 b) noexcept { return a - b; });
     }
 
+    /// Dereferences this iterator or handle.
+    ///
+    /// @return Returns the value or reference currently addressed by the iterator/handle.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     [[nodiscard]] inline std::remove_cvref_t<Left> operator*(const Left &left, const Right &right) noexcept {
         return operate_in_left_space(left, right, [](f64 a, f64 b) noexcept { return a * b; });
     }
 
+    /// Divides the operands and returns the result.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     [[nodiscard]] inline std::remove_cvref_t<Left> operator/(const Left &left, const Right &right) noexcept {
         return operate_in_left_space(left, right, [](f64 a, f64 b) noexcept { return a / b; });
     }
 
+    /// Subtracts the operands and returns the result.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C>
     [[nodiscard]] inline std::remove_cvref_t<C> operator-(const C &color) noexcept {
         return operate_rgb(color, [](f64 v) noexcept { return -v; });
     }
 
+    /// Dereferences this iterator or handle.
+    ///
+    /// @return Returns the value or reference currently addressed by the iterator/handle.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C, ColorScalar S>
     [[nodiscard]] inline std::remove_cvref_t<C> operator*(const C &color, S scalar) noexcept {
         const f64 s = static_cast<f64>(scalar);
         return operate_rgb(color, [s](f64 v) noexcept { return v * s; });
     }
 
+    /// Dereferences this iterator or handle.
+    ///
+    /// @return Returns the value or reference currently addressed by the iterator/handle.
+    /// @note This function does not throw exceptions.
     template <ColorScalar S, ColorSpace C>
     [[nodiscard]] inline std::remove_cvref_t<C> operator*(S scalar, const C &color) noexcept {
         return color * scalar;
     }
 
+    /// Divides the operands and returns the result.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C, ColorScalar S>
     [[nodiscard]] inline std::remove_cvref_t<C> operator/(const C &color, S scalar) noexcept {
         const f64 s = static_cast<f64>(scalar);
         return operate_rgb(color, [s](f64 v) noexcept { return v / s; });
     }
 
+    /// Adds the operands and returns the result.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C, ColorScalar S>
     [[nodiscard]] inline std::remove_cvref_t<C> operator+(const C &color, S scalar) noexcept {
         const f64 s = static_cast<f64>(scalar);
         return operate_rgb(color, [s](f64 v) noexcept { return v + s; });
     }
 
+    /// Adds the operands and returns the result.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorScalar S, ColorSpace C>
     [[nodiscard]] inline std::remove_cvref_t<C> operator+(S scalar, const C &color) noexcept {
         return color + scalar;
     }
 
+    /// Subtracts the operands and returns the result.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C, ColorScalar S>
     [[nodiscard]] inline std::remove_cvref_t<C> operator-(const C &color, S scalar) noexcept {
         const f64 s = static_cast<f64>(scalar);
         return operate_rgb(color, [s](f64 v) noexcept { return v - s; });
     }
 
+    /// Subtracts the operands and returns the result.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorScalar S, ColorSpace C>
     [[nodiscard]] inline std::remove_cvref_t<C> operator-(S scalar, const C &color) noexcept {
         const f64 s = static_cast<f64>(scalar);
         return operate_rgb(color, [s](f64 v) noexcept { return s - v; });
     }
 
+    /// Adds the right-hand value to this object in place.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     inline std::remove_cvref_t<Left> &operator+=(Left &left, const Right &right) noexcept {
         left = left + right;
         return left;
     }
 
+    /// Subtracts the right-hand value from this object in place.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     inline std::remove_cvref_t<Left> &operator-=(Left &left, const Right &right) noexcept {
         left = left - right;
         return left;
     }
 
+    /// Multiplies this object by the right-hand value in place.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     inline std::remove_cvref_t<Left> &operator*=(Left &left, const Right &right) noexcept {
         left = left * right;
         return left;
     }
 
+    /// Divides this object by the right-hand value in place.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     inline std::remove_cvref_t<Left> &operator/=(Left &left, const Right &right) noexcept {
         left = left / right;
         return left;
     }
 
+    /// Adds the right-hand value to this object in place.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C, ColorScalar S>
     inline std::remove_cvref_t<C> &operator+=(C &color, S scalar) noexcept {
         color = color + scalar;
         return color;
     }
 
+    /// Subtracts the right-hand value from this object in place.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C, ColorScalar S>
     inline std::remove_cvref_t<C> &operator-=(C &color, S scalar) noexcept {
         color = color - scalar;
         return color;
     }
 
+    /// Multiplies this object by the right-hand value in place.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C, ColorScalar S>
     inline std::remove_cvref_t<C> &operator*=(C &color, S scalar) noexcept {
         color = color * scalar;
         return color;
     }
 
+    /// Divides this object by the right-hand value in place.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C, ColorScalar S>
     inline std::remove_cvref_t<C> &operator/=(C &color, S scalar) noexcept {
         color = color / scalar;
         return color;
     }
 
+    /// Returns the current or globally available lerp value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     [[nodiscard]] inline std::remove_cvref_t<Left> lerp(const Left &left, const Right &right, f64 t) noexcept {
         return operate_in_left_space(left, right, [t](f64 a, f64 b) noexcept { return std::lerp(a, b, t); });
     }
 
+    /// Returns the current or globally available mix value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     [[nodiscard]] inline std::remove_cvref_t<Left> mix(const Left &left, const Right &right, f64 t) noexcept {
         return lerp(left, right, t);
     }
 
+    /// Returns the current or globally available modulate value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Left, ColorSpace Right>
     [[nodiscard]] inline std::remove_cvref_t<Left> modulate(const Left &left, const Right &right) noexcept {
         return left * right;
     }
 
+    /// Returns a copy or derived value with alpha applied.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C>
     [[nodiscard]] inline std::remove_cvref_t<C> with_alpha(const C &color, f64 alpha) noexcept {
         using Color = std::remove_cvref_t<C>;
@@ -435,16 +840,28 @@ namespace SFT::Foundation::Color {
         return Detail::ColorTraits<Color>::from_components(components);
     }
 
+    /// Returns the current or globally available alpha value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C>
     [[nodiscard]] inline f64 alpha(const C &color) noexcept {
         return Detail::ColorTraits<std::remove_cvref_t<C>>::components(color)[3];
     }
 
+    /// Clamps RGB using the supplied arguments and current state.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C>
     [[nodiscard]] inline std::remove_cvref_t<C> clamp_rgb(const C &color, f64 low = 0.0, f64 high = 1.0) noexcept {
         return operate_rgb(color, [low, high](f64 v) noexcept { return std::clamp(v, low, high); });
     }
 
+    /// Clamps the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C>
     [[nodiscard]] inline std::remove_cvref_t<C> clamp(const C &color, f64 low = 0.0, f64 high = 1.0) noexcept {
         using Color = std::remove_cvref_t<C>;
@@ -455,17 +872,29 @@ namespace SFT::Foundation::Color {
         return Detail::ColorTraits<Color>::from_components(components);
     }
 
+    /// Returns the current or globally available premultiply alpha value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C>
     [[nodiscard]] inline std::remove_cvref_t<C> premultiply_alpha(const C &color) noexcept {
         return color * alpha(color);
     }
 
+    /// Returns the current or globally available unpremultiply alpha value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace C>
     [[nodiscard]] inline std::remove_cvref_t<C> unpremultiply_alpha(const C &color) noexcept {
         const f64 a = alpha(color);
         return std::abs(a) < epsilon ? color : color / a;
     }
 
+    /// Returns the current or globally available over value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <ColorSpace Foreground, ColorSpace Background>
     [[nodiscard]] inline std::remove_cvref_t<Foreground> over(const Foreground &foreground, const Background &background) noexcept {
         using Color = std::remove_cvref_t<Foreground>;

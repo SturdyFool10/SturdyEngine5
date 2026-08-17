@@ -8,7 +8,14 @@
 namespace SFT::D3D12 {
 
 
-
+    /// Initializes the `D3D12` for use.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param type Type value to inspect, select, or convert.
+    /// @param chunk_capacity `chunk_capacity` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult CpuDescriptorAllocator::initialize(ID3D12Device *device, D3D12_DESCRIPTOR_HEAP_TYPE type,
                                                       u32 chunk_capacity) {
         if (device == nullptr || chunk_capacity == 0) {
@@ -21,12 +28,17 @@ namespace SFT::D3D12 {
         return {};
     }
 
+    /// Allocates storage or a resource.
+    ///
+    /// @param count Number of elements or operations to process.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<DescriptorRange> CpuDescriptorAllocator::allocate(u32 count) {
         if (device_ == nullptr) {
             return operation_failed("CpuDescriptorAllocator::allocate: allocator was never initialized.");
         }
         if (count == 0) {
-
 
 
             return DescriptorRange{};
@@ -72,6 +84,12 @@ namespace SFT::D3D12 {
         return range;
     }
 
+    /// Releases the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param range Range of values to process.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void CpuDescriptorAllocator::release(const DescriptorRange &range) noexcept {
         if (!range.is_valid()) {
             return;
@@ -80,6 +98,13 @@ namespace SFT::D3D12 {
         state->free_ranges[range.count].push_back(range);
     }
 
+    /// Returns the CPU handle associated with this `D3D12`.
+    ///
+    /// @param range Range of values to process.
+    /// @param index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     D3D12_CPU_DESCRIPTOR_HANDLE CpuDescriptorAllocator::cpu_handle(const DescriptorRange &range,
                                                                   u32 index) const noexcept {
         auto state = state_.lock();
@@ -92,7 +117,14 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Initializes the `D3D12` for use.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param type Type value to inspect, select, or convert.
+    /// @param capacity `capacity` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult ShaderVisibleDescriptorHeap::initialize(ID3D12Device *device, D3D12_DESCRIPTOR_HEAP_TYPE type,
                                                            u32 capacity) {
         if (device == nullptr || capacity == 0) {
@@ -115,6 +147,13 @@ namespace SFT::D3D12 {
         return {};
     }
 
+    /// Allocates storage or a resource.
+    ///
+    /// @param count Number of elements or operations to process.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note This function does not throw exceptions.
     std::optional<u32> ShaderVisibleDescriptorHeap::allocate(u32 count) noexcept {
         if (heap_ == nullptr || count == 0 || capacity_ - cursor_ < count) {
             return std::nullopt;
@@ -124,12 +163,24 @@ namespace SFT::D3D12 {
         return offset;
     }
 
+    /// Returns the CPU handle associated with this `D3D12`.
+    ///
+    /// @param index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     D3D12_CPU_DESCRIPTOR_HANDLE ShaderVisibleDescriptorHeap::cpu_handle(u32 index) const noexcept {
         D3D12_CPU_DESCRIPTOR_HANDLE handle = cpu_start_;
         handle.ptr += static_cast<SIZE_T>(index) * increment_;
         return handle;
     }
 
+    /// Returns the GPU handle associated with this `D3D12`.
+    ///
+    /// @param index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     D3D12_GPU_DESCRIPTOR_HANDLE ShaderVisibleDescriptorHeap::gpu_handle(u32 index) const noexcept {
         D3D12_GPU_DESCRIPTOR_HANDLE handle = gpu_start_;
         handle.ptr += static_cast<UINT64>(index) * increment_;
@@ -140,20 +191,52 @@ namespace SFT::D3D12 {
 
 namespace SFT::D3D12 {
 
+    /// Reports whether valid holds for this `D3D12`.
+    ///
+    /// @return Returns the current is valid value.
+    /// @note This function does not throw exceptions.
     bool DescriptorRange::is_valid() const noexcept { return count != 0; }
 
+    /// Returns the current or globally available increment value.
+    ///
+    /// @return Returns the current increment value.
+    /// @note This function does not throw exceptions.
     u32 CpuDescriptorAllocator::increment() const noexcept { return increment_; }
 
+    /// Returns the current or globally available heap type value.
+    ///
+    /// @return Returns the current heap type value.
+    /// @note This function does not throw exceptions.
     D3D12_DESCRIPTOR_HEAP_TYPE CpuDescriptorAllocator::heap_type() const noexcept { return type_; }
 
+    /// Resets the object to its baseline state.
+    ///
+    /// @return Returns the current reset value.
+    /// @note This function does not throw exceptions.
     void ShaderVisibleDescriptorHeap::reset() noexcept { cursor_ = 0; }
 
+    /// Returns the current or globally available heap value.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     ID3D12DescriptorHeap *ShaderVisibleDescriptorHeap::heap() const noexcept { return heap_.Get(); }
 
+    /// Reports whether valid holds for this `D3D12`.
+    ///
+    /// @return Returns the current is valid value.
+    /// @note This function does not throw exceptions.
     bool ShaderVisibleDescriptorHeap::is_valid() const noexcept { return heap_ != nullptr; }
 
+    /// Returns the current or globally available increment value.
+    ///
+    /// @return Returns the current increment value.
+    /// @note This function does not throw exceptions.
     u32 ShaderVisibleDescriptorHeap::increment() const noexcept { return increment_; }
 
+    /// Returns the current or globally available capacity value.
+    ///
+    /// @return Returns the current capacity value.
+    /// @note This function does not throw exceptions.
     u32 ShaderVisibleDescriptorHeap::capacity() const noexcept { return capacity_; }
 
 } // namespace SFT::D3D12

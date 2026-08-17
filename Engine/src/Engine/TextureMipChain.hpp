@@ -9,18 +9,30 @@
 
 namespace SFT::Engine::Detail {
 
-    /// Tightly packed RGBA8 mip levels ordered from the full-resolution base image down to 1x1.
-    /// Each level's dimensions are max(previous / 2, 1); consumers can therefore derive every
-    /// offset from the base dimensions without storing a separate level table.
+
     struct TextureMipChain {
         std::vector<std::byte> data;
         u32 mip_levels = 0;
     };
 
+    /// Returns the requested texture mip level count.
+    ///
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @return Returns the requested count or size.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] u32 texture_mip_level_count(u32 width, u32 height) noexcept;
 
-    /// Builds a complete box-filtered mip chain. RGB channels are filtered in linear light for sRGB
-    /// textures and converted back to sRGB for storage; alpha and linear textures are averaged directly.
+
+    /// Performs the generate rgba8 mip chain operation using the supplied arguments.
+    ///
+    /// @param rgba8 `rgba8` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param srgb `srgb` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     [[nodiscard]] std::optional<TextureMipChain> generate_rgba8_mip_chain(
         std::span<const std::byte> rgba8, u32 width, u32 height, bool srgb);
 

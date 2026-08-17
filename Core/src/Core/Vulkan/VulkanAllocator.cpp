@@ -5,14 +5,28 @@
 
 namespace SFT::Core::Vulkan {
 
+/// Destroys the `Vulkan` and releases resources owned by it.
+///
+/// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
 VulkanAllocator::~VulkanAllocator() { destroy(); }
 
+/// Performs the vulkan allocator operation for `Vulkan` using the supplied arguments.
+///
+/// @param o `o` value used by the operation.
+///
+/// @note This function does not throw exceptions.
 VulkanAllocator::VulkanAllocator(VulkanAllocator &&o) noexcept
             : allocator_(o.allocator_) {
             ZoneScopedN("VulkanAllocator::VulkanAllocator");
             o.allocator_ = VK_NULL_HANDLE;
         }
 
+/// Assigns a new value to this `Vulkan`.
+///
+/// @param o `o` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 VulkanAllocator &VulkanAllocator::operator=(VulkanAllocator &&o) noexcept {
             ZoneScopedN("VulkanAllocator::operator=");
             if (this != &o) {
@@ -23,6 +37,14 @@ VulkanAllocator &VulkanAllocator::operator=(VulkanAllocator &&o) noexcept {
             return *this;
         }
 
+/// Creates a `Vulkan` resource or value from the supplied parameters.
+///
+/// @param desc Description of the resource or operation to perform.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::InitializationFailed`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanAllocator> VulkanAllocator::create(const VulkanAllocator::CreateDesc &desc) noexcept {
             ZoneScopedN("VulkanAllocator::create");
             VmaVulkanFunctions functions{};
@@ -45,10 +67,27 @@ VulkanAllocator &VulkanAllocator::operator=(VulkanAllocator &&o) noexcept {
             return out;
         }
 
+/// Returns the Vulkan handle associated with this `Vulkan`.
+///
+/// @return Returns the current Vulkan handle value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] VmaAllocator VulkanAllocator::vk_handle() const noexcept { return allocator_; }
 
+/// Reports whether valid holds for this `Vulkan`.
+///
+/// @return Returns the current is valid value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool VulkanAllocator::is_valid() const noexcept { return allocator_ != VK_NULL_HANDLE; }
 
+/// Creates a image from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param image_info Description of the resource or operation to perform.
+/// @param allocation_info Description of the resource or operation to perform.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanImage> VulkanAllocator::create_image(
             VkDevice device,
             const VkImageCreateInfo &image_info,
@@ -57,6 +96,15 @@ VulkanAllocator &VulkanAllocator::operator=(VulkanAllocator &&o) noexcept {
             return VulkanImage::create(device, allocator_, image_info, allocation_info);
         }
 
+/// Creates a buffer from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param buffer_info Description of the resource or operation to perform.
+/// @param allocation_info Description of the resource or operation to perform.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanBuffer> VulkanAllocator::create_buffer(
             VkDevice device,
             const VkBufferCreateInfo &buffer_info,
@@ -65,6 +113,10 @@ VulkanAllocator &VulkanAllocator::operator=(VulkanAllocator &&o) noexcept {
             return VulkanBuffer::create(device, allocator_, buffer_info, allocation_info);
         }
 
+/// Destroys or releases the `Vulkan` resource represented by the supplied parameters.
+///
+/// @return Returns the current destroy value.
+/// @note This function does not throw exceptions.
 void VulkanAllocator::destroy() noexcept {
             ZoneScopedN("VulkanAllocator::destroy");
             if (allocator_ == VK_NULL_HANDLE)

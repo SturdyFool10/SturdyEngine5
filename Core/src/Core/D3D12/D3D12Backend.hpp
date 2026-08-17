@@ -10,33 +10,106 @@
 
 namespace SFT::Core::D3D12 {
 
-    /// Windows-only renderer backend. It owns the API-neutral RHI instance/device pair and translates
-    /// Core window surfaces into the D3D12 RHI's Win32 surface records.
+
     class D3D12Backend final : public EngineBackend {
       public:
+        /// Destroys the `D3D12Backend` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~D3D12Backend() override;
 
+        /// Initializes the `D3D12Backend` for use.
+        ///
+        /// @param init `init` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         RendererExpected<RenderSurfaceHandle> initialize(const RendererCreateInfo &init) override;
+        /// Creates a window surface from the supplied parameters.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param desired_frames_in_flight `desired_frames_in_flight` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         RendererExpected<RenderSurfaceHandle> create_window_surface(
             Platform::Windowing::Window &window,
             u32 desired_frames_in_flight = 2) override;
+        /// Destroys the window surface identified by the supplied parameters.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy_window_surface(RenderSurfaceHandle surface) noexcept override;
+        /// Handles the surface resize needed event.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        /// @param extent `extent` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void on_surface_resize_needed(RenderSurfaceHandle surface, Extent2D extent) noexcept override;
+        /// Returns the current or globally available capabilities value.
+        ///
+        /// @return Returns the current capabilities value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererCapabilities capabilities() const noexcept override;
+        /// Returns the current render threading capabilities.
+        ///
+        /// @return Returns the current render threading capabilities value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::RenderThreadingCapabilities render_threading_capabilities() const noexcept override;
+        /// Returns the current or globally available RHI device value.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::RhiDevice *rhi_device() noexcept override;
+        /// Returns the current or globally available RHI device value.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const RHI::RhiDevice *rhi_device() const noexcept override;
+        /// Resolves the RHI surface associated with the supplied key, handle, or resource.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] RendererExpected<RHI::SurfaceHandle> rhi_surface_for(RenderSurfaceHandle surface) override;
+        /// Returns the current GPU info.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         [[nodiscard]] optional<GpuInfo> gpu_info() const override;
+        /// Waits for idle to complete.
+        ///
+        /// @note This function does not throw exceptions.
         void wait_idle() noexcept override;
 
       private:
         friend class ::SFT::Core::EngineBackend;
+        /// Constructs a `D3D12Backend` from the supplied initialization values.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         explicit D3D12Backend(ConstructorKey key);
 
+        /// Creates a surface from the supplied parameters.
+        ///
+        /// @param window Window used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] RendererExpected<RenderSurfaceHandle> create_surface(
             Platform::Windowing::Window &window);
+        /// Destroys the resources identified by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy_resources() noexcept;
+        /// Removes and returns or discards the next value from the container or queue.
+        ///
+        /// @param init `init` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void populate_capabilities(const RendererCreateInfo &init) noexcept;
 
         RendererCapabilities capabilities_{};

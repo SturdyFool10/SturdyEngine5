@@ -20,10 +20,7 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    /// Extrusion/revolution/normal axis for primitives that aren't rotationally symmetric about every
-    /// axis (cylinder, cone, plane). Follows the SolidWorks convention the caller asked for: Y means
-    /// "a profile in the XZ plane, extruded/revolved along Y" — i.e. the shape's natural axis when
-    /// authored is Y, and X/Z just remap that same shape onto a different axis.
+
     enum class Axis : u8 { X, Y, Z };
 
     struct UvSphereParams {
@@ -80,66 +77,183 @@ namespace SFT::Renderer {
         u32 minor_segments = 16;
     };
 
-    /// CPU-side mesh data: points + indices, plain value type (copying deep-copies the geometry, same
-    /// as copying a vector). A Mesh is CPU-resident from construction; it only becomes GPU-resident
-    /// once handed to Renderer::upload(), which stamps a handle back onto it. Copies of an uploaded
-    /// Mesh keep pointing at the same GPU resource (they share the handle), so passing meshes around
-    /// by value never implicitly re-uploads or duplicates GPU memory.
+
     class Mesh {
       public:
+        /// Constructs a `Mesh` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         Mesh() = default;
 
+        /// Creates a `Mesh` resource or value from the supplied parameters.
+        ///
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh create(const char *label = nullptr);
 
-        /// Builds a mesh from raw triangles in model space (origin at Vec3(0), Y+ up). Each triangle
-        /// gets its own three vertices with a flat face normal — geometry from disparate triangles
-        /// isn't assumed to share a smooth surface.
+
+        /// Creates or converts a value from triangles representation.
+        ///
+        /// @param triangles `triangles` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh from_triangles(span<const Core::Triangle> triangles, const char *label = nullptr);
 
-        /// Builds a mesh from already-indexed vertex data (e.g. a glTF primitive's
-        /// position/normal/uv/color accessors) — unlike from_triangles(), vertices are shared across
-        /// triangles via `indices` rather than tripled per-face with a synthesized flat normal.
+
+        /// Creates or converts a value from vertices representation.
+        ///
+        /// @param vertices `vertices` value used by the operation.
+        /// @param indices `indices` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh from_vertices(span<const GeometryVertex> vertices, span<const u32> indices,
                                                  const char *label = nullptr);
 
+        /// Performs the uv sphere operation for `Mesh` using the supplied arguments.
+        ///
+        /// @param params `params` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh uv_sphere(const UvSphereParams &params = {}, const char *label = nullptr);
+        /// Performs the ico sphere operation for `Mesh` using the supplied arguments.
+        ///
+        /// @param params `params` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh ico_sphere(const IcoSphereParams &params = {}, const char *label = nullptr);
+        /// Performs the cylinder operation for `Mesh` using the supplied arguments.
+        ///
+        /// @param params `params` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh cylinder(const CylinderParams &params = {}, const char *label = nullptr);
+        /// Performs the cone operation for `Mesh` using the supplied arguments.
+        ///
+        /// @param params `params` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh cone(const ConeParams &params = {}, const char *label = nullptr);
+        /// Performs the cube operation for `Mesh` using the supplied arguments.
+        ///
+        /// @param params `params` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh cube(const CubeParams &params = {}, const char *label = nullptr);
+        /// Performs the rectangular prism operation for `Mesh` using the supplied arguments.
+        ///
+        /// @param params `params` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh rectangular_prism(const RectangularPrismParams &params = {},
                                                      const char *label = nullptr);
+        /// Performs the tetrahedron operation for `Mesh` using the supplied arguments.
+        ///
+        /// @param params `params` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh tetrahedron(const TetrahedronParams &params = {}, const char *label = nullptr);
+        /// Performs the plane operation for `Mesh` using the supplied arguments.
+        ///
+        /// @param params `params` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh plane(const PlaneParams &params = {}, const char *label = nullptr);
+        /// Performs the torus operation for `Mesh` using the supplied arguments.
+        ///
+        /// @param params `params` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static Mesh torus(const TorusParams &params = {}, const char *label = nullptr);
 
+        /// Returns the current or globally available vertices value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] span<const GeometryVertex> vertices() const noexcept;
+        /// Returns the current or globally available indices value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] span<const u32> indices() const noexcept;
+        /// Returns the current or globally available label value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const UString &label() const noexcept;
+        /// Sets the label for this `Mesh`.
+        ///
+        /// @param label `label` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_label(UString label) noexcept;
+        /// Sets the vertex color for this `Mesh`.
+        ///
+        /// @param color `color` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_vertex_color(const glm::vec4 &color) noexcept;
 
-        /// Triangle count this mesh draws as (every Mesh factory function populates indices_, even
-        /// from_triangles' otherwise-unindexed input, so index_count/3 is always the right count —
-        /// vertex_count/3 is only a fallback for a hand-built Mesh that never set indices). Cheap,
-        /// pure-CPU — safe to call anytime, GPU-resident or not.
+
+        /// Returns the triangle count for this `Mesh`.
+        ///
+        /// @return Returns the current triangle count value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize triangle_count() const noexcept;
-        /// Rough GPU footprint estimate: vertex buffer bytes + index buffer bytes, matching
-        /// AssetManager::create_model's identical formula for ModelAssetInfo/AssetInfo::memory_bytes
-        /// (see Engine/AssetManager.cpp) — kept here too so a Mesh built without ever becoming an
-        /// AssetManager Model asset (e.g. procedural geometry a game uploads directly) still has a
-        /// queryable estimate.
+
+
+        /// Computes the estimated GPU bytes required by the supplied values.
+        ///
+        /// @return Returns the current estimated GPU bytes value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 estimated_gpu_bytes() const noexcept;
 
-        /// False until this exact Mesh (or a copy sharing its handle) has been uploaded via
-        /// Renderer::upload(). CPU-side vertices()/indices() stay populated either way — uploading
-        /// does not move the data off the CPU, it just also puts a copy on the GPU.
+
+        /// Reports whether GPU resident holds for this `Mesh`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_gpu_resident() const noexcept;
+        /// Returns the GPU handle associated with this `Mesh`.
+        ///
+        /// @return Returns the current GPU handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] MeshHandle gpu_handle() const noexcept;
 
       private:
         friend class Renderer;
+        /// Marks uploaded using the supplied arguments and current state.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note This function does not throw exceptions.
         void mark_uploaded(MeshHandle handle) noexcept;
+        /// Marks evicted using the supplied arguments and current state.
+        ///
+        /// @note This function does not throw exceptions.
         void mark_evicted() noexcept;
 
         vector<GeometryVertex> vertices_;

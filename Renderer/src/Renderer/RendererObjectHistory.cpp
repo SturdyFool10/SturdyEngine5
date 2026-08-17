@@ -27,13 +27,21 @@ namespace SFT::Renderer {
     namespace {
         namespace slang = Core::Slang;
 
+        /// Creates an error result describing the supplied object history failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError object_history_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
 
-
-
+        /// Returns the current or globally available history geometry vertex attributes value.
+        ///
+        /// @return Returns the current history geometry vertex attributes value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         constexpr array<RHI::VertexAttribute, 5> history_geometry_vertex_attributes() {
             return {
                 RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, position), .shader_location = 0},
@@ -46,6 +54,10 @@ namespace SFT::Renderer {
 
     } // namespace
 
+    /// Finds or creates the object history resources required by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_object_history_resources() {
         ZoneScopedN("Renderer::ensure_object_history_resources");
         auto guard = object_history_.lock();
@@ -108,6 +120,16 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Resolves the history pipeline associated with the supplied key, handle, or resource.
+    ///
+    /// @param material_template `material_template` value used by the operation.
+    /// @param color_formats Format used for the resource, render target, or conversion.
+    /// @param depth_format Format used for the resource, render target, or conversion.
+    /// @param standard_depth_test `standard_depth_test` value used by the operation.
+    /// @param samples `samples` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::history_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
         RHI::Format depth_format, bool standard_depth_test, RHI::SampleCount samples) {
@@ -181,7 +203,6 @@ namespace SFT::Renderer {
         }
 
 
-
         RHI::DepthStencilState depth_stencil{};
         if (depth_format != RHI::Format::Undefined) {
             depth_stencil = standard_depth_test
@@ -226,6 +247,13 @@ namespace SFT::Renderer {
         return *pipeline;
     }
 
+    /// Finds or creates the object history bind group required by the operation.
+    ///
+    /// @param resources `resources` value used by the operation.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::BindGroupHandle> Renderer::ensure_object_history_bind_group(
         SceneFrameGpuResources &resources, vector<RHI::BindGroupHandle> &transient_bind_groups) {
         ZoneScopedN("Renderer::ensure_object_history_bind_group");
@@ -255,12 +283,14 @@ namespace SFT::Renderer {
         }
 
 
-
-
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
         return *bind_group;
     }
 
+    /// Destroys the object history resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy object history resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_object_history_resources() noexcept {
         ZoneScopedN("Renderer::destroy_object_history_resources");
         RHI::RhiDevice *device = rhi_device();

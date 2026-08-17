@@ -27,19 +27,25 @@ namespace SFT::UiWorkbench {
         constexpr UI::Color warning{1.0, 0.670, 0.260, 1.0};
         constexpr UI::Color danger{0.960, 0.350, 0.380, 1.0};
 
+        /// Performs the background with opacity operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param color `color` value used by the operation.
+        /// @param opacity `opacity` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] UI::Color background_with_opacity(UI::Color color, f64 opacity) noexcept {
             color.a *= std::clamp(opacity, 0.0, 1.0);
             return color;
         }
 
 
-
-
-
-
-
-
-
+        /// Converts the value to platform cursor icon representation.
+        ///
+        /// @param icon `icon` value used by the operation.
+        ///
+        /// @return Returns the value converted to platform cursor icon representation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Platform::Windowing::CursorIcon to_platform_cursor_icon(UI::CursorIcon icon) {
             switch (icon) {
                 case UI::CursorIcon::Auto:
@@ -68,13 +74,16 @@ namespace SFT::UiWorkbench {
         }
 
 
-
-
-
-
-
         constexpr glm::vec2 kWorkspaceOrigin{18.0f, 58.0f};
 
+        /// Performs the text style operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param font `font` value used by the operation.
+        /// @param color `color` value used by the operation.
+        /// @param size Requested or available size for the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UI::TextStyle text_style(UI::FontId font, UI::Color color = text_primary, u16 size = 14) {
             return UI::TextStyle{
                 .color = color,
@@ -84,12 +93,26 @@ namespace SFT::UiWorkbench {
             };
         }
 
+        /// Performs the number text operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param prefix `prefix` value used by the operation.
+        /// @param value Value consumed by the operation.
+        /// @param suffix `suffix` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::string number_text(const char *prefix, f64 value, const char *suffix = "") {
             std::array<char, 96> buffer{};
             std::snprintf(buffer.data(), buffer.size(), "%s%.2f%s", prefix, value, suffix);
             return std::string{buffer.data()};
         }
 
+        /// Performs the fps text operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param fps `fps` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::string fps_text(f32 fps) {
             std::array<char, 32> buffer{};
             std::snprintf(buffer.data(), buffer.size(), "%.0f FPS", static_cast<f64>(std::max(fps, 0.0f)));
@@ -97,7 +120,15 @@ namespace SFT::UiWorkbench {
         }
 
 
-
+        /// Performs the fps color operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param fps `fps` value used by the operation.
+        /// @param good `good` value used by the operation.
+        /// @param mid `mid` value used by the operation.
+        /// @param bad `bad` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UI::Color fps_color(f32 fps, UI::Color good, UI::Color mid, UI::Color bad) {
             if (fps >= 55.0f) {
                 return good;
@@ -105,17 +136,34 @@ namespace SFT::UiWorkbench {
             return fps >= 30.0f ? mid : bad;
         }
 
+        /// Performs the rgba text operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param color `color` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::string rgba_text(const UI::Color &color) {
             std::array<char, 128> buffer{};
             std::snprintf(buffer.data(), buffer.size(), "sRGB  %.3f   %.3f   %.3f   alpha %.3f", color.r, color.g, color.b, color.a);
             return std::string{buffer.data()};
         }
 
+        /// Draws text using the current rendering state.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param content `content` value used by the operation.
+        /// @param style `style` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void draw_text(UI::Context &ctx, std::string_view content, const UI::TextStyle &style) {
             const ustr borrowed{content};
             ctx.text(borrowed, style);
         }
 
+        /// Returns the current or globally available action button style value.
+        ///
+        /// @return Returns the current action button style value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UI::ButtonStyle action_button_style() {
             return UI::ButtonStyle{
                 .idle = UI::Color{0.125, 0.145, 0.205, 1.0},
@@ -128,6 +176,10 @@ namespace SFT::UiWorkbench {
             };
         }
 
+        /// Returns the current or globally available toggle style value.
+        ///
+        /// @return Returns the current toggle style value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UI::ToggleStyle toggle_style() {
             return UI::ToggleStyle{
                 .idle = UI::Color{0.120, 0.135, 0.185, 1.0},
@@ -139,6 +191,12 @@ namespace SFT::UiWorkbench {
             };
         }
 
+        /// Performs the dock style operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param font `font` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UI::Docking::DockWorkspaceStyle dock_style(UI::FontId font) {
             UI::Docking::DockWorkspaceStyle style{};
             style.tab_strip_height = 34.0f;
@@ -181,12 +239,28 @@ namespace SFT::UiWorkbench {
             return style;
         }
 
+        /// Performs the panel heading operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param font `font` value used by the operation.
+        /// @param eyebrow `eyebrow` value used by the operation.
+        /// @param title `title` value used by the operation.
+        /// @param description Description of the resource or operation to perform.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void panel_heading(UI::Context &ctx, UI::FontId font, std::string_view eyebrow, std::string_view title, std::string_view description) {
             draw_text(ctx, eyebrow, text_style(font, accent, 12));
             draw_text(ctx, title, text_style(font, text_primary, 23));
             draw_text(ctx, description, text_style(font, text_secondary, 13));
         }
 
+        /// Performs the section label operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param font `font` value used by the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void section_label(UI::Context &ctx, UI::FontId font, std::string_view label) {
             auto row = ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
@@ -201,6 +275,14 @@ namespace SFT::UiWorkbench {
             (void)line;
         }
 
+        /// Performs the status pill operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param font `font` value used by the operation.
+        /// @param text Text consumed by the operation.
+        /// @param color `color` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void status_pill(UI::Context &ctx, UI::FontId font, std::string_view text, UI::Color color) {
             auto pill = ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::fit(), UI::SizingAxis::fit()},
@@ -213,6 +295,14 @@ namespace SFT::UiWorkbench {
             draw_text(ctx, text, text_style(font, color, 11));
         }
 
+        /// Performs the dropdown option operation for `UiWorkbench` using the supplied arguments.
+        ///
+        /// @param font `font` value used by the operation.
+        /// @param label `label` value used by the operation.
+        /// @param swatch `swatch` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UI::DropdownOption dropdown_option(UI::FontId font, const char *label, UI::Color swatch) {
             return UI::DropdownOption{.build = [font, label, swatch](UI::Context &ctx) {
                 auto row = ctx.element(UI::ElementDecl{
@@ -221,8 +311,6 @@ namespace SFT::UiWorkbench {
                     .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
                 });
                 {
-
-
 
 
                     auto dot = ctx.element(UI::ElementDecl{
@@ -258,15 +346,7 @@ namespace SFT::UiWorkbench {
         std::vector<UI::ColorPickerKey> color_keys;
 
 
-
-
-
-
-
-
         Engine::UiTextInputState text_input;
-
-
 
 
         UI::ScrollAreaState controls_scroll{};
@@ -277,29 +357,33 @@ namespace SFT::UiWorkbench {
         UI::ScrollAreaState metrics_scroll{};
 
 
-
-
         f32 fps_smoothed = -1.0f;
-
-
-
 
 
         Renderer::FrameTimingSnapshot last_timing_snapshot{};
     };
 
+    /// Performs the workbench UI operation for `UiWorkbench` using the supplied arguments.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     WorkbenchUi::WorkbenchUi() {
         render_graph_ = Engine::RenderGraph::overlay_only();
-
-
-
 
 
         render_graph_.debug_overlay().draw_text = false;
     }
 
+    /// Destroys the `UiWorkbench` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     WorkbenchUi::~WorkbenchUi() = default;
 
+    /// Initializes the `UiWorkbench` for use.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Engine::GameLogicResult WorkbenchUi::initialize(Engine::Engine &engine) {
         const Foundation::Stopwatch stopwatch;
         const std::optional<std::string> font_bytes =
@@ -315,14 +399,6 @@ namespace SFT::UiWorkbench {
             return std::unexpected(Engine::GameLogicError{.message = loaded.error().message});
         }
         font_ = std::move(*loaded);
-
-
-
-
-
-
-
-
 
 
         const std::optional<std::string> cjk_font_bytes =
@@ -359,8 +435,6 @@ namespace SFT::UiWorkbench {
                                                "Plain paragraphs render as body text."});
 
 
-
-
         static constexpr std::array<Platform::Windowing::WindowEffectKind, 5> candidate_blur_kinds{
             Platform::Windowing::WindowEffectKind::Blur,
             Platform::Windowing::WindowEffectKind::Acrylic,
@@ -378,12 +452,27 @@ namespace SFT::UiWorkbench {
         return {};
     }
 
+    /// Finds surface in the available state.
+    ///
+    /// @param window Window used or affected by the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note This function does not throw exceptions.
     WorkbenchUi::Surface *WorkbenchUi::find_surface(
         Platform::Windowing::WindowId window) noexcept {
         const auto found = surfaces_.find(window);
         return found != surfaces_.end() ? found->second.get() : nullptr;
     }
 
+    /// Finds or creates the surface required by the operation.
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param handle Handle identifying the target object or resource.
+    /// @param primary `primary` value used by the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     WorkbenchUi::Surface *WorkbenchUi::ensure_surface(
         Engine::Engine &engine,
         Core::RenderSurfaceHandle handle,
@@ -470,6 +559,12 @@ namespace SFT::UiWorkbench {
         return result;
     }
 
+    /// Destroys the surface renderers identified by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void WorkbenchUi::destroy_surface_renderers(RHI::RhiDevice &device) noexcept {
         for (auto &[window, surface] : surfaces_) {
             (void)window;
@@ -478,6 +573,13 @@ namespace SFT::UiWorkbench {
         }
     }
 
+    /// Recreates surface renderers using the supplied arguments and current state.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult WorkbenchUi::recreate_surface_renderers(RHI::RhiDevice &device) {
         for (auto &[window, surface] : surfaces_) {
             (void)window;
@@ -501,6 +603,12 @@ namespace SFT::UiWorkbench {
         return {};
     }
 
+    /// Performs the route input operation for `UiWorkbench` using the supplied arguments.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void WorkbenchUi::route_input(Engine::Engine &engine) {
         engine.update_schedule().add_system(
             [this](Ecs::EventReader<Engine::MouseMoveEvent> moves,
@@ -565,12 +673,7 @@ namespace SFT::UiWorkbench {
                     }
 
 
-
-
-
-
                     surface->text_input.apply_key(event);
-
 
 
                     if (event.key_code == Engine::KeyboardKey::LeftShift ||
@@ -622,6 +725,12 @@ namespace SFT::UiWorkbench {
             });
     }
 
+    /// Performs the process window completions operation for `UiWorkbench` using the supplied arguments.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void WorkbenchUi::process_window_completions(Engine::Engine &engine) {
         for (const Engine::WindowRequestCompletion &completion :
              engine.window_requests().take_completions()) {
@@ -664,6 +773,14 @@ namespace SFT::UiWorkbench {
         }
     }
 
+    /// Renders the requested content using the current rendering state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param handle Handle identifying the target object or resource.
+    /// @param frame `frame` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     std::optional<Engine::RenderFrameParameters> WorkbenchUi::render(
         Engine::Engine &engine,
         Core::RenderSurfaceHandle handle,
@@ -676,9 +793,6 @@ namespace SFT::UiWorkbench {
         if (surface == nullptr || frame.framebuffer_width == 0 || frame.framebuffer_height == 0) {
             return std::nullopt;
         }
-
-
-
 
 
         if (!surface->sdr_renderer.ready() || !surface->hdr_renderer.ready()) {
@@ -709,16 +823,11 @@ namespace SFT::UiWorkbench {
         handle_dock_events(engine, *surface, std::move(dock_events));
 
 
-
-
         if (frames_to_skip_after_graphics_reconstruction_ != 0) {
             --frames_to_skip_after_graphics_reconstruction_;
             (void)surface->context.finish_frame();
             return std::nullopt;
         }
-
-
-
 
 
         engine.window_requests().set_cursor_icon(surface->handle.window_id,
@@ -734,6 +843,15 @@ namespace SFT::UiWorkbench {
         };
     }
 
+    /// Builds frame.
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param surface Surface used or affected by the operation.
+    /// @param viewport `viewport` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UI::Docking::DockWorkspaceEvents WorkbenchUi::build_frame(
         Engine::Engine &engine,
         Surface &surface,
@@ -741,8 +859,6 @@ namespace SFT::UiWorkbench {
         f32 delta_seconds) {
         UI::PointerState framebuffer_pointer = surface.pointer;
         if (const Engine::WindowSnapshot *window = engine.window_state().find(surface.handle.window_id)) {
-
-
 
 
             const glm::vec2 framebuffer_size{window->framebuffer_size};
@@ -754,8 +870,6 @@ namespace SFT::UiWorkbench {
                 }
             }
         }
-
-
 
 
         if (const std::optional<UI::ElementBounds> bounds =
@@ -800,20 +914,12 @@ namespace SFT::UiWorkbench {
             const f32 instantaneous_fps = 1.0f / delta_seconds;
 
 
-
             const f32 blend = std::min(1.0f, 6.0f * delta_seconds);
             surface.fps_smoothed =
                 surface.fps_smoothed < 0.0f ? instantaneous_fps : surface.fps_smoothed + (instantaneous_fps - surface.fps_smoothed) * blend;
         }
 
         {
-
-
-
-
-
-
-
 
 
             auto background = surface.context.element(UI::ElementDecl{
@@ -843,8 +949,6 @@ namespace SFT::UiWorkbench {
             {
 
 
-
-
                 auto spacer = surface.context.element(UI::ElementDecl{
                     .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(1.0f)}});
                 (void)spacer;
@@ -863,8 +967,6 @@ namespace SFT::UiWorkbench {
             surface.context,
             UI::Docking::DockRect{.origin = kWorkspaceOrigin, .size = workspace_size},
             delta_seconds);
-
-
 
 
         if (auto decl = surface.workspace.panel_content_region(UString{"controls"})) {
@@ -905,6 +1007,13 @@ namespace SFT::UiWorkbench {
         return events;
     }
 
+    /// Builds controls panel.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param ctx `ctx` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void WorkbenchUi::build_controls_panel(Surface &surface, UI::Context &ctx, f32                  ) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
@@ -980,7 +1089,6 @@ namespace SFT::UiWorkbench {
             }
             decl.sizing = {UI::SizingAxis::fixed(26.0f), UI::SizingAxis::fixed(26.0f)};
             decl.corner_radius = UI::CornerRadius::all(8.0f);
-
 
 
             decl.child_alignment = {.x = UI::AlignX::Center, .y = UI::AlignY::Center};
@@ -1076,6 +1184,14 @@ namespace SFT::UiWorkbench {
         }
     }
 
+    /// Builds color panel.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param ctx `ctx` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void WorkbenchUi::build_color_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
@@ -1108,8 +1224,6 @@ namespace SFT::UiWorkbench {
         style.color_space_text = text_style(font_id_, text_primary, 13);
         style.color_space_text.wrap_mode = UI::TextWrapMode::None;
         style.color_space_dropdown.trigger = action_button_style();
-
-
 
 
         style.color_space_dropdown.list_background = style.color_space_dropdown.trigger.idle;
@@ -1185,7 +1299,6 @@ namespace SFT::UiWorkbench {
             draw_text(ctx, "Typed Foundation value", text_style(font_id_, accent, 11));
 
 
-
             const std::span<const UI::ColorPickerComponent> components =
                 UI::color_picker_components(selected_color_space_);
             const std::array<f64, 4> values = UI::color_picker_component_values(selected_color_value_);
@@ -1195,6 +1308,15 @@ namespace SFT::UiWorkbench {
         }
     }
 
+    /// Builds composition panel.
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param surface Surface used or affected by the operation.
+    /// @param ctx `ctx` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void WorkbenchUi::build_composition_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
@@ -1305,17 +1427,10 @@ namespace SFT::UiWorkbench {
                 requested.graphics_physical_device_id = adapter.physical_device_id;
 
 
-
-
-
-
                 engine.wait_idle();
                 if (RHI::RhiDevice *old_device = engine.rhi_device()) {
                     destroy_surface_renderers(*old_device);
                 }
-
-
-
 
 
                 Foundation::log_info("UiWorkbench: reconstructing graphics on {} using {}...",
@@ -1412,11 +1527,6 @@ namespace SFT::UiWorkbench {
                         .resizable = true,
                         .decorated = true,
                         .high_dpi = true,
-
-
-
-
-
 
 
                         .transparent = swapchain_transparent_,
@@ -1615,8 +1725,6 @@ namespace SFT::UiWorkbench {
             if (const auto applied = apply_presentation_config(config)) {
 
 
-
-
                 status_message_ = swapchain_transparent_
                                       ? "Transparent swapchain enabled; adjust background opacity below."
                                       : "Opaque swapchain composition restored.";
@@ -1625,13 +1733,6 @@ namespace SFT::UiWorkbench {
                 status_message_ = "Transparency change rejected: " + applied.error().message;
             }
         });
-
-
-
-
-
-
-
 
 
         if (Platform::Windowing::operating_system_may_support_window_effect(
@@ -1691,10 +1792,6 @@ namespace SFT::UiWorkbench {
 
         section_label(ctx, font_id_, "OS WINDOW COMPOSITION");
         {
-
-
-
-
 
 
             const std::array fullscreen_options{
@@ -1764,9 +1861,6 @@ namespace SFT::UiWorkbench {
             blur_style.option_padding = 10;
             blur_style.arrow_color = accent;
             blur_style.arrow_font_id = font_id_;
-
-
-
 
 
             const usize previous_blur_index = selected_blur_kind_index_;
@@ -1897,6 +1991,15 @@ namespace SFT::UiWorkbench {
         }
     }
 
+    /// Builds text panel.
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param surface Surface used or affected by the operation.
+    /// @param ctx `ctx` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void WorkbenchUi::build_text_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
@@ -1964,7 +2067,6 @@ namespace SFT::UiWorkbench {
         UI::TextEditStyle markdown_style = edit_style;
 
 
-
         markdown_style.highlighter = [](const UString &text) {
             std::vector<UI::RichTextSpan> spans;
             const usize n = text.size();
@@ -2026,10 +2128,6 @@ namespace SFT::UiWorkbench {
                           UString{"# Write some markdown..."});
 
 
-
-
-
-
         const auto resolve_focus = [&](const std::optional<UI::ElementBounds> &caret_bounds, const UString &widget_id,
                                        bool ime_enabled) -> std::optional<Engine::TextInputFocusInfo> {
             if (!caret_bounds) {
@@ -2062,8 +2160,6 @@ namespace SFT::UiWorkbench {
                 .corner_radius = UI::CornerRadius::all(11.0f),
                 .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
             });
-
-
 
 
             const auto render_inline = [&](const std::string &line, u16 font_size) {
@@ -2131,6 +2227,14 @@ namespace SFT::UiWorkbench {
         }
     }
 
+    /// Builds docking panel.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param ctx `ctx` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void WorkbenchUi::build_docking_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
@@ -2274,6 +2378,13 @@ namespace SFT::UiWorkbench {
         });
     }
 
+    /// Builds metrics panel.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param ctx `ctx` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void WorkbenchUi::build_metrics_panel(Surface &surface, UI::Context &ctx, f32                  ) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
@@ -2313,20 +2424,19 @@ namespace SFT::UiWorkbench {
         timing_section("CPU PASS RECORDING", timings.cpu_pass_timings_ms);
     }
 
+    /// Performs the handle dock events operation for `UiWorkbench` using the supplied arguments.
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param surface Surface used or affected by the operation.
+    /// @param events Event used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void WorkbenchUi::handle_dock_events(Engine::Engine &engine, Surface &surface, UI::Docking::DockWorkspaceEvents events) {
         for (const UI::Docking::DockTearOffRequest &request : events.tear_off_requests) {
 
 
-
-
-
-
-
             if (const Engine::WindowSnapshot *origin_window = engine.window_state().find(surface.handle.window_id)) {
-
-
-
-
 
 
                 const glm::vec2 physical_local = kWorkspaceOrigin + request.workspace_local_drop_position;
@@ -2381,6 +2491,14 @@ namespace SFT::UiWorkbench {
         dock_coordinator_.request_empty_window_closes(engine.window_requests());
     }
 
+    /// Builds overlay hooks.
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param surface Surface used or affected by the operation.
+    /// @param snapshot `snapshot` value used by the operation.
+    ///
+    /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Renderer::UiOverlayHooks WorkbenchUi::build_overlay_hooks(
         Engine::Engine &engine,
         Surface &surface,
@@ -2422,6 +2540,12 @@ namespace SFT::UiWorkbench {
         return hooks;
     }
 
+    /// Shuts down the `UiWorkbench` and releases associated runtime state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void WorkbenchUi::shutdown(Engine::Engine &engine) noexcept {
         if (RHI::RhiDevice *device = engine.rhi_device()) {
             for (auto &[window, surface] : surfaces_) {
@@ -2443,6 +2567,10 @@ namespace SFT::UiWorkbench {
 
 namespace SFT::UiWorkbench {
 
+    /// Returns the current or globally available effective background opacity value.
+    ///
+    /// @return Returns the current effective background opacity value.
+    /// @note This function does not throw exceptions.
     f64 WorkbenchUi::effective_background_opacity() const noexcept {
         return swapchain_transparent_ ? ui_background_opacity_ : 1.0;
     }

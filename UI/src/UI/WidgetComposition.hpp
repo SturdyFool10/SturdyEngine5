@@ -10,10 +10,7 @@
 #include "Context.hpp"
 #include "Style.hpp"
 
-/// Small, renderer-agnostic composition primitives shared by compound widgets. A widget still owns
-/// each part's stable identity and Clay scope; callers can selectively hide/disable it, patch the
-/// generated visual declaration, alter layout, and add content inside the scope without taking over
-/// pointer capture or depending on Clay types.
+
 namespace SFT::UI {
 
     struct PartVisualState {
@@ -25,8 +22,7 @@ namespace SFT::UI {
         bool selected = false;
     };
 
-    /// Optional is required here because transparent colors, zero radii, and empty borders are all
-    /// meaningful explicit overrides rather than useful "not set" sentinels.
+
     struct ElementVisualPatch {
         std::optional<Color> background_color;
         std::optional<CornerRadius> corner_radius;
@@ -43,29 +39,45 @@ namespace SFT::UI {
         ElementVisualPatch disabled{};
     };
 
+    /// Applies element visual patch using the supplied arguments and current state.
+    ///
+    /// @param decl `decl` value used by the operation.
+    /// @param patch `patch` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void apply_element_visual_patch(ElementDecl &decl, const ElementVisualPatch &patch) noexcept;
 
-    /// State patches intentionally compose rather than selecting one enum value. For example, a
-    /// selected+hovered option can keep its selected fill while acquiring only the hover border.
-    /// Disabled is applied last so it can override any subset of the combined live states.
+
+    /// Applies part visual using the supplied arguments and current state.
+    ///
+    /// @param decl `decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void apply_part_visual(ElementDecl &decl, const PartVisualStyle &style, const PartVisualState &state) noexcept;
 
+    /// Clears element visual.
+    ///
+    /// @param decl `decl` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void clear_element_visual(ElementDecl &decl) noexcept;
 
     template <typename BuildContext>
     struct PartSlot {
-        /// Invisible parts are not declared. Disabled parts remain visible and receive disabled visual
-        /// state, but the owning widget excludes them from interaction.
+
+
         bool visible = true;
         bool enabled = true;
-        /// Suppresses the widget's built-in decoration/content while retaining its stable scope. The
-        /// visual patch and build callback still run, allowing a practical custom replacement.
+
+
         bool render_default = true;
         PartVisualStyle visual{};
-        /// Called after legacy geometry/style generation and state patching. The widget reasserts the
-        /// stable id afterward; every other ElementDecl field is caller-controlled.
+
+
         std::function<void(ElementDecl &, const BuildContext &)> alter_decl;
-        /// Called inside the part's open scope after optional built-in content.
+
         std::function<void(Context &, const BuildContext &)> build;
     };
 

@@ -22,6 +22,10 @@ namespace SFT::UiWorkbench {
 
     namespace {
 
+        /// Returns the current or globally available crash dump path value.
+        ///
+        /// @return Returns the current crash dump path value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::filesystem::path crash_dump_path() {
             SYSTEMTIME time{};
             GetLocalTime(&time);
@@ -37,8 +41,11 @@ namespace SFT::UiWorkbench {
         }
 
 
-
-
+        /// Writes minidump to the associated destination.
+        ///
+        /// @param exception_pointers `exception_pointers` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_minidump(EXCEPTION_POINTERS *exception_pointers) {
             const auto path = crash_dump_path();
             std::error_code ec;
@@ -81,6 +88,9 @@ namespace SFT::UiWorkbench {
             }
         }
 
+        /// Logs stacktrace using the supplied arguments and current state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void log_stacktrace() {
             const auto trace = std::stacktrace::current();
             Foundation::log_error("crash: stack trace ({} frames):", trace.size());
@@ -94,6 +104,12 @@ namespace SFT::UiWorkbench {
             }
         }
 
+        /// Handles the on unhandled exception callback and updates the associated platform state.
+        ///
+        /// @param exception_pointers `exception_pointers` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         LONG WINAPI on_unhandled_exception(EXCEPTION_POINTERS *exception_pointers) {
             Foundation::log_error(
                 "crash: unhandled exception 0x{:08X} at address {}",
@@ -107,6 +123,9 @@ namespace SFT::UiWorkbench {
 
     } // namespace
 
+    /// Performs the install crash handler operation for `UiWorkbench` using the supplied arguments.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void install_crash_handler() { SetUnhandledExceptionFilter(&on_unhandled_exception); }
 
 } // namespace SFT::UiWorkbench
@@ -124,10 +143,15 @@ namespace SFT::UiWorkbench {
     namespace {
 
 
-
         constexpr std::size_t kSignalStackSize = 131072;
         alignas(16) std::byte g_signal_stack[kSignalStackSize];
 
+        /// Returns a human-readable name for the supplied signal value.
+        ///
+        /// @param signal_number `signal_number` value used by the operation.
+        ///
+        /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] const char *signal_name(int signal_number) {
             switch (signal_number) {
                 case SIGSEGV: return "SIGSEGV";
@@ -140,9 +164,9 @@ namespace SFT::UiWorkbench {
         }
 
 
-
-
-
+        /// Logs backtrace using the supplied arguments and current state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void log_backtrace() {
             void *frames[64];
             const int frame_count = ::backtrace(frames, 64);
@@ -155,6 +179,12 @@ namespace SFT::UiWorkbench {
 
         }
 
+        /// Handles the on fatal signal callback and updates the associated platform state.
+        ///
+        /// @param signal_number `signal_number` value used by the operation.
+        /// @param info Description of the resource or operation to perform.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void on_fatal_signal(int signal_number, siginfo_t *info, void *            ) {
             if (info != nullptr && (signal_number == SIGSEGV || signal_number == SIGBUS)) {
                 Foundation::log_error(
@@ -166,11 +196,13 @@ namespace SFT::UiWorkbench {
             Foundation::flush_logs();
 
 
-
         }
 
     } // namespace
 
+    /// Performs the install crash handler operation for `UiWorkbench` using the supplied arguments.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void install_crash_handler() {
         stack_t alt_stack{};
         alt_stack.ss_sp = g_signal_stack;
@@ -198,10 +230,11 @@ namespace SFT::UiWorkbench {
 #else
 
 
-
-
 namespace SFT::UiWorkbench {
 
+    /// Performs the install crash handler operation for `UiWorkbench` using the supplied arguments.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void install_crash_handler() {}
 
 } // namespace SFT::UiWorkbench

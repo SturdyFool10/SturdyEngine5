@@ -4,6 +4,13 @@
 
 namespace SFT::Renderer {
 
+/// Performs the graphics error from RHI operation for `Renderer` using the supplied arguments.
+///
+/// @param error Error value describing the failure.
+/// @param operation `operation` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 Core::GraphicsBackendError graphics_error_from_rhi(const RHI::RhiError &error, const char *operation) {
         Core::GraphicsBackendErrorCode code = Core::GraphicsBackendErrorCode::OperationFailed;
         switch (error.code) {
@@ -24,6 +31,13 @@ Core::GraphicsBackendError graphics_error_from_rhi(const RHI::RhiError &error, c
         };
     }
 
+/// Returns the clamp tile size for this `Renderer`.
+///
+/// @param desired `desired` value used by the operation.
+/// @param limits `limits` value used by the operation.
+///
+/// @return Returns the requested count or size.
+/// @note This function does not throw exceptions.
 u32 clamp_tile_size(u32 desired, const RHI::DeviceLimits &limits) noexcept {
         const u32 device_max = limits.max_texture_dimension_2d;
         if (device_max == 0 || desired < device_max) {
@@ -32,6 +46,12 @@ u32 clamp_tile_size(u32 desired, const RHI::DeviceLimits &limits) noexcept {
         return device_max;
     }
 
+/// Invokes the callable behavior provided by `Renderer`.
+///
+/// @param coord `coord` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] usize TileCoordHash::operator()(TileCoord coord) const noexcept {
             ZoneScopedN("TileCoordHash::operator");
             const u64 packed = (static_cast<u64>(static_cast<u32>(coord.x)) << 32) | static_cast<u32>(coord.y);
@@ -44,6 +64,14 @@ u32 clamp_tile_size(u32 desired, const RHI::DeviceLimits &limits) noexcept {
             return static_cast<usize>(hashed);
         }
 
+/// Performs the locate in grid operation for `Renderer` using the supplied arguments.
+///
+/// @param logical_x `logical_x` value used by the operation.
+/// @param logical_y `logical_y` value used by the operation.
+/// @param tile_size Requested or available size for the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 TileAddress locate_in_grid(i32 logical_x, i32 logical_y, u32 tile_size) noexcept {
         const i32 size = static_cast<i32>(tile_size);
         const i32 tile_x = logical_x >= 0 ? logical_x / size : -(((-logical_x) + size - 1) / size);
@@ -55,6 +83,16 @@ TileAddress locate_in_grid(i32 logical_x, i32 logical_y, u32 tile_size) noexcept
         };
     }
 
+/// Performs the tiles overlapping operation for `Renderer` using the supplied arguments.
+///
+/// @param x `x` value used by the operation.
+/// @param y `y` value used by the operation.
+/// @param width Width of the target extent.
+/// @param height Height of the target extent.
+/// @param tile_size Requested or available size for the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 vector<TileCoord> tiles_overlapping(i32 x, i32 y, u32 width, u32 height, u32 tile_size) noexcept {
         vector<TileCoord> result;
         if (width == 0 || height == 0) {

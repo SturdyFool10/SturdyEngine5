@@ -45,6 +45,12 @@ namespace SFT::Renderer {
         };
         static_assert(sizeof(DeferredMsaaConstants) == 32);
 
+        /// Creates an error result describing the supplied deferred MSAA failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError deferred_msaa_error(string message) {
             return Core::GraphicsBackendError{
                 Core::GraphicsBackendErrorCode::OperationFailed,
@@ -53,6 +59,10 @@ namespace SFT::Renderer {
         }
     } // namespace
 
+    /// Finds or creates the deferred MSAA resources required by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_deferred_msaa_resources() {
         ZoneScopedN("Renderer::ensure_deferred_msaa_resources");
         auto guard = deferred_msaa_.lock();
@@ -181,6 +191,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Resolves the deferred MSAA pipeline associated with the supplied key, handle, or resource.
+    ///
+    /// @param color_format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::deferred_msaa_pipeline_for(
         RHI::Format color_format) {
         ZoneScopedN("Renderer::deferred_msaa_pipeline_for");
@@ -235,6 +251,21 @@ namespace SFT::Renderer {
         return *pipeline;
     }
 
+    /// Records deferred MSAA reconstruction using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param color_view `color_view` value used by the operation.
+    /// @param depth_view `depth_view` value used by the operation.
+    /// @param geometry_depth_view `geometry_depth_view` value used by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param extent `extent` value used by the operation.
+    /// @param samples `samples` value used by the operation.
+    /// @param near_plane `near_plane` value used by the operation.
+    /// @param far_plane `far_plane` value used by the operation.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_deferred_msaa_reconstruction(
         RHI::RenderPassEncoder &pass,
         RHI::TextureViewHandle color_view,
@@ -306,12 +337,22 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the deferred MSAA resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy deferred MSAA resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_deferred_msaa_resources() noexcept {
         ZoneScopedN("Renderer::destroy_deferred_msaa_resources");
         auto guard = deferred_msaa_.lock();
         destroy_deferred_msaa_resources_locked(*guard);
     }
 
+    /// Destroys the deferred MSAA resources locked identified by the supplied parameters.
+    ///
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_deferred_msaa_resources_locked(DeferredMsaaResources &resources) noexcept {
         ZoneScopedN("Renderer::destroy_deferred_msaa_resources_locked");
         RHI::RhiDevice *device = rhi_device();

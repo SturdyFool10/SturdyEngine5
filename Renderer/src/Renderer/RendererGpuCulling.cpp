@@ -31,14 +31,15 @@ namespace SFT::Renderer {
     namespace {
         namespace slang = Core::Slang;
 
+        /// Creates an error result describing the supplied instance cull failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError instance_cull_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
-
-
-
-
-
 
 
         constexpr u32 kInstancedBatchMinSize = 32;
@@ -46,8 +47,10 @@ namespace SFT::Renderer {
         constexpr u32 kInstanceCullWorkgroupSize = 64;
 
 
-
-
+        /// Returns the current or globally available instanced geometry vertex attributes value.
+        ///
+        /// @return Returns the current instanced geometry vertex attributes value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         constexpr array<RHI::VertexAttribute, 5> instanced_geometry_vertex_attributes() {
             return {
                 RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, position), .shader_location = 0},
@@ -60,6 +63,12 @@ namespace SFT::Renderer {
 
     } // namespace
 
+    /// Performs the detect instanced batches operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param sorted_draws `sorted_draws` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     vector<Renderer::InstancedBatch> Renderer::detect_instanced_batches(span<const RenderItem> sorted_draws) const {
         ZoneScopedN("Renderer::detect_instanced_batches");
         vector<InstancedBatch> batches;
@@ -84,6 +93,10 @@ namespace SFT::Renderer {
         return batches;
     }
 
+    /// Finds or creates the instance cull resources required by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_instance_cull_resources() {
         ZoneScopedN("Renderer::ensure_instance_cull_resources");
         auto guard = instance_cull_.lock();
@@ -171,8 +184,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
         {
             const slang::ShaderCompileOptions options{
                 .targets = shader_compile_targets_for_device(device),
@@ -224,6 +235,15 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Resolves the instanced pipeline associated with the supplied key, handle, or resource.
+    ///
+    /// @param material_template `material_template` value used by the operation.
+    /// @param color_formats Format used for the resource, render target, or conversion.
+    /// @param depth_format Format used for the resource, render target, or conversion.
+    /// @param samples `samples` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::instanced_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
         RHI::Format depth_format, RHI::SampleCount samples) {
@@ -296,8 +316,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
         RHI::DepthStencilState depth_stencil{};
         if (depth_format != RHI::Format::Undefined) {
             depth_stencil = RHI::DepthStencilState{
@@ -334,6 +352,13 @@ namespace SFT::Renderer {
         return *pipeline;
     }
 
+    /// Prepares instance cull GPU data for a later operation.
+    ///
+    /// @param batches `batches` value used by the operation.
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::prepare_instance_cull_gpu_data(span<const InstancedBatch> batches,
                                                                    SceneFrameGpuResources &resources) {
         ZoneScopedN("Renderer::prepare_instance_cull_gpu_data");
@@ -363,8 +388,6 @@ namespace SFT::Renderer {
             }
             resources.indirect_commands_buffer = *buffer;
         }
-
-
 
 
         const u64 alignment = std::max<u64>(device->limits().min_storage_buffer_offset_alignment, sizeof(u32));
@@ -417,6 +440,18 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Records instance cull using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param batches `batches` value used by the operation.
+    /// @param view_projection `view_projection` value used by the operation.
+    /// @param camera_world_position World used or affected by the operation.
+    /// @param hiz `hiz` value used by the operation.
+    /// @param resources `resources` value used by the operation.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_instance_cull(RHI::ComputePassEncoder &pass, span<const InstancedBatch> batches,
                                                          const glm::mat4 &view_projection, const glm::vec3 &camera_world_position,
                                                          const HiZCullInput &hiz, SceneFrameGpuResources &resources,
@@ -457,8 +492,6 @@ namespace SFT::Renderer {
         if (!bind_group) {
             return unexpected(graphics_error_from_rhi(bind_group.error(), "create instance cull bind group"));
         }
-
-
 
 
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
@@ -509,6 +542,21 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Records instanced batches using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param batches `batches` value used by the operation.
+    /// @param color_formats Format used for the resource, render target, or conversion.
+    /// @param depth_format Format used for the resource, render target, or conversion.
+    /// @param frame_index Zero-based index of the target element or entry.
+    /// @param view_projection `view_projection` value used by the operation.
+    /// @param previous_view_projection `previous_view_projection` value used by the operation.
+    /// @param resources `resources` value used by the operation.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    /// @param samples `samples` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_instanced_batches(RHI::RenderPassEncoder &pass, span<const InstancedBatch> batches,
                                                              span<const RHI::Format> color_formats, RHI::Format depth_format,
                                                              u64 frame_index, const glm::mat4 &view_projection,
@@ -600,6 +648,10 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the instance cull resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy instance cull resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_instance_cull_resources() noexcept {
         ZoneScopedN("Renderer::destroy_instance_cull_resources");
         RHI::RhiDevice *device = rhi_device();

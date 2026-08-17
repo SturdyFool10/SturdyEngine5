@@ -21,6 +21,12 @@ namespace SFT::Platform::Windowing {
         OutOfMemory,
     };
 
+    /// Returns a human-readable name for the supplied window error code value.
+    ///
+    /// @param code `code` value used by the operation.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr string_view window_error_code_name(WindowErrorCode code) noexcept {
         switch (code) {
             case WindowErrorCode::Unsupported: return "platform.window.unsupported";
@@ -37,8 +43,20 @@ namespace SFT::Platform::Windowing {
         WindowErrorCode code;
         string message;
 
+        /// Constructs a `WindowError` from the supplied initialization values.
+        ///
+        /// @param error_code `error_code` value used by the operation.
+        /// @param error_message `error_message` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         WindowError(WindowErrorCode error_code, const char *error_message) noexcept;
 
+        /// Constructs a `WindowError` from the supplied initialization values.
+        ///
+        /// @param error_code `error_code` value used by the operation.
+        /// @param error_message `error_message` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         WindowError(WindowErrorCode error_code, string_view error_message) noexcept;
     };
 

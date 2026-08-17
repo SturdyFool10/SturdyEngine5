@@ -3,6 +3,16 @@
 
 namespace SFT::UI {
 
+    /// Updates the `UI` state from the supplied values.
+    ///
+    /// @param checked `checked` value used by the operation.
+    /// @param hovered `hovered` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    /// @param style `style` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void ToggleState::update(bool checked, bool hovered, bool enabled, const ToggleStyle &style, f32 delta_seconds) noexcept {
         const Color &target_color = !enabled ? style.disabled : checked ? style.checked : hovered ? style.hovered : style.idle;
         const f32 target_progress = checked ? 1.0f : 0.0f;
@@ -30,12 +40,33 @@ namespace SFT::UI {
         progress_ = std::lerp(start_progress_, target_progress_, progress);
     }
 
+    /// Returns the current or globally available current color value.
+    ///
+    /// @return Returns the current current color value.
+    /// @note This function does not throw exceptions.
     Color ToggleState::current_color() const noexcept {
         return initialized_ ? color_ : Color{0.0, 0.0, 0.0, 0.0};
     }
 
+    /// Returns the current or globally available progress value.
+    ///
+    /// @return Returns the current progress value.
+    /// @note This function does not throw exceptions.
     f32 ToggleState::progress() const noexcept { return progress_; }
 
+    /// Performs the checkbox operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param decl `decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param checked `checked` value used by the operation.
+    /// @param font_id Identifier of the target object or resource.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     ToggleResult checkbox(Context &ctx, const ElementDecl &decl, const ToggleStyle &style,
                                                ToggleState &state, f32 delta_seconds, bool checked, FontId font_id,
                                                bool enabled) {
@@ -58,6 +89,18 @@ namespace SFT::UI {
         return result;
     }
 
+    /// Performs the radio button operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param decl `decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param selected `selected` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     ToggleResult radio_button(Context &ctx, const ElementDecl &decl, const ToggleStyle &style,
                                                    ToggleState &state, f32 delta_seconds, bool selected,
                                                    bool enabled) {
@@ -87,6 +130,18 @@ namespace SFT::UI {
         return result;
     }
 
+    /// Performs the switch toggle operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param decl `decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param on `on` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     ToggleResult switch_toggle(Context &ctx, const ElementDecl &decl, const ToggleStyle &style,
                                                     ToggleState &state, f32 delta_seconds, bool on,
                                                     bool enabled) {
@@ -131,6 +186,15 @@ namespace SFT::UI {
 
 namespace SFT::UI::Detail {
 
+    /// Queries toggle input from the active backend or runtime state.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param id Identifier of the target object or resource.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     ToggleResult query_toggle_input(Context &ctx, const UString &id, bool enabled) noexcept {
         return ToggleResult{
             .hovered = enabled && ctx.hovered(id),

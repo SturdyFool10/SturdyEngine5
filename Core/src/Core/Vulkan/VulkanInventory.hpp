@@ -4,8 +4,11 @@
 
 namespace SFT::Core::Vulkan {
 
-    /// Inventory-only registration. Its adapters expose pre-device metadata and deliberately cannot
-    /// create renderer devices; use it with RHI::enumerate_gpu_inventory(), not device selection.
+
+    /// Returns the current or globally available vulkan inventory backend registration value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] RHI::BackendRegistration vulkan_inventory_backend_registration() noexcept;
 
 } // namespace SFT::Core::Vulkan

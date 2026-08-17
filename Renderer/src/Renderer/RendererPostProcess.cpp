@@ -33,9 +33,6 @@ namespace SFT::Renderer {
     namespace {
 
 
-
-
-
         struct TonemapConstants {
             f32 exposure = 1.0f;
             f32 white_point = 1.0f;
@@ -43,7 +40,6 @@ namespace SFT::Renderer {
             u32 operation = 0;
 
             u32 hdr_output = 0;
-
 
 
             u32 hdr_color_space = 0;
@@ -75,10 +71,23 @@ namespace SFT::Renderer {
         };
         static_assert(sizeof(TonemapConstants) == 112);
 
+        /// Creates an error result describing the supplied tonemap failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError tonemap_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
+        /// Binds group layout index for set for subsequent operations.
+        ///
+        /// @param sets `sets` value used by the operation.
+        /// @param set `set` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize bind_group_layout_index_for_set(span<const u32> sets, u32 set) noexcept {
             for (usize i = 0; i < sets.size(); ++i) {
                 if (sets[i] == set) {
@@ -89,6 +98,10 @@ namespace SFT::Renderer {
         }
     } // namespace
 
+    /// Finds or creates the tonemap resources required by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_tonemap_resources() {
         ZoneScopedN("Renderer::ensure_tonemap_resources");
         auto guard = tonemap_.lock();
@@ -211,6 +224,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Resolves the tonemap pipeline associated with the supplied key, handle, or resource.
+    ///
+    /// @param color_format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::tonemap_pipeline_for(RHI::Format color_format) {
         ZoneScopedN("Renderer::tonemap_pipeline_for");
         if (Core::RendererResult ready = ensure_tonemap_resources(); !ready) {
@@ -250,6 +269,17 @@ namespace SFT::Renderer {
         return *pipeline;
     }
 
+    /// Records tonemap using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param source_view `source_view` value used by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param settings Configuration values controlling the operation.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    /// @param preserve_alpha `preserve_alpha` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_tonemap(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source_view,
                                                   RHI::Format color_format, const RenderGraphSettings &settings,
                                                   vector<RHI::BindGroupHandle> &transient_bind_groups,
@@ -314,7 +344,6 @@ namespace SFT::Renderer {
         }
 
 
-
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }
 
         pass.set_pipeline(*pipeline);
@@ -358,12 +387,22 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the tonemap resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy tonemap resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_tonemap_resources() noexcept {
         ZoneScopedN("Renderer::destroy_tonemap_resources");
         auto guard = tonemap_.lock();
         destroy_tonemap_resources_locked(*guard);
     }
 
+    /// Destroys the tonemap resources locked identified by the supplied parameters.
+    ///
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_tonemap_resources_locked(TonemapResources &resources) noexcept {
         ZoneScopedN("Renderer::destroy_tonemap_resources_locked");
         RHI::RhiDevice *device = rhi_device();

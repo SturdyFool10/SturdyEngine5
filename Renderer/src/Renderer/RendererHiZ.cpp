@@ -30,18 +30,33 @@ namespace SFT::Renderer {
     namespace {
         namespace slang = Core::Slang;
 
+        /// Creates an error result describing the supplied hiz failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError hiz_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
 
-
+        /// Performs the next mip extent operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param extent `extent` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Core::Extent2D next_mip_extent(Core::Extent2D extent) noexcept {
             return glm::max(extent / 2u, Core::Extent2D{1u, 1u});
         }
 
     } // namespace
 
+    /// Finds or creates the hiz build resources required by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_hiz_build_resources() {
         ZoneScopedN("Renderer::ensure_hiz_build_resources");
         auto guard = hiz_build_.lock();
@@ -64,8 +79,6 @@ namespace SFT::Renderer {
                 slang::ShaderEntryPointRequest{.name = "reduceMain", .stage = slang::ShaderStage::Fragment},
             },
         };
-
-
 
 
         slang::ShaderVariantCache shader_cache{
@@ -146,6 +159,10 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the hiz build resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy hiz build resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_hiz_build_resources() noexcept {
         ZoneScopedN("Renderer::destroy_hiz_build_resources");
         auto guard = hiz_build_.lock();
@@ -159,14 +176,18 @@ namespace SFT::Renderer {
         *guard = HiZBuildResources{};
     }
 
+    /// Finds or creates the hiz pyramid required by the operation.
+    ///
+    /// @param pyramid `pyramid` value used by the operation.
+    /// @param depth_extent `depth_extent` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_hiz_pyramid(HiZPyramidTargets &pyramid, Core::Extent2D depth_extent) {
         ZoneScopedN("Renderer::ensure_hiz_pyramid");
         if (Core::is_zero(depth_extent)) {
             return unexpected(hiz_error("Cannot build a Hi-Z pyramid for a zero-sized depth extent."));
         }
-
-
-
 
 
         const Core::Extent2D base_extent = next_mip_extent(depth_extent);
@@ -236,12 +257,16 @@ namespace SFT::Renderer {
         pyramid.full_view = *full_view;
 
 
-
-
         pyramid.has_valid_data = false;
         return {};
     }
 
+    /// Destroys the hiz pyramid identified by the supplied parameters.
+    ///
+    /// @param pyramid `pyramid` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_hiz_pyramid(HiZPyramidTargets &pyramid) noexcept {
         ZoneScopedN("Renderer::destroy_hiz_pyramid");
         if (RHI::RhiDevice *device = rhi_device()) {
@@ -254,6 +279,18 @@ namespace SFT::Renderer {
         pyramid = HiZPyramidTargets{};
     }
 
+    /// Records hiz build using the supplied arguments and current state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    /// @param depth_texture Texture used or affected by the operation.
+    /// @param depth_view `depth_view` value used by the operation.
+    /// @param depth_extent `depth_extent` value used by the operation.
+    /// @param pyramid_texture Texture used or affected by the operation.
+    /// @param pyramid `pyramid` value used by the operation.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_hiz_build(RenderGraph &graph, RenderGraphTextureHandle depth_texture,
                                                      RHI::TextureViewHandle depth_view, Core::Extent2D depth_extent,
                                                      RenderGraphTextureHandle pyramid_texture, HiZPyramidTargets &pyramid,
@@ -278,9 +315,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
         Core::Extent2D source_extent = depth_extent;
         for (u32 level = 0; level < pyramid.mip_levels; ++level) {
             const Core::Extent2D destination_extent = next_mip_extent(source_extent);
@@ -293,10 +327,6 @@ namespace SFT::Renderer {
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = pyramid_texture,
                     .view = destination_view,
-
-
-
-
 
 
                     .subresources = RHI::TextureSubresourceRange{.base_mip_level = level, .mip_level_count = 1},
@@ -323,9 +353,6 @@ namespace SFT::Renderer {
                         .label = "hiz build bind group",
                     });
                     if (!bind_group) return unexpected(graphics_error_from_rhi(bind_group.error(), "create hiz build bind group"));
-
-
-
 
 
                     { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*bind_group); }

@@ -10,6 +10,13 @@ namespace {
     using SFT::usize;
     using SFT::u64;
 
+    /// Checks the supplied condition and reports the accompanying diagnostic message when it is false.
+    ///
+    /// @param condition Condition controlling whether the operation proceeds.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool check(bool condition, const char *message) {
         if (!condition) {
             std::cerr << "FAILED: " << message << '\n';
@@ -17,6 +24,10 @@ namespace {
         return condition;
     }
 
+    /// Adds the supplied value to the end or work queue.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool push_and_drain_preserves_order() {
         SFT::Async::SpscRingBuffer<int> ring(8);
         bool passed = true;
@@ -42,11 +53,19 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available capacity rounds up to next power of two value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool capacity_rounds_up_to_next_power_of_two() {
         SFT::Async::SpscRingBuffer<int> ring(5);
         return check(ring.capacity() == 8, "non-power-of-two capacity should round up to the next power of two");
     }
 
+    /// Returns the current or globally available full ring rejects further pushes without corrupting state value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool full_ring_rejects_further_pushes_without_corrupting_state() {
         SFT::Async::SpscRingBuffer<int> ring(4);
         bool passed = true;
@@ -65,7 +84,10 @@ namespace {
     }
 
 
-
+    /// Returns the current or globally available sustained cycles survive index wraparound value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool sustained_cycles_survive_index_wraparound() {
         SFT::Async::SpscRingBuffer<int> ring(4);
         bool passed = true;
@@ -90,9 +112,10 @@ namespace {
     }
 
 
-
-
-
+    /// Returns the current or globally available concurrent producer consumer loses nothing value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool concurrent_producer_consumer_loses_nothing() {
         constexpr usize ring_capacity = 256;
         constexpr u64 total_items = 2'000'000;
@@ -137,6 +160,10 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     bool passed = push_and_drain_preserves_order();
     passed &= capacity_rounds_up_to_next_power_of_two();

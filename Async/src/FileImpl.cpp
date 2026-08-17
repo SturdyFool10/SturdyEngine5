@@ -23,9 +23,13 @@ namespace SFT::Async::Detail {
     namespace {
 
 
-
-
-
+        /// Performs the I/O error from errno operation for `Detail` using the supplied arguments.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        /// @param verb `verb` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         IoError io_error_from_errno(const string &path, const char *verb) noexcept {
             IoErrorCode code = IoErrorCode::Unknown;
             switch (errno) {
@@ -52,6 +56,13 @@ namespace SFT::Async::Detail {
 
     } // namespace
 
+    /// Reads file blocking from the associated source.
+    ///
+    /// @param path Filesystem path identifying the target resource.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `IoErrorCode::Unknown`.
     expected<vector<std::byte>, IoError> read_file_blocking(const string &path) {
         errno = 0;
         ifstream file(path, std::ios::binary | std::ios::ate);
@@ -72,6 +83,15 @@ namespace SFT::Async::Detail {
         return data;
     }
 
+    /// Writes file blocking to the associated destination.
+    ///
+    /// @param path Filesystem path identifying the target resource.
+    /// @param data Data consumed or referenced by the operation.
+    /// @param append `append` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `IoErrorCode::Unknown`.
     expected<void, IoError> write_file_blocking(const string &path, span<const std::byte> data, bool append) {
         errno = 0;
         const auto mode = std::ios::binary | (append ? std::ios::app : std::ios::trunc);

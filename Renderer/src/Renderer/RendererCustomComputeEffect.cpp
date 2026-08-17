@@ -25,11 +25,23 @@ using std::vector;
 
 namespace SFT::Renderer {
     namespace {
+        /// Creates an error result describing the supplied custom compute failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError custom_compute_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
     } // namespace
 
+    /// Finds or creates the custom compute effect required by the operation.
+    ///
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_custom_compute_effect(const CustomComputeEffect &effect) {
         ZoneScopedN("Renderer::ensure_custom_compute_effect");
         if (effect.shader_path.empty() || effect.module_name.empty() || effect.compute_entry_point.empty()) {
@@ -239,6 +251,17 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Records custom compute effect using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param source_view `source_view` value used by the operation.
+    /// @param output_view `output_view` value used by the operation.
+    /// @param extent `extent` value used by the operation.
+    /// @param effect `effect` value used by the operation.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_custom_compute_effect(
         RHI::ComputePassEncoder &pass,
         RHI::TextureViewHandle source_view,
@@ -316,6 +339,10 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the custom compute effect resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy custom compute effect resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_custom_compute_effect_resources() noexcept {
         ZoneScopedN("Renderer::destroy_custom_compute_effect_resources");
         auto resources = custom_compute_effect_resources_.lock();

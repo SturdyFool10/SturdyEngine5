@@ -11,23 +11,38 @@ namespace SFT::Renderer {
 
     using std::vector;
 
-    /// The renderer owns the policy that connects an active RHI backend to the bytecode Slang emits.
-    /// Keep this above both RHI backends and Core::Slang so neither lower layer depends on the other.
+
     struct RendererShaderTarget {
         Core::Slang::ShaderTarget slang_target;
         RHI::ShaderLanguage module_language = RHI::ShaderLanguage::SpirV;
     };
 
 
+    /// Performs the shader target for device operation using the supplied arguments.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::Unsupported`.
     [[nodiscard]] Core::RendererExpected<RendererShaderTarget> shader_target_for_device(const RHI::RhiDevice &device);
 
-    /// DXIL needs canonical SPIR-V layout reflection as well as executable DXIL. Slang lowers
-    /// [[push_constant]] into HLSL cbuffer/root-signature terms in DXIL reflection, while the
-    /// SPIR-V layout retains the portable declaration translated by RHI into root constants.
-    /// SPIR-V intentionally comes first because ShaderCompiler stores reflection for target index 0.
+
+    /// Performs the shader compile targets for device operation using the supplied arguments.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<Core::Slang::ShaderTarget> shader_compile_targets_for_device(
         const RHI::RhiDevice &device);
 
+    /// Performs the shader compile targets for device operation using the supplied arguments.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<Core::Slang::ShaderTarget> shader_compile_targets_for_device(
         const RHI::RhiDevice *device);
 

@@ -12,6 +12,13 @@ using SFT::UI::PointerState;
 
 namespace {
 
+    /// Checks the supplied condition and reports the accompanying diagnostic message when it is false.
+    ///
+    /// @param condition Condition controlling whether the operation proceeds.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool check(bool condition, const char *message) {
         if (!condition) {
             std::cerr << "FAILED: " << message << '\n';
@@ -19,8 +26,20 @@ namespace {
         return condition;
     }
 
+    /// Performs the nearly operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param eps `eps` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool nearly(f32 a, f32 b, f32 eps = 0.5f) { return std::fabs(a - b) <= eps; }
 
+    /// Returns the current or globally available drag gesture handles zero threshold and same frame release value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool drag_gesture_handles_zero_threshold_and_same_frame_release() {
         RendererExpected<Context> made = Context::create(Context::Config{});
         if (!check(made.has_value(), "Context::create failed")) {
@@ -102,7 +121,10 @@ namespace {
     }
 
 
-
+    /// Reports whether fresh tree is a single empty root leaf.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool fresh_tree_is_a_single_empty_root_leaf() {
         DockTree tree;
         bool passed = check(tree.empty(), "fresh tree is not reported empty");
@@ -113,6 +135,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available merge into leaf appends and activates value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool merge_into_leaf_appends_and_activates() {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
@@ -124,6 +150,10 @@ namespace {
         return passed;
     }
 
+    /// Splits leaf creates two children with expected ratio and tabs using the supplied arguments and current state.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool split_leaf_creates_two_children_with_expected_ratio_and_tabs() {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
@@ -144,6 +174,10 @@ namespace {
         return passed;
     }
 
+    /// Removes the panel from multi tab leaf keeps the leaf from its owning collection or system.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool remove_panel_from_multi_tab_leaf_keeps_the_leaf() {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
@@ -155,6 +189,10 @@ namespace {
         return passed;
     }
 
+    /// Removes the panel collapses two leaf split to the surviving sibling from its owning collection or system.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool remove_panel_collapses_two_leaf_split_to_the_surviving_sibling() {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
@@ -169,6 +207,10 @@ namespace {
         return passed;
     }
 
+    /// Removes the panel promotes sibling into grandparent slot from its owning collection or system.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool remove_panel_promotes_sibling_into_grandparent_slot() {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
@@ -189,6 +231,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available reorder and set active tab work value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool reorder_and_set_active_tab_work() {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
@@ -205,7 +251,10 @@ namespace {
     }
 
 
-
+    /// Computes dock layout matches hand computed rects using the supplied arguments and current state.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool compute_dock_layout_matches_hand_computed_rects() {
         DockTree tree;
         tree.merge_into_leaf(tree.root(), UString{"A"});
@@ -239,12 +288,17 @@ namespace {
     }
 
 
-
     struct Frame {
         Context &ctx;
         DockWorkspace &ws;
         DockRect rect;
 
+        /// Runs the requested work.
+        ///
+        /// @param pointer Pointer to the object or storage used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         DockWorkspaceEvents run(const PointerState &pointer) {
             ctx.begin_layout(rect.origin + rect.size, pointer, 0.016f);
             ws.begin_frame(ctx, rect, 0.016f);
@@ -254,6 +308,10 @@ namespace {
         }
     };
 
+    /// Returns the current or globally available duplicate and invalid panel placements are rejected atomically value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool duplicate_and_invalid_panel_placements_are_rejected_atomically() {
         DockWorkspace ws{UString{"atomic"}};
         bool passed = check(ws.add_panel(DockPanelDesc{
@@ -288,6 +346,10 @@ namespace {
         return passed;
     }
 
+    /// Reports whether panel transfer preserves descriptor and foreign preview is non mutating.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool panel_transfer_preserves_descriptor_and_foreign_preview_is_non_mutating() {
         RendererExpected<Context> made = Context::create(Context::Config{});
         if (!check(made.has_value(), "Context::create failed")) {
@@ -332,6 +394,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available dragging the divider resizes the split value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool dragging_the_divider_resizes_the_split() {
         RendererExpected<Context> made = Context::create(Context::Config{});
         if (!check(made.has_value(), "Context::create failed")) {
@@ -362,6 +428,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available clicking a tab makes it active value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool clicking_a_tab_makes_it_active() {
         RendererExpected<Context> made = Context::create(Context::Config{});
         if (!check(made.has_value(), "Context::create failed")) {
@@ -386,6 +456,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available clicking the close button removes only that panel value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool clicking_the_close_button_removes_only_that_panel() {
         RendererExpected<Context> made = Context::create(Context::Config{});
         if (!check(made.has_value(), "Context::create failed")) {
@@ -402,8 +476,6 @@ namespace {
         frame.run(PointerState{.position = {-100, -100}, .down = false});
 
 
-
-
         DockWorkspaceEvents events = frame.run(PointerState{.position = {24, 14}, .down = true});
 
         bool passed = check(events.close_requests.size() == 1 && events.close_requests[0] == UString{"A"},
@@ -414,6 +486,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available dragging a tab onto another leaf docks it there value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool dragging_a_tab_onto_another_leaf_docks_it_there() {
         RendererExpected<Context> made = Context::create(Context::Config{});
         if (!check(made.has_value(), "Context::create failed")) {
@@ -440,6 +516,10 @@ namespace {
         return passed;
     }
 
+    /// Reports whether active tab drag snapshot is local and remove cancels it.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool active_tab_drag_snapshot_is_local_and_remove_cancels_it() {
         RendererExpected<Context> made = Context::create(Context::Config{});
         if (!check(made.has_value(), "Context::create failed")) {
@@ -469,7 +549,6 @@ namespace {
         passed &= check(!ws.has_panel(UString{"B"}), "actively dragged panel was not removed");
 
 
-
         frame.run(PointerState{.position = {500, 250}, .down = false});
         ws.add_panel(DockPanelDesc{.id = UString{"C"}, .title = UString{"Panel C"}});
         frame.run(PointerState{.position = {-100, -100}, .down = false});
@@ -482,6 +561,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available nonzero workspace origin translates rendering and tear off coordinates value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool nonzero_workspace_origin_translates_rendering_and_tear_off_coordinates() {
         RendererExpected<Context> made = Context::create(Context::Config{});
         if (!check(made.has_value(), "Context::create failed")) {
@@ -516,6 +599,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available dragging a tab outside the workspace requests tear off value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool dragging_a_tab_outside_the_workspace_requests_tear_off() {
         RendererExpected<Context> made = Context::create(Context::Config{});
         if (!check(made.has_value(), "Context::create failed")) {
@@ -543,6 +630,10 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     bool passed = true;
     passed &= drag_gesture_handles_zero_threshold_and_same_frame_release();
@@ -563,7 +654,6 @@ int main() {
     passed &= active_tab_drag_snapshot_is_local_and_remove_cancels_it();
     passed &= nonzero_workspace_origin_translates_rendering_and_tear_off_coordinates();
     passed &= dragging_a_tab_outside_the_workspace_requests_tear_off();
-
 
 
     if (passed) {

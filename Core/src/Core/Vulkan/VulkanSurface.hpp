@@ -26,89 +26,202 @@ using std::vector;
 
 namespace SFT::Core::Vulkan {
 
-    /// One frame-in-flight's worth of recording/synchronization state: a dedicated command pool +
-    /// primary command buffer (a pool per frame allows a cheap whole-pool reset each time the slot
-    /// is reused) and the binary semaphore signalled when this frame's swapchain image is acquired.
-    /// A set of these lives on each VulkanSurface, so every window paces its own frames — the
-    /// groundwork for rendering multiple windows independently.
+
     struct FrameResources {
         VulkanSemaphore imageAcquiredSemaphore;
         VulkanCommandPool commandPool;
         VulkanCommandBuffer commandBuffer;
 
+        /// Performs the destroy command resources operation for `FrameResources` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void destroyCommandResources() noexcept;
 
+        /// Destroys or releases the `FrameResources` resource represented by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy() noexcept;
     };
 
-    /// Owns a VkSurfaceKHR, its swapchain, and all other per-window presentation state. One
-    /// instance exists per live window, keyed by that window's WindowId in the backend's surface
-    /// map. Explicit destroy(VkInstance) is required — the backend calls it in reverse creation
-    /// order before vkDestroyInstance.
+
     class VulkanSurface {
       public:
+        /// Constructs a `VulkanSurface` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanSurface() = default;
+        /// Constructs a `VulkanSurface` from the supplied initialization values.
+        ///
+        /// @param vk_surface Surface used or affected by the operation.
+        /// @param descriptor Description of the resource or operation to perform.
+        /// @param window Window used or affected by the operation.
+        /// @param extent `extent` value used by the operation.
+        /// @param frames_in_flight `frames_in_flight` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanSurface(VkSurfaceKHR vk_surface, RenderSurfaceDescriptor descriptor, Window *window, Extent2D extent, u32 frames_in_flight) noexcept;
 
+        /// Disables this construction form for `VulkanSurface`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanSurface(const VulkanSurface &) = delete;
+        /// Assigns a new value to this `VulkanSurface`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanSurface &operator=(const VulkanSurface &) = delete;
 
+        /// Constructs a `VulkanSurface` from the supplied initialization values.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanSurface(VulkanSurface &&o) noexcept;
 
+        /// Assigns a new value to this `VulkanSurface`.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanSurface &operator=(VulkanSurface &&o) noexcept;
 
+        /// Returns the Vulkan handle associated with this `VulkanSurface`.
+        ///
+        /// @return Returns the current Vulkan handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkSurfaceKHR vk_handle() const noexcept;
+        /// Returns the current or globally available RHI surface value.
+        ///
+        /// @return Returns the current RHI surface value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::SurfaceHandle rhi_surface() const noexcept;
+        /// Sets the RHI surface for this `VulkanSurface`.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_rhi_surface(RHI::SurfaceHandle surface) noexcept;
+        /// Clears RHI surface.
+        ///
+        /// @note This function does not throw exceptions.
         void clear_rhi_surface() noexcept;
+        /// Reports whether active holds for this `VulkanSurface`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_active() const noexcept;
+        /// Returns the current or globally available descriptor value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const RenderSurfaceDescriptor &descriptor() const noexcept;
+        /// Returns the current or globally available extent value.
+        ///
+        /// @return Returns the current extent value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Extent2D extent() const noexcept;
+        /// Returns the current or globally available frames in flight value.
+        ///
+        /// @return Returns the current frames in flight value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 frames_in_flight() const noexcept;
+        /// Returns the current or globally available swapchain dirty value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool swapchain_dirty() const noexcept;
+        /// Returns the current or globally available window value.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Window *window() const noexcept;
+        /// Returns the current or globally available window ID value.
+        ///
+        /// @return Returns the current window ID value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] WindowId window_id() const noexcept;
 
+        /// Returns the current or globally available swapchain value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VulkanSwapchain &swapchain() noexcept;
+        /// Returns the current or globally available swapchain value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const VulkanSwapchain &swapchain() const noexcept;
+        /// Sets the swapchain for this `VulkanSurface`.
+        ///
+        /// @param swapchain Swapchain used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_swapchain(VulkanSwapchain swapchain) noexcept;
 
-        /// What one render_frame call needs from the surface's frame pacing: the resources to record
-        /// into, the timeline value this frame's submission signals on completion, and the value a
-        /// prior in-flight frame must have already reached before its resources may be reused.
+
         struct FrameTicket {
             FrameResources *resources = nullptr;
             u64 signal_value = 0;
             u64 wait_value = 0;
         };
 
+        /// Reports whether this `VulkanSurface` has frame resources.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool has_frame_resources() const noexcept;
+        /// Returns the current or globally available frame timeline value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VulkanSemaphore &frame_timeline() noexcept;
 
-        /// Advances the per-surface frame cursor and hands back the next frame's resources + timeline
-        /// values. Must only be called when has_frame_resources() is true (frames_in_flight_ > 0).
+
+        /// Returns the current or globally available begin frame value.
+        ///
+        /// @return Returns the current begin frame value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] FrameTicket begin_frame() noexcept;
 
-        /// Installs a freshly built set of frame-pacing resources, tearing down any previous set.
-        /// The timeline must already be created with initial value frames_in_flight_ so the first
-        /// frames_in_flight_ frames never block; next_signal_value seeds the signal counter to match.
+
+        /// Sets the frame resources for this `VulkanSurface`.
+        ///
+        /// @param frames `frames` value used by the operation.
+        /// @param timeline `timeline` value used by the operation.
+        /// @param next_signal_value Value consumed by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_frame_resources(vector<FrameResources> frames, VulkanSemaphore timeline, u64 next_signal_value) noexcept;
 
+        /// Destroys the frame resources identified by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy_frame_resources() noexcept;
 
+        /// Marks dirty using the supplied arguments and current state.
+        ///
+        /// @note This function does not throw exceptions.
         void mark_dirty() noexcept;
+        /// Clears dirty.
+        ///
+        /// @note This function does not throw exceptions.
         void clear_dirty() noexcept;
 
-        /// Sets the surface's tracked extent directly from an already-resolved framebuffer size.
-        /// Deliberately does not query window_->framebuffer_size() itself: this is called from
-        /// on_surface_resize_needed(), which can run on a render thread where the owning Window is
-        /// not safe to touch (see EngineBackend::on_surface_resize_needed's docs).
+
+        /// Sets the extent for this `VulkanSurface`.
+        ///
+        /// @param extent `extent` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_extent(Extent2D extent) noexcept;
 
-        /// Destroys the per-frame sync/command resources, the swapchain and the VkSurfaceKHR, and
-        /// marks this entry inactive. Frame resources go first: they may hold command buffers with
-        /// pending references to swapchain images, and the caller is expected to have drained the
-        /// GPU (wait_idle) before invoking this.
+
+        /// Destroys or releases the `VulkanSurface` resource represented by the supplied parameters.
+        ///
+        /// @param instance Instance used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy(VkInstance instance) noexcept;
 
       private:
@@ -122,10 +235,7 @@ namespace SFT::Core::Vulkan {
         bool active_ = false;
         bool swapchain_dirty_ = false;
 
-        /// Per-surface frame pacing. frames_ has one entry per frame in flight; frame_timeline_ is a
-        /// timeline semaphore the CPU waits on to keep at most frames_in_flight_ frames outstanding.
-        /// frame_cursor_ round-robins through frames_; next_signal_value_ is the next value a frame
-        /// submission will signal. Empty/zero until the backend installs them via set_frame_resources.
+
         vector<FrameResources> frames_;
         VulkanSemaphore frame_timeline_;
         u32 frame_cursor_ = 0;

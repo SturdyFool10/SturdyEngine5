@@ -32,10 +32,7 @@ using std::unique_ptr;
 
 namespace SFT::RHI {
 
-    /// Which concrete graphics API a device is driving. Reported by the device; also the switch a
-    /// higher layer reads to pick a backend factory. Every value exists in the enum regardless of which
-    /// backends are compiled in — availability is a runtime question answered by the backend registry
-    /// (see :Backend), not by the presence of the enumerator.
+
     enum class BackendType : u32 {
         Vulkan,
         D3D12,
@@ -43,6 +40,12 @@ namespace SFT::RHI {
         WebGpu,
     };
 
+    /// Returns a human-readable name for the supplied backend type value.
+    ///
+    /// @param backend Backend value to inspect, select, or convert.
+    ///
+    /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr const char *backend_type_name(BackendType backend) noexcept {
         switch (backend) {
             case BackendType::Vulkan:
@@ -57,9 +60,7 @@ namespace SFT::RHI {
         return "<unknown>";
     }
 
-    /// The broad category of an adapter, mirroring VkPhysicalDeviceType / DXGI adapter flags. `Cpu` is
-    /// a pure software rasterizer (lavapipe, SwiftShader, WARP) — the kind a selector usually excludes
-    /// by default. Selection filters and power-preference scoring key off this (see :Selection).
+
     enum class DeviceType : u32 {
         Other,
         IntegratedGpu,
@@ -68,6 +69,12 @@ namespace SFT::RHI {
         Cpu,
     };
 
+    /// Returns a human-readable name for the supplied device type value.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    ///
+    /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr const char *device_type_name(DeviceType type) noexcept {
         switch (type) {
             case DeviceType::Other:
@@ -84,9 +91,7 @@ namespace SFT::RHI {
         return "<unknown>";
     }
 
-    /// Backend-agnostic description of the adapter/GPU — plain strings/ints, no API types, so any
-    /// layer can log or display it. Same shape and intent as Core::GpuInfo, redeclared here to keep
-    /// the RHI self-contained.
+
     struct AdapterInfo {
         string name;
         string vendor;
@@ -96,17 +101,14 @@ namespace SFT::RHI {
         DeviceType device_type = DeviceType::Other;
         u32 vendor_id = 0;
         u32 device_id = 0;
-        /// Stable opaque key used only to merge the same physical GPU across API enumerations. Backends
-        /// populate it when their platform exposes a cross-API identity (Windows adapter LUID, Metal
-        /// registry ID, etc.); an empty value deliberately prevents merging rather than guessing from
-        /// marketing names or PCI IDs, which are not unique for multi-GPU systems.
+
+
         string physical_device_id;
-        /// Retained convenience mirror of `device_type == DeviceType::DiscreteGpu`; the backend sets both.
+
         bool is_discrete = false;
     };
 
-    /// Hard numeric limits the caller must respect. Populated by the backend from the device; the
-    /// fields most descriptors actually bump against.
+
     struct DeviceLimits {
         u32 max_texture_dimension_2d = 0;
         u32 max_texture_array_layers = 0;
@@ -116,272 +118,653 @@ namespace SFT::RHI {
         u32 max_vertex_attributes = 0;
         u32 max_color_attachments = 0;
         u32 max_framebuffer_sample_count = 1;
-        /// Bit N is set when N samples are supported (Vulkan's native bit layout is 1/2/4/...).
+
         u32 framebuffer_sample_counts = 1;
         bool supports_minimum_depth_resolve = false;
-        /// True when the device can sample BC1-7 block-compressed textures (core Vulkan
-        /// textureCompressionBC, not a vendor extension — near-universal on desktop GPUs). Callers
-        /// uploading Format::BC7Unorm/etc. (e.g. Engine::AssetManager::create_texture) must check
-        /// this and fall back to an uncompressed format when false.
+
+
         bool supports_bc_texture_compression = false;
         u32 max_compute_workgroup_size_x = 0;
         u32 max_compute_workgroup_size_y = 0;
         u32 max_compute_workgroup_size_z = 0;
         u64 min_uniform_buffer_offset_alignment = 0;
         u64 min_storage_buffer_offset_alignment = 0;
-        /// Nanoseconds a single timestamp-query tick represents — multiply an (end − start) tick delta
-        /// by this to get a pass's GPU time. 0 means the device can't timestamp. `timestamp_valid_bits`
-        /// is how many low bits of a written timestamp are meaningful (mask before subtracting).
+
+
         f32 timestamp_period_ns = 0.0f;
         u32 timestamp_valid_bits = 0;
     };
 
-    /// The heart of the RHI: the API-agnostic device. A concrete backend (Core's Vulkan backend
-    /// today; Metal/D3D12/WebGPU later) implements every method; higher layers describe all GPU work
-    /// in terms of the descriptors/handles/encoders above and never touch a graphics-API symbol.
-    ///
-    /// Ownership model: every `create_*` mints a handle the device owns; the matching `destroy_*`
-    /// releases it. Handles are plain values (see :Handles), so the caller tracks lifetimes itself —
-    /// the device does not reference-count them. Destroying a resource still referenced by in-flight
-    /// GPU work is a caller error; sequence teardown after wait_idle() (or the appropriate
-    /// frame-fence) just as the raw API would demand.
-    ///
-    /// The RHI intentionally provides no factory here — constructing a device is inherently
-    /// API-specific (instance/adapter/surface plumbing), so each backend exposes its own
-    /// `create_*_device(...)` entry point that returns a `unique_ptr<RhiDevice>`.
+
     class RhiDevice {
       public:
+        /// Destroys the `RhiDevice` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         virtual ~RhiDevice() = default;
 
+        /// Disables this construction form for `RhiDevice`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         RhiDevice(const RhiDevice &) = delete;
+        /// Assigns a new value to this `RhiDevice`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         RhiDevice &operator=(const RhiDevice &) = delete;
+        /// Disables this construction form for `RhiDevice`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         RhiDevice(RhiDevice &&) = delete;
+        /// Assigns a new value to this `RhiDevice`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         RhiDevice &operator=(RhiDevice &&) = delete;
 
-        /// ── Introspection ──
+
+        /// Returns the current or globally available backend type value.
+        ///
+        /// @return Returns the current backend type value.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual BackendType backend_type() const noexcept = 0;
+        /// Returns the current adapter info.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual const AdapterInfo &adapter_info() const noexcept = 0;
+        /// Returns the current or globally available limits value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual const DeviceLimits &limits() const noexcept = 0;
 
-        /// Full request/support/enablement report from device creation. This records required features
-        /// that were satisfied, optional features that were partially enabled, and exact missing sets.
+
+        /// Returns the current or globally available feature negotiation report value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual const FeatureNegotiationReport &feature_negotiation_report() const noexcept = 0;
 
-        /// The optional features this device actually turned on — the requested required+optional set
-        /// intersected with what the adapter supported (see :Adapter's DeviceRequest). An app reads
-        /// this to branch its render path on what it got, and guards any command/pipeline that needs
-        /// an optional feature behind `is_enabled(...)` before recording it.
+
+        /// Returns the current or globally available enabled features value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual const FeatureSet &enabled_features() const noexcept = 0;
 
-        /// Graded values (max ray recursion depth, VRS tile size, ...) for the enabled features.
+
+        /// Returns the current or globally available feature properties value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual const FeatureProperties &feature_properties() const noexcept = 0;
 
-        /// Queue classes/lanes this device exposes after aliasing unsupported classes onto the nearest
-        /// native queue. Higher-level schedulers use this to decide how much CPU/GPU fan-out to attempt.
+
+        /// Returns the current or globally available queue infos value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual span<const QueueInfo> queue_infos() const noexcept = 0;
 
-        /// API/vendor-specific extensions enabled on this device. Use this for capabilities that do not
-        /// deserve a core `Feature` yet, or that are intentionally backend-specific.
+
+        /// Returns the current or globally available enabled extensions value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual span<const ExtensionId> enabled_extensions() const noexcept = 0;
 
-        /// Convenience over `enabled_features().has(feature)` — the guard at the point of use, e.g.
-        /// `if (device.is_enabled(Feature::RayTracingPipeline)) { ...trace... } else { ...raster... }`.
+
+        /// Reports whether enabled holds for this `RhiDevice`.
+        ///
+        /// @param feature `feature` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_enabled(Feature feature) const noexcept;
 
+        /// Reports whether extension enabled holds for this `RhiDevice`.
+        ///
+        /// @param extension `extension` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_extension_enabled(ExtensionId extension) const noexcept;
 
-        /// Returns an extension-specific typed interface when `extension` is enabled, otherwise nullptr.
-        /// This is the RHI-level escape hatch for API/vendor features that are intentionally outside the
-        /// core feature enum, without requiring high layers to include Vulkan/D3D12/Metal headers.
+
+        /// Performs the extension interface operation for `RhiDevice` using the supplied arguments.
+        ///
+        /// @param extension `extension` value used by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual RhiDeviceExtension *extension_interface(ExtensionId extension) noexcept = 0;
 
-        /// ── Resource creation / destruction ──
+
+        /// Creates a buffer from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<BufferHandle> create_buffer(const BufferDesc &desc) = 0;
+        /// Destroys the buffer identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_buffer(BufferHandle handle) noexcept = 0;
 
+        /// Creates a texture from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<TextureHandle> create_texture(const TextureDesc &desc) = 0;
+        /// Destroys the texture identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_texture(TextureHandle handle) noexcept = 0;
 
+        /// Creates a texture view from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<TextureViewHandle> create_texture_view(const TextureViewDesc &desc) = 0;
+        /// Destroys the texture view identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_texture_view(TextureViewHandle handle) noexcept = 0;
 
+        /// Creates a sampler from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<SamplerHandle> create_sampler(const SamplerDesc &desc) = 0;
+        /// Destroys the sampler identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_sampler(SamplerHandle handle) noexcept = 0;
 
+        /// Creates a shader module from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<ShaderModuleHandle> create_shader_module(const ShaderModuleDesc &desc) = 0;
+        /// Destroys the shader module identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_shader_module(ShaderModuleHandle handle) noexcept = 0;
 
+        /// Creates a bind group layout from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<BindGroupLayoutHandle> create_bind_group_layout(const BindGroupLayoutDesc &desc) = 0;
+        /// Destroys the bind group layout identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_bind_group_layout(BindGroupLayoutHandle handle) noexcept = 0;
 
+        /// Creates a bind group from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<BindGroupHandle> create_bind_group(const BindGroupDesc &desc) = 0;
+        /// Destroys the bind group identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_bind_group(BindGroupHandle handle) noexcept = 0;
 
+        /// Creates a pipeline layout from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<PipelineLayoutHandle> create_pipeline_layout(const PipelineLayoutDesc &desc) = 0;
+        /// Destroys the pipeline layout identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_pipeline_layout(PipelineLayoutHandle handle) noexcept = 0;
 
+        /// Creates a render pipeline from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<RenderPipelineHandle> create_render_pipeline(const RenderPipelineDesc &desc) = 0;
+        /// Destroys the render pipeline identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_render_pipeline(RenderPipelineHandle handle) noexcept = 0;
 
+        /// Creates a compute pipeline from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<ComputePipelineHandle> create_compute_pipeline(const ComputePipelineDesc &desc) = 0;
+        /// Destroys the compute pipeline identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_compute_pipeline(ComputePipelineHandle handle) noexcept = 0;
 
+        /// Creates a ray tracing pipeline from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<RayTracingPipelineHandle> create_ray_tracing_pipeline(
             const RayTracingPipelineDesc &desc) = 0;
+        /// Destroys the ray tracing pipeline identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_ray_tracing_pipeline(RayTracingPipelineHandle handle) noexcept = 0;
+        /// Writes ray tracing shader group handles to the associated destination.
+        ///
+        /// @param pipeline Pipeline used or affected by the operation.
+        /// @param first_group `first_group` value used by the operation.
+        /// @param group_count Number of elements or operations to process.
+        /// @param dst Destination value or resource.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiResult write_ray_tracing_shader_group_handles(
             RayTracingPipelineHandle pipeline,
             u32 first_group,
             u32 group_count,
             span<std::byte> dst) = 0;
 
+        /// Performs the acceleration structure build sizes operation for `RhiDevice` using the supplied arguments.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<AccelerationStructureBuildSizes> acceleration_structure_build_sizes(
             const AccelerationStructureBuildDesc &desc) const = 0;
+        /// Creates a acceleration structure from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<AccelerationStructureHandle> create_acceleration_structure(
             const AccelerationStructureDesc &desc) = 0;
+        /// Destroys the acceleration structure identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_acceleration_structure(AccelerationStructureHandle handle) noexcept = 0;
 
-        /// ── GPU virtual addresses ──
-        /// The device address of `buffer` (requires Feature::BufferDeviceAddress). The buffer must have
-        /// been created with BufferUsage carrying the address intent. Needed to feed pointers to shaders
-        /// (bindless-by-pointer) and to reference geometry/scratch by address in AS builds.
+
+        /// Performs the buffer device address operation for `RhiDevice` using the supplied arguments.
+        ///
+        /// @param buffer Buffer used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<u64> buffer_device_address(BufferHandle buffer) const = 0;
-        /// The device address of an acceleration structure (requires Feature::AccelerationStructures) —
-        /// what a TLAS instance record stores to reference its BLAS.
+
+
+        /// Performs the acceleration structure device address operation for `RhiDevice` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<u64> acceleration_structure_device_address(
             AccelerationStructureHandle handle) const = 0;
 
-        /// ── Data upload ──
-        /// Writes `data` into `buffer` at `offset`. For a HostUpload buffer this is a direct mapped
-        /// write; for a DeviceLocal buffer the backend stages and copies internally. Convenience for
-        /// the common "get bytes into a buffer" case without the caller hand-rolling staging.
+
+        /// Writes buffer to the associated destination.
+        ///
+        /// @param buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiResult write_buffer(BufferHandle buffer, u64 offset, span<const std::byte> data) = 0;
 
-        /// Maps a host-visible buffer (HostUpload / HostReadback memory) for direct CPU access, yielding
-        /// a writable byte span over the whole buffer; `unmap_buffer` releases it. This is the readback
-        /// path a DeviceLocal buffer has no equivalent for — copy GPU results into a HostReadback buffer,
-        /// then map it to read them (screenshots, query/statistics readback, GPU→CPU feedback). Mapping a
-        /// DeviceLocal buffer fails with InvalidArgument. Persistent mapping is allowed; the caller must
-        /// not read/write ranges racing with in-flight GPU work.
+
+        /// Maps buffer for access.
+        ///
+        /// @param buffer Buffer used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<span<std::byte>> map_buffer(BufferHandle buffer) = 0;
+        /// Unmaps buffer.
+        ///
+        /// @param buffer Buffer used or affected by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void unmap_buffer(BufferHandle buffer) noexcept = 0;
 
-        /// ── Command recording / submission ──
-        /// Safe CPU parallelism rule: the device may be called concurrently to create independent
-        /// encoders/bundles; each returned encoder is single-threaded. Finished command buffers are
-        /// immutable handles and may be submitted from any thread, with per-queue serialization handled
-        /// by the backend.
+
+        /// Creates a command encoder from the supplied parameters.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] RhiExpected<unique_ptr<CommandEncoder>> create_command_encoder();
+        /// Creates a command encoder from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<unique_ptr<CommandEncoder>> create_command_encoder(
             const CommandEncoderDesc &desc) = 0;
+        /// Destroys the command buffer identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_command_buffer(CommandBufferHandle handle) noexcept = 0;
 
+        /// Creates a render bundle encoder from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<unique_ptr<RenderBundleEncoder>> create_render_bundle_encoder(
             const RenderBundleDesc &desc) = 0;
+        /// Destroys the render bundle identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_render_bundle(RenderBundleHandle handle) noexcept = 0;
 
+        /// Submits the requested work.
+        ///
+        /// @param command_buffers Buffer used or affected by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] RhiResult submit(span<const CommandBufferHandle> command_buffers);
+        /// Submits the requested work.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiResult submit(const SubmitDesc &desc) = 0;
 
-        /// ── Presentation ──
+
+        /// Creates a surface from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<SurfaceHandle> create_surface(const SurfaceDesc &desc) = 0;
+        /// Destroys the surface identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_surface(SurfaceHandle handle) noexcept = 0;
 
+        /// Creates a swapchain from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<SwapchainHandle> create_swapchain(const SwapchainDesc &desc) = 0;
+        /// Destroys the swapchain identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_swapchain(SwapchainHandle handle) noexcept = 0;
 
-        /// Requested-vs-effective presentation state for `handle`, set the last time it was (re)built
-        /// by create_swapchain() — see PresentationResolution's own doc comment (Swapchain.hpp) for
-        /// why this exists (diagnostics: never let a debug overlay/support report silently repeat the
-        /// requested strategy when the surface actually forced a fallback). Returns a default-
-        /// constructed PresentationResolution for an unknown/already-destroyed handle.
+
+        /// Presents the completed frame to the target surface or swapchain.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual PresentationResolution presentation_resolution(SwapchainHandle handle) const noexcept = 0;
 
-        /// Queries the real HDR capability of the display `handle`'s surface currently sits on —
-        /// peak/min luminance, supported transfer functions (PQ/HLG/scRGB), gamut, and OS-reported
-        /// metadata (EDID or platform-equivalent) when available. Meant to be called before requesting
-        /// an HDR/wide-gamut SwapchainDesc::color_space, so a caller/UI can decide whether to offer HDR
-        /// at all and what nits to target — never assume a display can do HDR just because the GPU/API
-        /// can. Returns a query whose `message.status` explains *why* when the platform can't answer
-        /// (Unsupported: no platform HDR-capability backend for this OS; NotAvailable: supported in
-        /// principle but nothing could be determined for this specific surface/display right now).
+
+        /// Queries HDR capabilities from the active backend or runtime state.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<SurfaceHdrCapabilityQuery> query_hdr_capabilities(
             SurfaceHandle handle) const = 0;
 
-        /// Re-sends HDR mastering metadata to an already-live Hdr10St2084 swapchain with updated
-        /// per-scene content-light-level numbers — see HdrContentLightLevelUpdate's own doc comment
-        /// (HdrDisplay.hpp) for exactly what this is (and is not: not real HDR10+/ST 2094-40). No
-        /// swapchain recreation needed. Returns Unsupported for a swapchain that wasn't created with
-        /// Hdr10St2084 (nothing to update — HLG/scRGB carry no such metadata, DolbyVision's real
-        /// dynamic metadata is a different, unproducible format).
+
+        /// Updates HDR content light level from the supplied values.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        /// @param update `update` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiResult update_hdr_content_light_level(
             SwapchainHandle handle,
             const HdrContentLightLevelUpdate &update) = 0;
 
-        /// Acquires the next image to render into. A SurfaceLost/out-of-date result signals the
-        /// caller to recreate the swapchain.
+
+        /// Acquires next texture.
         ///
-        /// `frame_slot_index` identifies which of the caller's own CPU-side frame-in-flight slots this
-        /// acquisition belongs to (e.g. `frame_index % resolved_frames_in_flight`) — it selects which
-        /// internal acquisition semaphore to signal, sized to match SwapchainDesc::frames_in_flight.
-        /// The caller must only pass a slot index whose previous use has already been proven complete
-        /// (that slot's own submission fence signaled) before calling this — reusing a slot's
-        /// acquisition semaphore before its prior GPU work has finished is undefined. A NotReady/
-        /// SurfaceLost/error result never consumes or advances any acquisition-semaphore state, so
-        /// retrying with the same frame_slot_index after a timeout is always safe.
+        /// @param swapchain Swapchain used or affected by the operation.
+        /// @param frame_slot_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<SurfaceTexture> acquire_next_texture(SwapchainHandle swapchain, u32 frame_slot_index) = 0;
-        /// Presents a previously acquired image. `suboptimal` in the result mirrors acquire — present
-        /// succeeded but the swapchain should be rebuilt soon.
+
+
+        /// Presents the completed frame to the target surface or swapchain.
         ///
-        /// `queue_lock_wait_ms`, when non-null, is set to how long this call spent waiting on the
-        /// backend's internal presentation-queue lock before the native present call itself could
-        /// start — lets a caller profiling this stage separate backend-internal contention from time
-        /// genuinely spent blocked in the driver/platform presentation engine.
+        /// @param desc Description of the resource or operation to perform.
+        /// @param queue_lock_wait_ms Queue used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<PresentOutcome> present(const PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) = 0;
 
-        /// ── Synchronization ──
+
+        /// Creates a semaphore from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<SemaphoreHandle> create_semaphore(const SemaphoreDesc &desc) = 0;
+        /// Destroys the semaphore identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_semaphore(SemaphoreHandle handle) noexcept = 0;
+        /// Performs the semaphore value operation for `RhiDevice` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<u64> semaphore_value(SemaphoreHandle handle) const = 0;
+        /// Waits for semaphore to complete.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        /// @param value Value consumed by the operation.
+        /// @param timeout_ns Maximum amount of time to wait before giving up.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiResult wait_semaphore(SemaphoreHandle handle,
                                                        u64 value,
                                                        u64 timeout_ns = wait_forever) = 0;
+        /// Signals semaphore.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiResult signal_semaphore(SemaphoreHandle handle, u64 value) = 0;
 
+        /// Creates a fence from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<FenceHandle> create_fence(const FenceDesc &desc) = 0;
+        /// Destroys the fence identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_fence(FenceHandle handle) noexcept = 0;
-        /// The returned bool distinguishes a confirmed-signaled fence (true) from a real timeout
-        /// (false, `vkWaitForFences` returning VK_TIMEOUT) -- a timeout is NOT an error, but it is
-        /// also NOT permission to reclaim/reset/reuse anything the fence protects. Every caller must
-        /// gate resource reclamation on `true`, never merely on the absence of an error. Every
-        /// current call site uses the default `wait_forever` timeout, under which `false` should not
-        /// occur outside a device hang; the distinction still has to exist so a future finite-timeout
-        /// caller (e.g. a hang watchdog) can't accidentally reclaim fence-protected resources early.
+
+
+        /// Waits for fences to complete.
+        ///
+        /// @param fences Fence used or affected by the operation.
+        /// @param wait_all `wait_all` value used by the operation.
+        /// @param timeout_ns Maximum amount of time to wait before giving up.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<bool> wait_fences(span<const FenceHandle> fences,
                                                             bool wait_all = true,
                                                             u64 timeout_ns = wait_forever) = 0;
+        /// Resets fences to its baseline state.
+        ///
+        /// @param fences Fence used or affected by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiResult reset_fences(span<const FenceHandle> fences) = 0;
 
-        /// ── Queries ──
-        /// A pool of query slots the GPU writes results into (see :Queries). Recorded against by the
-        /// command encoder (reset/write_timestamp/begin/end/resolve); results are fetched either on the
-        /// GPU via CommandEncoder::resolve_query_set or on the host via get_query_set_results below.
+
+        /// Creates a query set from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<QuerySetHandle> create_query_set(const QuerySetDesc &desc) = 0;
+        /// Destroys the query set identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_query_set(QuerySetHandle handle) noexcept = 0;
-        /// Reads results for slots `[first, first+count)` into `dst`, `stride` bytes apart. With
-        /// QueryResultFlags::Wait it blocks until they're available; without it, InvalidArgument-free
-        /// partial reads follow the Partial/WithAvailability flags. The host counterpart of
-        /// resolve_query_set for when results are consumed CPU-side (per-pass GPU timing, occlusion).
+
+
+        /// Returns the query set results associated with this `RhiDevice`.
+        ///
+        /// @param query_set `query_set` value used by the operation.
+        /// @param first First position or element included in the operation.
+        /// @param count Number of elements or operations to process.
+        /// @param dst Destination value or resource.
+        /// @param stride `stride` value used by the operation.
+        /// @param flags Flags controlling optional behavior.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiResult get_query_set_results(QuerySetHandle query_set, u32 first, u32 count, span<std::byte> dst, u64 stride, QueryResultFlags flags = QueryResultFlags::Result64Bit) = 0;
 
-        /// Reset a query set's slots on the host without a command buffer (requires Feature::HostQueryReset).
+
+        /// Resets query set to its baseline state.
+        ///
+        /// @param query_set `query_set` value used by the operation.
+        /// @param first First position or element included in the operation.
+        /// @param count Number of elements or operations to process.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void reset_query_set(QuerySetHandle query_set, u32 first, u32 count) noexcept = 0;
 
-        /// Blocks until the device is idle. The heavy hammer — use before teardown or a resource
-        /// reload, not per frame.
+
+        /// Waits for idle to complete.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void wait_idle() noexcept = 0;
 
       protected:
+        /// Constructs a `RhiDevice` in its default state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         RhiDevice() = default;
     };
 

@@ -22,9 +22,9 @@ namespace SFT::RHI {
 
 
 
-    /// Pipeline stages a dependency can synchronize against. `u64`-backed to match VkPipelineStage2's
-    /// width and leave room for future stages without a breaking change. `None` means "no stage" (a
-    /// pure layout transition or an execution-only sentinel); `AllCommands` is the coarsest hammer.
+                                                                                                      
+                                                                                                    
+                                                                                                    
     enum class PipelineStage : u64 {
         None = 0,
         DrawIndirect = 1ull << 0,
@@ -51,9 +51,9 @@ namespace SFT::RHI {
         AllCommands = ~0ull,
     };
 
-    /// How memory is accessed on either side of a dependency — the cache-flush/invalidate half of a
-    /// barrier. `MemoryRead`/`MemoryWrite` are the catch-all "any read/any write" bits for when the
-    /// precise access set isn't worth spelling out.
+                                                                                                      
+                                                                                                    
+                                                    
     enum class AccessFlags : u64 {
         None = 0,
         IndirectCommandRead = 1ull << 0,
@@ -76,10 +76,10 @@ namespace SFT::RHI {
         MemoryWrite = 1ull << 17,
     };
 
-    /// The layout a texture's memory is arranged in for a given use. A texture barrier optionally
-    /// transitions between layouts (old → new); pass the same value for both to synchronize without a
-    /// transition. `Undefined` as `old_layout` discards the prior contents (cheapest when the next
-    /// use fully overwrites).
+                                                                                                  
+                                                                                                        
+                                                                                                   
+                              
     enum class TextureLayout : u32 {
         Undefined,
         General,
@@ -92,8 +92,8 @@ namespace SFT::RHI {
         Present,
     };
 
-    /// Which mips/layers of a texture a barrier applies to (see `all_remaining` in :Resources for the
-    /// "everything from the base" sentinels).
+                                                                                                      
+                                              
     struct TextureSubresourceRange {
         u32 base_mip_level = 0;
         u32 mip_level_count = ~0u;
@@ -101,8 +101,8 @@ namespace SFT::RHI {
         u32 array_layer_count = ~0u;
     };
 
-    /// A memory dependency not tied to a specific resource — flushes/invalidates for all memory of
-    /// the given access classes between the two stage sets. The blunt-but-correct option.
+                                                                                                     
+                                                                                          
     struct GlobalBarrier {
         PipelineStage src_stage = PipelineStage::None;
         AccessFlags src_access = AccessFlags::None;
@@ -110,10 +110,10 @@ namespace SFT::RHI {
         AccessFlags dst_access = AccessFlags::None;
     };
 
-    /// A dependency scoped to one buffer range — e.g. a compute pass finished writing an
-    /// Indirect/Storage buffer that a subsequent draw reads. `ownership` is normally disabled; set it
-    /// only when moving a resource between queue classes/lanes that map to distinct native ownership
-    /// domains (Vulkan queue families). Backends without ownership transfers ignore it.
+                                                                                           
+                                                                                                      
+                                                                                                     
+                                                                                        
     struct BufferBarrier {
         BufferHandle buffer{};
         PipelineStage src_stage = PipelineStage::None;
@@ -125,9 +125,9 @@ namespace SFT::RHI {
         u64 size = 0;
     };
 
-    /// A dependency scoped to a texture subresource, optionally with a layout transition — the
-    /// render-to-texture-then-sample and storage-image cases. `ownership` mirrors BufferBarrier and is
-    /// disabled for normal same-queue transitions.
+                                                                                                 
+                                                                                                       
+                                                   
     struct TextureBarrier {
         TextureHandle texture{};
         PipelineStage src_stage = PipelineStage::None;

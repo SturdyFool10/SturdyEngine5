@@ -11,16 +11,31 @@ namespace SFT::Engine {
     namespace {
 
 
-
+        /// Performs the world direction operation for `Engine` using the supplied arguments.
+        ///
+        /// @param transform `transform` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] glm::vec3 world_direction(const WorldTransform &transform) noexcept {
             return glm::normalize(glm::mat3{transform.value} * glm::vec3{0.0f, -1.0f, 0.0f});
         }
 
+        /// Performs the world position operation for `Engine` using the supplied arguments.
+        ///
+        /// @param transform `transform` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] glm::vec3 world_position(const WorldTransform &transform) noexcept {
             return glm::vec3{transform.value[3]};
         }
     } // namespace
 
+    /// Returns the current or globally available begin frame value.
+    ///
+    /// @return Returns the current begin frame value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void RenderFrameRequests::begin_frame() {
         previous_high_watermark_ = std::max(previous_high_watermark_, current_ ? current_->size() : usize{0});
         current_.reset();
@@ -44,6 +59,14 @@ namespace SFT::Engine {
         current_gizmos_ = std::make_shared<RenderableList>();
     }
 
+    /// Submits the requested work.
+    ///
+    /// @param entity Entity used or affected by the operation.
+    /// @param transform `transform` value used by the operation.
+    /// @param renderer Renderer used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void RenderFrameRequests::submit(Ecs::Entity entity,
                                      const WorldTransform &transform,
                                      const ModelRenderer &renderer) noexcept {
@@ -60,6 +83,10 @@ namespace SFT::Engine {
                                                 renderer.visibility_mask, renderer.sort_key, *current_);
     }
 
+    /// Returns the current or globally available finish frame value.
+    ///
+    /// @return Returns the current finish frame value.
+    /// @note This function does not throw exceptions.
     std::shared_ptr<const RenderFrameRequests::RenderableList> RenderFrameRequests::finish_frame() const noexcept {
         if (!current_) {
             Ecs::Detail::contract_violation(
@@ -68,6 +95,14 @@ namespace SFT::Engine {
         return current_;
     }
 
+    /// Submits gizmo.
+    ///
+    /// @param entity Entity used or affected by the operation.
+    /// @param transform `transform` value used by the operation.
+    /// @param renderer Renderer used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void RenderFrameRequests::submit_gizmo(Ecs::Entity entity, const WorldTransform &transform,
                                            const LightGizmoRenderer &renderer) noexcept {
         if (!renderer.visible || !renderer.model) {
@@ -83,6 +118,10 @@ namespace SFT::Engine {
                                                 ~0u, 0u, *current_gizmos_);
     }
 
+    /// Returns the current or globally available finish gizmo frame value.
+    ///
+    /// @return Returns the current finish gizmo frame value.
+    /// @note This function does not throw exceptions.
     std::shared_ptr<const RenderFrameRequests::RenderableList> RenderFrameRequests::finish_gizmo_frame() const noexcept {
         if (!current_gizmos_) {
             Ecs::Detail::contract_violation(
@@ -91,10 +130,21 @@ namespace SFT::Engine {
         return current_gizmos_;
     }
 
+    /// Returns the current or globally available begin frame value.
+    ///
+    /// @return Returns the current begin frame value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void LightFrameRequests::begin_frame() {
         current_ = std::make_shared<ExtractedLights>();
     }
 
+    /// Submits the requested work.
+    ///
+    /// @param transform `transform` value used by the operation.
+    /// @param light `light` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void LightFrameRequests::submit(Ecs::Entity, const WorldTransform &transform,
                                     const DirectionalLightRenderer &light) noexcept {
         if (!current_) {
@@ -110,6 +160,13 @@ namespace SFT::Engine {
         };
     }
 
+    /// Submits the requested work.
+    ///
+    /// @param transform `transform` value used by the operation.
+    /// @param light `light` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void LightFrameRequests::submit(Ecs::Entity, const WorldTransform &transform,
                                     const SpotLightRenderer &light) noexcept {
         if (!current_) {
@@ -128,6 +185,13 @@ namespace SFT::Engine {
         });
     }
 
+    /// Submits the requested work.
+    ///
+    /// @param transform `transform` value used by the operation.
+    /// @param light `light` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void LightFrameRequests::submit(Ecs::Entity, const WorldTransform &transform,
                                     const PointLightRenderer &light) noexcept {
         if (!current_) {
@@ -143,6 +207,10 @@ namespace SFT::Engine {
         });
     }
 
+    /// Returns the current or globally available finish frame value.
+    ///
+    /// @return Returns the current finish frame value.
+    /// @note This function does not throw exceptions.
     std::shared_ptr<const LightFrameRequests::ExtractedLights> LightFrameRequests::finish_frame() const noexcept {
         if (!current_) {
             Ecs::Detail::contract_violation(
@@ -155,6 +223,11 @@ namespace SFT::Engine {
 
 namespace SFT::Engine {
 
+    /// Renders the requested content using the current rendering state.
+    ///
+    /// @param assets `assets` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     RenderFrameRequests::RenderFrameRequests(AssetManager &assets) noexcept : assets_(&assets) {}
 
 } // namespace SFT::Engine

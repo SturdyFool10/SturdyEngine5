@@ -1,15 +1,5 @@
 
 
-
-
-
-
-
-
-
-
-
-
 #include <Foundation/src/Foundation.hpp>
 
 #include <Renderer/ShaderTarget.hpp>
@@ -44,19 +34,29 @@ namespace SFT::Renderer {
     namespace {
         namespace slang = Core::Slang;
 
+        /// Creates an error result describing the supplied atmosphere failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError atmosphere_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
+        /// Performs the safe normalize operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        /// @param fallback Fallback value used when the primary value is unavailable.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] glm::vec3 safe_normalize(glm::vec3 value, glm::vec3 fallback) noexcept {
             const f32 length_squared = glm::dot(value, value);
             return std::isfinite(length_squared) && length_squared > 1.0e-12f
                        ? value * glm::inversesqrt(length_squared)
                        : fallback;
         }
-
-
-
 
 
         struct EarthAtmosphereDefaults {
@@ -79,6 +79,12 @@ namespace SFT::Renderer {
         constexpr RHI::Extent3D kSkyViewLutExtent{.width = 192, .height = 108, .depth_or_layers = 1};
     } // namespace
 
+    /// Finds or creates the frame atmosphere targets required by the operation.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_frame_atmosphere_targets(FrameInFlight &slot) {
         ZoneScopedN("Renderer::ensure_frame_atmosphere_targets");
         if (slot.atmosphere_targets.constants_buffer) {
@@ -101,6 +107,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the frame atmosphere targets identified by the supplied parameters.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_frame_atmosphere_targets(FrameInFlight &slot) noexcept {
         ZoneScopedN("Renderer::destroy_frame_atmosphere_targets");
         RHI::RhiDevice *device = rhi_device();
@@ -110,6 +122,13 @@ namespace SFT::Renderer {
         slot.atmosphere_targets = {};
     }
 
+    /// Prepares atmosphere frame for a later operation.
+    ///
+    /// @param submission `submission` value used by the operation.
+    /// @param constants_buffer Buffer used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::prepare_atmosphere_frame(const FrameSubmission &submission,
                                                              RHI::BufferHandle constants_buffer) {
         ZoneScopedN("Renderer::prepare_atmosphere_frame");
@@ -135,10 +154,6 @@ namespace SFT::Renderer {
         gpu.ground_albedo = glm::vec4{EarthAtmosphereDefaults::kGroundAlbedo, 0.0f};
 
 
-
-
-
-
         const glm::vec3 planet_center_world{
             submission.camera.world_position.x,
             -EarthAtmosphereDefaults::kPlanetRadiusMeters,
@@ -149,7 +164,6 @@ namespace SFT::Renderer {
 
         const DirectionalLight &sun = submission.lighting.sun;
         const glm::vec3 sun_direction_toward_scene = safe_normalize(sun.direction, glm::vec3{0.0f, -1.0f, 0.0f});
-
 
 
         gpu.sun_direction_angular_radius = glm::vec4{
@@ -166,6 +180,10 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Finds or creates the atmosphere lut resources required by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_atmosphere_lut_resources() {
         ZoneScopedN("Renderer::ensure_atmosphere_lut_resources");
         auto guard = atmosphere_lut_.lock();
@@ -179,9 +197,6 @@ namespace SFT::Renderer {
 
         const auto shader_target = shader_target_for_device(*device);
         if (!shader_target) return unexpected(shader_target.error());
-
-
-
 
 
         auto build_lut_pipeline = [&](const char *shader_path, const char *module_name, const char *label,
@@ -292,6 +307,10 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the atmosphere lut resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy atmosphere lut resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_atmosphere_lut_resources() noexcept {
         ZoneScopedN("Renderer::destroy_atmosphere_lut_resources");
         RHI::RhiDevice *device = rhi_device();
@@ -318,6 +337,17 @@ namespace SFT::Renderer {
         *guard = {};
     }
 
+    /// Records atmosphere lut bakes using the supplied arguments and current state.
+    ///
+    /// @param graph `graph` value used by the operation.
+    /// @param atmosphere_buffer Buffer used or affected by the operation.
+    /// @param out_transmittance_lut `out_transmittance_lut` value used by the operation.
+    /// @param out_multi_scattering_lut `out_multi_scattering_lut` value used by the operation.
+    /// @param out_sky_view_lut `out_sky_view_lut` value used by the operation.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_atmosphere_lut_bakes(
         RenderGraph &graph, RHI::BufferHandle atmosphere_buffer,
         RenderGraphTextureHandle &out_transmittance_lut, RenderGraphTextureHandle &out_multi_scattering_lut,

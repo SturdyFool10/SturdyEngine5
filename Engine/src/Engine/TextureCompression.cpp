@@ -29,6 +29,13 @@ namespace SFT::Engine::Detail {
         constexpr u64 kFnvOffsetBasis = 0xcbf29ce484222325ULL;
         constexpr u64 kFnvPrime = 0x100000001b3ULL;
 
+        /// Performs the fnv1a append operation for `Detail` using the supplied arguments.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param hash `hash` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 fnv1a_append(std::span<const std::byte> data, u64 hash) noexcept {
             for (std::byte b : data) {
                 hash ^= static_cast<u64>(b);
@@ -37,18 +44,17 @@ namespace SFT::Engine::Detail {
             return hash;
         }
 
+        /// Performs the fnv1a append pod operation for `Detail` using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        /// @param hash `hash` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <typename T>
         [[nodiscard]] u64 fnv1a_append_pod(const T &value, u64 hash) noexcept {
             return fnv1a_append(std::as_bytes(std::span{&value, 1}), hash);
         }
-
-
-
-
-
-
-
-
 
 
         struct BcCacheHeader {
@@ -63,6 +69,17 @@ namespace SFT::Engine::Detail {
             u64 block_bytes = 0;
         };
 
+        /// Performs the bc content hash operation for `Detail` using the supplied arguments.
+        ///
+        /// @param rgba8 `rgba8` value used by the operation.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param srgb `srgb` value used by the operation.
+        /// @param channel0 `channel0` value used by the operation.
+        /// @param channel1 `channel1` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 bc_content_hash(std::span<const std::byte> rgba8, u32 width, u32 height, bool srgb,
                                           u8 channel0, u8 channel1) noexcept {
             u64 hash = kFnvOffsetBasis;
@@ -75,6 +92,13 @@ namespace SFT::Engine::Detail {
             return hash;
         }
 
+        /// Resolves the bc cache path associated with the supplied key, handle, or resource.
+        ///
+        /// @param extension `extension` value used by the operation.
+        /// @param hash `hash` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::filesystem::path bc_cache_path_for(std::string_view extension, u64 hash) {
             char hex[17];
             std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(hash));
@@ -82,6 +106,15 @@ namespace SFT::Engine::Detail {
                 (std::string{hex} + "." + std::string{extension});
         }
 
+        /// Returns the bc block data size for this `Detail`.
+        ///
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param bytes_per_block `bytes_per_block` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<usize> bc_block_data_size(u32 width, u32 height, u32 bytes_per_block) noexcept {
             const u64 blocks_wide = (static_cast<u64>(width) + 3) / 4;
             const u64 blocks_high = (static_cast<u64>(height) + 3) / 4;
@@ -99,6 +132,19 @@ namespace SFT::Engine::Detail {
             return static_cast<usize>(bytes);
         }
 
+        /// Reads bc cache from the associated source.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        /// @param magic `magic` value used by the operation.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param srgb `srgb` value used by the operation.
+        /// @param channel0 `channel0` value used by the operation.
+        /// @param channel1 `channel1` value used by the operation.
+        /// @param expected_bytes `expected_bytes` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] std::optional<std::vector<std::byte>> read_bc_cache(
             const std::filesystem::path &path, std::array<char, 4> magic, u32 width, u32 height, bool srgb,
             u8 channel0, u8 channel1, usize expected_bytes) {
@@ -122,7 +168,18 @@ namespace SFT::Engine::Detail {
         }
 
 
-
+        /// Writes bc cache to the associated destination.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        /// @param magic `magic` value used by the operation.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param srgb `srgb` value used by the operation.
+        /// @param channel0 `channel0` value used by the operation.
+        /// @param channel1 `channel1` value used by the operation.
+        /// @param blocks `blocks` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void write_bc_cache(const std::filesystem::path &path, std::array<char, 4> magic, u32 width, u32 height,
                             bool srgb, u8 channel0, u8 channel1, std::span<const std::byte> blocks) noexcept {
             std::error_code ec;
@@ -158,8 +215,16 @@ namespace SFT::Engine::Detail {
         }
 
 
-
-
+        /// Performs the extract rgba8 block operation for `Detail` using the supplied arguments.
+        ///
+        /// @param rgba8 `rgba8` value used by the operation.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param bx `bx` value used by the operation.
+        /// @param by `by` value used by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::array<std::byte, 16 * 4> extract_rgba8_block(
             std::span<const std::byte> rgba8, u32 width, u32 height, u32 bx, u32 by) noexcept {
             std::array<std::byte, 16 * 4> block_pixels{};
@@ -174,9 +239,6 @@ namespace SFT::Engine::Detail {
             }
             return block_pixels;
         }
-
-
-
 
 
         template <typename EncodeBlockFn>
@@ -217,7 +279,6 @@ namespace SFT::Engine::Detail {
             write_bc_cache(path, magic, width, height, srgb, channel0, channel1, blocks);
             return blocks;
         }
-
 
 
         template <typename CompressLevelFn>
@@ -265,23 +326,22 @@ namespace SFT::Engine::Detail {
             return blocks;
         }
 
+        /// Finds or creates the bc7enc initialized required by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void ensure_bc7enc_initialized() noexcept {
             static std::once_flag once;
             std::call_once(once, [] { bc7enc_compress_block_init(); });
         }
 
 
-
-
-
+        /// Finds or creates the rgbcx initialized required by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void ensure_rgbcx_initialized() noexcept {
             static std::once_flag once;
             std::call_once(once, [] { rgbcx::init(); });
         }
-
-
-
-
 
 
         struct GDeflateCacheHeader {
@@ -295,6 +355,15 @@ namespace SFT::Engine::Detail {
             u64 compressed_size = 0;
         };
 
+        /// Computes the content hash bytes required by the supplied values.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param srgb `srgb` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 content_hash_bytes(std::span<const std::byte> data, u32 width, u32 height,
                                              bool srgb) noexcept {
             u64 hash = kFnvOffsetBasis;
@@ -305,12 +374,28 @@ namespace SFT::Engine::Detail {
             return hash;
         }
 
+        /// Resolves the gdeflate cache path associated with the supplied key, handle, or resource.
+        ///
+        /// @param hash `hash` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::filesystem::path gdeflate_cache_path_for(u64 hash) {
             char hex[17];
             std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(hash));
             return std::filesystem::path{".cache"} / "compressed_textures" / (std::string{hex} + ".sgdf");
         }
 
+        /// Reads gdeflate cache from the associated source.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param srgb `srgb` value used by the operation.
+        /// @param expected_decompressed_size Requested or available size for the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] std::optional<std::vector<std::byte>> read_gdeflate_cache(
             const std::filesystem::path &path, u32 width, u32 height, bool srgb, u64 expected_decompressed_size) {
             std::ifstream file(path, std::ios::binary);
@@ -332,6 +417,16 @@ namespace SFT::Engine::Detail {
             return compressed;
         }
 
+        /// Writes gdeflate cache to the associated destination.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param srgb `srgb` value used by the operation.
+        /// @param decompressed_size Requested or available size for the operation.
+        /// @param compressed `compressed` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void write_gdeflate_cache(const std::filesystem::path &path, u32 width, u32 height, bool srgb,
                                   u64 decompressed_size, std::span<const std::byte> compressed) noexcept {
             std::error_code ec;
@@ -366,6 +461,14 @@ namespace SFT::Engine::Detail {
 
     } // namespace
 
+    /// Compresses bc7 into the requested representation.
+    ///
+    /// @param rgba8 `rgba8` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param srgb `srgb` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     std::optional<std::vector<std::byte>> compress_bc7(std::span<const std::byte> rgba8, u32 width, u32 height,
                                                         bool srgb) {
         ensure_bc7enc_initialized();
@@ -378,12 +481,29 @@ namespace SFT::Engine::Detail {
             [&params](void *dst, const std::byte *pixels) { bc7enc_compress_block(dst, pixels, &params); });
     }
 
+    /// Compresses bc7 mip chain into the requested representation.
+    ///
+    /// @param rgba8_mips `rgba8_mips` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param mip_levels `mip_levels` value used by the operation.
+    /// @param srgb `srgb` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     std::optional<std::vector<std::byte>> compress_bc7_mip_chain(
         std::span<const std::byte> rgba8_mips, u32 width, u32 height, u32 mip_levels, bool srgb) {
         return compress_mip_chain(rgba8_mips, width, height, mip_levels,
             [srgb](std::span<const std::byte> level, u32 w, u32 h) { return compress_bc7(level, w, h, srgb); });
     }
 
+    /// Compresses bc1 into the requested representation.
+    ///
+    /// @param rgba8 `rgba8` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param srgb `srgb` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     std::optional<std::vector<std::byte>> compress_bc1(std::span<const std::byte> rgba8, u32 width, u32 height,
                                                         bool srgb) {
         ensure_rgbcx_initialized();
@@ -394,12 +514,29 @@ namespace SFT::Engine::Detail {
             });
     }
 
+    /// Compresses bc1 mip chain into the requested representation.
+    ///
+    /// @param rgba8_mips `rgba8_mips` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param mip_levels `mip_levels` value used by the operation.
+    /// @param srgb `srgb` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     std::optional<std::vector<std::byte>> compress_bc1_mip_chain(
         std::span<const std::byte> rgba8_mips, u32 width, u32 height, u32 mip_levels, bool srgb) {
         return compress_mip_chain(rgba8_mips, width, height, mip_levels,
             [srgb](std::span<const std::byte> level, u32 w, u32 h) { return compress_bc1(level, w, h, srgb); });
     }
 
+    /// Compresses bc3 into the requested representation.
+    ///
+    /// @param rgba8 `rgba8` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param srgb `srgb` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     std::optional<std::vector<std::byte>> compress_bc3(std::span<const std::byte> rgba8, u32 width, u32 height,
                                                         bool srgb) {
         ensure_rgbcx_initialized();
@@ -409,12 +546,30 @@ namespace SFT::Engine::Detail {
             });
     }
 
+    /// Compresses bc3 mip chain into the requested representation.
+    ///
+    /// @param rgba8_mips `rgba8_mips` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param mip_levels `mip_levels` value used by the operation.
+    /// @param srgb `srgb` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     std::optional<std::vector<std::byte>> compress_bc3_mip_chain(
         std::span<const std::byte> rgba8_mips, u32 width, u32 height, u32 mip_levels, bool srgb) {
         return compress_mip_chain(rgba8_mips, width, height, mip_levels,
             [srgb](std::span<const std::byte> level, u32 w, u32 h) { return compress_bc3(level, w, h, srgb); });
     }
 
+    /// Compresses bc4 into the requested representation.
+    ///
+    /// @param rgba8 `rgba8` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param channel `channel` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     std::optional<std::vector<std::byte>> compress_bc4(std::span<const std::byte> rgba8, u32 width, u32 height,
                                                         u32 channel) {
         if (channel > 3) {
@@ -428,12 +583,31 @@ namespace SFT::Engine::Detail {
             });
     }
 
+    /// Compresses bc4 mip chain into the requested representation.
+    ///
+    /// @param rgba8_mips `rgba8_mips` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param mip_levels `mip_levels` value used by the operation.
+    /// @param channel `channel` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     std::optional<std::vector<std::byte>> compress_bc4_mip_chain(
         std::span<const std::byte> rgba8_mips, u32 width, u32 height, u32 mip_levels, u32 channel) {
         return compress_mip_chain(rgba8_mips, width, height, mip_levels,
             [channel](std::span<const std::byte> level, u32 w, u32 h) { return compress_bc4(level, w, h, channel); });
     }
 
+    /// Compresses bc5 into the requested representation.
+    ///
+    /// @param rgba8 `rgba8` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param channel0 `channel0` value used by the operation.
+    /// @param channel1 `channel1` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     std::optional<std::vector<std::byte>> compress_bc5(std::span<const std::byte> rgba8, u32 width, u32 height,
                                                         u32 channel0, u32 channel1) {
         if (channel0 > 3 || channel1 > 3) {
@@ -447,6 +621,16 @@ namespace SFT::Engine::Detail {
             });
     }
 
+    /// Compresses bc5 mip chain into the requested representation.
+    ///
+    /// @param rgba8_mips `rgba8_mips` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param mip_levels `mip_levels` value used by the operation.
+    /// @param channel0 `channel0` value used by the operation.
+    /// @param channel1 `channel1` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     std::optional<std::vector<std::byte>> compress_bc5_mip_chain(
         std::span<const std::byte> rgba8_mips, u32 width, u32 height, u32 mip_levels, u32 channel0, u32 channel1) {
         return compress_mip_chain(rgba8_mips, width, height, mip_levels,
@@ -455,6 +639,15 @@ namespace SFT::Engine::Detail {
             });
     }
 
+    /// Compresses gdeflate sibling into the requested representation.
+    ///
+    /// @param bc7_blocks `bc7_blocks` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param srgb `srgb` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     std::optional<std::vector<std::byte>> compress_gdeflate_sibling(std::span<const std::byte> bc7_blocks,
                                                                      u32 width, u32 height, bool srgb) {
         if (bc7_blocks.empty()) {
@@ -476,6 +669,13 @@ namespace SFT::Engine::Detail {
         return std::move(*compressed);
     }
 
+    /// Selects bc format that best satisfies the supplied requirements.
+    ///
+    /// @param kind `kind` value used by the operation.
+    /// @param srgb `srgb` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     RHI::Format choose_bc_format(TextureKind kind, bool srgb) noexcept {
         switch (kind) {
             case TextureKind::ColorOpaque: return srgb ? RHI::Format::BC1UnormSrgb : RHI::Format::BC1Unorm;
@@ -487,6 +687,14 @@ namespace SFT::Engine::Detail {
         }
     }
 
+    /// Packs metallic roughness rg using the supplied arguments and current state.
+    ///
+    /// @param metallic_roughness_rgba8 `metallic_roughness_rgba8` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     std::optional<std::vector<std::byte>> pack_metallic_roughness_rg(
         std::span<const std::byte> metallic_roughness_rgba8, u32 width, u32 height) {
         if (width == 0 || height == 0) {
@@ -516,6 +724,15 @@ namespace SFT::Engine::Detail {
         return repacked;
     }
 
+    /// Packs orm rgba8 using the supplied arguments and current state.
+    ///
+    /// @param occlusion_rgba8 `occlusion_rgba8` value used by the operation.
+    /// @param metallic_roughness_rgba8 `metallic_roughness_rgba8` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     std::optional<std::vector<std::byte>> pack_orm_rgba8(std::span<const std::byte> occlusion_rgba8,
                                                           std::span<const std::byte> metallic_roughness_rgba8,
                                                           u32 width, u32 height) {

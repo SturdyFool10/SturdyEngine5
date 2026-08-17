@@ -1,7 +1,5 @@
 
 
-
-
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -34,17 +32,16 @@ namespace SFT::Core::Vulkan {
     namespace {
 
 
-
-
-
-
         constexpr u32 kDescriptorPoolChunkMaxSets = 256;
         constexpr u32 kDescriptorPoolChunkTypeCapacity = 1024;
 
+        /// Creates a descriptor pool chunk from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] RendererExpected<VulkanDescriptorPool> create_descriptor_pool_chunk(VkDevice device) {
-
-
-
 
 
             Foundation::log_info("Vulkan: creating a new shared descriptor pool chunk ({} sets, {} descriptors/type capacity).",
@@ -64,6 +61,12 @@ namespace SFT::Core::Vulkan {
 
     } // namespace
 
+    /// Creates a bind group layout from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::BindGroupLayoutHandle> VulkanRhiDeviceBridge::create_bind_group_layout(
         const rhi::BindGroupLayoutDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_bind_group_layout");
@@ -93,8 +96,6 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
         const VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_info{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
             .pNext = nullptr,
@@ -121,11 +122,24 @@ namespace SFT::Core::Vulkan {
         });
     }
 
+    /// Destroys the bind group layout identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_bind_group_layout(rhi::BindGroupLayoutHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_bind_group_layout");
         bind_group_layouts_.erase(handle);
     }
 
+    /// Creates a bind group from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<rhi::BindGroupHandle> VulkanRhiDeviceBridge::create_bind_group(const rhi::BindGroupDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_bind_group");
         if (logical_device_ == nullptr) {
@@ -136,11 +150,6 @@ namespace SFT::Core::Vulkan {
         if (layout_record == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "create_bind_group: unknown bind group layout handle.");
         }
-
-
-
-
-
 
 
         bool needs_update_after_bind = false;
@@ -223,8 +232,6 @@ namespace SFT::Core::Vulkan {
         } else {
 
 
-
-
             auto chunks = descriptor_pool_chunks_.lock();
             if (chunks->empty()) {
                 auto pool = create_descriptor_pool_chunk(logical_device_->vk_handle());
@@ -249,10 +256,6 @@ namespace SFT::Core::Vulkan {
             ++(*chunks)[static_cast<usize>(shared_chunk_index)].live_sets;
             set = *allocated;
         }
-
-
-
-
 
 
         const rhi::RhiExpected<void> write_result = [&]() -> rhi::RhiExpected<void> {
@@ -356,6 +359,12 @@ namespace SFT::Core::Vulkan {
         return bind_groups_.insert(BindGroupRecord{std::move(dedicated_pool), set, shared_chunk_index});
     }
 
+    /// Destroys the bind group identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_bind_group(rhi::BindGroupHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_bind_group");
         BindGroupRecord *record = bind_groups_.find(handle);
@@ -371,6 +380,13 @@ namespace SFT::Core::Vulkan {
         bind_groups_.erase(handle);
     }
 
+    /// Creates a pipeline layout from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<rhi::PipelineLayoutHandle> VulkanRhiDeviceBridge::create_pipeline_layout(
         const rhi::PipelineLayoutDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_pipeline_layout");
@@ -406,6 +422,12 @@ namespace SFT::Core::Vulkan {
         return pipeline_layouts_.insert(std::move(*layout));
     }
 
+    /// Destroys the pipeline layout identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_pipeline_layout(rhi::PipelineLayoutHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_pipeline_layout");
         pipeline_layouts_.erase(handle);

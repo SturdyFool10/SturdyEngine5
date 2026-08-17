@@ -26,112 +26,178 @@ using std::vector;
 namespace SFT::Core::Slang {
 
 
-
-
-
-
-
-
-
-
-
-
-
-    /// A set of preprocessor defines that selects one compiled permutation of a shader. Defines are kept
-    /// sorted by name and deduplicated, so two keys with the same defines in any insertion order are
-    /// equal and hash the same — the whole point, since a variant must map to exactly one cache slot.
-    ///
-    /// ```cpp
-    /// ShaderVariantKey key;
-    /// key.set("SKINNED");            // value defaults to "1"
-    /// key.set("MAX_LIGHTS", "8");
-    /// auto shader = cache.get_or_compile(key);
-    /// ```
     class ShaderVariantKey {
       public:
+        /// Constructs a `ShaderVariantKey` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         ShaderVariantKey() = default;
 
-        /// Build a key from an explicit define list (order irrelevant — normalised on construction).
+
+        /// Constructs a `ShaderVariantKey` from the supplied initialization values.
+        ///
+        /// @param defines `defines` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         ShaderVariantKey(std::initializer_list<ShaderMacro> defines);
 
-        /// Define `name` to `value` (defaults to "1"). Re-defining an existing name overwrites its value.
-        /// Returns `*this` so calls chain.
+
+        /// Performs the set operation for `ShaderVariantKey` using the supplied arguments.
+        ///
+        /// @param name Name used to identify or label the target.
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         ShaderVariantKey &set(string name, string value = "1");
 
-        /// Removes `name` if defined. No-op if it isn't. Returns `*this`.
+
+        /// Performs the unset operation for `ShaderVariantKey` using the supplied arguments.
+        ///
+        /// @param name Name used to identify or label the target.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         ShaderVariantKey &unset(string_view name);
 
+        /// Performs the has operation for `ShaderVariantKey` using the supplied arguments.
+        ///
+        /// @param name Name used to identify or label the target.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool has(string_view name) const noexcept;
 
+        /// Reports whether this `ShaderVariantKey` contains no elements or payload.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool empty() const noexcept;
+        /// Returns the current or globally available defines value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const vector<ShaderMacro> &defines() const noexcept;
 
-        /// The defines as `ShaderMacro`s, ready to splice into `ShaderCompileOptions::macros`.
+
+        /// Converts the value to macros representation.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const vector<ShaderMacro> &to_macros() const noexcept;
 
-        /// A stable, human-readable identity: `"ALPHA_TEST=1;MAX_LIGHTS=8;SKINNED=1"` (sorted, so it is a
-        /// canonical fingerprint of the permutation). Used both as the cache key and for logs/debugging.
+
+        /// Returns the current or globally available canonical value.
+        ///
+        /// @return Returns the current canonical value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] string canonical() const;
 
-        /// 64-bit FNV-1a of `canonical()` — a cheap content hash for coarse keying/logging. The cache keys
-        /// on `canonical()` directly (collision-free), so this is a convenience, not the cache's identity.
+
+        /// Hashes the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @return Returns the current hash value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 hash() const noexcept;
 
+        /// Compares the operands for equality.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend bool operator==(const ShaderVariantKey &a, const ShaderVariantKey &b) noexcept;
 
       private:
-        /// Sorted by `name`, unique — invariant maintained by set()/unset().
+
         vector<ShaderMacro> defines_;
     };
 
-    /// A lazily-populated cache of compiled shader permutations for one source.
-    ///
-    /// Holds the `ShaderSource`, a base `ShaderCompileOptions` (targets/entry-points/optimization shared
-    /// by every variant), and a `ShaderCompiler`. `get_or_compile(key)` returns the cached `Shader` for a
-    /// permutation or compiles it (base macros + the key's defines) and caches it on first request.
-    ///
-    /// Not internally synchronised: drive it from one thread (the main/render thread). A hot-reload edit
-    /// that changes the source calls `set_source()` / `invalidate()` to drop stale permutations so the
-    /// next request recompiles — see plans/shader-variants-and-hot-reload.md. `Shader` is `shared_ptr`-
-    /// backed, so cached entries are cheap to hand out by copy.
+
     class ShaderVariantCache {
       public:
+        /// Constructs a `ShaderVariantCache` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         ShaderVariantCache() = default;
 
-        /// `enable_disk_cache` opts into ShaderCache.hpp's on-disk persistence: a get_or_compile() hit
-        /// reconstructs a baked Shader from `disk_cache_directory` without touching Slang; a miss
-        /// compiles normally and additionally writes the result there as a side effect. Defaults to
-        /// off here — EngineConfig::enable_shader_disk_cache (Engine/EngineModule.hpp) is where the
-        /// engine-wide default actually lives; this constructor parameter is just the plumbing.
+
+        /// Constructs a `ShaderVariantCache` from the supplied initialization values.
+        ///
+        /// @param source Source value or resource.
+        /// @param base_options Configuration values controlling the operation.
+        /// @param compiler `compiler` value used by the operation.
+        /// @param enable_disk_cache Whether the associated behavior is enabled.
+        /// @param disk_cache_directory `disk_cache_directory` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         ShaderVariantCache(ShaderSource source, ShaderCompileOptions base_options = {}, ShaderCompiler compiler = {},
                            bool enable_disk_cache = false,
                            std::filesystem::path disk_cache_directory = std::filesystem::path{string{default_shader_cache_directory}});
 
+        /// Returns the current or globally available source value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const ShaderSource &source() const noexcept;
+        /// Returns the current or globally available base options value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const ShaderCompileOptions &base_options() const noexcept;
 
-        /// Point the cache at fresh source (e.g. a hot-reloaded file) and drop every compiled permutation,
-        /// so the next `get_or_compile()` recompiles against the new code.
+
+        /// Sets the source for this `ShaderVariantCache`.
+        ///
+        /// @param source Source value or resource.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_source(ShaderSource source);
 
-        /// Drop every compiled permutation without changing the source — used to force a recompile after
-        /// an edit to the same file, or to reclaim memory.
+
+        /// Performs the invalidate operation for `ShaderVariantCache` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void invalidate() noexcept;
 
-        /// Drops compiled variants and the compiler's global Slang session while preserving source and
-        /// options. The next get_or_compile() lazily recreates both, so hot reload and future variants
-        /// keep working without retaining compiler arenas between edits.
+
+        /// Releases compiler memory using the supplied arguments and current state.
+        ///
+        /// @note This function does not throw exceptions.
         void release_compiler_memory() noexcept;
 
+        /// Returns the size for this `ShaderVariantCache`.
+        ///
+        /// @return Returns the current size value.
+        /// @note This function does not throw exceptions.
+        /// Returns the size for this `ShaderVariantCache`.
+        ///
+        /// @return Returns the current size value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize size() const noexcept;
+        /// Reports whether contains holds for this `ShaderVariantCache`.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool contains(const ShaderVariantKey &key) const;
 
-        /// The compiled `Shader` for `key`, compiling+caching it on the first request. Errors are not
-        /// cached — a fix-and-retry after a failed compile recompiles rather than returning the stale
-        /// failure. Compiling with an empty source returns `OperationFailed`.
+
+        /// Returns the or compile associated with this `ShaderVariantCache`.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] ShaderExpected<Shader> get_or_compile(const ShaderVariantKey &key);
 
-        /// Convenience for the common "no defines" base permutation.
+
+        /// Returns the or compile base associated with this `ShaderVariantCache`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] ShaderExpected<Shader> get_or_compile_base();
 
       private:
@@ -140,7 +206,7 @@ namespace SFT::Core::Slang {
         ShaderCompileOptions base_options_{};
         bool enable_disk_cache_ = false;
         std::filesystem::path disk_cache_directory_{string{default_shader_cache_directory}};
-        /// Keyed by ShaderVariantKey::canonical() — a collision-free, order-independent fingerprint.
+
         unordered_map<string, Shader> variants_;
     };
 

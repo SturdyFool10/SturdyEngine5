@@ -39,6 +39,12 @@ namespace RendererApi = SFT::Renderer;
 namespace SFT::Engine {
 
     namespace {
+        /// Performs the lower tone mapping operation for `Engine` using the supplied arguments.
+        ///
+        /// @param operation `operation` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererApi::ToneMappingOperator lower_tone_mapping(ToneMappingOperator operation) noexcept {
             switch (operation) {
                 case ToneMappingOperator::None:
@@ -57,6 +63,12 @@ namespace SFT::Engine {
             return RendererApi::ToneMappingOperator::Agx;
         }
 
+        /// Performs the lower scene integrator operation for `Engine` using the supplied arguments.
+        ///
+        /// @param integrator `integrator` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererApi::SpectralRenderMode lower_scene_integrator(SceneIntegrator integrator) noexcept {
             switch (integrator) {
                 case SceneIntegrator::RasterDeferred:
@@ -75,6 +87,12 @@ namespace SFT::Engine {
             return RendererApi::SpectralRenderMode::RasterDeferred;
         }
 
+        /// Performs the lower agx look operation for `Engine` using the supplied arguments.
+        ///
+        /// @param look `look` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererApi::AgxLook lower_agx_look(AgxLook look) noexcept {
             switch (look) {
                 case AgxLook::None:
@@ -90,7 +108,9 @@ namespace SFT::Engine {
     } // namespace
 
 
-
+    /// Constructs a `Engine` in its default state.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Engine::Engine() {
         ecs_world_.bind_resource(platform_event_inbox_);
         ecs_world_.bind_resource(window_events_);
@@ -111,11 +131,6 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(ui_context_);
         ecs_world_.bind_resource(ui_image_cache_);
         ecs_world_.bind_resource(ui_svg_cache_);
-
-
-
-
-
 
 
         window_events_.reserve(256);
@@ -188,8 +203,6 @@ namespace SFT::Engine {
             });
 
 
-
-
         update_schedule_.add_system(
             [](Ecs::WriteResource<UiPointerState> pointer,
                Ecs::EventReader<MouseMoveEvent> mouse_move,
@@ -207,13 +220,9 @@ namespace SFT::Engine {
                 for (const MouseWheelEvent &event : mouse_wheel.read()) {
 
 
-
                     pointer->add_scroll_delta({-event.wheel.x, event.wheel.y});
                 }
             });
-
-
-
 
 
         update_schedule_.add_system(
@@ -231,9 +240,6 @@ namespace SFT::Engine {
                     text_input->apply(event);
                 }
             });
-
-
-
 
 
         update_schedule_.add_system(
@@ -266,9 +272,10 @@ namespace SFT::Engine {
             });
     }
 
+    /// Destroys the `Engine` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     Engine::~Engine() {
-
-
 
 
         if (initialized_) {
@@ -279,6 +286,14 @@ namespace SFT::Engine {
         }
     }
 
+    /// Initializes the `Engine` for use.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param config Configuration values controlling the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::InitializationFailed`.
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::initialize(Platform::Windowing::Window &window,
                                                                          const EngineConfig &config) {
         if (initialized_) {
@@ -311,8 +326,6 @@ namespace SFT::Engine {
             Foundation::log_info("Found GPU: {} (available APIs: {})", gpu.name, api_names);
         }
 #endif
-
-
 
 
         shaders_ = Core::Slang::discover_shaders(
@@ -358,6 +371,14 @@ namespace SFT::Engine {
         return *surface;
     }
 
+    /// Adds window using the supplied arguments and current state.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param desired_frames_in_flight `desired_frames_in_flight` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::add_window(Platform::Windowing::Window &window,
                                                                          u32 desired_frames_in_flight) {
         if (!initialized_) {
@@ -367,10 +388,22 @@ namespace SFT::Engine {
         return renderer_.create_window_surface(window, desired_frames_in_flight);
     }
 
+    /// Removes the window from its owning collection or system.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Engine::remove_window(Core::RenderSurfaceHandle surface) noexcept {
         renderer_.destroy_window_surface(surface);
     }
 
+    /// Creates a offscreen render target from the supplied parameters.
+    ///
+    /// @param description Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RenderTargetHandle> Engine::create_offscreen_render_target(
         const OffscreenRenderTargetDescription &description) {
         auto target = renderer_.create_offscreen_render_target(RendererApi::OffscreenRenderTargetDescription{
@@ -383,10 +416,22 @@ namespace SFT::Engine {
         return RenderTargetHandle{.value = target->value};
     }
 
+    /// Destroys the offscreen render target identified by the supplied parameters.
+    ///
+    /// @param target `target` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Engine::destroy_offscreen_render_target(RenderTargetHandle target) noexcept {
         renderer_.destroy_offscreen_render_target(RendererApi::OffscreenRenderTargetHandle{.value = target.value});
     }
 
+    /// Performs the offscreen render target description operation for `Engine` using the supplied arguments.
+    ///
+    /// @param target `target` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<OffscreenRenderTargetDescription> Engine::offscreen_render_target_description(
         RenderTargetHandle target) const {
         const optional<RendererApi::OffscreenRenderTargetDescription> description =
@@ -402,11 +447,25 @@ namespace SFT::Engine {
         };
     }
 
+    /// Performs the offscreen render target texture operation for `Engine` using the supplied arguments.
+    ///
+    /// @param target `target` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     RendererApi::TextureHandle Engine::offscreen_render_target_texture(RenderTargetHandle target) const noexcept {
         return renderer_.offscreen_render_target_texture(
             RendererApi::OffscreenRenderTargetHandle{.value = target.value});
     }
 
+    /// Recreates window using the supplied arguments and current state.
+    ///
+    /// @param old_surface Surface used or affected by the operation.
+    /// @param new_window Window used or affected by the operation.
+    /// @param desired_frames_in_flight `desired_frames_in_flight` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::recreate_window(Core::RenderSurfaceHandle old_surface,
                                                                               Platform::Windowing::Window &new_window,
                                                                               u32 desired_frames_in_flight) {
@@ -414,33 +473,80 @@ namespace SFT::Engine {
         return add_window(new_window, desired_frames_in_flight);
     }
 
+    /// Handles the on surface resize needed callback and updates the associated platform state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Engine::on_surface_resize_needed(Core::RenderSurfaceHandle surface, Core::Extent2D extent) noexcept {
         renderer_.on_surface_resize_needed(surface, extent);
     }
 
+    /// Sets the presentation settings for this `Engine`.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param settings Configuration values controlling the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Engine::set_presentation_settings(Core::RenderSurfaceHandle surface,
                                                            const Core::PresentationSettings &settings) {
         return renderer_.set_presentation_settings(surface, settings);
     }
 
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     Core::PresentationSettings Engine::presentation_settings(Core::RenderSurfaceHandle surface) const noexcept {
         return renderer_.presentation_settings(surface);
     }
 
+    /// Queries HDR capabilities from the active backend or runtime state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     RHI::RhiExpected<RHI::SurfaceHdrCapabilityQuery> Engine::query_hdr_capabilities(
         Core::RenderSurfaceHandle surface) const {
         return renderer_.query_hdr_capabilities(surface);
     }
 
+    /// Updates HDR content light level from the supplied values.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param update `update` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     RHI::RhiResult Engine::update_hdr_content_light_level(Core::RenderSurfaceHandle surface,
                                                           const RHI::HdrContentLightLevelUpdate &update) {
         return renderer_.update_hdr_content_light_level(surface, update);
     }
 
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     RHI::PresentationResolution Engine::presentation_resolution(Core::RenderSurfaceHandle surface) const noexcept {
         return renderer_.presentation_resolution(surface);
     }
 
+    /// Applies runtime settings using the supplied arguments and current state.
+    ///
+    /// @param primary_surface Surface used or affected by the operation.
+    /// @param settings Configuration values controlling the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::Unsupported`, `GraphicsBackendErrorCode::InitializationFailed`.
     Core::RendererExpected<Core::RuntimeSettingsChangeResult>
     Engine::apply_runtime_settings(Core::RenderSurfaceHandle primary_surface,
                                    const EngineConfig &settings) {
@@ -457,17 +563,10 @@ namespace SFT::Engine {
             static_cast<bool>(old_presentation.hdr_enabled) != static_cast<bool>(new_presentation.hdr_enabled);
 
 
-
         const bool hdr_color_space_changed = static_cast<bool>(new_presentation.hdr_enabled) &&
                                              old_presentation.hdr_color_space != new_presentation.hdr_color_space;
         const bool hdr_changed = hdr_enabled_changed || hdr_color_space_changed;
         const RHI::RhiDevice *active_rhi = renderer_.rhi_device();
-
-
-
-
-
-
 
 
         const bool hdr_colorspace_enabled = active_rhi != nullptr &&
@@ -568,11 +667,26 @@ namespace SFT::Engine {
         return result;
     }
 
+    /// Renders the requested content using the current rendering state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param frame `frame` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Engine::render(Core::RenderSurfaceHandle surface, const Core::FrameInput &frame) {
         const PreparedRenderFrame prepared = prepare_render_frame(surface, frame);
         return render(prepared);
     }
 
+    /// Prepares render frame for a later operation.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param frame `frame` value used by the operation.
+    /// @param parameters `parameters` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     PreparedRenderFrame Engine::prepare_render_frame(Core::RenderSurfaceHandle surface,
                                                      const Core::FrameInput &frame,
                                                      const RenderFrameParameters &parameters) {
@@ -617,6 +731,12 @@ namespace SFT::Engine {
         };
     }
 
+    /// Renders the requested content using the current rendering state.
+    ///
+    /// @param frame `frame` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Engine::render(const PreparedRenderFrame &frame) {
         optional<RenderGraph> normalized_graph;
         if (RenderGraphResult validation = frame.render_graph.validate(); !validation) {
@@ -866,22 +986,41 @@ namespace SFT::Engine {
         return renderer_.render_frame(desc);
     }
 
+    /// Waits for idle to complete.
+    ///
+    /// @return Returns the current wait idle value.
+    /// @note This function does not throw exceptions.
     void Engine::wait_idle() noexcept {
         renderer_.wait_idle();
     }
 
+    /// Returns the current GPU info.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     optional<Core::GpuInfo> Engine::gpu_info() const {
         return renderer_.gpu_info();
     }
 
+    /// Returns the current or globally available GPU inventory value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const RHI::GpuInventory &Engine::gpu_inventory() const noexcept {
         return gpu_inventory_;
     }
 
+    /// Returns the current or globally available graphics backend value.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     Core::EngineBackend *Engine::graphics_backend() noexcept {
         return renderer_.graphics_backend();
     }
 
+    /// Returns the current or globally available RHI device value.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     RHI::RhiDevice *Engine::rhi_device() noexcept {
         return renderer_.rhi_device();
     }

@@ -8,18 +8,23 @@
 
 namespace SFT::ApplicationHost {
 
-    /// Drive an already-constructed product client. This overload lets Runtime inject a GameLogic
-    /// factory/configuration while a future Editor can construct its own richer client policy.
+
+    /// Runs the requested work.
+    ///
+    /// @param client `client` value used by the operation.
+    /// @param args `args` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] i32 run(
         Engine::ApplicationClient &client,
         const Foundation::CliArgs &args);
 
-    /// Convenience overload for default-constructible product clients. Platform entrypoints remain
-    /// product-owned; this helper only centralizes the Engine::Application driving loop.
+
+    /// Runs the requested work.
     ///
-    /// CLI argument parsing itself (Foundation::CliArgs/args_from_argv/args_from_windows_command_line)
-    /// lives in Foundation, not here — it has no dependency on Engine or the client-hosting loop, so
-    /// any consumer (including one that never wants Engine at all) can reuse it directly.
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class Client>
     [[nodiscard]] i32 run(const Foundation::CliArgs &args) {
         static_assert(std::is_base_of_v<Engine::ApplicationClient, Client>,

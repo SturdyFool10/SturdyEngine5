@@ -10,11 +10,25 @@ namespace SFT::Ecs {
 
     namespace {
 
+        /// Creates an error result describing the supplied registry failure.
+        ///
+        /// @param code `code` value used by the operation.
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ComponentRegistryError registry_error(ComponentRegistryErrorCode code,
                                                             std::string message) {
             return ComponentRegistryError{.code = code, .message = UString{message}};
         }
 
+        /// Performs the compatible descriptor operation for `Ecs` using the supplied arguments.
+        ///
+        /// @param existing `existing` value used by the operation.
+        /// @param incoming `incoming` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool compatible_descriptor(const ComponentInfo &existing,
                                                  const ComponentInfo &incoming) noexcept {
             return existing.key == incoming.key &&
@@ -27,6 +41,13 @@ namespace SFT::Ecs {
 
     } // namespace
 
+    /// Registers component using the supplied arguments and current state.
+    ///
+    /// @param info Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `ComponentRegistryErrorCode::InvalidDescriptor`, `ComponentRegistryErrorCode::UnsupportedStoragePolicy`, `ComponentRegistryErrorCode::StableKeyCollision`, `ComponentRegistryErrorCode::CanonicalNameCollision`, `ComponentRegistryErrorCode::ComponentLimitReached`.
     ComponentRegistryExpected<ComponentId> ComponentRegistry::register_component(ComponentInfo info) {
         ZoneScopedN("ComponentRegistry::register_component");
         if (!info.key || info.canonical_name.empty() || info.schema_version == 0 || info.size == 0 ||
@@ -74,6 +95,13 @@ namespace SFT::Ecs {
         return id;
     }
 
+    /// Finds the requested entry in the available state.
+    ///
+    /// @param key Key used to identify the requested entry.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note This function does not throw exceptions.
     std::optional<ComponentId> ComponentRegistry::find(ComponentKey key) const noexcept {
         ZoneScopedN("ComponentRegistry::find");
         std::shared_lock lock{mutex_};
@@ -81,6 +109,13 @@ namespace SFT::Ecs {
         return found == ids_by_key_.end() ? std::nullopt : std::optional<ComponentId>{found->second};
     }
 
+    /// Finds the requested entry in the available state.
+    ///
+    /// @param canonical_name Name used to identify or label the target.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note This function does not throw exceptions.
     std::optional<ComponentId> ComponentRegistry::find(const ustr &canonical_name) const noexcept {
         ZoneScopedN("ComponentRegistry::find");
         std::shared_lock lock{mutex_};
@@ -92,12 +127,22 @@ namespace SFT::Ecs {
         return std::nullopt;
     }
 
+    /// Performs the info operation for `Ecs` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note This function does not throw exceptions.
     const ComponentInfo *ComponentRegistry::info(ComponentId id) const noexcept {
         ZoneScopedN("ComponentRegistry::info");
         std::shared_lock lock{mutex_};
         return id < infos_.size() ? &infos_[id] : nullptr;
     }
 
+    /// Returns the size for this `Ecs`.
+    ///
+    /// @return Returns the current size value.
+    /// @note This function does not throw exceptions.
     usize ComponentRegistry::size() const noexcept {
         ZoneScopedN("ComponentRegistry::size");
         std::shared_lock lock{mutex_};

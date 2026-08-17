@@ -1,7 +1,6 @@
 #include "DirectStorageBackend.hpp"
 
 
-
 #if !defined(NOMINMAX)
     #define NOMINMAX
 #endif
@@ -24,11 +23,6 @@ namespace SFT::Core {
     namespace {
 
 
-
-
-
-
-
         struct DirectStorageState {
             ComPtr<IDStorageFactory> factory;
             ComPtr<IDStorageQueue> queue;
@@ -37,17 +31,29 @@ namespace SFT::Core {
             bool available = false;
         };
 
+        /// Returns the current or globally available state value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         DirectStorageState &state() {
             static DirectStorageState instance;
             return instance;
         }
 
+        /// Returns the current or globally available state mutex value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         std::mutex &state_mutex() {
             static std::mutex instance;
             return instance;
         }
 
 
+        /// Finds or creates the initialized locked required by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool ensure_initialized_locked() {
             DirectStorageState &s = state();
             if (s.init_attempted) {
@@ -76,9 +82,6 @@ namespace SFT::Core {
             }
 
 
-
-
-
             if (FAILED(s.queue.As(&s.queue1))) {
                 Foundation::log_warn("DirectStorage: IDStorageQueue1 unavailable; falling back to standard file I/O.");
                 s.queue.Reset();
@@ -92,11 +95,22 @@ namespace SFT::Core {
 
     } // namespace
 
+    /// Returns the current or globally available direct storage available value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool direct_storage_available() noexcept {
         std::lock_guard<std::mutex> lock(state_mutex());
         return ensure_initialized_locked();
     }
 
+    /// Reads file direct storage from the associated source.
+    ///
+    /// @param path Filesystem path identifying the target resource.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`, `RhiErrorCode::OperationFailed`.
     RHI::RhiExpected<std::vector<std::byte>> read_file_direct_storage(const std::filesystem::path &path) {
         ZoneScopedN("Core::read_file_direct_storage");
 
@@ -119,7 +133,6 @@ namespace SFT::Core {
                                               "read_file_direct_storage: could not stat '" + path.string() + "'."));
         }
         const u64 file_size = (static_cast<u64>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-
 
 
         if (file_size == 0 || file_size > std::numeric_limits<UINT32>::max()) {
@@ -147,8 +160,6 @@ namespace SFT::Core {
             return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
                                               "read_file_direct_storage: CreateStatusArray failed."));
         }
-
-
 
 
         HANDLE completion_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);

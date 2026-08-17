@@ -8,22 +8,24 @@
 
 namespace SFT::Foundation {
 
-    /// A tiny wall-clock stopwatch for startup/loading diagnostics — `high_resolution_clock` to match
-    /// the one hand-rolled duration measurement that already existed before this ("Long frame detected",
-    /// Engine/src/Engine/ApplicationImpl.cpp), not `steady_clock`. Not for hot per-frame paths; this is
-    /// for the "how long did this one-shot startup step take" case.
-    ///
-    /// ```cpp
-    /// Stopwatch sw;
-    /// compile_shader(...);
-    /// log_info("compiled '{}' in {}", name, sw.elapsed_human());
-    /// ```
+
     class Stopwatch {
       public:
+        /// Constructs a `Stopwatch` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         Stopwatch() noexcept;
 
+        /// Returns the current or globally available elapsed seconds value.
+        ///
+        /// @return Returns the current elapsed seconds value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f64 elapsed_seconds() const noexcept;
 
+        /// Returns the current or globally available elapsed human value.
+        ///
+        /// @return Returns the current elapsed human value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::string elapsed_human() const noexcept;
 
       private:

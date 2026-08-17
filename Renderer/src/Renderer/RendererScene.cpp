@@ -23,11 +23,25 @@ using std::unexpected;
 namespace SFT::Renderer {
 
     namespace {
+        /// Creates an error result describing the supplied scene failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError scene_error(const char *message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, message};
         }
     } // namespace
 
+    /// Prepares scene GPU data for a later operation.
+    ///
+    /// @param record `record` value used by the operation.
+    /// @param frame_index Zero-based index of the target element or entry.
+    /// @param submission `submission` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::prepare_scene_gpu_data(
         WindowSurfaceRecord &record, u64 frame_index, const FrameSubmission &submission) {
         ZoneScopedN("Renderer::prepare_scene_gpu_data");
@@ -35,7 +49,6 @@ namespace SFT::Renderer {
         if (device == nullptr) {
             return unexpected(scene_error("Cannot prepare scene GPU data without an RHI device."));
         }
-
 
 
         const u32 frame_count = capabilities_.max_frames_in_flight;
@@ -48,11 +61,6 @@ namespace SFT::Renderer {
         if (!resources.view_buffer) {
             auto buffer = device->create_buffer(RHI::BufferDesc{
                 .size = sizeof(SceneViewGpuData),
-
-
-
-
-
 
 
                 .usage = RHI::BufferUsage::Uniform | RHI::BufferUsage::Storage,
@@ -151,7 +159,6 @@ namespace SFT::Renderer {
         }
 
 
-
         {
             auto transform_history = previous_world_transforms_.lock();
             for (const RenderItem &item : submission.draws) {
@@ -165,6 +172,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the scene GPU resources identified by the supplied parameters.
+    ///
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_scene_gpu_resources(vector<SceneFrameGpuResources> &resources) noexcept {
         ZoneScopedN("Renderer::destroy_scene_gpu_resources");
         RHI::RhiDevice *device = rhi_device();

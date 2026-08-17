@@ -28,6 +28,13 @@ namespace SFT::Engine {
 
         std::atomic<u64> next_asset_manager_id{1};
 
+        /// Performs the path label operation for `Engine` using the supplied arguments.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        /// @param fallback Fallback value used when the primary value is unavailable.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UString path_label(const std::filesystem::path &path, std::string_view fallback) {
             const std::string name = path.filename().string();
             if (auto utf8 = UString::try_from_utf8(name)) {
@@ -51,6 +58,13 @@ namespace SFT::Engine {
             return error(AssetErrorCode::BackendFailure, failure.message, source);
         }
 
+        /// Reads binary file from the associated source.
+        ///
+        /// @param source Source value or resource.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::IoFailure`, `AssetErrorCode::NotFound`.
         [[nodiscard]] AssetExpected<std::vector<std::byte>> read_binary_file(
             const std::filesystem::path &source) {
             std::ifstream file(source, std::ios::binary | std::ios::ate);
@@ -87,6 +101,13 @@ namespace SFT::Engine {
             return bytes;
         }
 
+        /// Performs the combine stable ID operation for `Engine` using the supplied arguments.
+        ///
+        /// @param object `object` value used by the operation.
+        /// @param primitive `primitive` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 combine_stable_id(u64 object, usize primitive) noexcept {
 
 
@@ -139,6 +160,11 @@ namespace SFT::Engine {
             Data data;
         };
 
+        /// Performs the impl operation for `AssetManager` using the supplied arguments.
+        ///
+        /// @param renderer_ref Renderer used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         explicit Impl(SFT::Renderer::Renderer &renderer_ref)
             : renderer(renderer_ref), owner(next_asset_manager_id.fetch_add(1, std::memory_order_relaxed)),
               texture_streamer(renderer_ref) {
@@ -147,10 +173,24 @@ namespace SFT::Engine {
             }
         }
 
+        /// Resolves the asset associated with the supplied key, handle, or resource.
+        ///
+        /// @param index Zero-based index of the target element or entry.
+        /// @param record `record` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Asset asset_for(usize index, const Record &record) const noexcept {
             return Asset{owner, static_cast<u64>(index + 1), record.generation, record.type};
         }
 
+        /// Finds the requested entry in the available state.
+        ///
+        /// @param asset `asset` value used by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Record *find(Asset asset) noexcept {
             if (!asset || asset.owner_ != owner || asset.id_ > records.size()) {
                 return nullptr;
@@ -162,6 +202,13 @@ namespace SFT::Engine {
             return &record;
         }
 
+        /// Finds the requested entry in the available state.
+        ///
+        /// @param asset `asset` value used by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const Record *find(Asset asset) const noexcept {
             if (!asset || asset.owner_ != owner || asset.id_ > records.size()) {
                 return nullptr;
@@ -173,12 +220,23 @@ namespace SFT::Engine {
             return &record;
         }
 
+        /// Inserts the supplied value or range at the requested position.
+        ///
+        /// @param record `record` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Asset insert(Record record) {
             record.loaded = true;
             records.push_back(std::move(record));
             return asset_for(records.size() - 1, records.back());
         }
 
+        /// Destroys or releases the `AssetManager` resource represented by the supplied parameters.
+        ///
+        /// @param record `record` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy(Record &record) noexcept {
             if (!record.loaded) {
                 return;
@@ -201,9 +259,6 @@ namespace SFT::Engine {
                     renderer.destroy_material_template(shader->material_template);
                 }
             }
-
-
-
 
 
             if (!record.source.empty()) {
@@ -231,25 +286,31 @@ namespace SFT::Engine {
         TextureStreamer texture_streamer;
 
 
-
-
-
-
-
-
-
-
-
         std::unordered_map<std::string, Asset> path_cache;
     };
 
+    /// Performs the asset manager operation for `Engine` using the supplied arguments.
+    ///
+    /// @param renderer Renderer used or affected by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     AssetManager::AssetManager(SFT::Renderer::Renderer &renderer)
         : impl_(std::make_unique<Impl>(renderer)) {}
 
+    /// Destroys the `Engine` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     AssetManager::~AssetManager() {
         clear();
     }
 
+    /// Loads shader.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::InvalidDescription`, `AssetErrorCode::NotFound`.
     AssetExpected<Asset> AssetManager::load_shader(ShaderAssetDesc desc) {
         const Foundation::Stopwatch stopwatch;
         const std::string source_for_log = desc.source.string();
@@ -257,10 +318,6 @@ namespace SFT::Engine {
             return std::unexpected(error(AssetErrorCode::InvalidDescription,
                                          "A shader asset requires a source path."));
         }
-
-
-
-
 
 
         if (!std::filesystem::exists(desc.source) && Core::Slang::find_embedded_shader(desc.source.string()) == nullptr) {
@@ -293,7 +350,6 @@ namespace SFT::Engine {
             },
         };
         if (!desc.depth_only_fragment_entry_point.empty()) {
-
 
 
             options.entry_points.push_back(Core::Slang::ShaderEntryPointRequest{
@@ -336,10 +392,24 @@ namespace SFT::Engine {
         });
     }
 
+    /// Loads shader.
+    ///
+    /// @param source Source value or resource.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     AssetExpected<Asset> AssetManager::load_shader(const std::filesystem::path &source, UString label) {
         return load_shader(ShaderAssetDesc{.source = source, .label = std::move(label)});
     }
 
+    /// Creates a texture from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::InvalidDescription`.
     AssetExpected<Asset> AssetManager::create_texture(TextureAssetDesc desc) {
         if (desc.width == 0 || desc.height == 0) {
             return std::unexpected(error(AssetErrorCode::InvalidDescription,
@@ -374,8 +444,6 @@ namespace SFT::Engine {
         std::span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
 
 
-
-
         std::optional<std::vector<std::byte>> compressed;
         RHI::RhiDevice *device = impl_->renderer.rhi_device();
         if (desc.allow_compression && desc.width >= 4 && desc.height >= 4 && device != nullptr &&
@@ -391,9 +459,6 @@ namespace SFT::Engine {
                     break;
                 case TextureKind::NormalMap:
                 case TextureKind::MetallicRoughness:
-
-
-
 
 
                     compressed = Detail::compress_bc5_mip_chain(
@@ -440,6 +505,17 @@ namespace SFT::Engine {
         });
     }
 
+    /// Creates a orm texture from the supplied parameters.
+    ///
+    /// @param occlusion_rgba8 `occlusion_rgba8` value used by the operation.
+    /// @param metallic_roughness_rgba8 `metallic_roughness_rgba8` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::InvalidDescription`.
     AssetExpected<Asset> AssetManager::create_orm_texture(
         std::span<const std::byte> occlusion_rgba8, std::span<const std::byte> metallic_roughness_rgba8,
         u32 width, u32 height, UString label) {
@@ -454,8 +530,6 @@ namespace SFT::Engine {
         }
 
 
-
-
         return create_texture(TextureAssetDesc{
             .width = width,
             .height = height,
@@ -466,6 +540,15 @@ namespace SFT::Engine {
         });
     }
 
+    /// Loads texture.
+    ///
+    /// @param source Source value or resource.
+    /// @param color_space `color_space` value used by the operation.
+    /// @param kind `kind` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     AssetExpected<Asset> AssetManager::load_texture(const std::filesystem::path &source,
                                                     TextureColorSpace color_space,
                                                     TextureKind kind,
@@ -520,6 +603,16 @@ namespace SFT::Engine {
         return texture;
     }
 
+    /// Loads texture streamed.
+    ///
+    /// @param source Source value or resource.
+    /// @param color_space `color_space` value used by the operation.
+    /// @param kind `kind` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::IoFailure`.
     AssetExpected<Asset> AssetManager::load_texture_streamed(const std::filesystem::path &source,
                                                               TextureColorSpace color_space, TextureKind kind,
                                                               UString label) {
@@ -546,10 +639,23 @@ namespace SFT::Engine {
         });
     }
 
+    /// Pumps texture streaming using the supplied arguments and current state.
+    ///
+    /// @return Returns the current pump texture streaming value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void AssetManager::pump_texture_streaming() {
         impl_->texture_streamer.pump();
     }
 
+    /// Computes the create texture from encoded bytes required by the supplied values.
+    ///
+    /// @param encoded `encoded` value used by the operation.
+    /// @param color_space `color_space` value used by the operation.
+    /// @param kind `kind` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     AssetExpected<Asset> AssetManager::create_texture_from_encoded_bytes(
         std::span<const std::byte> encoded,
         TextureColorSpace color_space,
@@ -572,6 +678,14 @@ namespace SFT::Engine {
         });
     }
 
+    /// Loads sound.
+    ///
+    /// @param source Source value or resource.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::DecodeFailure`.
     AssetExpected<Asset> AssetManager::load_sound(const std::filesystem::path &source, UString label) {
         const std::string dedup_key = source.string();
         {
@@ -656,6 +770,13 @@ namespace SFT::Engine {
         return asset;
     }
 
+    /// Loads file.
+    ///
+    /// @param source Source value or resource.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     AssetExpected<Asset> AssetManager::load_file(const std::filesystem::path &source, UString label) {
         const std::string dedup_key = source.string();
         {
@@ -687,6 +808,15 @@ namespace SFT::Engine {
         return asset;
     }
 
+    /// Creates a model from the supplied parameters.
+    ///
+    /// @param mesh `mesh` value used by the operation.
+    /// @param shader Shader used or affected by the operation.
+    /// @param vertex_color `vertex_color` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     AssetExpected<Asset> AssetManager::create_model(SFT::Renderer::Mesh mesh,
                                                     Asset shader,
                                                     std::optional<glm::vec4> vertex_color,
@@ -708,6 +838,13 @@ namespace SFT::Engine {
         });
     }
 
+    /// Creates a model from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::InvalidDescription`, `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`.
     AssetExpected<Asset> AssetManager::create_model(ModelAssetDesc desc) {
         const Foundation::Stopwatch stopwatch;
         if (desc.primitives.empty()) {
@@ -816,6 +953,16 @@ namespace SFT::Engine {
         });
     }
 
+    /// Sets the model float for this `Engine`.
+    ///
+    /// @param model `model` value used by the operation.
+    /// @param primitive `primitive` value used by the operation.
+    /// @param name Name used to identify or label the target.
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`, `AssetErrorCode::InvalidDescription`.
     AssetResult AssetManager::set_model_float(Asset model, usize primitive, std::string_view name, f32 value) {
         std::unique_lock lock{impl_->mutex};
         Impl::Record *record = impl_->find(model);
@@ -838,6 +985,16 @@ namespace SFT::Engine {
         return {};
     }
 
+    /// Sets the model vec4 for this `Engine`.
+    ///
+    /// @param model `model` value used by the operation.
+    /// @param primitive `primitive` value used by the operation.
+    /// @param name Name used to identify or label the target.
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`, `AssetErrorCode::InvalidDescription`.
     AssetResult AssetManager::set_model_vec4(Asset model, usize primitive, std::string_view name,
                                              const glm::vec4 &value) {
         std::unique_lock lock{impl_->mutex};
@@ -861,6 +1018,16 @@ namespace SFT::Engine {
         return {};
     }
 
+    /// Sets the model texture for this `Engine`.
+    ///
+    /// @param model `model` value used by the operation.
+    /// @param primitive `primitive` value used by the operation.
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param texture_asset Texture used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::InvalidAsset`, `AssetErrorCode::InvalidDescription`.
     AssetResult AssetManager::set_model_texture(Asset model, usize primitive, std::string_view slot,
                                                 Asset texture_asset) {
         std::unique_lock lock{impl_->mutex};
@@ -887,11 +1054,21 @@ namespace SFT::Engine {
         return {};
     }
 
+    /// Reports whether contains holds for this `Engine`.
+    ///
+    /// @param asset `asset` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool AssetManager::contains(Asset asset) const noexcept {
         std::shared_lock lock{impl_->mutex};
         return impl_->find(asset) != nullptr;
     }
 
+    /// Returns the size for this `Engine`.
+    ///
+    /// @return Returns the current size value.
+    /// @note This function does not throw exceptions.
     usize AssetManager::size() const noexcept {
         std::shared_lock lock{impl_->mutex};
         return static_cast<usize>(std::ranges::count_if(impl_->records, [](const Impl::Record &record) {
@@ -899,6 +1076,13 @@ namespace SFT::Engine {
         }));
     }
 
+    /// Performs the info operation for `Engine` using the supplied arguments.
+    ///
+    /// @param asset `asset` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::InvalidAsset`.
     AssetExpected<AssetInfo> AssetManager::info(Asset asset) const {
         std::shared_lock lock{impl_->mutex};
         const Impl::Record *record = impl_->find(asset);
@@ -915,6 +1099,13 @@ namespace SFT::Engine {
         };
     }
 
+    /// Performs the model info operation for `Engine` using the supplied arguments.
+    ///
+    /// @param asset `asset` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`.
     AssetExpected<ModelAssetInfo> AssetManager::model_info(Asset asset) const {
         std::shared_lock lock{impl_->mutex};
         const Impl::Record *record = impl_->find(asset);
@@ -926,6 +1117,13 @@ namespace SFT::Engine {
         return data->info;
     }
 
+    /// Performs the texture info operation for `Engine` using the supplied arguments.
+    ///
+    /// @param asset `asset` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`.
     AssetExpected<TextureAssetInfo> AssetManager::texture_info(Asset asset) const {
         std::shared_lock lock{impl_->mutex};
         const Impl::Record *record = impl_->find(asset);
@@ -937,6 +1135,13 @@ namespace SFT::Engine {
         return data->info;
     }
 
+    /// Returns the texture handle associated with this `Engine`.
+    ///
+    /// @param asset `asset` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`.
     AssetExpected<SFT::Renderer::TextureHandle> AssetManager::texture_handle(Asset asset) const {
         std::shared_lock lock{impl_->mutex};
         const Impl::Record *record = impl_->find(asset);
@@ -948,6 +1153,13 @@ namespace SFT::Engine {
         return data->texture;
     }
 
+    /// Performs the sound info operation for `Engine` using the supplied arguments.
+    ///
+    /// @param asset `asset` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`.
     AssetExpected<SoundAssetInfo> AssetManager::sound_info(Asset asset) const {
         std::shared_lock lock{impl_->mutex};
         const Impl::Record *record = impl_->find(asset);
@@ -959,6 +1171,13 @@ namespace SFT::Engine {
         return data->info;
     }
 
+    /// Computes the file bytes required by the supplied values.
+    ///
+    /// @param asset `asset` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`.
     AssetExpected<std::shared_ptr<const std::vector<std::byte>>> AssetManager::file_bytes(Asset asset) const {
         std::shared_lock lock{impl_->mutex};
         const Impl::Record *record = impl_->find(asset);
@@ -970,6 +1189,13 @@ namespace SFT::Engine {
         return std::shared_ptr<const std::vector<std::byte>>{data->bytes};
     }
 
+    /// Performs the sound samples operation for `Engine` using the supplied arguments.
+    ///
+    /// @param asset `asset` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`.
     AssetExpected<std::shared_ptr<const std::vector<f32>>> AssetManager::sound_samples(Asset asset) const {
         std::shared_lock lock{impl_->mutex};
         const Impl::Record *record = impl_->find(asset);
@@ -981,6 +1207,13 @@ namespace SFT::Engine {
         return std::shared_ptr<const std::vector<f32>>{data->samples};
     }
 
+    /// Performs the unload operation for `Engine` using the supplied arguments.
+    ///
+    /// @param asset `asset` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::InvalidAsset`, `AssetErrorCode::InUse`.
     AssetResult AssetManager::unload(Asset asset) {
         std::unique_lock lock{impl_->mutex};
         Impl::Record *record = impl_->find(asset);
@@ -1013,6 +1246,10 @@ namespace SFT::Engine {
         return {};
     }
 
+    /// Clears the stored state or contents.
+    ///
+    /// @return Returns the current clear value.
+    /// @note This function does not throw exceptions.
     void AssetManager::clear() noexcept {
         if (!impl_) {
             return;
@@ -1040,6 +1277,17 @@ namespace SFT::Engine {
         impl_->records.clear();
     }
 
+    /// Appends the supplied value or range to the current contents.
+    ///
+    /// @param model_asset `model_asset` value used by the operation.
+    /// @param world_transform World used or affected by the operation.
+    /// @param stable_id Identifier of the target object or resource.
+    /// @param visibility_mask `visibility_mask` value used by the operation.
+    /// @param sort_key Key used to identify the requested entry.
+    /// @param destination Destination value or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool AssetManager::append_model_renderables(
         Asset model_asset,
         const glm::mat4 &world_transform,

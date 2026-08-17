@@ -10,69 +10,77 @@
 
 #include "Context.hpp"
 
-/// Reusable press-capture-drag gesture built directly on Context's own pointer-capture primitives
-/// (try_capture_pointer/has_pointer_capture/release_pointer, pointer_position/pointer_is_down/
-/// pointer_pressed_this_frame/pointer_released_this_frame/pointer_cancelled_this_frame — see
-/// Context.hpp). Slider.hpp and the docking workspace (UI/Docking/DockWorkspace.hpp) both need the
-/// same press/capture/threshold/release state machine around those primitives; this factors it out
-/// once so any widget — first-party or an app's own — gets it for free instead of re-deriving it.
-/// Not a Clay primitive itself (same "not a Context method" reasoning as Button.hpp).
+
 namespace SFT::UI {
 
     class DragGestureState {
       public:
         struct UpdateResult {
-            /// The gesture has crossed its start threshold. This remains true on the normal release
-            /// frame so consumers can apply the pointer's final position before checking `ended`.
+
+
             bool active = false;
-            /// True on exactly the one frame movement first crossed `threshold` — useful for
-            /// one-shot setup at the moment a drag becomes real (e.g. snapshotting a value to offset
-            /// future deltas against).
+
+
             bool started = false;
-            /// True on exactly the one frame this gesture concluded, by any means (release, an
-            /// explicit cancel, or Context dropping orphaned capture — see try_capture_pointer's own
-            /// doc comment on when that happens). Check `committed`/`cancelled` to tell those apart;
-            /// `ended && !committed && !cancelled` is an ordinary click that never became a drag.
+
+
             bool ended = false;
-            /// `ended` was a normal release *and* the gesture had genuinely started at some point —
-            /// mirrors Slider.hpp's own SliderResult::committed.
+
+
             bool committed = false;
-            /// `ended` was a cancellation (Context::pointer_cancelled_this_frame(), e.g. the window
-            /// lost input focus mid-drag) or capture was found orphaned this frame.
+
+
             bool cancelled = false;
             glm::vec2 position{0.0f};
-            /// Zero until `started`; from then on, position minus the pointer position at which the
-            /// threshold was crossed. The crossing frame itself therefore reports zero.
+
+
             glm::vec2 delta_since_start{0.0f};
-            /// position minus last frame's position — for widgets that want to accumulate their own
-            /// running total rather than re-deriving it from delta_since_start each frame.
+
+
             glm::vec2 delta_this_frame{0.0f};
         };
 
-        /// Call once per frame for the draggable element identified by `id`. A gesture begins the
-        /// frame `ctx.clicked(id)` fires (the same press-while-hovered edge every button()/click
-        /// handler in this package already keys off) and this call successfully acquires exclusive
-        /// pointer capture for `id`; it ends on release, cancellation, or orphaned-capture recovery.
-        /// `threshold` is how many pixels the pointer must move from the position sampled when this
-        /// state first observes the press before `started`/`active` report true. Values <= 0 start on
-        /// the capture frame. A positive value disambiguates an ordinary click from a real drag.
-        /// Press and release edges latched into the same UI frame are fully resolved by this call:
-        /// capture never leaks into the next frame.
+
+        /// Updates the `DragGestureState` state from the supplied values.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param id Identifier of the target object or resource.
+        /// @param threshold `threshold` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         UpdateResult update(Context &ctx, const UString &id, f32 threshold = 0.0f) noexcept;
 
+        /// Reports whether active holds for this `DragGestureState`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_active() const noexcept;
+        /// Reports whether capturing holds for this `DragGestureState`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_capturing() const noexcept;
+        /// Returns the current or globally available press position value.
+        ///
+        /// @return Returns the current press position value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] glm::vec2 press_position() const noexcept;
 
-        /// Clears local gesture bookkeeping without touching Context capture. This is for owners that
-        /// remove a draggable between frames and therefore cannot safely retain a Context reference;
-        /// Context drops the now-undeclared element's capture in finish_frame(). Prefer cancel() when
-        /// the owning Context is available and immediate release is required.
+
+        /// Resets the object to its baseline state.
+        ///
+        /// @note This function does not throw exceptions.
         void reset() noexcept;
 
-        /// Forcibly ends the gesture and releases capture without waiting for a pointer event — for
-        /// a widget that's about to be destroyed/hidden mid-drag and can't wait for next frame's
-        /// orphan recovery.
+
+        /// Cancels the outstanding operation when cancellation is still possible.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @note This function does not throw exceptions.
         void cancel(Context &ctx, const UString &id) noexcept;
 
       private:

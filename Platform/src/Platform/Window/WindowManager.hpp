@@ -32,22 +32,16 @@ using std::vector;
 
 namespace SFT::Platform::Windowing {
 
-    /// Explicit static-composition seam for optional window providers. A product references a
-    /// provider's factory symbol directly; no global registration or whole-archive linking is needed.
+
     using WindowFactory = expected<unique_ptr<Window>, WindowError> (*)(const WindowConfig &) noexcept;
 
     enum class WindowEventPumpMode : u8 {
-        /// Required on Web and safest for APIs/platforms that require all window calls on the main thread.
+
         CallerThread,
-        /// A dedicated Async::DedicatedThread owns every window in this manager: construction,
-        /// destruction, pumping, and any bespoke access via with_window()/with_windows(). Only takes
-        /// effect where compile_time_window_thread_allowed is true (see below) — requesting it elsewhere
-        /// silently falls back to CallerThread.
+
+
         DedicatedEventThread,
     };
-
-
-
 
 
 #if defined(STURDY_PLATFORM_MACOS) || defined(STURDY_PLATFORM_WEB)
@@ -60,29 +54,10 @@ namespace SFT::Platform::Windowing {
         WindowEventPumpMode event_pump_mode = WindowEventPumpMode::CallerThread;
         bool platform_allows_threads = true;
 
-        /// Merge a run of consecutive MouseMoved events into a single one as they're folded into the
-        /// accumulator (see WindowManager.cpp's coalesce_mouse_motion()). A high-polling-rate mouse
-        /// (8kHz) produces one motion event per HID report — ~133 per 60Hz frame — and every one of
-        /// them is copied four more times downstream (accumulator -> pump() -> PlatformEventInbox ->
-        /// both the lossless WindowEvent stream and the typed MouseMoveEvent stream, EcsEvents.hpp)
-        /// before three separate built-in systems iterate it (InputState, UiPointerState, plus
-        /// whatever the app registers). No information is lost by merging: absolute x/y is
-        /// last-write-wins and delta_x/delta_y are *summed*, which is exactly what every consumer in
-        /// this engine already does with them (InputState::apply(MouseMoveEvent) accumulates the
-        /// delta and overwrites the position; UiPointerState only ever takes the latest position).
-        /// Only *adjacent* events merge, so ordering against button/key/wheel events — and therefore
-        /// the pointer position a click is attributed to — is untouched.
-        ///
-        /// Turn this off only for something that genuinely needs every raw sample point rather than
-        /// the summed motion between frames (a pressure/stroke-capture drawing tool, an input-latency
-        /// measurement harness); ordinary game and UI input wants it on.
+
         bool coalesce_mouse_motion = true;
 
-        /// Hard bound on how many events one window may accumulate between two pump() calls, so a
-        /// stalled or blocked main thread (a long frame, a modal move/resize drag, a breakpoint)
-        /// cannot grow the accumulator without limit while the OS keeps delivering input. Well above
-        /// any real frame's worth: with coalesce_mouse_motion on, a 60Hz frame accumulates single
-        /// digits, and even a full second of stalled 8kHz motion coalesces to one event.
+
         usize max_accumulated_events_per_window = 16384;
     };
 
@@ -91,44 +66,67 @@ namespace SFT::Platform::Windowing {
         vector<WindowEvent> events;
         bool close_requested = false;
         bool resized = false;
-        /// Sampled on the window-owning thread during this pump() call, so callers never need a second
-        /// dispatch (or a raw Window*) just to learn the current framebuffer size for FrameInput.
+
+
         optional<WindowExtent> framebuffer_size;
     };
 
-    /// Per-window lock-free event channel (ring buffer + small ancillary state) -- defined in
-    /// WindowManager.cpp, deliberately kept an opaque type here so SpscRingBuffer.hpp (an
-    /// implementation detail of the event handoff, not part of this class's public surface) never
-    /// needs to be included by anything that just wants to include this header.
+
     class WindowEventChannel;
 
-    /// Directory entry for WindowManager::channels_ -- see that member's own doc comment.
+
     using WindowEventChannelEntry = std::pair<WindowId, std::shared_ptr<WindowEventChannel>>;
 
-    /// Real owner of every window in the process: construction, destruction, pumping, and any bespoke
-    /// per-window access all funnel through dispatch() below, which is the single choke point enforcing
-    /// Window's own documented invariant ("drive pump_events() and the event/state queries from the
-    /// thread that owns the platform message pump", Window.cppm) — callers never hold a raw Window*
-    /// across a call boundary or touch one from a thread WindowManager doesn't control. Supports any mix
-    /// of backends (SDL3/GLFW) simultaneously, since Window is already a pure abstraction seam; this
-    /// class just owns a heterogeneous collection of them.
+
     class WindowManager {
       public:
+        /// Constructs a `WindowManager` from the supplied initialization values.
+        ///
+        /// @param policy `policy` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         explicit WindowManager(WindowManagerPolicy policy = {}) noexcept;
 
+        /// Destroys the `WindowManager` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~WindowManager();
 
+        /// Disables this construction form for `WindowManager`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         WindowManager(const WindowManager &) = delete;
+        /// Assigns a new value to this `WindowManager`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         WindowManager &operator=(const WindowManager &) = delete;
+        /// Disables this construction form for `WindowManager`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         WindowManager(WindowManager &&) = delete;
+        /// Assigns a new value to this `WindowManager`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         WindowManager &operator=(WindowManager &&) = delete;
 
+        /// Returns the current or globally available policy value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const WindowManagerPolicy &policy() const noexcept;
+        /// Reports whether this `WindowManager` has dedicated event thread.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool has_dedicated_event_thread() const noexcept;
 
-        /// Constructs a new window of the given backend and adds it to the managed set — the sole entry
-        /// point for spawning windows. Safe to call at any time, including after the event thread is up
-        /// (construction is marshaled the same as everything else).
+
+        /// Spawns window.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         template <typename Backend>
         [[nodiscard]] expected<WindowId, WindowError> spawn_window(const WindowConfig &config) {
             ZoneScopedN("WindowManager::spawn_window");
@@ -147,23 +145,41 @@ namespace SFT::Platform::Windowing {
             });
         }
 
-        /// Factory overload used by explicitly linked optional providers. The indirect call keeps the
-        /// base WindowManager free of concrete provider references, so an unselected static provider
-        /// archive is not extracted by the linker.
+
+        /// Spawns window.
+        ///
+        /// @param config Configuration values controlling the operation.
+        /// @param factory `factory` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] expected<WindowId, WindowError> spawn_window(
             const WindowConfig &config,
             WindowFactory factory);
 
+        /// Destroys the window identified by the supplied parameters.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy_window(WindowId id) noexcept;
 
+        /// Returns the current or globally available primary window ID value.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<WindowId> primary_window_id() const noexcept;
 
+        /// Returns the window count for this `WindowManager`.
+        ///
+        /// @return Returns the current window count value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize window_count() noexcept;
 
-        /// Runs fn(Window&) for the window matching id, on the thread that owns it, returning nullopt if
-        /// no such window exists. This — plus with_windows() below — is the generic escape hatch for any
-        /// windowing operation not already covered by a dedicated method on this class (title, size,
-        /// effects, cursor mode, ...): callers should route through here rather than caching a Window*.
+
+        /// Returns a copy or derived value with window applied.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         template <typename F>
         auto with_window(WindowId id, F &&fn) -> optional<std::invoke_result_t<F &, Window &>> {
             ZoneScopedN("WindowManager::with_window");
@@ -178,23 +194,10 @@ namespace SFT::Platform::Windowing {
             });
         }
 
-        /// Fire-and-forget counterpart to with_window(): queues fn(Window&) to run on the owning thread
-        /// and returns *immediately*, without waiting for it.
+
+        /// Performs the post to window operation for `WindowManager` using the supplied arguments.
         ///
-        /// This exists because with_window() blocks the caller until the event thread reaches the queued
-        /// op, and that thread is not always promptly available: on Windows, an interactive move/resize
-        /// puts it inside an OS modal loop for the entire duration of the drag (see poll_loop()). A
-        /// blocking window op issued mid-drag therefore stalls its caller for however long the user holds
-        /// the mouse — which, when the caller is the application's render coordinator, stops rendering
-        /// outright. Every state *request* (set the cursor icon, toggle fullscreen/decorations/effects)
-        /// is a submit-and-forget operation whose result the caller discards anyway, so those go through
-        /// here and are simply applied a little later instead of holding up the frame loop.
-        ///
-        /// `fn` is taken by value into the queued task (unlike with_window(), which can safely borrow it
-        /// for the duration of its own blocking call), so it must not capture anything by reference that
-        /// may die before it runs. Silently does nothing if `id` no longer names a live window by the
-        /// time the op executes — a window closed between posting and applying is a normal race here,
-        /// not an error.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename F>
         void post_to_window(WindowId id, F &&fn) {
             ZoneScopedN("WindowManager::post_to_window");
@@ -208,32 +211,34 @@ namespace SFT::Platform::Windowing {
             });
         }
 
-        /// Runs fn(vector<unique_ptr<Window>>&) with exclusive access to every managed window, on the
-        /// thread that owns them.
+
+        /// Returns a copy or derived value with windows applied.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename F>
         auto with_windows(F &&fn) -> std::invoke_result_t<F &, vector<unique_ptr<Window>> &> {
             ZoneScopedN("WindowManager::with_windows");
             return dispatch([this, &fn]() { return fn(windows_); });
         }
 
-        /// Coordinator pump: hands back whatever's accumulated since the last call. In DedicatedEventThread
-        /// mode this is non-blocking — the event thread polls continuously and independently in the
-        /// background (see poll_loop() below), so an OS input queue never backs up waiting on this
-        /// tick's frame time, which matters for a high-polling-rate device (an 8kHz mouse) — this call
-        /// just swaps out whatever the background loop has already collected. In CallerThread mode
-        /// (macOS/Web, or wherever the platform disallows threads) this instead does the original
-        /// synchronous poll-and-drain inline, exactly as before. If the managed set is empty, the caller
-        /// gets an empty event list and can conclude execution.
+
+        /// Pumps the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @param out_events Event used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] expected<void, WindowError> pump(vector<ManagedWindowEvents> &out_events) noexcept;
 
       private:
-        /// Core dispatch primitive for one-shot windows_-touching operations (spawn/destroy/with_window/
-        /// with_windows) — every one of them still runs on the thread that owns the windows and the
-        /// caller still blocks for the result, exactly like before. What changed is *how* it gets there:
-        /// event_thread_ (when active) is permanently busy running poll_loop() below, not idle waiting
-        /// for DedicatedThread::run() calls, so a one-shot op is instead queued into pending_ops_ (the
-        /// same TaskState/ConcreteTask/TaskHandle machinery DedicatedThread::run() itself is built on —
-        /// Async/src/Task.hpp) for poll_loop() to drain and execute on its own next iteration.
+
+
+        /// Dispatches the requested work.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename F>
         auto dispatch(F &&fn) -> std::invoke_result_t<F &> {
             ZoneScopedN("WindowManager::dispatch");
@@ -254,13 +259,10 @@ namespace SFT::Platform::Windowing {
             }
         }
 
-        /// Non-blocking sibling of dispatch(): queues `fn` for poll_loop() to run and returns without
-        /// waiting for a result (see post_to_window() above for why that matters). `fn` is moved into
-        /// the queued task rather than borrowed, since this call does not outlive it.
+
+        /// Performs the post operation for `WindowManager` using the supplied arguments.
         ///
-        /// With no event thread there is nothing to defer *to* — the caller already owns the windows —
-        /// so this runs inline, matching dispatch()'s own CallerThread-mode behavior. That keeps
-        /// "posted" ops ordered consistently with blocking ones on every platform.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename F>
         void post(F &&fn) {
             ZoneScopedN("WindowManager::post");
@@ -277,88 +279,81 @@ namespace SFT::Platform::Windowing {
             wake_poll_loop();
         }
 
+        /// Dispatches the requested work.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename F>
         auto dispatch(F &&fn) const -> std::invoke_result_t<F &> {
-
-
-
 
 
             return const_cast<WindowManager *>(this)->dispatch(std::forward<F>(fn));
         }
 
-        /// poll_loop() is the single long-running task event_thread_ ever runs (submitted once, from
-        /// the constructor) — continuous background polling replaces the old "one DedicatedThread::run()
-        /// per pump() call" shape, which only ever polled when the main thread asked, once per tick.
+
+        /// Polls loop for available work or state changes.
+        ///
+        /// @note This function does not throw exceptions.
         void poll_loop() noexcept;
+        /// Performs the wake poll loop operation for `WindowManager` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void wake_poll_loop() noexcept;
 
-        /// Registers a fresh channel for a newly spawned window. Only WindowManager.cpp (where
-        /// WindowEventChannel is a complete type) can actually construct one — spawn_window()'s
-        /// template body, defined in this header, cannot.
+
+        /// Performs the seed channel operation for `WindowManager` using the supplied arguments.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @note This function does not throw exceptions.
         void seed_channel(WindowId id) noexcept;
 
-        /// Producer-side: drains every currently-queued native event for `window`, coalescing
-        /// adjacent MouseMoved runs (per policy_.coalesce_mouse_motion) into `channel`'s pending slot
-        /// and pushing committed events into channel's lock-free ring (dropping — with the same
-        /// one-time warning as before — only once the ring itself is full). Returns how many *raw*
-        /// events were drained (before coalescing), which poll_loop() uses to tell "a real backlog is
-        /// queued up, keep draining" apart from "a trickle arrived, go back to sleep". Runs on
-        /// whichever thread owns `window` — poll_loop()'s background thread, or pump()'s CallerThread
-        /// dispatch() path.
+
+        /// Drains window into using the supplied arguments and current state.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param channel `channel` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize drain_window_into(Window &window, WindowEventChannel &channel) noexcept;
 
-        /// Publishes channel's pending coalesced run (if any) to its ring and clears it, so a
-        /// long-running coalesced motion sequence never sits invisible to the consumer indefinitely.
+
+        /// Flushes pending.
+        ///
+        /// @param channel `channel` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void flush_pending(WindowEventChannel &channel) noexcept;
 
-        /// Pushes `event` into channel's ring; logs (and one-time-latches) the same overflow warning
-        /// drain_window_into() has always had if the ring is full.
+
+        /// Adds the supplied value to the end or work queue.
+        ///
+        /// @param channel `channel` value used by the operation.
+        /// @param event Event used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void push_or_warn(WindowEventChannel &channel, const WindowEvent &event) noexcept;
 
-        /// Per-window lock-free event channel directory. Unlike the mutex-guarded accumulator this
-        /// replaced, this lock only ever guards the *directory* itself -- added to at spawn_window(),
-        /// erased from at destroy_window() (window lifecycle, nowhere near 8kHz) -- never the
-        /// per-event hot path, which flows through each channel's own lock-free
-        /// Async::SpscRingBuffer. Both poll_loop() and pump() take a brief lock to copy out a
-        /// snapshot (cheap: shared_ptr refcount bumps only) and then do all real work outside it; the
-        /// shared_ptr snapshot also keeps a channel alive for the duration of a pump() call even if
-        /// destroy_window() concurrently erases the live directory's own reference to it.
+
         Async::Mutex<vector<WindowEventChannelEntry>> channels_;
 
         WindowManagerPolicy policy_{};
         vector<unique_ptr<Window>> windows_;
         optional<WindowId> primary_window_id_;
 
-        /// Queued one-shot dispatch() closures for poll_loop() to run on its own thread — see dispatch()'s
-        /// doc comment. Reuses Async::Detail::TaskBase rather than a bespoke closure type so dispatch()
-        /// can hand the caller a real Async::TaskHandle<R> to wait() on, identical to what
-        /// DedicatedThread::run() itself already returns.
+
         Async::Mutex<std::deque<std::unique_ptr<Async::Detail::TaskBase>>> pending_ops_;
 
-        /// running_ gates poll_loop()'s own while-condition; wake_mutex_/wake_cv_ let dispatch() and
-        /// the destructor interrupt its idle sleep immediately instead of waiting out a full idle
-        /// interval (same shape Async::Scheduler's own worker idle-wait uses).
+
         std::atomic<bool> running_{false};
         std::mutex wake_mutex_;
         std::condition_variable wake_cv_;
 
-        /// Latches the one-time "accumulator hit its cap, dropping events" warning. Only ever touched
-        /// from poll_loop()'s own thread, so it needs no synchronization — and it exists at all
-        /// because the condition that trips it (a stalled consumer under a live input stream) is
-        /// exactly the condition under which an unthrottled log_warn would itself become the stall.
+
         bool accumulator_overflow_warned_ = false;
 
-        /// Declared *last* deliberately: members destruct in reverse declaration order, and
-        /// event_thread_'s destructor is what joins poll_loop()'s background thread (~WindowManager()'s
-        /// own explicit body only *signals* shutdown via running_/wake_poll_loop(), it doesn't wait).
-        /// Every member poll_loop() can still touch during its post-loop tail (draining pending_ops_
-        /// one last time, then windows_.clear() -- see poll_loop()'s own doc comment) must therefore be
-        /// declared *before* this one, so it destructs *after* the join has already guaranteed the
-        /// background thread has fully returned. Getting this wrong is a real, silent use-after-free:
-        /// ASan caught pending_ops_ being freed on the main thread while poll_loop() was still reading
-        /// it on its own thread, reliably reproducible under PlatformWindowManagerHighRateInputTest's
-        /// sustained dispatch() load followed by prompt destruction.
+
         unique_ptr<Async::DedicatedThread> event_thread_;
     };
 

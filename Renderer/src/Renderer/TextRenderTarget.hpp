@@ -18,42 +18,76 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    /// A single off-screen 2D text render target — e.g. white text rendered once and sampled as a
-    /// mask by another shader. Unlike Renderer::TextCanvas (a scrolling/tiled document surface),
-    /// this is exactly one texture: its size is checked against the device's max 2D image
-    /// dimension at creation and *rejected* (not silently clamped or tiled) if it doesn't fit,
-    /// since truncating a fixed-purpose mask/target would silently corrupt whatever it's used for —
-    /// a caller that legitimately needs a surface bigger than one GPU image should reach for
-    /// Renderer::TextCanvas instead, which is built for exactly that.
+
     class TextRenderTarget {
       public:
         struct Config {
             u32 width = 0;
             u32 height = 0;
-            /// RGBA8Unorm for tinted/colored text (e.g. compositing rendered text into a scene);
-            /// R8Unorm for a pure alpha-coverage mask (e.g. text used to mask another shader) —
-            /// either way the same TextPipeline draws into it, only the target format differs.
+
+
             RHI::Format format = RHI::Format::RGBA8Unorm;
         };
 
+        /// Constructs a `TextRenderTarget` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         TextRenderTarget() noexcept = default;
 
+        /// Creates a `TextRenderTarget` resource or value from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param config Configuration values controlling the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] static Core::RendererExpected<TextRenderTarget> create(RHI::RhiDevice &device, const Config &config);
 
-        /// Re-renders the target's full contents from `glyphs` (clears first) — reuses exactly the
-        /// atlas-lookup + instanced-draw machinery Renderer::TextCanvas's per-tile render does
-        /// (TextAtlas::ensure_resident -> TextPipeline::prepare/draw), just against one fixed
-        /// texture instead of a tile grid.
+
+        /// Renders the requested content using the current rendering state.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param atlas `atlas` value used by the operation.
+        /// @param pipeline Pipeline used or affected by the operation.
+        /// @param glyphs `glyphs` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult render(RHI::RhiDevice &device, TextAtlas &atlas, TextPipeline &pipeline,
                                                   span<const GlyphPlacement> glyphs);
 
-        /// Raw RHI handles, for wiring into a render graph directly.
+
+        /// Returns the current or globally available texture value.
+        ///
+        /// @return Returns the current texture value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::TextureHandle texture() const noexcept;
+        /// Returns the current or globally available view value.
+        ///
+        /// @return Returns the current view value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::TextureViewHandle view() const noexcept;
+        /// Returns the current or globally available sampler value.
+        ///
+        /// @return Returns the current sampler value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::SamplerHandle sampler() const noexcept;
+        /// Returns the current or globally available width value.
+        ///
+        /// @return Returns the current width value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 width() const noexcept;
+        /// Returns the current or globally available height value.
+        ///
+        /// @return Returns the current height value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 height() const noexcept;
 
+        /// Destroys or releases the `TextRenderTarget` resource represented by the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy(RHI::RhiDevice &device) noexcept;
 
       private:

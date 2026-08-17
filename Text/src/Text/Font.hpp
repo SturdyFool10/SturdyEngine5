@@ -19,81 +19,135 @@ using std::vector;
 
 namespace SFT::Text {
 
-    /// Owns a loaded font face and the HarfBuzz `hb_font_t` shaping/outline handle built from it.
-    /// Font bytes are copied into HarfBuzz's own buffer at load time (`HB_MEMORY_MODE_DUPLICATE`),
-    /// so the caller's source data need not outlive this object. A Font built via load_hinted()
-    /// additionally owns a FreeType FT_Library/FT_Face pair (see that function's doc comment).
+
     class Font {
       public:
+        /// Constructs a `Font` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         Font() noexcept = default;
+        /// Destroys the `Font` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~Font() noexcept;
 
+        /// Disables this construction form for `Font`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Font(const Font &) = delete;
+        /// Assigns a new value to this `Font`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Font &operator=(const Font &) = delete;
 
+        /// Constructs a `Font` from another instance.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         Font(Font &&other) noexcept;
 
+        /// Assigns a new value to this `Font`.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         Font &operator=(Font &&other) noexcept;
 
-        /// Loads a font (TrueType/OpenType/CFF/CFF2, including TTC/OTC collections) from raw bytes.
-        /// `data` is copied, so it need not outlive this call. `face_index` selects a face within a
-        /// collection; 0 for an ordinary single-face font file. Outlines extracted from a Font
-        /// loaded this way (Text::glyph_outline) are scale-free — safe to rasterize/reuse at any
-        /// pixel size, since nothing has been grid-fit to a specific size.
+
+        /// Loads the requested data or resource.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param face_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`, `TextErrorCode::LoadFailed`.
         [[nodiscard]] static TextExpected<Font> load(span<const std::byte> data, unsigned int face_index = 0);
 
-        /// Loads a font through FreeType instead of directly through HarfBuzz's hb-ot backend, with
-        /// FreeType's hinting engine (TrueType bytecode interpreter / CFF hinter) active at exactly
-        /// `pixel_size`. `data` is copied (FreeType's FT_New_Memory_Face does not own the buffer it's
-        /// given), so it need not outlive this call.
+
+        /// Loads hinted.
         ///
-        /// Unlike load(), the resulting Font is tied to `pixel_size`: Text::glyph_outline on a
-        /// hinted Font returns an outline already grid-fit for that one exact size — rasterizing it
-        /// at any other size defeats the purpose of hinting (and looks wrong, the way a hinted
-        /// outline stretched 2x always does in any renderer). Only use this for a caller that always
-        /// draws at one fixed, known pixel size (a UI/HUD element, never scaled/rotated/animated);
-        /// TextAtlas::GlyphKey already caches per `reference_ppem`, so this composes with the atlas
-        /// as-is — a hinted glyph and an unhinted glyph at the same nominal size simply land in two
-        /// different cache entries.
+        /// @param data Data consumed or referenced by the operation.
+        /// @param pixel_size Requested or available size for the operation.
+        /// @param face_index Zero-based index of the target element or entry.
         ///
-        /// Coordinates still come out in font design units (hb_font_set_scale is used internally to
-        /// normalize hb-ft's default pixel-space output back to units_per_em), matching load()'s
-        /// contract exactly — a caller's existing `pixel_size / units_per_em` scale math is unchanged
-        /// by which loader produced the Font.
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`, `TextErrorCode::LoadFailed`.
         [[nodiscard]] static TextExpected<Font> load_hinted(span<const std::byte> data, f32 pixel_size,
                                                              unsigned int face_index = 0);
 
+        /// Returns the current or globally available valid value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool valid() const noexcept;
+        /// Converts the `Font` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] explicit operator bool() const noexcept;
 
-        /// The font's design grid (font units per em-square) — every shaping/outline coordinate
-        /// this package returns is in these units until a caller scales by the desired pixel size.
+
+        /// Returns the current or globally available units per em value.
+        ///
+        /// @return Returns the current units per em value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 units_per_em() const noexcept;
 
+        /// Returns the current or globally available ascender value.
+        ///
+        /// @return Returns the current ascender value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] i32 ascender() const noexcept;
+        /// Returns the current or globally available descender value.
+        ///
+        /// @return Returns the current descender value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] i32 descender() const noexcept;
+        /// Returns the current or globally available line gap value.
+        ///
+        /// @return Returns the current line gap value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] i32 line_gap() const noexcept;
 
-        /// Non-owning access for lower-level HarfBuzz calls (shaping, hb-draw outline extraction)
-        /// implemented in this module's other partitions.
+
+        /// Returns the current or globally available handle value.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] hb_font_t *handle() const noexcept;
+        /// Returns the face handle associated with this `Font`.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] hb_face_t *face_handle() const noexcept;
 
       private:
+        /// Resets the object to its baseline state.
+        ///
+        /// @note This function does not throw exceptions.
         void reset() noexcept;
 
+        /// Performs the vertical extent operation for `Font` using the supplied arguments.
+        ///
+        /// @param tag `tag` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] i32 vertical_extent(hb_ot_metrics_tag_t tag) const noexcept;
 
         hb_blob_t *blob_ = nullptr;
         hb_face_t *face_ = nullptr;
         hb_font_t *font_ = nullptr;
-        /// load()'s face_ is a reference this Font created itself (hb_face_create) and must destroy;
-        /// load_hinted()'s face_ is only a borrowed peek (hb_font_get_face) into what font_ (via
-        /// hb_ft_font_create_referenced) already owns — destroying it too would double-free.
+
+
         bool owns_face_ = false;
 
-        /// Only set by load_hinted(); reset() tears these down (after font_, which holds its own
-        /// extra FT_Face reference via hb_ft_font_create_referenced) whenever they're non-null.
+
         FT_Library ft_library_ = nullptr;
         FT_Face ft_face_ = nullptr;
         vector<std::byte> owned_bytes_;

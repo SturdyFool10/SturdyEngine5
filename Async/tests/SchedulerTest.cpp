@@ -13,6 +13,13 @@
 
 namespace {
 
+    /// Checks the supplied condition and reports the accompanying diagnostic message when it is false.
+    ///
+    /// @param condition Condition controlling whether the operation proceeds.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool check(bool condition, const char *message) {
         if (!condition) {
             std::cerr << "FAILED: " << message << '\n';
@@ -20,6 +27,10 @@ namespace {
         return condition;
     }
 
+    /// Returns the current or globally available single worker nested wait value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool single_worker_nested_wait() {
         SFT::Async::Scheduler::initialize(1);
         auto parent = SFT::Async::Scheduler::spawn([] {
@@ -31,6 +42,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available single worker nested parallel reduce value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool single_worker_nested_parallel_reduce() {
         SFT::Async::Scheduler::initialize(1);
         auto parent = SFT::Async::Scheduler::spawn([] {
@@ -43,6 +58,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available worker wait wakes for late dependency work value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool worker_wait_wakes_for_late_dependency_work() {
         SFT::Async::Scheduler::initialize(2);
         std::atomic<bool> target_started{false};
@@ -74,6 +93,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available saturated pool nested waits value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool saturated_pool_nested_waits() {
         constexpr std::uint32_t worker_count = 4;
         SFT::Async::Scheduler::initialize(worker_count);
@@ -98,9 +121,10 @@ namespace {
     }
 
 
-
-
-
+    /// Returns the current or globally available heavy and light tasks complete value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool heavy_and_light_tasks_complete() {
         constexpr std::uint32_t worker_count = 4;
         SFT::Async::Scheduler::initialize(worker_count);
@@ -125,6 +149,10 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     const bool passed = single_worker_nested_wait() &&
                         single_worker_nested_parallel_reduce() &&

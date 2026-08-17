@@ -7,6 +7,12 @@ using std::string_view;
 
 namespace SFT::Text {
 
+/// Returns a human-readable name for the supplied feature value.
+///
+/// @param tag `tag` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 UString feature_name(u32 tag) {
     struct Entry {
         u32 tag;
@@ -68,6 +74,12 @@ UString feature_name(u32 tag) {
 
 namespace {
 
+/// Sets the feature for this `Text`.
+///
+/// @param settings Configuration values controlling the operation.
+/// @param setting `setting` value used by the operation.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void set_feature(vector<OpenTypeFeatureSetting> &settings, OpenTypeFeatureSetting setting) {
     auto existing = std::ranges::find_if(settings, [&](const OpenTypeFeatureSetting &candidate) {
         return candidate.tag == setting.tag && candidate.start == setting.start && candidate.end == setting.end;
@@ -79,12 +91,22 @@ void set_feature(vector<OpenTypeFeatureSetting> &settings, OpenTypeFeatureSettin
     }
 }
 
+/// Sets the typed feature for this `Text`.
+///
+/// @param settings Configuration values controlling the operation.
+/// @param value Value consumed by the operation.
 void set_typed_feature(vector<OpenTypeFeatureSetting> &settings, const char tag[5], const optional<u32> &value) {
     if (value) {
         set_feature(settings, OpenTypeFeatureSetting{.tag = feature_tag(tag), .value = *value});
     }
 }
 
+/// Performs the trim ascii whitespace operation for `Text` using the supplied arguments.
+///
+/// @param token `token` value used by the operation.
+///
+/// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+/// @note This function does not throw exceptions.
 [[nodiscard]] string_view trim_ascii_whitespace(string_view token) noexcept {
     constexpr string_view whitespace = " \t\r\n\f\v";
     const usize first = token.find_first_not_of(whitespace);
@@ -97,6 +119,12 @@ void set_typed_feature(vector<OpenTypeFeatureSetting> &settings, const char tag[
 
 } // namespace
 
+/// Performs the feature settings operation for `Text` using the supplied arguments.
+///
+/// @param features `features` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<OpenTypeFeatureSetting> feature_settings(const OpenTypeFeatureOptions &features) {
     vector<OpenTypeFeatureSetting> settings;
     settings.reserve(32 + features.custom.size());
@@ -140,6 +168,13 @@ vector<OpenTypeFeatureSetting> feature_settings(const OpenTypeFeatureOptions &fe
     return settings;
 }
 
+/// Parses feature settings into structured state.
+///
+/// @param specification `specification` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`.
 TextExpected<vector<OpenTypeFeatureSetting>> parse_feature_settings(const ustr &specification) {
     vector<OpenTypeFeatureSetting> settings;
     const string_view text = specification.cpp_string_view();
@@ -181,6 +216,15 @@ TextExpected<vector<OpenTypeFeatureSetting>> parse_feature_settings(const ustr &
 
 namespace SFT::Text::Detail {
 
+/// Performs the table feature tags operation for `Detail` using the supplied arguments.
+///
+/// @param face `face` value used by the operation.
+/// @param table_tag `table_tag` value used by the operation.
+/// @param script `script` value used by the operation.
+/// @param language `language` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<u32> table_feature_tags(hb_face_t *face, hb_tag_t table_tag, const ustr &script,
                                const ustr &language) {
     unsigned int script_index = HB_OT_LAYOUT_NO_SCRIPT_INDEX;
@@ -236,6 +280,14 @@ vector<u32> table_feature_tags(hb_face_t *face, hb_tag_t table_tag, const ustr &
 
 namespace SFT::Text {
 
+/// Performs the available features operation for `Text` using the supplied arguments.
+///
+/// @param font `font` value used by the operation.
+/// @param script `script` value used by the operation.
+/// @param language `language` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<OpenTypeFeature> available_features(const Font &font, const ustr &script, const ustr &language) {
     vector<OpenTypeFeature> features;
     if (!font) {
@@ -256,6 +308,10 @@ vector<OpenTypeFeature> available_features(const Font &font, const ustr &script,
     return features;
 }
 
+/// Disables ligatures using the supplied arguments and current state.
+///
+/// @return Returns the current disable ligatures value.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 OpenTypeFeatureOptions disable_ligatures() {
     OpenTypeFeatureOptions features;
     features.clig = 0;
@@ -264,6 +320,10 @@ OpenTypeFeatureOptions disable_ligatures() {
     return features;
 }
 
+/// Enables small caps using the supplied arguments and current state.
+///
+/// @return Returns the current enable small caps value.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 OpenTypeFeatureOptions enable_small_caps() {
     OpenTypeFeatureOptions features;
     features.smcp = 1;

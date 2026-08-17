@@ -1,10 +1,5 @@
 
 
-
-
-
-
-
 #pragma region Imports
 #include <array>
 #include <cmath>
@@ -33,6 +28,13 @@ namespace SFT::Renderer {
 
     namespace {
 
+        /// Performs the remap axis operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param p `p` value used by the operation.
+        /// @param axis `axis` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         glm::vec3 remap_axis(glm::vec3 p, Axis axis) noexcept {
             switch (axis) {
                 case Axis::X: return glm::vec3(p.y, -p.x, p.z);
@@ -42,7 +44,15 @@ namespace SFT::Renderer {
         }
 
 
-
+        /// Emits smooth triangle using the supplied arguments and current state.
+        ///
+        /// @param verts `verts` value used by the operation.
+        /// @param idx Zero-based index of the target element or entry.
+        /// @param i0 `i0` value used by the operation.
+        /// @param i1 `i1` value used by the operation.
+        /// @param i2 `i2` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void emit_smooth_triangle(const vector<GeometryVertex> &verts, vector<u32> &idx, u32 i0, u32 i1, u32 i2) {
             const glm::vec3 face_normal =
                 glm::cross(verts[i1].position - verts[i0].position, verts[i2].position - verts[i0].position);
@@ -58,14 +68,32 @@ namespace SFT::Renderer {
             }
         }
 
+        /// Appends the supplied value or range to the current contents.
+        ///
+        /// @param verts `verts` value used by the operation.
+        /// @param idx Zero-based index of the target element or entry.
+        /// @param i0 `i0` value used by the operation.
+        /// @param i1 `i1` value used by the operation.
+        /// @param i2 `i2` value used by the operation.
+        /// @param i3 `i3` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void append_smooth_quad(const vector<GeometryVertex> &verts, vector<u32> &idx, u32 i0, u32 i1, u32 i2, u32 i3) {
             emit_smooth_triangle(verts, idx, i0, i1, i2);
             emit_smooth_triangle(verts, idx, i0, i2, i3);
         }
 
 
-
-
+        /// Appends the supplied value or range to the current contents.
+        ///
+        /// @param verts `verts` value used by the operation.
+        /// @param idx Zero-based index of the target element or entry.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param c `c` value used by the operation.
+        /// @param shape_center `shape_center` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void append_flat_triangle(vector<GeometryVertex> &verts, vector<u32> &idx, glm::vec3 a, glm::vec3 b,
                                    glm::vec3 c, glm::vec3 shape_center) {
             glm::vec3 normal = glm::cross(b - a, c - a);
@@ -89,6 +117,13 @@ namespace SFT::Renderer {
             f32 sign;
         };
 
+        /// Appends the supplied value or range to the current contents.
+        ///
+        /// @param verts `verts` value used by the operation.
+        /// @param idx Zero-based index of the target element or entry.
+        /// @param half `half` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void append_box(vector<GeometryVertex> &verts, vector<u32> &idx, glm::vec3 half) {
             constexpr BoxFace faces[6] = {
                 {0, 1, 2, 1.0f}, {0, 1, 2, -1.0f},
@@ -120,6 +155,17 @@ namespace SFT::Renderer {
             }
         }
 
+        /// Appends the supplied value or range to the current contents.
+        ///
+        /// @param verts `verts` value used by the operation.
+        /// @param idx Zero-based index of the target element or entry.
+        /// @param radius `radius` value used by the operation.
+        /// @param y `y` value used by the operation.
+        /// @param radial_segments `radial_segments` value used by the operation.
+        /// @param axis `axis` value used by the operation.
+        /// @param facing_down `facing_down` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void append_disc_cap(vector<GeometryVertex> &verts, vector<u32> &idx, f32 radius, f32 y,
                               u32 radial_segments, Axis axis, bool facing_down) {
             const f32 pi = std::numbers::pi_v<f32>;
@@ -146,6 +192,18 @@ namespace SFT::Renderer {
         }
 
 
+        /// Appends the supplied value or range to the current contents.
+        ///
+        /// @param verts `verts` value used by the operation.
+        /// @param idx Zero-based index of the target element or entry.
+        /// @param bottom_radius `bottom_radius` value used by the operation.
+        /// @param top_radius `top_radius` value used by the operation.
+        /// @param height Height of the target extent.
+        /// @param radial_segments `radial_segments` value used by the operation.
+        /// @param capped `capped` value used by the operation.
+        /// @param axis `axis` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void append_frustum(vector<GeometryVertex> &verts, vector<u32> &idx, f32 bottom_radius, f32 top_radius,
                              f32 height, u32 radial_segments, bool capped, Axis axis) {
             radial_segments = radial_segments < 3 ? 3 : radial_segments;
@@ -164,7 +222,6 @@ namespace SFT::Renderer {
                     const f32 cos_phi = std::cos(phi);
                     const f32 sin_phi = std::sin(phi);
                     const glm::vec3 position(radius * cos_phi, y, radius * sin_phi);
-
 
 
                     const glm::vec3 normal =
@@ -198,6 +255,12 @@ namespace SFT::Renderer {
 
     } // namespace
 
+    /// Creates a `Renderer` resource or value from the supplied parameters.
+    ///
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::create(const char *label) {
         ZoneScopedN("Mesh::create");
         Mesh mesh;
@@ -205,6 +268,13 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Creates or converts a value from triangles representation.
+    ///
+    /// @param triangles `triangles` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the newly constructed or converted value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::from_triangles(span<const Core::Triangle> triangles, const char *label) {
         ZoneScopedN("Mesh::from_triangles");
         Mesh mesh;
@@ -224,6 +294,14 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Creates or converts a value from vertices representation.
+    ///
+    /// @param vertices `vertices` value used by the operation.
+    /// @param indices `indices` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the newly constructed or converted value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::from_vertices(span<const GeometryVertex> vertices, span<const u32> indices, const char *label) {
         ZoneScopedN("Mesh::from_vertices");
         Mesh mesh;
@@ -233,6 +311,13 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Performs the uv sphere operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param params `params` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::uv_sphere(const UvSphereParams &params, const char *label) {
         ZoneScopedN("Mesh::uv_sphere");
         Mesh mesh;
@@ -270,6 +355,13 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Performs the ico sphere operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param params `params` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::ico_sphere(const IcoSphereParams &params, const char *label) {
         ZoneScopedN("Mesh::ico_sphere");
         Mesh mesh;
@@ -337,6 +429,13 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Performs the cylinder operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param params `params` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::cylinder(const CylinderParams &params, const char *label) {
         ZoneScopedN("Mesh::cylinder");
         Mesh mesh;
@@ -346,6 +445,13 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Performs the cone operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param params `params` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::cone(const ConeParams &params, const char *label) {
         ZoneScopedN("Mesh::cone");
         Mesh mesh;
@@ -355,6 +461,13 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Performs the cube operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param params `params` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::cube(const CubeParams &params, const char *label) {
         ZoneScopedN("Mesh::cube");
         Mesh mesh;
@@ -364,6 +477,13 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Performs the rectangular prism operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param params `params` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::rectangular_prism(const RectangularPrismParams &params, const char *label) {
         ZoneScopedN("Mesh::rectangular_prism");
         Mesh mesh;
@@ -372,6 +492,13 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Performs the tetrahedron operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param params `params` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::tetrahedron(const TetrahedronParams &params, const char *label) {
         ZoneScopedN("Mesh::tetrahedron");
         Mesh mesh;
@@ -400,6 +527,13 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Performs the plane operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param params `params` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::plane(const PlaneParams &params, const char *label) {
         ZoneScopedN("Mesh::plane");
         Mesh mesh;
@@ -434,6 +568,13 @@ namespace SFT::Renderer {
         return mesh;
     }
 
+    /// Performs the torus operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param params `params` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Mesh Mesh::torus(const TorusParams &params, const char *label) {
         ZoneScopedN("Mesh::torus");
         Mesh mesh;

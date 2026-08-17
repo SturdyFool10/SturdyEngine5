@@ -28,13 +28,18 @@ using std::chrono::high_resolution_clock;
 
 namespace SFT::Engine {
 
+    /// Performs the application operation for `Engine` using the supplied arguments.
+    ///
+    /// @param client `client` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     Application::Application(ApplicationClient &client) noexcept : client_(&client) {}
 
+    /// Destroys the `Engine` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     Application::~Application() {
         shutdown_client();
-
-
-
 
 
         for (auto &managed : windows_) {
@@ -44,6 +49,10 @@ namespace SFT::Engine {
         Async::Scheduler::shutdown();
     }
 
+    /// Drains render thread using the supplied arguments and current state.
+    ///
+    /// @return Returns the current drain render thread value.
+    /// @note This function does not throw exceptions.
     void Application::drain_render_thread() noexcept {
         for (auto &managed : windows_) {
             while (!managed->in_flight_frames.empty()) {
@@ -53,6 +62,10 @@ namespace SFT::Engine {
         }
     }
 
+    /// Shuts down client and releases associated runtime state.
+    ///
+    /// @return Returns the current shutdown client value.
+    /// @note This function does not throw exceptions.
     void Application::shutdown_client() noexcept {
         if (!client_initialized_ || client_shutdown_ || engine_ == nullptr) {
             return;
@@ -65,6 +78,13 @@ namespace SFT::Engine {
         client_->on_shutdown(*engine_);
     }
 
+    /// Finds managed window in the available state.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     Application::ManagedWindow *Application::find_managed_window(Platform::Windowing::WindowId id) noexcept {
         for (auto &managed : windows_) {
             if (managed->window_id == id) {
@@ -74,6 +94,13 @@ namespace SFT::Engine {
         return nullptr;
     }
 
+    /// Records applied effect using the supplied arguments and current state.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Application::record_applied_effect(Platform::Windowing::WindowId id,
                                             Platform::Windowing::WindowEffect effect) noexcept {
         ManagedWindow *managed = find_managed_window(id);
@@ -89,6 +116,13 @@ namespace SFT::Engine {
         managed->applied_effects.push_back(effect);
     }
 
+    /// Performs the report frame result operation for `Engine` using the supplied arguments.
+    ///
+    /// @param result `result` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     void Application::report_frame_result(const Core::RendererResult &result) noexcept {
         if (!result) {
             ++consecutive_render_errors_;
@@ -110,6 +144,14 @@ namespace SFT::Engine {
         }
     }
 
+    /// Spawns managed window.
+    ///
+    /// @param config Configuration values controlling the operation.
+    /// @param factory `factory` value used by the operation.
+    /// @param is_primary `is_primary` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool Application::spawn_managed_window(
         const Platform::Windowing::WindowConfig &config,
         Platform::Windowing::WindowFactory factory,
@@ -133,8 +175,6 @@ namespace SFT::Engine {
         }
 
         auto register_result = window_manager_.with_window(*id, [this, is_primary](Window &window) -> Core::RendererExpected<Core::RenderSurfaceHandle> {
-
-
 
 
             if (is_primary) {
@@ -184,16 +224,11 @@ namespace SFT::Engine {
         managed->last_frame_time = std::chrono::high_resolution_clock::now();
 
 
-
-
         if (use_render_threading_) {
             managed->render_thread = make_unique<Async::DedicatedThread>("RenderThread-" + std::to_string(static_cast<usize>(*id)));
         }
         ManagedWindow *managed_ptr = managed.get();
         windows_.push_back(std::move(managed));
-
-
-
 
 
         const shared_ptr<LiveResizeState> live_resize = managed_ptr->live_resize;
@@ -207,6 +242,13 @@ namespace SFT::Engine {
         return true;
     }
 
+    /// Spawns secondary window.
+    ///
+    /// @param config Configuration values controlling the operation.
+    /// @param factory `factory` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<Core::RenderSurfaceHandle> Application::spawn_secondary_window(
         const Platform::Windowing::WindowConfig &config,
         Platform::Windowing::WindowFactory factory) {
@@ -220,11 +262,16 @@ namespace SFT::Engine {
         }
 
 
-
-
         return windows_.back()->surface;
     }
 
+    /// Recreates primary window using the supplied arguments and current state.
+    ///
+    /// @param config Configuration values controlling the operation.
+    /// @param factory `factory` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<Core::RenderSurfaceHandle> Application::recreate_primary_window(
         const Platform::Windowing::WindowConfig &config, Platform::Windowing::WindowFactory factory) {
         if (!engine_ || !client_->application_config().enable_runtime_window_management) {
@@ -243,11 +290,6 @@ namespace SFT::Engine {
         }
 
 
-
-
-
-
-
         const vector<Platform::Windowing::WindowEffect> effects_to_restore = old_managed->applied_effects;
         const optional<Core::PresentationSettings> presentation_to_restore =
             old_managed->surface ? optional{engine_->presentation_settings(*old_managed->surface)} : std::nullopt;
@@ -256,12 +298,9 @@ namespace SFT::Engine {
             factory != nullptr ? factory : client_->application_config().primary_window_factory;
 
 
-
-
         if (!spawn_managed_window(config, effective_factory,                false)) {
             return std::nullopt;
         }
-
 
 
         ManagedWindow *new_managed = windows_.back().get();
@@ -272,9 +311,6 @@ namespace SFT::Engine {
             engine_->set_primary_window(window);
             return true;
         });
-
-
-
 
 
         if (presentation_to_restore && new_managed->surface) {
@@ -295,19 +331,27 @@ namespace SFT::Engine {
         new_managed->applied_effects = effects_to_restore;
 
 
-
-
         old_managed->closing = true;
 
         return new_managed->surface;
     }
 
+    /// Requests close window using the supplied arguments and current state.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Application::request_close_window(Platform::Windowing::WindowId id) noexcept {
         if (ManagedWindow *managed = find_managed_window(id)) {
             managed->closing = true;
         }
     }
 
+    /// Returns the current or globally available process window requests value.
+    ///
+    /// @return Returns the current process window requests value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Application::process_window_requests() {
         if (!engine_) {
             return;
@@ -343,14 +387,7 @@ namespace SFT::Engine {
             }
 
 
-
-
-
-
-
             if (auto *cursor = std::get_if<SetCursorIconRequest>(&request)) {
-
-
 
 
                 ManagedWindow *managed = find_managed_window(cursor->window);
@@ -417,11 +454,8 @@ namespace SFT::Engine {
                 request_close_window(close.window);
 
 
-
                 target->pending_close_completion = close.id;
             } else if (target != nullptr) {
-
-
 
 
                 engine_->window_requests().complete(WindowRequestCompletion{
@@ -443,6 +477,15 @@ namespace SFT::Engine {
         }
     }
 
+    /// Renders managed window using the current rendering state.
+    ///
+    /// @param managed `managed` value used by the operation.
+    /// @param extent `extent` value used by the operation.
+    /// @param resized `resized` value used by the operation.
+    /// @param coalesce_if_backpressured `coalesce_if_backpressured` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool Application::render_managed_window(ManagedWindow &managed,
                                              Platform::Windowing::WindowExtent extent,
                                              bool resized,
@@ -452,7 +495,6 @@ namespace SFT::Engine {
         }
 
         if (managed.render_thread && coalesce_if_backpressured) {
-
 
 
             while (!managed.in_flight_frames.empty() && managed.in_flight_frames.front().is_done()) {
@@ -467,7 +509,6 @@ namespace SFT::Engine {
         const u64 packed_extent =
             (static_cast<u64>(extent.x) << 32U) | static_cast<u64>(extent.y);
         if (resized) {
-
 
 
             managed.pending_resize_extent.store(packed_extent, std::memory_order_release);
@@ -493,9 +534,6 @@ namespace SFT::Engine {
         ++managed.frame_index;
 
 
-
-
-
         const Core::RenderSurfaceHandle surface = *managed.surface;
         optional<RenderFrameParameters> frame_parameters =
             client_->request_render_frame(*engine_, surface, frame_input);
@@ -513,7 +551,6 @@ namespace SFT::Engine {
             if (resized) {
 
 
-
                 u64 expected_extent = packed_extent;
                 if (managed.pending_resize_extent.compare_exchange_strong(
                         expected_extent, 0, std::memory_order_acq_rel, std::memory_order_acquire)) {
@@ -524,8 +561,6 @@ namespace SFT::Engine {
         };
 
         if (managed.render_thread) {
-
-
 
 
             while (managed.in_flight_frames.size() >= max_frames_in_flight_) {
@@ -539,6 +574,12 @@ namespace SFT::Engine {
         return true;
     }
 
+    /// Performs the sync window state operation for `Engine` using the supplied arguments.
+    ///
+    /// @param window_events Window used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Application::sync_window_state(const vector<Platform::Windowing::ManagedWindowEvents> &window_events) {
         using namespace Platform::Windowing;
 
@@ -549,7 +590,6 @@ namespace SFT::Engine {
             }
 
             WindowSnapshot &snapshot = managed->window_snapshot;
-
 
 
             if (events.framebuffer_size && !managed->live_resize_active) {
@@ -601,6 +641,10 @@ namespace SFT::Engine {
         engine_->window_state().sync(std::move(snapshots), primary_window);
     }
 
+    /// Initializes the `Engine` for use.
+    ///
+    /// @return Returns the current initialize value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool Application::initialize() {
         using namespace Platform::Windowing;
 
@@ -608,7 +652,6 @@ namespace SFT::Engine {
         client_initialized_ = false;
         client_shutdown_ = false;
         engine_ = make_unique<Engine>();
-
 
 
         const ApplicationConfig &config = client_->application_config();
@@ -647,14 +690,6 @@ namespace SFT::Engine {
         client_initialized_ = true;
 
 
-
-
-
-
-
-
-
-
         RHI::RenderThreadingCapabilities threading_caps{};
         if (Core::EngineBackend *backend = engine_->graphics_backend()) {
             threading_caps = backend->render_threading_capabilities();
@@ -672,7 +707,6 @@ namespace SFT::Engine {
         }
 
 
-
         max_frames_in_flight_ = engine_->capabilities().max_frames_in_flight;
 
         Async::Scheduler::initialize_low_latency();
@@ -680,6 +714,10 @@ namespace SFT::Engine {
         return true;
     }
 
+    /// Runs the requested work.
+    ///
+    /// @return Returns the current run value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Application::run() {
         using namespace Platform::Windowing;
 
@@ -696,7 +734,6 @@ namespace SFT::Engine {
         vector<ManagedWindowEvents> window_events;
 
         while (!windows_.empty()) {
-
 
 
             Async::pump_main_thread();
@@ -721,19 +758,8 @@ namespace SFT::Engine {
             }
 
 
-
-
-
-
-
-
-
-
-
             constexpr auto live_resize_submission_interval = std::chrono::milliseconds(16);
             constexpr auto live_resize_settle_interval = std::chrono::milliseconds(250);
-
-
 
 
             constexpr auto live_resize_retry_interval = std::chrono::milliseconds(1);
@@ -745,10 +771,7 @@ namespace SFT::Engine {
                         managed.pending_live_resize = *extent;
 
 
-
-
                         managed.window_snapshot.framebuffer_size = *extent;
-
 
 
                         managed.live_resize_active = true;
@@ -758,17 +781,10 @@ namespace SFT::Engine {
                 if (managed.pending_live_resize) {
 
 
-
-
-
-
                     managed.last_frame_time = live_resize_now;
                     const bool extent_changed = !managed.submitted_live_resize ||
                         managed.submitted_live_resize->x != managed.pending_live_resize->x ||
                         managed.submitted_live_resize->y != managed.pending_live_resize->y;
-
-
-
 
 
                     const bool unattempted = !managed.attempted_live_resize ||
@@ -796,13 +812,10 @@ namespace SFT::Engine {
             }
 
 
-
             for (const ManagedWindowEvents &events : window_events) {
                 if (events.resized) {
                     if (ManagedWindow *managed = find_managed_window(events.window_id)) {
                         managed->pending_live_resize.reset();
-
-
 
 
                         managed->attempted_live_resize.reset();
@@ -812,7 +825,6 @@ namespace SFT::Engine {
                     }
                 }
             }
-
 
 
             sync_window_state(window_events);
@@ -847,8 +859,6 @@ namespace SFT::Engine {
                     managed->submitted_live_resize &&
                     managed->submitted_live_resize->x == events.framebuffer_size->x &&
                     managed->submitted_live_resize->y == events.framebuffer_size->y;
-
-
 
 
                 const bool resize_requires_notification = events.resized && !final_extent_already_submitted;
@@ -889,12 +899,6 @@ namespace SFT::Engine {
                 if (managed.surface) {
 
 
-
-
-
-
-
-
                     if (windows_.size() == 1) {
                         shutdown_client();
                     }
@@ -910,8 +914,6 @@ namespace SFT::Engine {
 
                 const bool was_primary = managed.primary;
                 window_manager_.destroy_window(managed.window_id);
-
-
 
 
                 if (managed.pending_close_completion) {
@@ -934,7 +936,6 @@ namespace SFT::Engine {
 
 
                 const auto usage = Foundation::Memory::heap_usage();
-
 
 
                 peak_resident_bytes = std::max(peak_resident_bytes, usage.current_resident_bytes);
@@ -966,8 +967,6 @@ namespace SFT::Engine {
                             .frame_index = primary->frame_index,
                             .window_count = windows_.size(),
                         });
-
-
 
 
                     window_manager_.post_to_window(primary->window_id, [title](Window &w) -> bool {

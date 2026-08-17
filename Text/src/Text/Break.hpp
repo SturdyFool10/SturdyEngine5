@@ -16,18 +16,30 @@ namespace SFT::Text {
     };
 
     struct LineBreakOpportunity {
-        /// UTF-8 byte boundary immediately after the character where the break may occur.
+
         usize byte_index = 0;
         LineBreakKind kind = LineBreakKind::Allowed;
     };
 
-    /// Unicode UAX #14 line-break opportunities. `language` is an optional BCP-47-ish language
-    /// code used by libunibreak's small tailoring table (for example "en" or "zh").
+
+    /// Performs the line break opportunities operation using the supplied arguments.
+    ///
+    /// @param text Text consumed by the operation.
+    /// @param language `language` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<LineBreakOpportunity> line_break_opportunities(const ustr &text,
                                                                         const ustr &language = {});
 
-    /// Unicode UAX #29 extended grapheme and word boundaries as UTF-8 byte indices. Both include
-    /// 0 and text.byte_size(), making them directly usable as safe slice/caret boundaries.
+
+    /// Performs the grapheme boundaries operation using the supplied arguments.
+    ///
+    /// @param text Text consumed by the operation.
+    /// @param language `language` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<usize> grapheme_boundaries(const ustr &text, const ustr &language = {});
 
     [[nodiscard]] vector<usize> word_boundaries(const ustr &text, const ustr &language = {});

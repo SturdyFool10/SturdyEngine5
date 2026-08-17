@@ -17,12 +17,12 @@
 
 namespace SFT::Foundation {
 
+    /// Returns the current or globally available args from windows command line value.
+    ///
+    /// @return Returns the current args from windows command line value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     CliArgs args_from_windows_command_line() {
         CliArgs args;
-
-
-
-
 
 
         int wide_argc = 0;
@@ -38,7 +38,6 @@ namespace SFT::Foundation {
                 args.emplace_back();
                 continue;
             }
-
 
 
             const int utf8_len = ::WideCharToMultiByte(

@@ -18,11 +18,6 @@ using std::span;
 namespace SFT::RHI {
 
 
-
-
-
-
-
     enum class AccelerationStructureType : u32 {
         BottomLevel,
         TopLevel,
@@ -66,7 +61,7 @@ namespace SFT::RHI {
         u64 index_offset = 0;
         IndexFormat index_format = IndexFormat::Uint32;
 
-        /// Optional 3x4 affine transform matrix buffer, tightly matching Vulkan/D3D12 build inputs.
+
         BufferHandle transform_buffer{};
         u64 transform_offset = 0;
     };
@@ -77,8 +72,7 @@ namespace SFT::RHI {
         u64 stride = 0;
     };
 
-    /// Portable binary TLAS instance record. Backends consume this 64-byte ABI directly; transform is a
-    /// row-major 3x4 affine matrix. The packed words match the cross-API 24-bit-index/8-bit-mask shape.
+
     struct AccelerationStructureInstance {
         std::array<f32, 12> transform{
             1.0f, 0.0f, 0.0f, 0.0f,
@@ -89,7 +83,19 @@ namespace SFT::RHI {
         u32 shader_binding_table_offset_and_flags = 0;
         u64 acceleration_structure_device_address = 0;
 
+        /// Sets the custom index and mask for this `AccelerationStructureInstance`.
+        ///
+        /// @param custom_index Zero-based index of the target element or entry.
+        /// @param mask `mask` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_custom_index_and_mask(u32 custom_index, u8 mask) noexcept;
+        /// Sets the shader binding table offset and flags for this `AccelerationStructureInstance`.
+        ///
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param flags Flags controlling optional behavior.
+        ///
+        /// @note This function does not throw exceptions.
         void set_shader_binding_table_offset_and_flags(u32 offset, u8 flags) noexcept;
     };
     static_assert(sizeof(AccelerationStructureInstance) == 64);
@@ -144,7 +150,6 @@ namespace SFT::RHI {
         AccelerationStructureHandle dst{};
         AccelerationStructureCopyMode mode = AccelerationStructureCopyMode::Clone;
     };
-
 
 
     enum class RayTracingShaderGroupType : u32 {

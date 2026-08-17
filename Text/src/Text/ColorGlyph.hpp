@@ -8,7 +8,6 @@
 #include <hb-ot.h>
 
 
-
 #define STBI_ONLY_PNG
 #include <stb_image.h>
 #include <vector>
@@ -23,43 +22,70 @@ using std::vector;
 
 namespace SFT::Text {
 
-    /// Which color-glyph table (if any) a glyph is stored in. A font can carry both — `Bitmap`
-    /// (CBDT or Apple `sbix`, fixed-size PNG strikes) and `Layered` (COLR/CPAL, vector layers with
-    /// per-layer palette colors) are checked independently; a glyph with neither is an ordinary
-    /// monochrome outline glyph (Text::glyph_outline / the SDF/MSDF path).
+
     enum class ColorGlyphFormat {
         None,
         Bitmap,
         Layered,
     };
 
+    /// Performs the detect color format operation using the supplied arguments.
+    ///
+    /// @param font `font` value used by the operation.
+    /// @param glyph_id Identifier of the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] ColorGlyphFormat detect_color_format(const Font &font, u32 glyph_id);
 
     struct ColorRasterParams {
         u32 width = 0;
         u32 height = 0;
-        /// Desired em size in pixels — selects the nearest embedded PNG strike (CBDT/sbix ship
-        /// several fixed sizes; HarfBuzz picks the closest to this) and scales COLR layer outlines.
+
+
         f32 pixel_size = 32.0f;
-        /// Transparent guard pixels around the color image. Unlike an SDF this is not a distance
-        /// band; it prevents bilinear sampling from clipping or bleeding at the atlas boundary.
+
+
         f32 padding_px = 2.0f;
     };
 
     namespace Detail {
 
+        /// Rasterizes bitmap glyph using the supplied arguments and current state.
+        ///
+        /// @param font `font` value used by the operation.
+        /// @param glyph_id Identifier of the target object or resource.
+        /// @param params `params` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::RasterizationFailed`.
         [[nodiscard]] TextExpected<RasterizedGlyph> rasterize_bitmap_glyph(const Font &font, u32 glyph_id,
                                                                                    const ColorRasterParams &params);
 
+        /// Rasterizes layered glyph using the supplied arguments and current state.
+        ///
+        /// @param font `font` value used by the operation.
+        /// @param glyph_id Identifier of the target object or resource.
+        /// @param params `params` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::RasterizationFailed`.
         [[nodiscard]] TextExpected<RasterizedGlyph> rasterize_layered_glyph(const Font &font, u32 glyph_id,
                                                                                     const ColorRasterParams &params);
 
     } // namespace Detail
 
-    /// Rasterizes a color glyph (bitmap or layered — see detect_color_format()) into a flat RGBA8
-    /// cell, ready for Renderer::TextAtlas's Color sub-atlas. Fails if the glyph has neither color
-    /// table — callers should check detect_color_format() first (or fall back to
-    /// Text::rasterize_glyph for an ordinary monochrome outline glyph).
+
+    /// Rasterizes color glyph using the supplied arguments and current state.
+    ///
+    /// @param font `font` value used by the operation.
+    /// @param glyph_id Identifier of the target object or resource.
+    /// @param params `params` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     [[nodiscard]] TextExpected<RasterizedGlyph> rasterize_color_glyph(const Font &font, u32 glyph_id,
                                                                              const ColorRasterParams &params);
 

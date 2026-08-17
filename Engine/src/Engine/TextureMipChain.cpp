@@ -8,6 +8,14 @@ namespace SFT::Engine::Detail {
 
     namespace {
 
+        /// Computes the rgba8 mip chain bytes required by the supplied values.
+        ///
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<usize> rgba8_mip_chain_bytes(u32 width, u32 height) noexcept {
             u64 total = 0;
             while (true) {
@@ -32,12 +40,24 @@ namespace SFT::Engine::Detail {
             return static_cast<usize>(total);
         }
 
+        /// Performs the sRGB to linear operation for `Detail` using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 srgb_to_linear(u8 value) noexcept {
             const f32 encoded = static_cast<f32>(value) / 255.0f;
             return encoded <= 0.04045f ? encoded / 12.92f
                                        : std::pow((encoded + 0.055f) / 1.055f, 2.4f);
         }
 
+        /// Performs the linear to sRGB operation for `Detail` using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u8 linear_to_srgb(f32 value) noexcept {
             const f32 linear = std::clamp(value, 0.0f, 1.0f);
             const f32 encoded = linear <= 0.0031308f ? linear * 12.92f
@@ -45,12 +65,25 @@ namespace SFT::Engine::Detail {
             return static_cast<u8>(std::clamp(std::lround(encoded * 255.0f), 0l, 255l));
         }
 
+        /// Performs the byte value operation for `Detail` using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u8 byte_value(std::byte value) noexcept {
             return std::to_integer<u8>(value);
         }
 
     } // namespace
 
+    /// Returns the texture mip level count for this `Detail`.
+    ///
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @return Returns the requested count or size.
+    /// @note This function does not throw exceptions.
     u32 texture_mip_level_count(u32 width, u32 height) noexcept {
         if (width == 0 || height == 0) {
             return 0;
@@ -64,6 +97,15 @@ namespace SFT::Engine::Detail {
         return levels;
     }
 
+    /// Performs the generate rgba8 mip chain operation for `Detail` using the supplied arguments.
+    ///
+    /// @param rgba8 `rgba8` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param srgb `srgb` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     std::optional<TextureMipChain> generate_rgba8_mip_chain(
         std::span<const std::byte> rgba8, u32 width, u32 height, bool srgb) {
         if (width == 0 || height == 0) {

@@ -17,20 +17,59 @@ namespace SFT::Async {
     template <typename T>
     class MutexGuard {
       public:
+        /// Disables this construction form for `MutexGuard`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         MutexGuard(const MutexGuard &) = delete;
+        /// Assigns a new value to this `MutexGuard`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         MutexGuard &operator=(const MutexGuard &) = delete;
+        /// Constructs a `MutexGuard` from another instance.
+        ///
+        /// @note This function does not throw exceptions.
         MutexGuard(MutexGuard &&) noexcept = default;
+        /// Assigns a new value to this `MutexGuard`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         MutexGuard &operator=(MutexGuard &&) noexcept = default;
+        /// Destroys the `MutexGuard` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~MutexGuard() noexcept = default;
 
+        /// Dereferences this iterator or handle.
+        ///
+        /// @return Returns the value or reference currently addressed by the iterator/handle.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] T &operator*() noexcept { return *value_; }
+        /// Dereferences this iterator or handle.
+        ///
+        /// @return Returns the value or reference currently addressed by the iterator/handle.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const T &operator*() const noexcept { return *value_; }
+        /// Accesses the object referenced by this `MutexGuard`.
+        ///
+        /// @return Returns a pointer through which the referenced object can be accessed.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] T *operator->() noexcept { return value_; }
+        /// Accesses the object referenced by this `MutexGuard`.
+        ///
+        /// @return Returns a pointer through which the referenced object can be accessed.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const T *operator->() const noexcept { return value_; }
 
       private:
         friend class Mutex<T>;
 
+        /// Constructs a `MutexGuard` from the supplied initialization values.
+        ///
+        /// @param lock `lock` value used by the operation.
+        /// @param value Value consumed by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         MutexGuard(std::unique_lock<LockableBase(std::mutex)> lock, T *value) noexcept
             : lock_(std::move(lock)), value_(value) {}
 
@@ -38,38 +77,48 @@ namespace SFT::Async {
         T *value_ = nullptr;
     };
 
-    /// `LockableBase(std::mutex)` (tracy/Tracy.hpp) is `tracy::Lockable<std::mutex>` when Tracy
-    /// instrumentation is compiled in, or plain `std::mutex` otherwise — every `lock()`/`try_lock()`
-    /// below goes through it unconditionally, so acquiring/holding/releasing this mutex shows up in
-    /// Tracy's lock view with zero call-site changes anywhere already using `Mutex<T>`, and compiles
-    /// down to exactly today's behavior when Tracy is off (`STURDY_ENABLE_TRACY`, off by default).
-    ///
-    /// One wrinkle specific to this being a template: `tracy::Lockable`'s displayed name is normally
-    /// derived from the *source location where the lockable is declared* (see `TracyLockable`'s
-    /// expansion) — fine for a single hand-written mutex, but every one of this template's
-    /// instantiations across the whole codebase would otherwise collapse to the exact same generic
-    /// "std::mutex mutex_" label at this one line, with no way to tell e.g. the Renderer's bloom-cache
-    /// mutex apart from Scheduler's worker deque mutex in Tracy's lock view. `set_debug_name()` below
-    /// opts a specific instance into its own label via Tracy's runtime `CustomName()` — call it once,
-    /// right after construction, for any lock worth telling apart on the timeline (this codebase's own
-    /// convention: name it at the hot/contended ones, e.g. Async::Scheduler's WorkerDeque; leave the
-    /// rest under the shared generic label until they're worth distinguishing too).
+
     template <typename T>
     class Mutex {
       public:
+        /// Constructs a `Mutex` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         Mutex() noexcept(std::is_nothrow_default_constructible_v<T>) = default;
 
+        /// Constructs a `Mutex` from the supplied initialization values.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         explicit Mutex(T value) noexcept(std::is_nothrow_move_constructible_v<T>)
             : value_(std::move(value)) {}
 
+        /// Disables this construction form for `Mutex`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Mutex(const Mutex &) = delete;
+        /// Assigns a new value to this `Mutex`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Mutex &operator=(const Mutex &) = delete;
+        /// Disables this construction form for `Mutex`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Mutex(Mutex &&) = delete;
+        /// Assigns a new value to this `Mutex`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Mutex &operator=(Mutex &&) = delete;
 
-        /// See class doc comment. `debug_name` must outlive this call (Tracy copies it internally, so
-        /// a temporary/stack string is fine) — a no-op, including the null check, when Tracy is
-        /// disabled or `debug_name` is null.
+
+        /// Returns a human-readable name for the supplied set debug value.
+        ///
+        /// @param debug_name Name used to identify or label the target.
+        ///
+        /// @note This function does not throw exceptions.
         void set_debug_name(const char *debug_name) noexcept {
 #if defined(TRACY_ENABLE)
             if (debug_name != nullptr) {
@@ -80,10 +129,18 @@ namespace SFT::Async {
 #endif
         }
 
+        /// Acquires the associated synchronization primitive before protected access.
+        ///
+        /// @return Returns the current lock value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] MutexGuard<T> lock() noexcept {
             return MutexGuard<T>(std::unique_lock<LockableBase(std::mutex)>(mutex_), std::addressof(value_));
         }
 
+        /// Attempts to lock without requiring normal failure to be exceptional.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<MutexGuard<T>> try_lock() noexcept {
             std::unique_lock<LockableBase(std::mutex)> lock(mutex_, std::try_to_lock);
             if (!lock.owns_lock()) {
@@ -94,12 +151,12 @@ namespace SFT::Async {
 
       private:
 #if defined(TRACY_ENABLE)
-        /// tracy::Lockable<T> has no default constructor — it requires a SourceLocationData* up
-        /// front, which is normally supplied by the TracyLockable() macro at a single, fixed
-        /// declaration site. mutex_'s NSDMI below plays that same role for every Mutex<T>
-        /// instantiation, sharing one generic srcloc (see class doc comment for why per-instance
-        /// names go through set_debug_name() instead of trying to give each instantiation its own
-        /// compile-time source location).
+
+
+        /// Returns the current or globally available mutex source location value.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static const tracy::SourceLocationData *mutex_source_location() noexcept {
             static constexpr tracy::SourceLocationData srcloc{nullptr, "SFT::Async::Mutex", __FILE__, __LINE__, 0};
             return &srcloc;

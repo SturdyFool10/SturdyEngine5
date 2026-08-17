@@ -12,18 +12,13 @@
 
 namespace SFT::Core::Vulkan {
 
-    /// The RHI's `:Extensions` graduation pattern (RHI/Extensions.cppm), instantiated for Vulkan: the
-    /// one escape hatch a caller needs when Sturdy.RHI hasn't modeled a capability yet — vendor upscaler
-    /// SDK init (FSR2/DLSS/XeSS), vendor-specific queries (NVAPI/AMD AGS), RenderDoc/Nsight
-    /// instrumentation, or raw vkCmd* calls interleaved into an RHI-recorded command buffer.
-    ///
-    /// Opt-in only: `RhiDevice::extension_interface()` only returns this when the app requested it via
-    /// `RendererFeatureRequest::enable_native_access_extension` (see Core/Renderer.cppm) at device
-    /// creation — never enabled implicitly. Once obtained, everything the caller does with these native
-    /// handles is outside RHI's tracking guarantees (no automatic barrier/lifetime tracking), the same
-    /// way the RHI's explicit `:Barrier` model already puts synchronization correctness on the caller.
+
     class VulkanNativeAccessExtension final : public RHI::RhiDeviceExtension {
       public:
+        /// Returns the current or globally available ID value.
+        ///
+        /// @return Returns the current ID value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static constexpr RHI::ExtensionId id() noexcept {
             return RHI::ExtensionId{"sturdy", "vulkan-native-access", 1};
         }
@@ -31,6 +26,17 @@ namespace SFT::Core::Vulkan {
         using NativeQueueLookup = VkQueue (*)(void *context, RHI::QueueLane lane) noexcept;
         using NativeQueueFamilyLookup = u32 (*)(void *context, RHI::QueueLane lane) noexcept;
 
+        /// Constructs a `VulkanNativeAccessExtension` from the supplied initialization values.
+        ///
+        /// @param instance Instance used or affected by the operation.
+        /// @param physical_device Device used or affected by the operation.
+        /// @param device Device used or affected by the operation.
+        /// @param graphics_queue Queue used or affected by the operation.
+        /// @param queue_lookup_context Context that supplies state required by the operation.
+        /// @param queue_lookup Queue used or affected by the operation.
+        /// @param queue_family_lookup Queue used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanNativeAccessExtension(VkInstance instance,
                                     VkPhysicalDevice physical_device,
                                     VkDevice device,
@@ -39,21 +45,56 @@ namespace SFT::Core::Vulkan {
                                     NativeQueueLookup queue_lookup = nullptr,
                                     NativeQueueFamilyLookup queue_family_lookup = nullptr) noexcept;
 
+        /// Returns the current or globally available extension ID value.
+        ///
+        /// @return Returns the current extension ID value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::ExtensionId extension_id() const noexcept override;
 
+        /// Returns the current or globally available native instance value.
+        ///
+        /// @return Returns the current native instance value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkInstance native_instance() const noexcept;
+        /// Returns the current or globally available native physical device value.
+        ///
+        /// @return Returns the current native physical device value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkPhysicalDevice native_physical_device() const noexcept;
+        /// Returns the current or globally available native device value.
+        ///
+        /// @return Returns the current native device value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkDevice native_device() const noexcept;
+        /// Returns the current or globally available native graphics queue value.
+        ///
+        /// @return Returns the current native graphics queue value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkQueue native_graphics_queue() const noexcept;
-        /// Returns the native queue backing an advertised RHI queue lane, or VK_NULL_HANDLE if the lane
-        /// is not exposed. Use RhiDevice::queue_infos() first to discover valid QueueClass/index pairs.
+
+
+        /// Performs the native queue operation for `VulkanNativeAccessExtension` using the supplied arguments.
+        ///
+        /// @param lane `lane` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkQueue native_queue(RHI::QueueLane lane) const noexcept;
+        /// Performs the native queue family operation for `VulkanNativeAccessExtension` using the supplied arguments.
+        ///
+        /// @param lane `lane` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 native_queue_family(RHI::QueueLane lane) const noexcept;
 
-        /// Returns the live VkCommandBuffer backing `encoder` while it is still open (between its
-        /// creation via RhiDevice::create_command_encoder() and its finish()), or VK_NULL_HANDLE if
-        /// `encoder` isn't the Vulkan bridge's own encoder type. Defined in VulkanRhiBridgeCommands.cpp,
-        /// the only translation unit where the concrete encoder type is visible.
+
+        /// Performs the native command buffer operation for `VulkanNativeAccessExtension` using the supplied arguments.
+        ///
+        /// @param encoder `encoder` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkCommandBuffer native_command_buffer(const RHI::CommandEncoder &encoder) const noexcept;
 
       private:

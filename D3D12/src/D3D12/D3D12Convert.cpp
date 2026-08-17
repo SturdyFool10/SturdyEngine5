@@ -5,7 +5,12 @@ namespace SFT::D3D12 {
     using rhi::has_any;
 
 
-
+    /// Converts the value to DXGI view format representation.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value converted to DXGI view format representation.
+    /// @note This function does not throw exceptions.
     DXGI_FORMAT to_dxgi_view_format(rhi::Format format) noexcept {
         switch (format) {
             case rhi::Format::Undefined:
@@ -114,6 +119,12 @@ namespace SFT::D3D12 {
         return DXGI_FORMAT_UNKNOWN;
     }
 
+    /// Converts the value to DXGI typeless format representation.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value converted to DXGI typeless format representation.
+    /// @note This function does not throw exceptions.
     DXGI_FORMAT to_dxgi_typeless_format(rhi::Format format) noexcept {
         switch (format) {
             case rhi::Format::D16Unorm:
@@ -129,6 +140,12 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Converts the value to DXGI depth srv format representation.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value converted to DXGI depth srv format representation.
+    /// @note This function does not throw exceptions.
     DXGI_FORMAT to_dxgi_depth_srv_format(rhi::Format format) noexcept {
         switch (format) {
             case rhi::Format::D16Unorm:
@@ -144,8 +161,14 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Converts the value to DXGI resource format representation.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param usage Usage flags or category applied to the resource.
+    ///
+    /// @return Returns the value converted to DXGI resource format representation.
+    /// @note This function does not throw exceptions.
     DXGI_FORMAT to_dxgi_resource_format(rhi::Format format, rhi::TextureUsage usage) noexcept {
-
 
 
         if (rhi::format_is_depth_stencil(format) &&
@@ -158,6 +181,12 @@ namespace SFT::D3D12 {
         return to_dxgi_view_format(format);
     }
 
+    /// Computes the format element bytes required by the supplied values.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     u32 format_element_bytes(rhi::Format format) noexcept {
         switch (format) {
             case rhi::Format::R8Unorm:
@@ -227,10 +256,22 @@ namespace SFT::D3D12 {
         return 0;
     }
 
+    /// Formats block extent using the supplied arguments and current state.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     u32 format_block_extent(rhi::Format format) noexcept {
         return rhi::format_is_block_compressed(format) ? 4u : 1u;
     }
 
+    /// Converts the value to DXGI representation.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value converted to DXGI representation.
+    /// @note This function does not throw exceptions.
     DXGI_FORMAT to_dxgi(rhi::VertexFormat format) noexcept {
         switch (format) {
             case rhi::VertexFormat::Float32:
@@ -273,10 +314,23 @@ namespace SFT::D3D12 {
         return DXGI_FORMAT_UNKNOWN;
     }
 
+    /// Converts the value to DXGI representation.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value converted to DXGI representation.
+    /// @note This function does not throw exceptions.
     DXGI_FORMAT to_dxgi(rhi::IndexFormat format) noexcept {
         return format == rhi::IndexFormat::Uint16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT;
     }
 
+    /// Converts the value to DXGI color space representation.
+    ///
+    /// @param color_space `color_space` value used by the operation.
+    /// @param out `out` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool to_dxgi_color_space(rhi::ColorSpace color_space, DXGI_COLOR_SPACE_TYPE &out) noexcept {
         switch (color_space) {
             case rhi::ColorSpace::SrgbNonlinear:
@@ -290,13 +344,10 @@ namespace SFT::D3D12 {
                 return true;
 
 
-
             case rhi::ColorSpace::Hdr10Hlg:
             case rhi::ColorSpace::DisplayP3Nonlinear:
             case rhi::ColorSpace::Bt2020Linear:
                 return false;
-
-
 
 
             case rhi::ColorSpace::DolbyVision:
@@ -309,11 +360,14 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param usage Usage flags or category applied to the resource.
+    ///
+    /// @return Returns the value converted to D3D12 resource flags representation.
+    /// @note This function does not throw exceptions.
     D3D12_RESOURCE_FLAGS to_d3d12_resource_flags(rhi::BufferUsage usage) noexcept {
         D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
-
-
 
 
         if (has_any(usage, rhi::BufferUsage::Storage | rhi::BufferUsage::AccelerationStructureScratch)) {
@@ -322,6 +376,13 @@ namespace SFT::D3D12 {
         return flags;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param usage Usage flags or category applied to the resource.
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value converted to D3D12 resource flags representation.
+    /// @note This function does not throw exceptions.
     D3D12_RESOURCE_FLAGS to_d3d12_resource_flags(rhi::TextureUsage usage, rhi::Format format) noexcept {
         D3D12_RESOURCE_FLAGS flags = D3D12_RESOURCE_FLAG_NONE;
         if (has_any(usage, rhi::TextureUsage::ColorAttachment)) {
@@ -342,6 +403,12 @@ namespace SFT::D3D12 {
         return flags;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param memory `memory` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 heap type representation.
+    /// @note This function does not throw exceptions.
     D3D12_HEAP_TYPE to_d3d12_heap_type(rhi::MemoryLocation memory) noexcept {
         switch (memory) {
             case rhi::MemoryLocation::DeviceLocal:
@@ -354,6 +421,12 @@ namespace SFT::D3D12 {
         return D3D12_HEAP_TYPE_DEFAULT;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param dimension `dimension` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
     D3D12_RESOURCE_DIMENSION to_d3d12(rhi::TextureDimension dimension) noexcept {
         switch (dimension) {
             case rhi::TextureDimension::Dim1D:
@@ -367,7 +440,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param op `op` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
     D3D12_COMPARISON_FUNC to_d3d12(rhi::CompareOp op) noexcept {
         switch (op) {
             case rhi::CompareOp::Never:
@@ -390,6 +468,12 @@ namespace SFT::D3D12 {
         return D3D12_COMPARISON_FUNC_ALWAYS;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
     D3D12_TEXTURE_ADDRESS_MODE to_d3d12(rhi::AddressMode mode) noexcept {
         switch (mode) {
             case rhi::AddressMode::Repeat:
@@ -404,6 +488,12 @@ namespace SFT::D3D12 {
         return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value converted to D3D12 filter representation.
+    /// @note This function does not throw exceptions.
     D3D12_FILTER to_d3d12_filter(const rhi::SamplerDesc &desc) noexcept {
 
 
@@ -421,6 +511,11 @@ namespace SFT::D3D12 {
         return D3D12_ENCODE_BASIC_FILTER(min_filter, mag_filter, mip_filter, reduction);
     }
 
+    /// Fills border color using the supplied arguments and current state.
+    ///
+    /// @param color `color` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void fill_border_color(rhi::BorderColor color, float out[4]) noexcept {
         switch (color) {
             case rhi::BorderColor::TransparentBlack:
@@ -438,15 +533,24 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
     D3D12_FILL_MODE to_d3d12(rhi::PolygonMode mode) noexcept {
-
-
 
 
         return mode == rhi::PolygonMode::Fill ? D3D12_FILL_MODE_SOLID : D3D12_FILL_MODE_WIREFRAME;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
     D3D12_CULL_MODE to_d3d12(rhi::CullMode mode) noexcept {
         switch (mode) {
             case rhi::CullMode::None:
@@ -459,6 +563,12 @@ namespace SFT::D3D12 {
         return D3D12_CULL_MODE_NONE;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param op `op` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
     D3D12_STENCIL_OP to_d3d12(rhi::StencilOp op) noexcept {
         switch (op) {
             case rhi::StencilOp::Keep:
@@ -481,6 +591,13 @@ namespace SFT::D3D12 {
         return D3D12_STENCIL_OP_KEEP;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param factor `factor` value used by the operation.
+    /// @param is_alpha `is_alpha` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 blend representation.
+    /// @note This function does not throw exceptions.
     D3D12_BLEND to_d3d12_blend(rhi::BlendFactor factor, bool is_alpha) noexcept {
 
 
@@ -515,6 +632,12 @@ namespace SFT::D3D12 {
         return D3D12_BLEND_ONE;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param op `op` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
     D3D12_BLEND_OP to_d3d12(rhi::BlendOp op) noexcept {
         switch (op) {
             case rhi::BlendOp::Add:
@@ -531,6 +654,12 @@ namespace SFT::D3D12 {
         return D3D12_BLEND_OP_ADD;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param mask `mask` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 write mask representation.
+    /// @note This function does not throw exceptions.
     u8 to_d3d12_write_mask(rhi::ColorWriteMask mask) noexcept {
         u8 result = 0;
         if (has_any(mask, rhi::ColorWriteMask::Red)) {
@@ -548,6 +677,12 @@ namespace SFT::D3D12 {
         return result;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param topology `topology` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 topology type representation.
+    /// @note This function does not throw exceptions.
     D3D12_PRIMITIVE_TOPOLOGY_TYPE to_d3d12_topology_type(rhi::PrimitiveTopology topology) noexcept {
         switch (topology) {
             case rhi::PrimitiveTopology::PointList:
@@ -562,6 +697,12 @@ namespace SFT::D3D12 {
         return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param topology `topology` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 topology representation.
+    /// @note This function does not throw exceptions.
     D3D_PRIMITIVE_TOPOLOGY to_d3d12_topology(rhi::PrimitiveTopology topology) noexcept {
         switch (topology) {
             case rhi::PrimitiveTopology::PointList:
@@ -579,7 +720,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param queue Queue used or affected by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
     D3D12_COMMAND_LIST_TYPE to_d3d12(rhi::QueueClass queue) noexcept {
         switch (queue) {
             case rhi::QueueClass::Graphics:
@@ -594,13 +740,18 @@ namespace SFT::D3D12 {
                 return D3D12_COMMAND_LIST_TYPE_VIDEO_ENCODE;
 
 
-
             case rhi::QueueClass::Sparse:
                 return D3D12_COMMAND_LIST_TYPE_DIRECT;
         }
         return D3D12_COMMAND_LIST_TYPE_DIRECT;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    ///
+    /// @return Returns the value converted to D3D12 query heap type representation.
+    /// @note This function does not throw exceptions.
     D3D12_QUERY_HEAP_TYPE to_d3d12_query_heap_type(rhi::QueryType type) noexcept {
         switch (type) {
             case rhi::QueryType::Occlusion:
@@ -613,6 +764,13 @@ namespace SFT::D3D12 {
         return D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    /// @param precise_occlusion `precise_occlusion` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 query type representation.
+    /// @note This function does not throw exceptions.
     D3D12_QUERY_TYPE to_d3d12_query_type(rhi::QueryType type, bool precise_occlusion) noexcept {
         switch (type) {
             case rhi::QueryType::Occlusion:
@@ -625,6 +783,12 @@ namespace SFT::D3D12 {
         return D3D12_QUERY_TYPE_TIMESTAMP;
     }
 
+    /// Computes the query result bytes required by the supplied values.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note This function does not throw exceptions.
     u64 query_result_bytes(rhi::QueryType type) noexcept {
         switch (type) {
             case rhi::QueryType::Occlusion:
@@ -637,7 +801,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param stages `stages` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 sync representation.
+    /// @note This function does not throw exceptions.
     D3D12_BARRIER_SYNC to_d3d12_sync(rhi::PipelineStage stages) noexcept {
         if (stages == rhi::PipelineStage::None) {
             return D3D12_BARRIER_SYNC_NONE;
@@ -673,21 +842,23 @@ namespace SFT::D3D12 {
         add(rhi::PipelineStage::ComputeShader, D3D12_BARRIER_SYNC_COMPUTE_SHADING);
 
 
-
         add(rhi::PipelineStage::Transfer, D3D12_BARRIER_SYNC_COPY);
         add(rhi::PipelineStage::RayTracingShader, D3D12_BARRIER_SYNC_RAYTRACING);
         add(rhi::PipelineStage::AccelerationStructureBuild,
             D3D12_BARRIER_SYNC_BUILD_RAYTRACING_ACCELERATION_STRUCTURE);
 
 
-
-
         return sync;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param access `access` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 access representation.
+    /// @note This function does not throw exceptions.
     D3D12_BARRIER_ACCESS to_d3d12_access(rhi::AccessFlags access) noexcept {
         if (access == rhi::AccessFlags::None) {
-
 
 
             return D3D12_BARRIER_ACCESS_COMMON;
@@ -716,8 +887,6 @@ namespace SFT::D3D12 {
         add(rhi::AccessFlags::AccelerationStructureWrite, D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE);
 
 
-
-
         if (has_any(access, rhi::AccessFlags::MemoryRead | rhi::AccessFlags::MemoryWrite)) {
             return D3D12_BARRIER_ACCESS_COMMON;
         }
@@ -726,6 +895,12 @@ namespace SFT::D3D12 {
         return result;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param layout `layout` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 layout representation.
+    /// @note This function does not throw exceptions.
     D3D12_BARRIER_LAYOUT to_d3d12_layout(rhi::TextureLayout layout) noexcept {
         switch (layout) {
             case rhi::TextureLayout::Undefined:
@@ -752,7 +927,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Converts the value to legacy texture state representation.
+    ///
+    /// @param layout `layout` value used by the operation.
+    ///
+    /// @return Returns the value converted to legacy texture state representation.
+    /// @note This function does not throw exceptions.
     D3D12_RESOURCE_STATES to_legacy_texture_state(rhi::TextureLayout layout) noexcept {
         switch (layout) {
             case rhi::TextureLayout::Undefined:
@@ -768,7 +948,6 @@ namespace SFT::D3D12 {
             case rhi::TextureLayout::ShaderReadOnly:
 
 
-
                 return D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
             case rhi::TextureLayout::TransferSrc:
@@ -781,8 +960,13 @@ namespace SFT::D3D12 {
         return D3D12_RESOURCE_STATE_COMMON;
     }
 
+    /// Converts the value to legacy buffer state representation.
+    ///
+    /// @param access `access` value used by the operation.
+    ///
+    /// @return Returns the value converted to legacy buffer state representation.
+    /// @note This function does not throw exceptions.
     D3D12_RESOURCE_STATES to_legacy_buffer_state(rhi::AccessFlags access) noexcept {
-
 
 
         if (has_any(access, rhi::AccessFlags::ShaderWrite)) {
@@ -814,7 +998,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param flags Flags controlling optional behavior.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS to_d3d12(
         rhi::AccelerationStructureBuildFlags flags) noexcept {
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAGS result =
@@ -837,6 +1026,12 @@ namespace SFT::D3D12 {
         return result;
     }
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param flags Flags controlling optional behavior.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
     D3D12_RAYTRACING_GEOMETRY_FLAGS to_d3d12(rhi::AccelerationStructureGeometryFlags flags) noexcept {
         D3D12_RAYTRACING_GEOMETRY_FLAGS result = D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
         if (has_any(flags, rhi::AccelerationStructureGeometryFlags::Opaque)) {
@@ -849,7 +1044,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param stages `stages` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 visibility representation.
+    /// @note This function does not throw exceptions.
     D3D12_SHADER_VISIBILITY to_d3d12_visibility(rhi::ShaderStage stages) noexcept {
         switch (stages) {
             case rhi::ShaderStage::Vertex:
@@ -869,7 +1069,6 @@ namespace SFT::D3D12 {
             default:
                 break;
         }
-
 
 
         return D3D12_SHADER_VISIBILITY_ALL;

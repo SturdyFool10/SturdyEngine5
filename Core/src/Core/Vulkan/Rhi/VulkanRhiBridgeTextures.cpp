@@ -36,6 +36,12 @@ namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
+    /// Creates a texture from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::TextureHandle> VulkanRhiDeviceBridge::create_texture(const rhi::TextureDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_texture");
         if (allocator_ == nullptr || logical_device_ == nullptr) {
@@ -51,14 +57,6 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
-
-
-
-
-
         VkImageCreateFlags create_flags = 0;
         if (desc.dimension == rhi::TextureDimension::Dim2D && array_layers >= 6 && array_layers % 6 == 0 &&
             extent.width == extent.height) {
@@ -67,9 +65,6 @@ namespace SFT::Core::Vulkan {
         if (desc.dimension == rhi::TextureDimension::Dim3D) {
             create_flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
         }
-
-
-
 
 
         vector<u32> concurrent_families;
@@ -116,11 +111,24 @@ namespace SFT::Core::Vulkan {
         return textures_.insert(TextureRecord{std::move(*image), desc.format});
     }
 
+    /// Destroys the texture identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_texture(rhi::TextureHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_texture");
         textures_.erase(handle);
     }
 
+    /// Creates a texture view from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<rhi::TextureViewHandle> VulkanRhiDeviceBridge::create_texture_view(const rhi::TextureViewDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_texture_view");
         if (logical_device_ == nullptr) {
@@ -161,6 +169,12 @@ namespace SFT::Core::Vulkan {
         return texture_views_.insert(std::move(*view));
     }
 
+    /// Destroys the texture view identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_texture_view(rhi::TextureViewHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_texture_view");
         texture_views_.erase(handle);

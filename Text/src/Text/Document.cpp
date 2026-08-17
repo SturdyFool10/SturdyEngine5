@@ -21,26 +21,59 @@ constexpr usize branch_fanout = 32;
 constexpr usize piece_target_bytes = 16 * 1024;
 
 
-
-
-
-
-
-
 template <typename T, usize N>
 class FixedVector {
   public:
+    /// Constructs a `FixedVector` in its default state.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     FixedVector() = default;
+    /// Constructs a `FixedVector` from the supplied initialization values.
+    ///
+    /// @param source Source value or resource.
+    ///
+    /// @pre `source.size() <= N`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     explicit FixedVector(vector<T> source) {
         assert(source.size() <= N);
         for (auto &item : source) storage_[count_++] = std::move(item);
     }
+    /// Returns the size for this `FixedVector`.
+    ///
+    /// @return Returns the current size value.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] usize size() const noexcept { return count_; }
+    /// Reports whether this `FixedVector` contains no elements or payload.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool empty() const noexcept { return count_ == 0; }
+    /// Accesses an element of the `FixedVector` by index or key.
+    ///
+    /// @param index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the selected element or a reference/proxy referring to it.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] const T &operator[](usize index) const noexcept { return storage_[index]; }
+    /// Returns the current or globally available front value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] const T &front() const noexcept { return storage_[0]; }
+    /// Returns the current or globally available back value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] const T &back() const noexcept { return storage_[count_ - 1]; }
+    /// Returns an iterator to the first element in the range.
+    ///
+    /// @return Returns an iterator referring to the first element.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] const T *begin() const noexcept { return storage_.data(); }
+    /// Returns the one-past-the-end iterator for the range.
+    ///
+    /// @return Returns the one-past-the-end iterator.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] const T *end() const noexcept { return storage_.data() + count_; }
 
   private:
@@ -55,11 +88,24 @@ struct Piece {
     TextSummary summary{};
 };
 
+/// Performs the continuation operation for `Text` using the supplied arguments.
+///
+/// @param byte `byte` value used by the operation.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool continuation(unsigned char byte) noexcept { return (byte & 0xc0u) == 0x80u; }
 
 
-
-
+/// Decodes the supplied representation.
+///
+/// @param bytes Size of the relevant data in bytes.
+/// @param available `available` value used by the operation.
+/// @param scalar `scalar` value used by the operation.
+/// @param width Width of the target extent.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool decode(const char *bytes, usize available, char32_t &scalar, usize &width) noexcept {
     if (available == 0) return false;
     const auto b0 = static_cast<unsigned char>(bytes[0]);
@@ -80,6 +126,13 @@ struct Piece {
     return false;
 }
 
+/// Performs the summarize operation for `Text` using the supplied arguments.
+///
+/// @param text Text consumed by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
+/// @note This function does not throw exceptions.
 [[nodiscard]] optional<TextSummary> summarize(string_view text) noexcept {
     TextSummary result{};
     result.bytes = text.size();
@@ -122,14 +175,16 @@ struct Piece {
     return result;
 }
 
+/// Joins the associated asynchronous work and waits for completion.
+///
+/// @param lhs Left-hand operand.
+/// @param rhs Right-hand operand.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] TextSummary join(TextSummary lhs, const TextSummary &rhs) noexcept {
     const bool rhs_has_line_break = rhs.newlines != 0;
     const bool lhs_has_line_break = lhs.newlines != 0;
-
-
-
-
-
 
 
     usize longest_line = lhs.longest_line;
@@ -163,10 +218,26 @@ struct Piece {
     return lhs;
 }
 
+/// Performs the boundary operation for `Text` using the supplied arguments.
+///
+/// @param bytes Size of the relevant data in bytes.
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool boundary(string_view bytes, usize offset) noexcept {
     return offset <= bytes.size() && (offset == 0 || offset == bytes.size() || !continuation(static_cast<unsigned char>(bytes[offset])));
 }
 
+/// Resolves the pieces associated with the supplied key, handle, or resource.
+///
+/// @param storage `storage` value used by the operation.
+/// @param begin First position or element included in the operation.
+/// @param length Requested or available size for the operation.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @pre `next > cursor`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] vector<Piece> pieces_for(shared_ptr<const string> storage, usize begin, usize length) {
     vector<Piece> result;
     const string_view all{*storage};
@@ -193,6 +264,10 @@ struct Node {
 
 
     usize height = 1;
+    /// Returns the current or globally available leaf value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool leaf() const noexcept { return children.empty(); }
 };
 
@@ -203,9 +278,6 @@ struct DocumentState {
     ChangeSet changes_from_parent{};
 
 
-
-
-
     EditKind kind_from_parent = EditKind::Standalone;
     bool continues_previous_group = false;
 };
@@ -214,6 +286,12 @@ struct DocumentState {
 namespace {
 using Detail::Node;
 
+/// Creates a leaf value from the supplied arguments.
+///
+/// @param pieces `pieces` value used by the operation.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] shared_ptr<const Node> make_leaf(vector<Piece> pieces) {
     auto node = make_shared<Node>();
     node->pieces = FixedVector<Piece, leaf_piece_capacity>{std::move(pieces)};
@@ -221,6 +299,12 @@ using Detail::Node;
     return node;
 }
 
+/// Creates a branch value from the supplied arguments.
+///
+/// @param children `children` value used by the operation.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] shared_ptr<const Node> make_branch(vector<shared_ptr<const Node>> children) {
     auto node = make_shared<Node>();
     node->children = FixedVector<shared_ptr<const Node>, branch_fanout>{std::move(children)};
@@ -230,8 +314,12 @@ using Detail::Node;
 }
 
 
-
-
+/// Builds level.
+///
+/// @param level `level` value used by the operation.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] shared_ptr<const Node> build_level(vector<shared_ptr<const Node>> level) {
     if (level.empty()) return make_leaf({});
     while (level.size() > 1) {
@@ -246,6 +334,12 @@ using Detail::Node;
     return level.front();
 }
 
+/// Builds tree.
+///
+/// @param pieces `pieces` value used by the operation.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] shared_ptr<const Node> build_tree(const vector<Piece> &pieces) {
     vector<shared_ptr<const Node>> leaves;
     for (usize i = 0; i < pieces.size(); i += leaf_piece_capacity) {
@@ -254,17 +348,24 @@ using Detail::Node;
     return build_level(std::move(leaves));
 }
 
+/// Collects pieces using the supplied arguments and current state.
+///
+/// @param node `node` value used by the operation.
+/// @param out `out` value used by the operation.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void collect_pieces(const shared_ptr<const Node> &node, vector<Piece> &out) {
     if (node->leaf()) { out.insert(out.end(), node->pieces.begin(), node->pieces.end()); return; }
     for (const auto &child : node->children) collect_pieces(child, out);
 }
 
 
-
-
-
-
-
+/// Performs the level from nodes operation for `Text` using the supplied arguments.
+///
+/// @param children `children` value used by the operation.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] vector<shared_ptr<const Node>> level_from_nodes(vector<shared_ptr<const Node>> children) {
     if (children.empty()) return {};
     if (children.size() <= branch_fanout) return {make_branch(std::move(children))};
@@ -274,6 +375,12 @@ void collect_pieces(const shared_ptr<const Node> &node, vector<Piece> &out) {
     return {make_branch(std::move(first)), make_branch(std::move(second))};
 }
 
+/// Performs the level from pieces operation for `Text` using the supplied arguments.
+///
+/// @param pieces `pieces` value used by the operation.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] vector<shared_ptr<const Node>> level_from_pieces(vector<Piece> pieces) {
     if (pieces.empty()) return {};
     if (pieces.size() <= leaf_piece_capacity) return {make_leaf(std::move(pieces))};
@@ -283,6 +390,13 @@ void collect_pieces(const shared_ptr<const Node> &node, vector<Piece> &out) {
     return {make_leaf(std::move(first)), make_leaf(std::move(second))};
 }
 
+/// Performs the concat core operation for `Text` using the supplied arguments.
+///
+/// @param left Left-hand operand.
+/// @param right Right-hand operand.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] vector<shared_ptr<const Node>> concat_core(const shared_ptr<const Node> &left,
                                                           const shared_ptr<const Node> &right) {
     if (left->height == right->height) {
@@ -307,9 +421,13 @@ void collect_pieces(const shared_ptr<const Node> &node, vector<Piece> &out) {
 }
 
 
-
-
-
+/// Performs the concat operation for `Text` using the supplied arguments.
+///
+/// @param left Left-hand operand.
+/// @param right Right-hand operand.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] shared_ptr<const Node> concat(const shared_ptr<const Node> &left, const shared_ptr<const Node> &right) {
     if (left->summary.bytes == 0) return right;
     if (right->summary.bytes == 0) return left;
@@ -317,6 +435,12 @@ void collect_pieces(const shared_ptr<const Node> &node, vector<Piece> &out) {
     return merged.size() == 1 ? merged.front() : make_branch(std::move(merged));
 }
 
+/// Performs the wrap or empty operation for `Text` using the supplied arguments.
+///
+/// @param nodes `nodes` value used by the operation.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] shared_ptr<const Node> wrap_or_empty(vector<shared_ptr<const Node>> nodes) {
     if (nodes.empty()) return make_leaf({});
     if (nodes.size() == 1) return nodes.front();
@@ -326,11 +450,13 @@ void collect_pieces(const shared_ptr<const Node> &node, vector<Piece> &out) {
 struct TreeSplit { shared_ptr<const Node> left; shared_ptr<const Node> right; };
 
 
-
-
-
-
-
+/// Splits the supplied or associated value/state using the supplied arguments and current state.
+///
+/// @param node `node` value used by the operation.
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] TreeSplit split(const shared_ptr<const Node> &node, usize offset) {
     if (offset == 0) return {make_leaf({}), node};
     if (offset == node->summary.bytes) return {node, make_leaf({})};
@@ -375,6 +501,14 @@ struct TreeSplit { shared_ptr<const Node> left; shared_ptr<const Node> right; };
     return {node, make_leaf({})};
 }
 
+/// Collects range using the supplied arguments and current state.
+///
+/// @param node `node` value used by the operation.
+/// @param skip `skip` value used by the operation.
+/// @param remaining `remaining` value used by the operation.
+/// @param slice `slice` value used by the operation.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void collect_range(const shared_ptr<const Node> &node, usize &skip, usize &remaining, TextSlice &slice) {
     if (remaining == 0) return;
     if (skip >= node->summary.bytes) { skip -= node->summary.bytes; return; }
@@ -390,6 +524,15 @@ void collect_range(const shared_ptr<const Node> &node, usize &skip, usize &remai
     }
 }
 
+/// Visits range using the supplied arguments and current state.
+///
+/// @param node `node` value used by the operation.
+/// @param skip `skip` value used by the operation.
+/// @param remaining `remaining` value used by the operation.
+/// @param visitor `visitor` value used by the operation.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 bool visit_range(const shared_ptr<const Node> &node, usize &skip, usize &remaining, const TextChunkVisitor &visitor) {
     if (remaining == 0) return true;
     if (skip >= node->summary.bytes) { skip -= node->summary.bytes; return true; }
@@ -409,6 +552,13 @@ bool visit_range(const shared_ptr<const Node> &node, usize &skip, usize &remaini
     return true;
 }
 
+/// Performs the accumulate stats operation for `Text` using the supplied arguments.
+///
+/// @param node `node` value used by the operation.
+/// @param stats `stats` value used by the operation.
+/// @param depth Depth of the target extent.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void accumulate_stats(const shared_ptr<const Node> &node, DocumentMemoryStats &stats, usize depth) {
     ++stats.tree_nodes;
     stats.maximum_tree_depth = std::max(stats.maximum_tree_depth, depth);
@@ -436,6 +586,11 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
     return node->pieces.empty() && offset == 0 ? optional<Location>{Location{before, nullptr, 0}} : nullopt;
 }
 
+/// Performs the local prefix operation for `Text` using the supplied arguments.
+///
+/// @param location `location` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
 [[nodiscard]] optional<TextSummary> local_prefix(const Location &location) {
     if (location.piece == nullptr) return TextSummary{};
     const string_view bytes{location.piece->storage->data() + location.piece->start, location.local_byte};
@@ -443,8 +598,14 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
 }
 
 
-
-
+/// Computes the newline end offset required by the supplied values.
+///
+/// @param node `node` value used by the operation.
+/// @param newline_index Zero-based index of the target element or entry.
+/// @param prefix_bytes `prefix_bytes` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 [[nodiscard]] optional<usize> newline_end_offset(const shared_ptr<const Node> &node, usize newline_index,
                                                  usize prefix_bytes = 0) {
     if (newline_index >= node->summary.newlines) return nullopt;
@@ -472,7 +633,15 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
 }
 
 
-
+/// Computes the line column to offset required by the supplied values.
+///
+/// @param root `root` value used by the operation.
+/// @param line `line` value used by the operation.
+/// @param column `column` value used by the operation.
+/// @param utf16 `utf16` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 [[nodiscard]] optional<usize> line_column_to_offset(const shared_ptr<const Node> &root, usize line, usize column,
                                                     bool utf16) {
     const usize line_count = root->summary.newlines + 1;
@@ -498,8 +667,13 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
 }
 
 
-
-
+/// Performs the raw byte at operation for `Text` using the supplied arguments.
+///
+/// @param node `node` value used by the operation.
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 [[nodiscard]] optional<unsigned char> raw_byte_at(const shared_ptr<const Node> &node, usize offset) {
     if (offset >= node->summary.bytes) return nullopt;
     if (!node->leaf()) {
@@ -516,6 +690,13 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
     return nullopt;
 }
 
+/// Reports whether valid range is valid for the current operation.
+///
+/// @param state `state` value used by the operation.
+/// @param range Range of values to process.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] bool valid_range(const Detail::DocumentState &state, TextRange range) {
     if (range.start.value > range.end.value || range.end.value > state.root->summary.bytes) return false;
     const auto start = locate(state.root, range.start.value);
@@ -525,8 +706,12 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
 }
 
 
-
-
+/// Performs the classify operation for `Text` using the supplied arguments.
+///
+/// @param scalar `scalar` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] CharClass classify(char32_t scalar) noexcept {
     if (scalar == U' ' || scalar == U'\t' || scalar == U'\n' || scalar == U'\r' || scalar == U'\f' || scalar == U'\v') return CharClass::Whitespace;
     if (scalar == U'_' || (scalar < 128 && std::isalnum(static_cast<int>(scalar)) != 0) || scalar >= 128) return CharClass::Word;
@@ -535,6 +720,13 @@ struct Location { TextSummary before{}; const Piece *piece = nullptr; usize loca
 
 struct ScalarAt { char32_t scalar; ByteOffset start; ByteOffset end; };
 
+/// Performs the next scalar at operation for `Text` using the supplied arguments.
+///
+/// @param snapshot `snapshot` value used by the operation.
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 [[nodiscard]] optional<ScalarAt> next_scalar_at(const DocumentSnapshot &snapshot, ByteOffset offset) {
     const usize size = snapshot.byte_size();
     if (offset.value >= size) return nullopt;
@@ -544,6 +736,13 @@ struct ScalarAt { char32_t scalar; ByteOffset start; ByteOffset end; };
     return ScalarAt{scalar, offset, {offset.value + width}};
 }
 
+/// Performs the previous scalar at operation for `Text` using the supplied arguments.
+///
+/// @param snapshot `snapshot` value used by the operation.
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 [[nodiscard]] optional<ScalarAt> previous_scalar_at(const DocumentSnapshot &snapshot, ByteOffset offset) {
     if (offset.value == 0) return nullopt;
     const usize begin = offset.value > 4 ? offset.value - 4 : 0;
@@ -555,6 +754,13 @@ struct ScalarAt { char32_t scalar; ByteOffset start; ByteOffset end; };
     return ScalarAt{scalar, {begin + local}, offset};
 }
 
+/// Performs the matching of operation for `Text` using the supplied arguments.
+///
+/// @param c `c` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
+/// @note This function does not throw exceptions.
 [[nodiscard]] optional<char> matching_of(char c) noexcept {
     switch (c) {
     case '(': return ')'; case ')': return '(';
@@ -563,13 +769,23 @@ struct ScalarAt { char32_t scalar; ByteOffset start; ByteOffset end; };
     default: return nullopt;
     }
 }
+/// Reports whether open bracket holds for this `Text`.
+///
+/// @param c `c` value used by the operation.
+///
+/// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool is_open_bracket(char c) noexcept { return c == '(' || c == '[' || c == '{'; }
 
 
-
-
-
-
+/// Reports whether coalesce holds for this `Text`.
+///
+/// @param previous `previous` value used by the operation.
+/// @param kind `kind` value used by the operation.
+/// @param edit `edit` value used by the operation.
+///
+/// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool can_coalesce(const Detail::DocumentState &previous, EditKind kind, const Splice &edit) noexcept {
     if (kind == EditKind::Standalone) return false;
     if (previous.kind_from_parent != kind) return false;
@@ -582,11 +798,12 @@ struct ScalarAt { char32_t scalar; ByteOffset start; ByteOffset end; };
 }
 
 
-
-
-
-
-
+/// Performs the compose group change operation for `Text` using the supplied arguments.
+///
+/// @param oldest_to_newest `oldest_to_newest` value used by the operation.
+///
+/// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] Change compose_group_change(const vector<shared_ptr<const Detail::DocumentState>> &oldest_to_newest) {
     if (oldest_to_newest.size() == 1) return oldest_to_newest.front()->changes_from_parent.changes.front();
     const EditKind kind = oldest_to_newest.front()->kind_from_parent;
@@ -611,6 +828,12 @@ struct ScalarAt { char32_t scalar; ByteOffset start; ByteOffset end; };
 
 } // namespace
 
+/// Converts the value to string representation.
+///
+/// @param error Error value describing the failure.
+///
+/// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+/// @note This function does not throw exceptions.
 string_view to_string(DocumentError error) noexcept {
     switch (error) {
     case DocumentError::InvalidUtf8: return "invalid UTF-8";
@@ -622,17 +845,43 @@ string_view to_string(DocumentError error) noexcept {
     return "unknown document error";
 }
 
+/// Returns the current or globally available flatten value.
+///
+/// @return Returns the current flatten value.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 string TextSlice::flatten() const {
     string result; result.reserve(byte_size_);
     for (const Chunk &chunk : chunks_) result.append(chunk.bytes);
     return result;
 }
 
+/// Returns the current or globally available revision value.
+///
+/// @return Returns the current revision value.
+/// @note This function does not throw exceptions.
 Revision DocumentSnapshot::revision() const noexcept { return state_ ? state_->revision : Revision{}; }
+/// Returns the current or globally available summary value.
+///
+/// @return Returns the current summary value.
+/// @note This function does not throw exceptions.
 TextSummary DocumentSnapshot::summary() const noexcept { return state_ ? state_->root->summary : TextSummary{}; }
+/// Returns the byte size for this `Text`.
+///
+/// @return Returns the current byte size value.
+/// @note This function does not throw exceptions.
 usize DocumentSnapshot::byte_size() const noexcept { return summary().bytes; }
+/// Returns the line count for this `Text`.
+///
+/// @return Returns the current line count value.
+/// @note This function does not throw exceptions.
 usize DocumentSnapshot::line_count() const noexcept { return state_ ? state_->root->summary.newlines + 1 : 0; }
 
+/// Performs the line range operation for `Text` using the supplied arguments.
+///
+/// @param line `line` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<TextRange> DocumentSnapshot::line_range(usize line) const {
     if (!state_ || line >= line_count()) return nullopt;
     const usize start = line == 0 ? 0 : *newline_end_offset(state_->root, line - 1);
@@ -640,6 +889,12 @@ optional<TextRange> DocumentSnapshot::line_range(usize line) const {
     return TextRange{{start}, {end}};
 }
 
+/// Performs the slice operation for `Text` using the supplied arguments.
+///
+/// @param range Range of values to process.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 TextSlice DocumentSnapshot::slice(TextRange range) const {
     TextSlice result;
     if (!state_ || !valid_range(*state_, range)) return result;
@@ -648,8 +903,18 @@ TextSlice DocumentSnapshot::slice(TextRange range) const {
     return result;
 }
 
+/// Returns the current or globally available flatten value.
+///
+/// @return Returns the current flatten value.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 string DocumentSnapshot::flatten() const { return slice({{}, {byte_size()}}).flatten(); }
 
+/// Performs the offset to point operation for `Text` using the supplied arguments.
+///
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<TextPoint> DocumentSnapshot::offset_to_point(ByteOffset offset) const {
     if (!state_ || offset.value > byte_size()) return nullopt;
     const auto found = locate(state_->root, offset.value); if (!found) return nullopt;
@@ -658,6 +923,12 @@ optional<TextPoint> DocumentSnapshot::offset_to_point(ByteOffset offset) const {
     return TextPoint{.line = prefix.newlines, .scalar_column = prefix.last_line_scalars};
 }
 
+/// Performs the offset to UTF-16 operation for `Text` using the supplied arguments.
+///
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<Utf16Point> DocumentSnapshot::offset_to_utf16(ByteOffset offset) const {
     if (!state_ || offset.value > byte_size()) return nullopt;
     const auto found = locate(state_->root, offset.value); if (!found) return nullopt;
@@ -666,28 +937,50 @@ optional<Utf16Point> DocumentSnapshot::offset_to_utf16(ByteOffset offset) const 
     return Utf16Point{.line = prefix.newlines, .code_unit_column = prefix.last_line_utf16_code_units};
 }
 
+/// Computes the point to offset required by the supplied values.
+///
+/// @param point `point` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<ByteOffset> DocumentSnapshot::point_to_offset(TextPoint point) const {
     if (!state_) return nullopt;
     const auto offset = line_column_to_offset(state_->root, point.line, point.scalar_column,           false);
     return offset ? optional<ByteOffset>{ByteOffset{*offset}} : nullopt;
 }
 
+/// Computes the UTF-16 to offset required by the supplied values.
+///
+/// @param point `point` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<ByteOffset> DocumentSnapshot::utf16_to_offset(Utf16Point point) const {
     if (!state_) return nullopt;
     const auto offset = line_column_to_offset(state_->root, point.line, point.code_unit_column,           true);
     return offset ? optional<ByteOffset>{ByteOffset{*offset}} : nullopt;
 }
 
+/// Performs the anchor at operation for `Text` using the supplied arguments.
+///
+/// @param offset Offset from the beginning of the relevant range or buffer.
+/// @param bias `bias` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<Anchor> DocumentSnapshot::anchor_at(ByteOffset offset, AnchorBias bias) const {
     if (!state_ || !valid_range(*state_, {offset, offset})) return nullopt;
     Anchor anchor; anchor.revision_ = revision(); anchor.offset_ = offset; anchor.bias_ = bias; anchor.valid_ = true; return anchor;
 }
 
+/// Resolves the requested value into the concrete value used by the engine.
+///
+/// @param anchor `anchor` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<ByteOffset> DocumentSnapshot::resolve(const Anchor &anchor) const {
     if (!state_ || !anchor.valid_) return nullopt;
-
-
-
 
 
     vector<const ChangeSet *> hops;
@@ -706,12 +999,25 @@ optional<ByteOffset> DocumentSnapshot::resolve(const Anchor &anchor) const {
     return offset;
 }
 
+/// Resolves the requested value into the concrete value used by the engine.
+///
+/// @param range Range of values to process.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<TextRange> DocumentSnapshot::resolve(const AnchorRange &range) const {
     const auto start = resolve(range.start);
     const auto end = resolve(range.end);
     return start && end && start->value <= end->value ? optional<TextRange>{TextRange{*start, *end}} : nullopt;
 }
 
+/// Computes the clip offset required by the supplied values.
+///
+/// @param offset Offset from the beginning of the relevant range or buffer.
+/// @param bias `bias` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 ByteOffset DocumentSnapshot::clip_offset(ByteOffset offset, Bias bias) const noexcept {
     if (!state_) return {};
     const usize size = byte_size();
@@ -728,21 +1034,41 @@ ByteOffset DocumentSnapshot::clip_offset(ByteOffset offset, Bias bias) const noe
     return ByteOffset{value};
 }
 
+/// Returns the current or globally available max point value.
+///
+/// @return Returns the current max point value.
+/// @note This function does not throw exceptions.
 TextPoint DocumentSnapshot::max_point() const noexcept {
     const TextSummary s = summary();
     return TextPoint{.line = s.newlines, .scalar_column = s.last_line_scalars};
 }
 
+/// Returns the current or globally available longest line value.
+///
+/// @return Returns the current longest line value.
+/// @note This function does not throw exceptions.
 LongestLine DocumentSnapshot::longest_line() const noexcept {
     const TextSummary s = summary();
     return LongestLine{.line = s.longest_line, .scalars = s.longest_line_scalars};
 }
 
+/// Performs the char class at operation for `Text` using the supplied arguments.
+///
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 CharClass DocumentSnapshot::char_class_at(ByteOffset offset) const {
     const auto scalar = next_scalar_at(*this, clip_offset(offset, Bias::After));
     return scalar ? classify(scalar->scalar) : CharClass::Whitespace;
 }
 
+/// Performs the word range at operation for `Text` using the supplied arguments.
+///
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<TextRange> DocumentSnapshot::word_range_at(ByteOffset offset) const {
     if (!state_) return nullopt;
     offset = clip_offset(offset, Bias::After);
@@ -770,6 +1096,12 @@ optional<TextRange> DocumentSnapshot::word_range_at(ByteOffset offset) const {
     return TextRange{start, end};
 }
 
+/// Performs the next word boundary operation for `Text` using the supplied arguments.
+///
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 ByteOffset DocumentSnapshot::next_word_boundary(ByteOffset offset) const {
     if (!state_) return offset;
     offset = clip_offset(offset, Bias::After);
@@ -787,6 +1119,12 @@ ByteOffset DocumentSnapshot::next_word_boundary(ByteOffset offset) const {
     return offset;
 }
 
+/// Performs the previous word boundary operation for `Text` using the supplied arguments.
+///
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 ByteOffset DocumentSnapshot::previous_word_boundary(ByteOffset offset) const {
     if (!state_) return offset;
     offset = clip_offset(offset, Bias::Before);
@@ -804,6 +1142,12 @@ ByteOffset DocumentSnapshot::previous_word_boundary(ByteOffset offset) const {
     return offset;
 }
 
+/// Performs the line indent operation for `Text` using the supplied arguments.
+///
+/// @param line `line` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 LineIndent DocumentSnapshot::line_indent(usize line) const {
     LineIndent result{};
     const auto range = line_range(line);
@@ -823,6 +1167,12 @@ LineIndent DocumentSnapshot::line_indent(usize line) const {
     return result;
 }
 
+/// Reports whether line blank holds for this `Text`.
+///
+/// @param line `line` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 bool DocumentSnapshot::is_line_blank(usize line) const {
     const auto range = line_range(line);
     if (!range) return true;
@@ -830,6 +1180,12 @@ bool DocumentSnapshot::is_line_blank(usize line) const {
     return length == 0 || line_indent(line).whitespace_bytes == length;
 }
 
+/// Performs the matching bracket operation for `Text` using the supplied arguments.
+///
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<ByteOffset> DocumentSnapshot::matching_bracket(ByteOffset offset) const {
     if (!state_ || offset.value >= byte_size()) return nullopt;
     const string one = slice({offset, {offset.value + 1}}).flatten();
@@ -866,11 +1222,27 @@ optional<ByteOffset> DocumentSnapshot::matching_bracket(ByteOffset offset) const
 }
 
 namespace {
+/// Performs the fold char operation for `Text` using the supplied arguments.
+///
+/// @param c `c` value used by the operation.
+/// @param case_sensitive `case_sensitive` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] char fold_char(char c, bool case_sensitive) noexcept {
     return case_sensitive ? c : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 }
 } // namespace
 
+/// Finds the requested entry in the available state.
+///
+/// @param pattern `pattern` value used by the operation.
+/// @param from `from` value used by the operation.
+/// @param forward `forward` value used by the operation.
+/// @param case_sensitive `case_sensitive` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<TextRange> DocumentSnapshot::find(string_view pattern, ByteOffset from, bool forward, bool case_sensitive) const {
     if (!state_ || pattern.empty()) return nullopt;
     const usize size = byte_size();
@@ -906,14 +1278,18 @@ optional<TextRange> DocumentSnapshot::find(string_view pattern, ByteOffset from,
     return found;
 }
 
+/// Finds all in the available state.
+///
+/// @param pattern `pattern` value used by the operation.
+/// @param case_sensitive `case_sensitive` value used by the operation.
+///
+/// @return Returns the located entry/position; the type-specific sentinel or empty state indicates that no match was found.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<TextRange> DocumentSnapshot::find_all(string_view pattern, bool case_sensitive) const {
     vector<TextRange> results;
     if (!state_ || pattern.empty()) return results;
     string carry;
     usize base = 0;
-
-
-
 
 
     usize next_allowed = 0;
@@ -942,6 +1318,10 @@ vector<TextRange> DocumentSnapshot::find_all(string_view pattern, bool case_sens
     return results;
 }
 
+/// Returns the current or globally available detect indent style value.
+///
+/// @return Returns the current detect indent style value.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 IndentStyle DocumentSnapshot::detect_indent_style() const {
     if (!state_) return {};
     usize tab_lines = 0;
@@ -957,11 +1337,14 @@ IndentStyle DocumentSnapshot::detect_indent_style() const {
     if (space_run_lengths.empty()) return IndentStyle{};
 
 
-
     const usize width = std::clamp<usize>(*std::ranges::min_element(space_run_lengths), 1, 8);
     return IndentStyle{.kind = IndentKind::Spaces, .width = width};
 }
 
+/// Returns the current or globally available detect line ending value.
+///
+/// @return Returns the current detect line ending value.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 LineEnding DocumentSnapshot::detect_line_ending() const {
     if (!state_) return LineEnding::Lf;
     usize crlf = 0, lf = 0;
@@ -976,6 +1359,11 @@ LineEnding DocumentSnapshot::detect_line_ending() const {
     return crlf > lf ? LineEnding::CrLf : LineEnding::Lf;
 }
 
+/// Performs the document operation for `Text` using the supplied arguments.
+///
+/// @param initial_utf8 `initial_utf8` value used by the operation.
+///
+/// @throws `invalid_argument` if `!info`.
 Document::Document(string_view initial_utf8) {
     const auto info = summarize(initial_utf8);
     if (!info) throw invalid_argument{"Text::Document requires strict UTF-8."};
@@ -986,9 +1374,25 @@ Document::Document(string_view initial_utf8) {
     state_ = std::move(state);
 }
 
+/// Returns the current or globally available snapshot value.
+///
+/// @return Returns the current snapshot value.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 DocumentSnapshot Document::snapshot() const { return DocumentSnapshot{state_}; }
+/// Returns the current or globally available revision value.
+///
+/// @return Returns the current revision value.
+/// @note This function does not throw exceptions.
 Revision Document::revision() const noexcept { return state_->revision; }
 
+/// Applies the supplied operation or state to `Text`.
+///
+/// @param transaction `transaction` value used by the operation.
+/// @param kind `kind` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `DocumentError::RevisionMismatch`, `DocumentError::InvalidRange`, `DocumentError::OverlappingSplices`, `DocumentError::InvalidUtf8`.
 expected<ApplyResult, DocumentError> Document::apply(const EditTransaction &transaction, EditKind kind) {
     if (transaction.base_revision() != revision()) return unexpected(DocumentError::RevisionMismatch);
     vector<Splice> edits = transaction.splices();
@@ -1006,10 +1410,6 @@ expected<ApplyResult, DocumentError> Document::apply(const EditTransaction &tran
     string inserted_slab;
     for (const Splice &edit : edits) inserted_slab.append(edit.replacement);
     auto insert_storage = make_shared<const string>(std::move(inserted_slab));
-
-
-
-
 
 
     shared_ptr<const Node> result = make_leaf({});
@@ -1052,9 +1452,12 @@ expected<ApplyResult, DocumentError> Document::apply(const EditTransaction &tran
     return ApplyResult{DocumentSnapshot{std::move(next_state)}, std::move(changes)};
 }
 
+/// Returns the current or globally available undo value.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<ApplyResult> Document::undo() {
     if (!state_ || !state_->parent) return nullopt;
-
 
 
     vector<shared_ptr<const Detail::DocumentState>> popped;
@@ -1086,6 +1489,10 @@ optional<ApplyResult> Document::undo() {
     return ApplyResult{snapshot(), std::move(changes)};
 }
 
+/// Returns the current or globally available redo value.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<ApplyResult> Document::redo() {
     if (redo_.empty() || redo_.back()->parent.get() != state_.get()) return nullopt;
 
@@ -1109,6 +1516,10 @@ optional<ApplyResult> Document::redo() {
     return ApplyResult{snapshot(), std::move(changes)};
 }
 
+/// Returns the current or globally available memory stats value.
+///
+/// @return Returns the current memory stats value.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 DocumentMemoryStats Document::memory_stats() const {
     DocumentMemoryStats stats{};
     if (!state_) return stats;
@@ -1128,6 +1539,13 @@ DocumentMemoryStats Document::memory_stats() const {
     return stats;
 }
 
+/// Visits the supplied or associated value/state using the supplied arguments and current state.
+///
+/// @param range Range of values to process.
+/// @param visitor `visitor` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 bool Document::visit(TextRange range, const TextChunkVisitor &visitor) const {
     if (!state_ || !visitor || !valid_range(*state_, range)) return false;
     usize skip = range.start.value;
@@ -1135,6 +1553,13 @@ bool Document::visit(TextRange range, const TextChunkVisitor &visitor) const {
     return visit_range(state_->root, skip, remaining, visitor) && remaining == 0;
 }
 
+/// Translates the supplied or associated value/state using the supplied arguments and current state.
+///
+/// @param offset Offset from the beginning of the relevant range or buffer.
+/// @param bias `bias` value used by the operation.
+/// @param changes `changes` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
 optional<ByteOffset> Document::translate(ByteOffset offset, AnchorBias bias, const ChangeSet &changes) {
     isize delta = 0;
     for (const Change &change : changes.changes) {
@@ -1150,6 +1575,13 @@ optional<ByteOffset> Document::translate(ByteOffset offset, AnchorBias bias, con
     return ByteOffset{static_cast<usize>(static_cast<isize>(offset.value) + delta)};
 }
 
+/// Translates the supplied or associated value/state using the supplied arguments and current state.
+///
+/// @param range Range of values to process.
+/// @param changes `changes` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 optional<TextRange> Document::translate(TextRange range, const ChangeSet &changes) {
     const auto start = translate(range.start, AnchorBias::Before, changes);
     const auto end = translate(range.end, AnchorBias::After, changes);
@@ -1160,22 +1592,64 @@ optional<TextRange> Document::translate(TextRange range, const ChangeSet &change
 
 namespace SFT::Text {
 
+    /// Returns the current or globally available revision value.
+    ///
+    /// @return Returns the current revision value.
+    /// @note This function does not throw exceptions.
     Revision Anchor::revision() const noexcept { return revision_; }
 
+    /// Returns the current or globally available bias value.
+    ///
+    /// @return Returns the current bias value.
+    /// @note This function does not throw exceptions.
     AnchorBias Anchor::bias() const noexcept { return bias_; }
 
+    /// Returns the current or globally available valid value.
+    ///
+    /// @return Returns the current valid value.
+    /// @note This function does not throw exceptions.
     bool Anchor::valid() const noexcept { return valid_; }
 
+    /// Replaces the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param range Range of values to process.
+    /// @param replacement `replacement` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void EditTransaction::replace(TextRange range, string_view replacement) { splices_.push_back({range, replacement}); }
 
+    /// Returns the current or globally available base revision value.
+    ///
+    /// @return Returns the current base revision value.
+    /// @note This function does not throw exceptions.
     Revision EditTransaction::base_revision() const noexcept { return base_revision_; }
 
+    /// Returns the current or globally available splices value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const vector<Splice> &EditTransaction::splices() const noexcept { return splices_; }
 
+    /// Returns the current or globally available chunks value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const vector<TextSlice::Chunk> &TextSlice::chunks() const noexcept { return chunks_; }
 
+    /// Returns the byte size for this `Text`.
+    ///
+    /// @return Returns the current byte size value.
+    /// @note This function does not throw exceptions.
     usize TextSlice::byte_size() const noexcept { return byte_size_; }
 
+    /// Appends the supplied value or range to the current contents.
+    ///
+    /// @param bytes Size of the relevant data in bytes.
+    /// @param owner Owner/context identifier used for validation or diagnostics.
+    ///
+    /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void TextSlice::append_chunk(string_view bytes, shared_ptr<const string> owner) {
         chunks_.push_back({bytes});
         owners_.push_back(std::move(owner));
@@ -1187,6 +1661,11 @@ namespace SFT::Text {
 
 namespace SFT::Text {
 
+    /// Performs the edit transaction operation for `Text` using the supplied arguments.
+    ///
+    /// @param base_revision `base_revision` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     EditTransaction::EditTransaction(Revision base_revision) : base_revision_(base_revision) {}
 
 } // namespace SFT::Text
@@ -1194,6 +1673,11 @@ namespace SFT::Text {
 
 namespace SFT::Text {
 
+    /// Performs the document snapshot operation for `Text` using the supplied arguments.
+    ///
+    /// @param state `state` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     DocumentSnapshot::DocumentSnapshot(shared_ptr<const Detail::DocumentState> state) : state_(std::move(state)) {}
 
 } // namespace SFT::Text

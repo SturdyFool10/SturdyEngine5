@@ -20,9 +20,9 @@ namespace SFT::RHI {
 
 
 
-    /// What a buffer may be bound as. A bitmask — a buffer is frequently several at once (e.g. a
-    /// TransferDst | Vertex device-local buffer seeded from a staging copy). `enable_flag_ops` below
-    /// wires up the `|`/`&`/`has_any` operator set (see :Flags).
+                                                                                                   
+                                                                                                     
+                                                                 
     enum class BufferUsage : u32 {
         None = 0,
         TransferSrc = 1u << 0,
@@ -38,17 +38,17 @@ namespace SFT::RHI {
         AccelerationStructureScratch = 1u << 10,
     };
 
-    /// Where a buffer's memory lives / how the CPU reaches it. The backend picks the concrete heap;
-    /// this only states intent, so the same descriptor works whether the API is Vulkan+VMA, D3D12
-    /// heaps, or Metal storage modes.
+                                                                                                    
+                                                                                                  
+                                      
     enum class MemoryLocation : u32 {
-        /// Device-local, not CPU-mappable. The fast default for anything the GPU reads every frame;
-        /// upload to it via a staging buffer + copy.
+                                                                                                    
+                                                     
         DeviceLocal,
-        /// Host-visible and optimized for the CPU writing sequentially then the GPU reading — the
-        /// classic staging/upload buffer, or a per-frame uniform buffer written each frame.
+                                                                                                    
+                                                                                            
         HostUpload,
-        /// Host-visible and optimized for the GPU writing then the CPU reading back (readbacks).
+                                                                                                 
         HostReadback,
     };
 
@@ -56,9 +56,9 @@ namespace SFT::RHI {
         u64 size = 0;
         BufferUsage usage = BufferUsage::None;
         MemoryLocation memory = MemoryLocation::DeviceLocal;
-        /// Optional debug name surfaced to the API's object-labeling extension (e.g.
-        /// VK_EXT_debug_utils) — cheap and worth setting; named resources are the difference between
-        /// a legible capture/validation message and a raw handle.
+                                                                                     
+                                                                                                       
+                                                                  
         const char *label = nullptr;
     };
 
@@ -78,9 +78,9 @@ namespace SFT::RHI {
         Storage = 1u << 3,
         ColorAttachment = 1u << 4,
         DepthStencilAttachment = 1u << 5,
-        /// Attachment-only scratch storage whose contents do not need to survive the rendering
-        /// instance (for example, an MSAA source resolved into a single-sample texture). Backends may
-        /// place it in lazily allocated/tile memory; it must not be combined with sampled/storage use.
+                                                                                               
+                                                                                                      
+                                                                                                       
         TransientAttachment = 1u << 6,
     };
 
@@ -91,20 +91,20 @@ namespace SFT::RHI {
         u32 mip_levels = 1;
         SampleCount samples = SampleCount::X1;
         TextureUsage usage = TextureUsage::None;
-        /// Sharing this image across more than one queue family (e.g. a streamed texture written by
-        /// Transfer, later sampled by Graphics) requires either VK_SHARING_MODE_CONCURRENT across the
-        /// listed classes, or exclusive ownership plus an explicit queue-family-ownership-transfer
-        /// barrier pair the caller records itself. Leave empty (the default) for the common
-        /// single-queue-family case, which stays VK_SHARING_MODE_EXCLUSIVE. Backends resolve each
-        /// QueueClass to its real queue family index (classes that alias onto the same family, or that
-        /// this backend doesn't have a dedicated family for, collapse harmlessly).
+                                                                                                    
+                                                                                                      
+                                                                                                   
+                                                                                            
+                                                                                                  
+                                                                                                       
+                                                                                   
         span<const QueueClass> concurrent_queue_classes;
         const char *label = nullptr;
     };
 
-    /// Which mip/array slices a view exposes, and as what. A view is how a texture is actually bound
-    /// — as a shader resource, an attachment, or a storage image — possibly reinterpreting a subrange
-    /// or (with a compatible `format`) the texel format.
+                                                                                                     
+                                                                                                          
+                                                         
     enum class TextureViewType : u32 {
         View1D,
         View2D,
@@ -114,15 +114,15 @@ namespace SFT::RHI {
         View3D,
     };
 
-    /// Sentinel meaning "the rest of the mips/layers from the base" — mirrors Vulkan's
-    /// VK_REMAINING_* so a view can say "everything" without querying the texture's counts.
+                                                                                         
+                                                                                            
     inline constexpr u32 all_remaining = ~0u;
 
     struct TextureViewDesc {
         TextureHandle texture{};
         TextureViewType view_type = TextureViewType::View2D;
-        /// Undefined => inherit the source texture's format (the common case); set only to
-        /// reinterpret to a format in the same compatibility class.
+                                                                                           
+                                                                    
         Format format = Format::Undefined;
         u32 base_mip_level = 0;
         u32 mip_level_count = all_remaining;
@@ -156,8 +156,8 @@ namespace SFT::RHI {
         OpaqueWhite,
     };
 
-    /// Comparison for depth tests, shadow-map compare samplers, and stencil ops. Shared vocabulary,
-    /// so it lives here rather than being redefined per pipeline-state struct.
+                                                                                                    
+                                                                               
     enum class CompareOp : u32 {
         Never,
         Less,
@@ -179,9 +179,9 @@ namespace SFT::RHI {
         f32 mip_lod_bias = 0.0f;
         f32 min_lod = 0.0f;
         f32 max_lod = 1000.0f;
-        /// 0 disables anisotropy; >1 requests that max ratio, clamped to the device limit.
+                                                                                           
         f32 max_anisotropy = 0.0f;
-        /// Set `compare` to enable a comparison (shadow) sampler; ignored otherwise.
+                                                                                     
         bool compare_enable = false;
         CompareOp compare = CompareOp::Never;
         BorderColor border_color = BorderColor::TransparentBlack;

@@ -33,47 +33,26 @@ using std::vector;
 namespace SFT::Platform::Windowing {
 
 
-    /// The windowing **system** a window belongs to, reported by `Window::type()`.
-    ///
-    /// Each backend currently reports its own library identity here, so today this coincides with
-    /// `WindowBackendKind`; it is kept a separate query so callers that only care about the windowing
-    /// system aren't coupled to the engine's backend-selection enum.
-    ///
-    /// - `Unknown` — not yet determined / undeterminable.
-    /// - `SDL3` / `GLFW` — the backing library.
     enum class WindowingSystem {
         Unknown,
         SDL3,
         GLFW,
     };
 
-    /// Stable, process-unique window identity — assigned once at construction and **never reused**.
-    ///
-    /// Engine backends key every per-window GPU resource (surface, swapchain, sync objects, ...) by
-    /// this ID rather than by pointer or by a recyclable slot index, so a stale ID can never silently
-    /// alias a different window.
+
     enum class WindowId : usize {};
 
-    /// Color-management state reported for the display currently containing this window. The SDR
-    /// white level uses scRGB units (1.0 == 80 nits), matching SDL3's cross-platform property and the
-    /// Vulkan EXTENDED_SRGB_LINEAR color-space convention.
+
     struct WindowHdrProperties {
         bool hdr_enabled = false;
         f32 sdr_white_level = 1.0f;
         f32 hdr_headroom = 1.0f;
     };
 
-    /// Sentinel `WindowId` that `allocate_window_id()` never produces (ids count up from `0`). Use it
-    /// to mark an empty "no window" slot; it compares unequal to every real id for the life of the
-    /// process.
+
     inline constexpr WindowId invalid_window_id = static_cast<WindowId>(static_cast<usize>(~usize{0}));
 
-    /// Cross-platform cursor *shape* — deliberately the common subset both backends' native cursor
-    /// sets actually support (SDL3's `SDL_SystemCursor` / GLFW's `GLFW_*_CURSOR`), not a superset
-    /// either would have to fake. `Grab`/`Grabbing` have no native glyph on either backend today (no
-    /// open/closed-hand system cursor exists in SDL3 or GLFW) — both fall back to `Pointer` at the
-    /// implementation level rather than silently doing nothing, so a caller that asks for one still
-    /// gets *a* visibly different cursor instead of none.
+
     enum class CursorIcon : u8 {
         Default,
         Pointer,
@@ -89,88 +68,77 @@ namespace SFT::Platform::Windowing {
 
     namespace Detail {
 
-        /// Hands out the next process-unique `WindowId`. **Monotonic** and never reused, even after a
-        /// window is destroyed; the function-local `static` gives one shared counter across every
-        /// translation unit that imports this partition. Thread-safe via a relaxed atomic fetch-add.
+
+        /// Allocates window ID.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] WindowId allocate_window_id() noexcept;
 
     } // namespace Detail
 
-    /// The windowing **abstraction seam**. Every backend (SDL3 and GLFW today) derives from this, and
-    /// the rest of the engine speaks only this interface plus the API-agnostic types in `WindowEvent` /
-    /// `WindowGeometry` / `WindowConfig` — no SDL or GLFW symbols ever leak upward.
-    ///
-    /// A `Window` owns exactly one native OS window. It is **non-copyable and non-movable** (its address
-    /// and stable `WindowId` are its identity, and backends store per-window resources keyed by that ID)
-    /// and is always heap-allocated through the `create()` / `recreate()` factories.
-    ///
-    /// **Threading:** a `Window` is main-thread-affine. Drive `pump_events()` and the event/state queries
-    /// from the thread that owns the platform message pump. Backends may lock internally to guard
-    /// teardown races, but do not operate one window from multiple threads.
-    ///
-    /// ### Typical use
-    /// ```cpp
-    /// auto created = Window::create<GLFW::GLFWWindow>(
-    ///     WindowConfig{ .title = "Sturdy", .extent = {1280, 720} });
-    /// if (!created) return created.error();
-    /// unique_ptr<Window> window = std::move(*created);
-    ///
-    /// while (!window->close_requested()) {
-    ///     if (auto ok = window->pump_events(); !ok) break;          // drain OS events once
-    ///     while (auto ev = window->poll_event()) dispatch(*ev);      // consume them
-    ///     if (auto resize = window->consume_resize())               // react to the newest size
-    ///         renderer.rebuild_swapchain(*resize);
-    ///     renderer.draw_frame();
-    /// }
-    /// ```
+
     class Window {
       protected:
-        /// Construction **passkey**. Only `Window::create()` / `recreate()` can mint one, so a concrete
-        /// backend's `construct()` can be `public` (the templated factory has to call it) while staying
-        /// impossible to invoke without going through the factory.
+
+
         struct ConstructorKey {
           private:
             friend class Window;
+            /// Constructs a `ConstructorKey` in its default state.
+            ///
+            /// @note This function does not throw exceptions.
             constexpr ConstructorKey() = default;
         };
 
-        /// Base-subobject initializer: stamps this window with its process-unique, never-reused
-        /// `WindowId`. Reachable only by a concrete backend holding a `ConstructorKey`, i.e. via
-        /// `create()` / `recreate()`.
+
+        /// Constructs a `Window` from the supplied initialization values.
+        ///
+        /// @note This function does not throw exceptions.
         explicit Window(ConstructorKey) noexcept;
 
       public:
-        /// Virtual so deleting through a `unique_ptr<Window>` runs the concrete backend's destructor,
-        /// which releases the native window and — for the last window on a backend — tears the library
-        /// down.
+
+
+        /// Destroys the `Window` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         virtual ~Window() noexcept = default;
 
-        /// **Non-copyable and non-movable.** A window's address and `WindowId` are its identity, and
-        /// backends hold per-window resources keyed to it. Always pass one around by its owning
-        /// `unique_ptr<Window>`.
+
+        /// Disables this construction form for `Window`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Window(const Window &) = delete;
+        /// Assigns a new value to this `Window`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Window &operator=(const Window &) = delete;
+        /// Disables this construction form for `Window`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Window(Window &&) = delete;
+        /// Assigns a new value to this `Window`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Window &operator=(Window &&) = delete;
 
-        /// This window's stable identity, used to key its resources in the engine backend.
+
+        /// Returns the current or globally available ID value.
         ///
-        /// @returns the process-unique `WindowId` assigned at construction.
+        /// @return Returns the current ID value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] WindowId id() const noexcept;
 
-        /// The **sole entry point** for constructing a window. Instantiates the requested concrete
-        /// `Backend` through its `construct()` (gated by `ConstructorKey`, forwarding `args` to the real
-        /// constructor) and converts any throwing failure into a `WindowError`, so callers always get a
-        /// uniform `expected<>` and never see an exception escape.
+
+        /// Constructs the requested concrete window-backend type from the supplied arguments.
         ///
-        /// @tparam Backend concrete `Window` subclass to build (e.g. `GLFW::GLFWWindow`).
-        /// @param  args    forwarded to `Backend::construct` after the key — usually a `WindowConfig`.
-        /// @returns the owned window on success, or a `WindowError` (`OutOfMemory` / `CreationFailed`).
-        ///
-        /// ```cpp
-        /// auto win = Window::create<GLFW::GLFWWindow>(WindowConfig{ .title = "Editor" });
-        /// if (!win) log_error("window creation failed: {}", win.error().message);
-        /// ```
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Returns `WindowErrorCode::OutOfMemory` if backend construction throws `std::bad_alloc`; other construction exceptions are converted to `WindowErrorCode::CreationFailed`.
+        /// @note This function does not throw exceptions.
         template <typename Backend, typename... Args>
             requires derived_from<Backend, Window> && requires(Args &&...args) {
                 Backend::construct(ConstructorKey{}, std::forward<Args>(args)...);
@@ -186,24 +154,13 @@ namespace SFT::Platform::Windowing {
             }
         }
 
-        /// Destroy `existing` and build a replacement **in that order**, for changes that no backend can
-        /// apply to a live native window — graphics API, GL/GLX pixel format, GPU-exclusive fullscreen, a
-        /// Wayland surface-role change, and the like.
+
+        /// Recreates the supplied or associated value/state using the supplied arguments and current state.
         ///
-        /// The strict ordering matters: `existing` is released first (freeing its native handle and, for
-        /// the last window on a backend, deinitializing the windowing library) **before** the replacement
-        /// is constructed, so the two never coexist and platform-singleton state (GLFW/SDL global init)
-        /// transitions cleanly even when recreating the only window.
-        ///
-        /// @warning The result has a **new** `WindowId`. Any backend resources keyed by the old id must be
-        ///          destroyed and rebuilt for the new window (see `Engine::recreate_window()`).
-        ///
-        /// ```cpp
-        /// // Graphics-API changes can't be applied live, so destroy + recreate in one step.
-        /// auto next = Window::recreate<GLFW::GLFWWindow>(std::move(window),
-        ///     WindowConfig{ .graphics_api = WindowGraphicsApi::Vulkan });
-        /// if (next) window = std::move(*next);  // `window` now holds a fresh WindowId
-        /// ```
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Returns `WindowErrorCode::OutOfMemory` if backend construction throws `std::bad_alloc`; other construction exceptions are converted to `WindowErrorCode::CreationFailed`.
+        /// @note This function does not throw exceptions.
         template <typename Backend, typename... Args>
             requires derived_from<Backend, Window> && requires(Args &&...args) {
                 Backend::construct(ConstructorKey{}, std::forward<Args>(args)...);
@@ -214,293 +171,472 @@ namespace SFT::Platform::Windowing {
             return create<Backend>(std::forward<Args>(args)...);
         }
 
-        /// Which windowing library (`SDL3` or `GLFW`) backs this window. Switch on it only when a
-        /// library-specific path is unavoidable, e.g. picking the matching Vulkan surface provider.
+
+        /// Returns the current or globally available backend kind value.
+        ///
+        /// @return Returns the current backend kind value.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual WindowBackendKind backend_kind() const noexcept = 0;
 
-        /// The `WindowingSystem` this window belongs to. Today this mirrors `backend_kind()` (each backend
-        /// reports its own library identity), with `WindowingSystem::Unknown` reserved for the
-        /// undeterminable case.
+
+        /// Returns the runtime or backend type represented by `Window`.
+        ///
+        /// @return Returns the current type value.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual WindowingSystem type() const noexcept = 0;
 
-        /// The windowing library's **own** handle — `SDL_Window*` or `GLFWwindow*`, type-erased as
-        /// `void*`. Use it to call into SDL/GLFW directly for something the abstraction doesn't cover.
+
+        /// Returns the native backend handle associated with this `Window`.
         ///
-        /// @returns the library handle, or a `WindowError` if the underlying window is already destroyed.
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual expected<void *, WindowError> native_backend_handle() const noexcept = 0;
 
-        /// The **OS-native** handle bundle needed for platform integration such as Vulkan WSI and native
-        /// window effects: a `NativeWindowSystem` tag plus the raw `display` / `window` pointers (a Win32
-        /// `HWND`, an X11 `Display` + `Window`, a Wayland surface, ...).
+
+        /// Returns the native window handle associated with this `Window`.
         ///
-        /// @returns a `NativeWindowHandle`, or a `WindowError` if the window has been destroyed.
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual expected<NativeWindowHandle, WindowError> native_window_handle() const noexcept = 0;
 
-        /// Returns dynamic compositor/display HDR state when the provider exposes it. `nullopt` means
-        /// the provider cannot report a trustworthy value; presentation code should use its configured
-        /// reference-white fallback in that case.
+
+        /// Returns the current or globally available HDR properties value.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual optional<WindowHdrProperties> hdr_properties() const noexcept;
 
-        /// Drain the OS/backend event queue **once**, translating native events into this window's own
-        /// queue and updating latched state (`close_requested()`, `resized()`). Call it on the message-pump
-        /// thread, then pair it with `poll_event()` to read what it produced.
+
+        /// Pumps events using the supplied arguments and current state.
         ///
-        /// @returns `{}` on success, or a `WindowError` if the backend's event pump itself fails.
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> pump_events() noexcept = 0;
 
-        /// Pop the next translated `WindowEvent`, or `nullopt` once the queue built by the last
-        /// `pump_events()` is drained. Call it repeatedly after each `pump_events()`:
+
+        /// Polls event for available work or state changes.
         ///
-        /// ```cpp
-        /// window->pump_events();
-        /// while (auto ev = window->poll_event()) dispatch(*ev);
-        /// ```
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual optional<WindowEvent> poll_event() noexcept = 0;
 
-        /// Whether a close has been requested — by the user (window close button / OS quit) or via
-        /// `request_close()`. The flag **latches** and never itself destroys the window; the owner decides
-        /// when to tear it down (typically the `while (!close_requested())` loop condition).
+
+        /// Closes requested using the supplied arguments and current state.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual bool close_requested() const noexcept = 0;
 
-        /// Programmatically raise the close-requested flag, exactly as if the user had asked to close.
-        /// Does **not** destroy the window on its own.
+
+        /// Requests close using the supplied arguments and current state.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void request_close() noexcept = 0;
 
-        /// Whether a size change is pending since the last `consume_resize()`. Cheap to poll every frame;
-        /// read the actual new extent with `consume_resize()`.
+
+        /// Changes the logical size to the requested value, creating or removing elements as needed.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual bool resized() const noexcept = 0;
 
-        /// Return the newest pending framebuffer size **once** and clear the pending flag, or `nullopt` if
-        /// nothing is pending. A burst of resize events collapses into a single up-to-date extent, so a
-        /// renderer rebuilds its swapchain once instead of per intermediate size.
+
+        /// Returns the current or globally available consume resize value.
         ///
-        /// ```cpp
-        /// if (auto resize = window->consume_resize())
-        ///     renderer.rebuild_swapchain(*resize);
-        /// ```
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual optional<WindowResize> consume_resize() noexcept = 0;
 
-        /// Make the window visible.
+
+        /// Returns the current or globally available show value.
         ///
-        /// @note Like every state request below, this is *submitted* to the OS and may be applied
-        ///       asynchronously or ignored by a window manager that won't honor it — success means "the
-        ///       request was submitted," not "the state is now in effect."
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> show() noexcept = 0;
 
-        /// Hide the window without destroying it (bring it back with `show()`).
+
+        /// Returns the current or globally available hide value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> hide() noexcept = 0;
 
-        /// Ask the window manager to give this window input focus.
+
+        /// Returns the current or globally available focus value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> focus() noexcept = 0;
 
-        /// Raise the window above its siblings in the z-order.
+
+        /// Returns the current or globally available raise value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> raise() noexcept = 0;
 
-        /// Maximize the window to fill the available work area (still windowed, **not** fullscreen).
+
+        /// Returns the current or globally available maximize value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> maximize() noexcept = 0;
 
-        /// Minimize (iconify) the window to the taskbar/dock.
+
+        /// Returns the current or globally available minimize value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> minimize() noexcept = 0;
 
-        /// Restore the window from a maximized or minimized state back to its normal size and position.
+
+        /// Returns the current or globally available restore value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> restore() noexcept = 0;
 
-        /// Set the title-bar text (UTF-8).
+
+        /// Sets the title for this `Window`.
+        ///
+        /// @param title `title` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_title(const char *title) noexcept = 0;
 
-        /// The window's top-left `WindowPosition` in **logical/screen** coordinates.
+
+        /// Returns the current or globally available position value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual expected<WindowPosition, WindowError> position() const noexcept = 0;
 
-        /// Move the window so its top-left is at `position`, in **logical/screen** coordinates.
+
+        /// Sets the position for this `Window`.
+        ///
+        /// @param position `position` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_position(WindowPosition position) noexcept = 0;
 
-        /// The OS cursor's position in **global desktop coordinates** — unlike every other position
-        /// in this interface, *not* relative to this window's own client area, since this exists
-        /// specifically for tracking a pointer that may have left this window's bounds entirely (a
-        /// drag that crosses from one OS window into another — see UI docking's tear-off/redock use
-        /// case). Ordinary per-window pointer input (button/move events) is unaffected and stays
-        /// window-relative as always.
+
+        /// Returns the current or globally available global cursor position value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::Unsupported`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual expected<WindowPosition, WindowError> global_cursor_position() const noexcept;
 
-        /// The window's client-area size in **logical/screen** coordinates.
+
+        /// Returns the size for this `Window`.
         ///
-        /// @note On HiDPI / fractional-scaling displays this differs from `framebuffer_size()` — use
-        ///       `framebuffer_size()` for anything you render.
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual expected<WindowExtent, WindowError> size() const noexcept = 0;
 
-        /// Resize the client area to `extent`, in **logical/screen** coordinates.
+
+        /// Sets the size for this `Window`.
+        ///
+        /// @param extent `extent` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_size(WindowExtent extent) noexcept = 0;
 
-        /// The drawable size in **physical pixels** — the extent the renderer must size its swapchain to.
-        /// Differs from `size()` whenever the display applies HiDPI / fractional scaling.
+
+        /// Returns the framebuffer size for this `Window`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual expected<WindowExtent, WindowError> framebuffer_size() const noexcept = 0;
 
-        /// Clamp the **smallest** size the user can interactively resize the window to.
+
+        /// Sets the minimum size for this `Window`.
+        ///
+        /// @param extent `extent` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_minimum_size(WindowExtent extent) noexcept = 0;
 
-        /// Clamp the **largest** size the user can interactively resize the window to.
+
+        /// Sets the maximum size for this `Window`.
+        ///
+        /// @param extent `extent` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_maximum_size(WindowExtent extent) noexcept = 0;
 
-        /// Enable or disable interactive (user-drag) resizing.
+
+        /// Sets the resizable for this `Window`.
+        ///
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_resizable(bool enabled) noexcept = 0;
 
-        /// Show or hide the window's title bar and border (decorations).
+
+        /// Sets the decorated for this `Window`.
+        ///
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_decorated(bool enabled) noexcept = 0;
 
-        /// Switch between windowed, borderless-fullscreen, and exclusive-fullscreen via `WindowMode`.
+
+        /// Sets the fullscreen for this `Window`.
         ///
-        /// @note Changes no backend can apply to a live window (e.g. an exclusive-fullscreen pixel-format
-        ///       change) must go through `recreate()` instead.
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_fullscreen(WindowMode mode) noexcept = 0;
 
-        /// The mode last accepted by set_fullscreen() (Windowed until first called). Exists so a
-        /// graphics backend rebuilding this window's swapchain — which happens on its own schedule,
-        /// independent of when set_fullscreen() was called — can tell whether ExclusiveFullscreen is
-        /// currently wanted and should chain VK_EXT_full_screen_exclusive (Vulkan) or the equivalent
-        /// exclusive-fullscreen request onto that rebuild, without the caller having to separately track
-        /// and thread the last-requested mode through every layer between UI and swapchain creation.
+
+        /// Returns the current or globally available fullscreen mode value.
+        ///
+        /// @return Returns the current fullscreen mode value.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual WindowMode fullscreen_mode() const noexcept = 0;
 
-        /// Set whole-window opacity in `[0, 1]` (`1` = opaque), where the platform supports it.
+
+        /// Sets the opacity for this `Window`.
+        ///
+        /// @param opacity `opacity` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_opacity(f32 opacity) noexcept = 0;
 
-        /// The window's current whole-window opacity in `[0, 1]`.
+
+        /// Returns the current or globally available opacity value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual expected<f32, WindowError> opacity() const noexcept = 0;
 
-        /// Show or hide the mouse cursor while it is over this window.
+
+        /// Sets the cursor visible for this `Window`.
+        ///
+        /// @param visible `visible` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_cursor_visible(bool visible) noexcept = 0;
 
-        /// Sets the cursor's *shape* while it is over this window (a resize handle, a text field, a
-        /// clickable control, ...) — orthogonal to set_cursor_visible() above. Implementations own
-        /// caching/creating the underlying native cursor object; callers can call this every frame a
-        /// hover state might have changed without worrying about per-call allocation cost.
+
+        /// Sets the cursor icon for this `Window`.
+        ///
+        /// @param icon `icon` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_cursor_icon(CursorIcon icon) noexcept = 0;
 
-        /// Confine the cursor to the window's bounds (it stays visible and can move within them).
+
+        /// Sets the cursor grabbed for this `Window`.
+        ///
+        /// @param grabbed `grabbed` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_cursor_grabbed(bool grabbed) noexcept = 0;
 
-        /// Switch to **relative** (delta-only) mouse reporting with a hidden, recentered cursor — the mode
-        /// wanted for FPS-style camera control. Distinct from `set_mouse_locked()`, the combined toggle
-        /// below.
+
+        /// Sets the relative mouse mode for this `Window`.
+        ///
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_relative_mouse_mode(bool enabled) noexcept = 0;
 
-        /// Combined **"capture the mouse for this window"** toggle, implemented on top of cursor
-        /// grab / visibility / relative mode. Prefer the `lock_mouse_to_window()` / `unlock_mouse()`
-        /// wrappers below for readability at call sites.
+
+        /// Sets the mouse locked for this `Window`.
+        ///
+        /// @param locked `locked` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_mouse_locked(bool locked) noexcept = 0;
 
-        /// Whether the mouse is currently locked to this window (the state set by `set_mouse_locked()`).
+
+        /// Returns the current or globally available mouse locked value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual bool mouse_locked() const noexcept = 0;
 
-        /// Readable wrapper for `set_mouse_locked(true)` — enter mouselook.
+
+        /// Acquires the associated synchronization primitive before protected access.
         ///
-        /// ```cpp
-        /// window->lock_mouse_to_window();   // gameplay: capture the pointer
-        /// // ...
-        /// window->unlock_mouse();           // menu: release it
-        /// ```
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> lock_mouse_to_window() noexcept;
 
-        /// Readable wrapper for `set_mouse_locked(false)` — release the pointer.
+
+        /// Releases the associated synchronization primitive.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> unlock_mouse() noexcept;
 
-        /// Apply a compositor window effect — blur-behind, acrylic/mica material, dark-mode title bar,
-        /// custom border/caption color, ... (build one with the `WindowEffect::*` factories).
+
+        /// Enables window effect using the supplied arguments and current state.
         ///
-        /// This is the **capability-aware** primitive: its `WindowEffectResult` distinguishes full
-        /// `Success`, `Degraded` (applied via a fallback path), and `Failed`. Prefer it when the caller
-        /// wants to know *how well* the effect took.
+        /// @param effect `effect` value used by the operation.
         ///
-        /// ```cpp
-        /// auto res = window->enable_window_effect(WindowEffect::mica());
-        /// if (res.kind == WindowEffectResultKind::Degraded)
-        ///     log_info("mica fell back: {}", res.details);
-        /// ```
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual WindowEffectResult enable_window_effect(WindowEffect effect) noexcept = 0;
 
-        /// Convenience form of `enable_window_effect()` that collapses the `WindowEffectResult` into the
-        /// uniform `expected<void, WindowError>` (a `Degraded` outcome still counts as success). Use it for
-        /// fire-and-forget: `window->set_effect(WindowEffect::acrylic());`
+
+        /// Sets the effect for this `Window`.
+        ///
+        /// @param effect `effect` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_effect(WindowEffect effect) noexcept = 0;
 
-        /// Shortcut for the common blur-behind toggle — equivalent to `set_effect(WindowEffect::blur(enabled))`.
+
+        /// Sets the blur enabled for this `Window`.
+        ///
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_blur_enabled(bool enabled) noexcept = 0;
 
-        /// Toggles per-pixel window transparency **live**, on an already-open window — equivalent to
-        /// `set_effect(WindowEffect::transparent(enabled))`. Only meaningfully supported where the OS
-        /// allows a live window to change whether its framebuffer has an alpha channel (Windows via
-        /// DWM, in principle macOS via NSWindow); elsewhere (Linux/X11's visual is fixed at window
-        /// creation, with no protocol operation to change it afterward) this no-ops with a warning —
-        /// see `WindowConfig::transparent` for the creation-time alternative that works everywhere.
+
+        /// Sets the transparent for this `Window`.
+        ///
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_transparent(bool enabled) noexcept = 0;
 
-        /// The Vulkan **instance** extension strings this windowing backend requires (e.g.
-        /// `VK_KHR_surface` + the platform WSI extension).
+
+        /// Returns the current or globally available required vulkan instance extensions value.
         ///
-        /// @warning Call **after** window creation but **before** the renderer backend initializes: these
-        ///          extensions are baked into the `VkInstance` at creation time. Both SDL3 and GLFW return
-        ///          pointers into their own static storage, valid for the backend's lifetime.
-        ///
-        /// ```cpp
-        /// auto exts = window->required_vulkan_instance_extensions();
-        /// if (!exts) return exts.error();
-        /// instance_info.enabledExtensionCount   = static_cast<uint32_t>(exts->size());
-        /// instance_info.ppEnabledExtensionNames = exts->data();
-        /// ```
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual expected<vector<const char *>, WindowError>
         required_vulkan_instance_extensions() const noexcept = 0;
 
-        /// Ask the concrete window provider to create its Vulkan presentation surface. Vulkan types
-        /// stay out of Platform's public headers: `instance` is a VkInstance, `allocation_callbacks`
-        /// is a VkAllocationCallbacks pointer (or null), and `surface_out` points to VkSurfaceKHR.
-        /// Keeping this operation virtual ensures Core never references SDL/GLFW helper symbols.
+
+        /// Creates a vulkan surface from the supplied parameters.
+        ///
+        /// @param instance Instance used or affected by the operation.
+        /// @param allocation_callbacks Callable invoked by the operation.
+        /// @param surface_out Surface used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> create_vulkan_surface(
             void *instance,
             const void *allocation_callbacks,
             void *surface_out) const noexcept = 0;
 
-        /// Register a state-only callback for a new physical framebuffer extent observed while an OS
-        /// modal resize loop prevents the normal event pump from returning. On Windows this may run on
-        /// SDL's event-producing thread, so it must only publish/coalesce the supplied extent; it must
-        /// not call Window, Engine, renderer, or other blocking APIs. Pass an empty `std::function` to
-        /// clear a previously registered callback. Backends without this modal-loop behavior may leave
-        /// it as a no-op.
+
+        /// Sets the live resize callback for this `Window`.
+        ///
+        /// @note This function does not throw exceptions.
         virtual void set_live_resize_callback(std::function<void(WindowExtent)>             ) noexcept;
 
-        /// Reads the OS clipboard's text contents (UTF-8) — empty if the clipboard is empty, holds
-        /// non-text data, or the read fails; callers can't distinguish those cases (no backend
-        /// exposes clipboard-format queries uniformly). Clipboard state is process-global, not
-        /// per-window, same as on every desktop OS — this is still a Window method rather than a
-        /// free function so call sites already holding a Window* don't need a second global handle,
-        /// matching every other capability query here.
+
+        /// Returns the current or globally available clipboard text value.
+        ///
+        /// @return Returns the current clipboard text value.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual std::string clipboard_text() const noexcept = 0;
 
-        /// Writes `text` (UTF-8) to the OS clipboard, replacing its current contents.
+
+        /// Sets the clipboard text for this `Window`.
+        ///
+        /// @param text Text consumed by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept = 0;
 
 
-
-
-
-
-
-
-        /// Begin routing text input (and, on a backend that supports it, composition/preedit) to this
-        /// window. SDL3 requires this to receive WindowEventKind::TextInput/TextEditing at all; it is
-        /// already called once, unconditionally, when an SDL3 window is constructed, so callers don't
-        /// need to call this themselves unless they specifically want to gate it — e.g. only while
-        /// some UI text field has focus, pairing this with stop_text_input() on blur.
+        /// Starts text input using the supplied arguments and current state.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> start_text_input() noexcept;
 
-        /// Stop routing text input to this window (see start_text_input()).
+
+        /// Stops text input using the supplied arguments and current state.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> stop_text_input() noexcept;
 
-        /// Tells the OS/IME where the currently focused text field (and caret within it) is on
-        /// screen, so a composition candidate window anchors there instead of a default/wrong
-        /// location (commonly the screen's top-left corner). Call every frame a focused field's
-        /// bounds might have changed — layout, scrolling, or the caret moving — while it has focus;
-        /// there is no need to call this when nothing is focused. Cheap on SDL3 (SDL_SetTextInputArea);
-        /// a no-op wherever it isn't supported.
+
+        /// Sets the text input area for this `Window`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_text_input_area(TextInputArea         ) noexcept;
 
       private:

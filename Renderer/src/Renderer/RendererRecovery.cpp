@@ -19,6 +19,11 @@ using std::vector;
 
 namespace SFT::Renderer {
 
+    /// Returns the current or globally available recover from device loss value.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::DeviceLost`.
     Core::RendererResult Renderer::recover_from_device_loss() {
         ZoneScopedN("Renderer::recover_from_device_loss");
         if (recovering_from_device_loss_) {
@@ -28,6 +33,13 @@ namespace SFT::Renderer {
         return rebuild_backend_from_create_info(recovery_create_info_, "GPU device loss");
     }
 
+    /// Performs the reconfigure backend operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param create_info Description of the resource or operation to perform.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::reconfigure_backend(const Core::RendererCreateInfo &create_info) {
         ZoneScopedN("Renderer::reconfigure_backend");
         if (recovering_from_device_loss_) {
@@ -37,6 +49,14 @@ namespace SFT::Renderer {
         return rebuild_backend_from_create_info(create_info, "runtime settings change");
     }
 
+    /// Performs the rebuild backend from create info operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param create_info Description of the resource or operation to perform.
+    /// @param reason `reason` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::DeviceLost`, `GraphicsBackendErrorCode::InitializationFailed`.
     Core::RendererResult Renderer::rebuild_backend_from_create_info(const Core::RendererCreateInfo &create_info,
                                                                     const char *reason) {
         ZoneScopedN("Renderer::rebuild_backend_from_create_info");
@@ -49,7 +69,6 @@ namespace SFT::Renderer {
         recovering_from_device_loss_ = true;
 
 
-
         {
             auto guard = window_surfaces_.lock();
             for (auto &record_ptr : *guard) {
@@ -57,8 +76,6 @@ namespace SFT::Renderer {
             }
         }
         wait_idle();
-
-
 
 
         if (RHI::RhiDevice *old_device = rhi_device()) {
@@ -135,9 +152,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Returns the current or globally available invalidate GPU resource handles no destroy value.
+    ///
+    /// @return Returns the current invalidate GPU resource handles no destroy value.
+    /// @note This function does not throw exceptions.
     void Renderer::invalidate_gpu_resource_handles_no_destroy() noexcept {
         ZoneScopedN("Renderer::invalidate_gpu_resource_handles_no_destroy");
-
 
 
         vertex_arena_ = GeometryArena{.usage = vertex_arena_.usage};
@@ -170,8 +190,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
         material_pipeline_variants_.lock()->clear();
         depth_only_pipeline_variants_.lock()->clear();
         for (MaterialInstanceResource &material_instance : material_instances_) {
@@ -184,7 +202,6 @@ namespace SFT::Renderer {
         }
 
 
-
         {
             auto guard = window_surfaces_.lock();
             for (auto &record : *guard) {
@@ -194,8 +211,6 @@ namespace SFT::Renderer {
                 record->hiz_pyramid = {};
             }
         }
-
-
 
 
         *bloom_.lock() = {};
@@ -217,6 +232,11 @@ namespace SFT::Renderer {
         frame_draws_.clear();
     }
 
+    /// Returns the current or globally available restore GPU resources after recovery value.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::restore_gpu_resources_after_recovery() {
         ZoneScopedN("Renderer::restore_gpu_resources_after_recovery");
         for (MeshResource &mesh : meshes_) {
@@ -230,8 +250,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
         for (TextureResource &texture : textures_) {
             if (!texture.alive || !texture.owns_gpu_resources) {
                 continue;
@@ -242,12 +260,10 @@ namespace SFT::Renderer {
         }
 
 
-
         if (Core::RendererResult targets = restore_offscreen_render_targets_after_recovery();
             !targets.has_value()) {
             return targets;
         }
-
 
 
         material_pipeline_variants_.lock()->clear();

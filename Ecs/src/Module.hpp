@@ -5,34 +5,49 @@
 
 namespace SFT::Ecs {
 
-    /// Bundles a reusable piece of ECS logic — its own resources/event types and systems — into a
-    /// unit a consumer registers as one step, instead of hand-copying bind_resource()/add_system()
-    /// calls into application setup code for every feature. A Module typically owns its resource
-    /// state as ordinary members; those members must outlive every World/Schedule build() bound them
-    /// into, matching World::bind_resource's own non-owning-reference contract.
+
     class Module {
       public:
+        /// Destroys the `Module` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         virtual ~Module() = default;
 
-        /// Binds this module's resources into `world` and registers its systems into `schedule`.
-        /// Called once, in registration order relative to any other module sharing an event/resource
-        /// type, before Schedule::run() is ever called — see Schedule::validate_event_ordering() for
-        /// why registration order matters for EventWriter/EventReader pairs specifically.
+
+        /// Builds the requested object or derived state.
+        ///
+        /// @param world World used or affected by the operation.
+        /// @param schedule `schedule` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void build(World &world, Schedule &schedule) = 0;
     };
 
-    /// Minimal owning module for a consumer-defined event channel. The payload still uses
-    /// SFT_ECS_EVENT for its stable canonical key; this class only removes repetitive ownership and
-    /// bind_resource boilerplate. Keep the module alive as long as the World using it.
+
     template <class T>
     class EventModule final : public Module {
       public:
+        /// Builds the requested object or derived state.
+        ///
+        /// @param world World used or affected by the operation.
+        /// @param schedule `schedule` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void build(World &world, Schedule &schedule) override {
             (void)schedule;
             world.bind_resource(events_);
         }
 
+        /// Returns the current or globally available events value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Events<T> &events() noexcept { return events_; }
+        /// Returns the current or globally available events value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const Events<T> &events() const noexcept { return events_; }
 
       private:

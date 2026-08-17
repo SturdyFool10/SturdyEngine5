@@ -1,9 +1,6 @@
 #pragma once
 
 
-
-
-
 #include <Foundation/src/Foundation.hpp>
 
 #pragma region Imports
@@ -19,9 +16,7 @@ using std::vector;
 
 namespace SFT::RHI {
 
-    /// One API's view of a physical GPU. The feature and queue data are intentionally retained alongside
-    /// AdapterInfo: an RTX card may be available through both Vulkan and D3D12, but the supported RHI
-    /// feature sets need not be identical.
+
     struct GpuApiSupport {
         AdapterInfo adapter;
         FeatureSet supported_features;
@@ -31,9 +26,7 @@ namespace SFT::RHI {
         vector<QueueInfo> queues;
     };
 
-    /// A physical GPU as seen across one or more APIs. `api_support` has one entry per successfully
-    /// enumerated backend. Entries merge only when their non-empty AdapterInfo::physical_device_id
-    /// values match exactly; this avoids falsely merging two identical installed GPUs.
+
     struct PhysicalGpu {
         string name;
         string vendor;
@@ -44,8 +37,7 @@ namespace SFT::RHI {
         vector<GpuApiSupport> api_support;
     };
 
-    /// A registered API that could not be initialized or enumerate adapters. Discovery remains useful
-    /// when one driver/loader is broken, so these are reported separately instead of failing the full scan.
+
     struct BackendDiscoveryFailure {
         BackendType backend = BackendType::Vulkan;
         string message;
@@ -56,8 +48,14 @@ namespace SFT::RHI {
         vector<BackendDiscoveryFailure> failures;
     };
 
-    /// Enumerates every backend in `registry` and merges each adapter into a physical-GPU record. This
-    /// performs no device creation and does not retain backend instances/adapters after returning.
+
+    /// Enumerates GPU inventory using the supplied arguments and current state.
+    ///
+    /// @param registry `registry` value used by the operation.
+    /// @param instance Instance used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] GpuInventory enumerate_gpu_inventory(const BackendRegistry &registry, const InstanceDesc &instance);
 
 } // namespace SFT::RHI

@@ -9,30 +9,15 @@
 
 namespace SFT::RHI {
 
-    /// ─── Optional feature vocabulary ─────────────────────────────────────────────
-    ///
-    /// `Feature` is intentionally a broad, behavior-oriented, first-class capability catalog. The RHI is
-    /// a maximal-union API: if Vulkan/D3D12/Metal/WebGPU expose a stable, app-visible capability, prefer
-    /// a named feature here over an `ExtensionId` escape hatch. `ExtensionId` remains for truly
-    /// backend/vendor-specific interfaces, prototypes, or capabilities whose RHI descriptor vocabulary
-    /// has not been designed yet.
-    ///
-    /// Feature names should describe what renderer code can do, not which backend revision exposed it:
-    /// `RayTracingPipeline` is useful; `Maintenance11` is not. API version/maintenance bundles stay in
-    /// backend mapping tables until their concrete behaviors become RHI-visible features.
-    ///
-    /// A feature is a boolean: supported, requested, enabled. Graded values and limits live in
-    /// `FeatureProperties`, `DeviceLimits`, queue topology, or per-format queries. Vulkan feature bits
-    /// may map one-to-one to entries below; D3D12 tiers and Metal GPU families usually map to bundles
-    /// of entries.
+
     enum class Feature : u32 {
-        /// RHI baseline validators. The RHI is designed around these, but they are still named so a
-        /// backend can report a precise unsupported requirement on APIs/devices where they are not core.
+
+
         TimelineSynchronization,
         Synchronization2,
         DynamicRendering,
 
-        /// Device robustness, safety, and protected execution.
+
         RobustBufferAccess,
         RobustBufferAccess2,
         RobustImageAccess,
@@ -41,7 +26,7 @@ namespace SFT::RHI {
         ProtectedMemory,
         PipelineProtectedAccess,
 
-        /// Shader stages and programmable pipeline front-ends.
+
         GeometryShader,
         TessellationShader,
         MeshShader,
@@ -51,7 +36,7 @@ namespace SFT::RHI {
         ShaderObject,
         ShaderDrawParameters,
 
-        /// Ray tracing and acceleration structures.
+
         AccelerationStructures,
         AccelerationStructureCaptureReplay,
         AccelerationStructureIndirectBuild,
@@ -71,8 +56,7 @@ namespace SFT::RHI {
         PipelineLibrary,
         PipelineLibraryGroupHandles,
 
-        /// Descriptor/resource binding model. Keep `BindlessResources` as the high-level renderer path,
-        /// but expose fine-grained indexing/update capabilities individually for precise negotiation.
+
         BindlessResources,
         DescriptorIndexing,
         RuntimeDescriptorArrays,
@@ -103,7 +87,7 @@ namespace SFT::RHI {
         InlineUniformBlockUpdateAfterBind,
         MutableDescriptorTypes,
 
-        /// Shader numeric types, storage widths, atomics, and math instructions.
+
         ShaderInt8,
         ShaderInt16,
         ShaderInt64,
@@ -137,7 +121,7 @@ namespace SFT::RHI {
         ShaderFloatControls2,
         ShaderFma,
 
-        /// Shader memory model, pointer/layout controls, and control-flow semantics.
+
         SubgroupOperations,
         SubgroupExtendedTypes,
         SubgroupSizeControl,
@@ -177,7 +161,7 @@ namespace SFT::RHI {
         VertexPipelineStoresAndAtomics,
         FragmentStoresAndAtomics,
 
-        /// Rasterization and fixed-function pipeline state.
+
         DepthClamp,
         DepthClampZeroOne,
         DepthClipEnable,
@@ -219,7 +203,7 @@ namespace SFT::RHI {
         LegacyVertexAttributes,
         LegacyDithering,
 
-        /// Fragment shading rate / density and tile-local attachment access.
+
         VariableRateShading,
         PipelineFragmentShadingRate,
         PrimitiveFragmentShadingRate,
@@ -231,7 +215,7 @@ namespace SFT::RHI {
         FramebufferFetch,
         ShaderTileImage,
 
-        /// Attachment/rendering model extras beyond the core dynamic-rendering path.
+
         Multiview,
         MultiviewGeometryShader,
         MultiviewTessellationShader,
@@ -248,7 +232,7 @@ namespace SFT::RHI {
         CreateRenderPass2,
         SubpassMergeFeedback,
 
-        /// Draw, dispatch, and command-generation features.
+
         FullDrawIndexUint32,
         IndexTypeUint8,
         PrimitiveRestart,
@@ -267,7 +251,7 @@ namespace SFT::RHI {
         RenderBundles,
         InheritedQueries,
 
-        /// Buffers, addresses, sparse/tiled resources, residency, and memory management.
+
         BufferDeviceAddress,
         BufferDeviceAddressCaptureReplay,
         BufferDeviceAddressMultiDevice,
@@ -302,8 +286,7 @@ namespace SFT::RHI {
         MetalObjects,
         Win32KeyedMutex,
 
-        /// Texture/image/sampler capability bits. Per-format support should still be queried separately;
-        /// these name global shader/sampler/view behaviors and compression families.
+
         ImageCubeArray,
         Format4444,
         Rgba10x6Formats,
@@ -335,7 +318,7 @@ namespace SFT::RHI {
         Ycbcr2Plane444Formats,
         YcbcrImageArrays,
 
-        /// Queries, timing, and diagnostics/introspection that affect renderer behavior.
+
         OcclusionQueries,
         PreciseOcclusionQueries,
         TimestampQueries,
@@ -358,7 +341,7 @@ namespace SFT::RHI {
         PipelineProperties,
         PipelineBinary,
 
-        /// Queueing, synchronization interop, presentation, and display.
+
         AsyncCompute,
         AsyncTransfer,
         QueueFamilyForeign,
@@ -397,8 +380,7 @@ namespace SFT::RHI {
         HdrMetadata,
         SwapchainColorspace,
 
-        /// Video encode/decode acceleration. These are RHI-visible only when media work is scheduled on
-        /// graphics API queues; a separate media subsystem may also consume the same bits.
+
         VideoDecodeQueue,
         VideoEncodeQueue,
         VideoDecodeH264,
@@ -414,10 +396,6 @@ namespace SFT::RHI {
         VideoEncodeQuantizationMap,
 
 
-
-
-
-        /// Portability and device/driver introspection.
         PortabilityEnumeration,
         PortabilitySubset,
         DriverProperties,
@@ -425,16 +403,19 @@ namespace SFT::RHI {
         PciBusInfo,
         PhysicalDeviceDrm,
 
-        /// Keep last — the count of features, used to size FeatureSet. Never assign it a value or
-        /// reorder entries above it without updating any persisted feature sets.
+
         Count,
     };
 
     inline constexpr usize feature_count = static_cast<usize>(Feature::Count);
 
-    /// A short human-readable name for a feature — for logs and, importantly, the "this title requires
-    /// <X> and cannot run on this GPU" diagnostic an application surfaces when a required feature is
-    /// missing.
+
+    /// Returns a human-readable name for the supplied feature value.
+    ///
+    /// @param feature `feature` value used by the operation.
+    ///
+    /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr const char *feature_name(Feature feature) noexcept {
         switch (feature) {
             case Feature::TimelineSynchronization: return "timeline synchronization";
@@ -800,45 +781,115 @@ namespace SFT::RHI {
     }
 
 
-
-    /// A set of `Feature`s — used three ways with one type: what an adapter *supports* (queried before
-    /// device creation), what a device request *requires* / *optionally wants*, and what a device
-    /// actually *enabled*. Backed by a fixed-size bitset over the enum; storage is an implementation
-    /// detail (it can widen past 64 features without touching this interface).
     class FeatureSet {
       public:
+        /// Constructs a `FeatureSet` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr FeatureSet() = default;
 
+        /// Performs the set operation for `FeatureSet` using the supplied arguments.
+        ///
+        /// @param feature `feature` value used by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         FeatureSet &set(Feature feature, bool enabled = true) noexcept;
 
+        /// Performs the unset operation for `FeatureSet` using the supplied arguments.
+        ///
+        /// @param feature `feature` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         FeatureSet &unset(Feature feature) noexcept;
 
+        /// Performs the has operation for `FeatureSet` using the supplied arguments.
+        ///
+        /// @param feature `feature` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool has(Feature feature) const noexcept;
 
-        /// Every feature in `required` is present in this set (`required` ⊆ `*this`) — the check a
-        /// backend runs on `adapter.supported_features()` against a request's required features.
+
+        /// Reports whether all holds for this `FeatureSet`.
+        ///
+        /// @param required `required` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool contains_all(const FeatureSet &required) const noexcept;
 
-        /// The features in `required` that this set is missing — for building a precise "unsupported:
-        /// A, B, C" message when a required-feature check fails. Iterate it with `for_each`.
+
+        /// Performs the missing operation for `FeatureSet` using the supplied arguments.
+        ///
+        /// @param required `required` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] FeatureSet missing(const FeatureSet &required) const noexcept;
 
+        /// Performs the intersection operation for `FeatureSet` using the supplied arguments.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] FeatureSet intersection(const FeatureSet &other) const noexcept;
 
+        /// Performs the difference operation for `FeatureSet` using the supplied arguments.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] FeatureSet difference(const FeatureSet &other) const noexcept;
 
+        /// Returns the current or globally available any value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool any() const noexcept;
+        /// Returns the current or globally available none value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool none() const noexcept;
+        /// Returns the count for this `FeatureSet`.
+        ///
+        /// @return Returns the current count value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize count() const noexcept;
 
+        /// Combines this object with the right-hand operand using bitwise OR.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         FeatureSet &operator|=(const FeatureSet &other) noexcept;
 
+        /// Combines the operands with bitwise OR.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         friend FeatureSet operator|(FeatureSet a, const FeatureSet &b) noexcept;
 
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend bool operator==(const FeatureSet &, const FeatureSet &) noexcept = default;
 
-        /// Invoke `fn(Feature)` for each feature present, in enum order — e.g. to log an enabled set or
-        /// format a list of missing required features.
+
+        /// Invokes the supplied function once for each element in the input range.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class Fn>
         void for_each(Fn &&fn) const {
             for (usize i = 0; i < feature_count; ++i) {
@@ -861,24 +912,44 @@ namespace SFT::RHI {
         FeatureSet missing_required_features;
         FeatureSet unavailable_optional_features;
 
+        /// Returns the current or globally available required satisfied value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool required_satisfied() const noexcept;
+        /// Returns the current or globally available optional fully enabled value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool optional_fully_enabled() const noexcept;
+        /// Returns the current or globally available enabled features value.
+        ///
+        /// @return Returns the current enabled features value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] FeatureSet enabled_features() const noexcept;
     };
 
+    /// Performs the negotiate features operation using the supplied arguments.
+    ///
+    /// @param supported `supported` value used by the operation.
+    /// @param required `required` value used by the operation.
+    /// @param optional `optional` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] FeatureNegotiationReport negotiate_features(
         const FeatureSet &supported,
         const FeatureSet &required,
         const FeatureSet &optional) noexcept;
 
-    /// Convenience: a `FeatureSet` containing exactly the listed features, for terse request
-    /// construction — `features_of({Feature::RayTracingPipeline, Feature::RayQuery})`.
+
+    /// Performs the features of operation using the supplied arguments.
+    ///
+    /// @param features `features` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] FeatureSet features_of(std::initializer_list<Feature> features) noexcept;
-
-
-
-
-
 
 
     struct RayTracingProperties {

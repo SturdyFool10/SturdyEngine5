@@ -21,6 +21,12 @@ namespace SFT::UI {
         std::atomic<u64> next_ui_renderer_generation{1};
     }
 
+    /// Assigns a new value to this `UI`.
+    ///
+    /// @param other Other object used by the operation.
+    ///
+    /// @return Returns `*this` so the operation can be chained.
+    /// @note This function does not throw exceptions.
     UiRenderer &UiRenderer::operator=(UiRenderer &&other) noexcept {
         if (this == &other) {
             return *this;
@@ -38,6 +44,14 @@ namespace SFT::UI {
         return *this;
     }
 
+    /// Creates a `UI` resource or value from the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param enable_shader_disk_cache Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<UiRenderer> UiRenderer::create(
         RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
         UiRenderer renderer;
@@ -66,10 +80,6 @@ namespace SFT::UI {
     namespace {
 
 
-
-
-
-
         struct PaintEntry {
             PaintKey paint;
             enum class Kind : u8 { Quad, Text, Custom } kind = Kind::Quad;
@@ -79,6 +89,20 @@ namespace SFT::UI {
 
     } // namespace
 
+    /// Prepares the required state or resources for a later operation.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param encoder `encoder` value used by the operation.
+    /// @param snapshot `snapshot` value used by the operation.
+    /// @param texture_resolver Texture used or affected by the operation.
+    /// @param surface Surface used or affected by the operation.
+    /// @param frame_resource_index Zero-based index of the target element or entry.
+    /// @param out_transient_buffers Buffer used or affected by the operation.
+    /// @param out_retired_atlas_resources `out_retired_atlas_resources` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult UiRenderer::prepare(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                              const FrameSnapshot &snapshot, Renderer::Renderer *texture_resolver,
                                              Core::RenderSurfaceHandle surface, u32 frame_resource_index,
@@ -87,12 +111,6 @@ namespace SFT::UI {
         auto operation_guard = operation_mutex_->lock();
         (void)operation_guard;
         if (!ready_) {
-
-
-
-
-
-
 
 
             return {};
@@ -130,8 +148,6 @@ namespace SFT::UI {
         if (!white_texture_) {
 
 
-
-
             const std::array<std::byte, 4> white{std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}, std::byte{0xFF}};
             auto white_handle = texture_resolver->create_texture(1, 1, RHI::Format::RGBA8Unorm,
                                                                   span<const std::byte>{white.data(), white.size()},
@@ -149,8 +165,6 @@ namespace SFT::UI {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "UiRenderer::prepare: the default white texture is no longer valid.");
         }
-
-
 
 
         vector<PaintEntry> entries;
@@ -175,11 +189,6 @@ namespace SFT::UI {
         }
         std::sort(entries.begin(), entries.end(),
                  [](const PaintEntry &a, const PaintEntry &b) noexcept { return a.paint < b.paint; });
-
-
-
-
-
 
 
         vector<UiQuadInstance> quad_instances;
@@ -285,6 +294,15 @@ namespace SFT::UI {
         return {};
     }
 
+    /// Draws the requested content using the current rendering state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param viewport_size Requested or available size for the operation.
+    /// @param surface Surface used or affected by the operation.
+    /// @param frame_resource_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult UiRenderer::draw(RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
                                           Core::RenderSurfaceHandle surface, u32 frame_resource_index) {
         auto operation_guard = operation_mutex_->lock();
@@ -295,12 +313,9 @@ namespace SFT::UI {
             frame_resource_index >= surface_resources->frames.size()) {
 
 
-
-
             return {};
         }
         FrameResources &frame_resources = surface_resources->frames[frame_resource_index];
-
 
 
         usize quad_cursor = 0;
@@ -351,6 +366,12 @@ namespace SFT::UI {
         return {};
     }
 
+    /// Destroys or releases the `UI` resource represented by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiRenderer::destroy(RHI::RhiDevice &device) noexcept {
         auto operation_guard = operation_mutex_->lock();
         (void)operation_guard;
@@ -366,19 +387,6 @@ namespace SFT::UI {
         custom_element_pipeline_.destroy(device);
         text_pipeline_.destroy(device);
         ready_ = false;
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
         generation_.store(next_ui_renderer_generation.fetch_add(1, std::memory_order_relaxed),

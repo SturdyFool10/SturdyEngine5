@@ -1,14 +1,6 @@
 #pragma once
 
 
-
-
-
-
-
-
-
-
 #if !defined(__cpp_pack_indexing)
     #error "SturdyEngine5 requires a C++26 pack-indexing implementation (P2662, __cpp_pack_indexing). \
 This toolchain accepts -std=c++26 but hasn't implemented it yet -- see Foundation/src/Cxx26.hpp."
@@ -25,26 +17,29 @@ Foundation/src/Cxx26.hpp."
 
 namespace SFT::Foundation {
 
-    /// The Nth type in `Ts...`, via pack indexing rather than the classic `tuple_element_t<N,
-    /// tuple<Ts...>>` trick — which has to instantiate a whole `tuple` type just to answer one lookup.
+
     template <std::size_t N, class... Ts>
     using PackElement = Ts...[N];
 
-    /// The last type in `Ts...`. Common in variadic template code (a trailing "options"/context
-    /// argument, a builder's final step, ...) that would otherwise need `PackElement<sizeof...(Ts) - 1,
-    /// Ts...>` spelled out by hand at every call site.
+
     template <class... Ts>
     using LastPackElement = Ts...[sizeof...(Ts) - 1];
 
-    /// The Nth argument of a call-site parameter pack, forwarded with its original value category — the
-    /// value-level counterpart to `PackElement`. Picks the element directly rather than building a
-    /// `std::tuple` just to call `std::get<N>` on it.
+
+    /// Returns the current or globally available nth arg value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <std::size_t N, class... Args>
     [[nodiscard]] constexpr decltype(auto) nth_arg(Args &&...args) noexcept {
         return std::forward<Args...[N]>(args...[N]);
     }
 
-    /// The last argument of a call-site parameter pack, forwarded with its original value category.
+
+    /// Returns the current or globally available last arg value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <class... Args>
     [[nodiscard]] constexpr decltype(auto) last_arg(Args &&...args) noexcept {
         return nth_arg<sizeof...(Args) - 1>(std::forward<Args>(args)...);
@@ -52,6 +47,10 @@ namespace SFT::Foundation {
 
     namespace Detail {
 
+        /// Packs indexing smoke test using the supplied arguments and current state.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] consteval bool pack_indexing_smoke_test() noexcept {
             static_assert(std::same_as<PackElement<0, int, float, char>, int>);
             static_assert(std::same_as<PackElement<2, int, float, char>, char>);

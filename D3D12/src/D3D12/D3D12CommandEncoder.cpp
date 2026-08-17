@@ -15,14 +15,25 @@ namespace SFT::D3D12 {
 
     namespace {
 
+        /// Computes the subresource index required by the supplied values.
+        ///
+        /// @param texture Texture used or affected by the operation.
+        /// @param mip `mip` value used by the operation.
+        /// @param layer `layer` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 subresource_index(const TextureRecord &texture, u32 mip, u32 layer) noexcept {
             return mip + layer * texture.mip_levels;
         }
 
 
-
-
-
+        /// Normalizes sync access using the supplied arguments and current state.
+        ///
+        /// @param sync `sync` value used by the operation.
+        /// @param access `access` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void normalize_sync_access(D3D12_BARRIER_SYNC &sync, D3D12_BARRIER_ACCESS &access) noexcept {
             if (sync == D3D12_BARRIER_SYNC_NONE) {
                 access = D3D12_BARRIER_ACCESS_NO_ACCESS;
@@ -31,6 +42,13 @@ namespace SFT::D3D12 {
             }
         }
 
+        /// Converts the value to subresource range representation.
+        ///
+        /// @param texture Texture used or affected by the operation.
+        /// @param range Range of values to process.
+        ///
+        /// @return Returns the value converted to subresource range representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_BARRIER_SUBRESOURCE_RANGE to_subresource_range(
             const TextureRecord &texture,
             const rhi::TextureSubresourceRange &range) noexcept {
@@ -46,13 +64,16 @@ namespace SFT::D3D12 {
                 .FirstPlane = 0,
 
 
-
                 .NumPlanes = rhi::format_has_stencil(texture.format) ? 2u : 1u,
             };
         }
 
     } // namespace
 
+    /// Resets the object to its baseline state.
+    ///
+    /// @return Returns the current reset value.
+    /// @note This function does not throw exceptions.
     void BindingState::reset() noexcept {
         layout = {};
         for (PendingBindGroup &group : groups) {
@@ -64,7 +85,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Performs the d3 d12 command encoder operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param record `record` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     D3D12CommandEncoder::D3D12CommandEncoder(D3D12Device &device, CommandBufferRecord &&record)
         : device_(&device), record_(std::move(record)), list_(record_.list.Get()) {
         (void)record_.list.As(&list4_);
@@ -75,9 +101,11 @@ namespace SFT::D3D12 {
         bind_descriptor_heaps();
     }
 
+    /// Destroys the `D3D12` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     D3D12CommandEncoder::~D3D12CommandEncoder() {
         if (!finished_ && record_.list != nullptr) {
-
 
 
             (void)record_.list->Close();
@@ -85,12 +113,22 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Performs the fail operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12CommandEncoder::fail(std::string message) noexcept {
         if (!deferred_error_.has_value()) {
             deferred_error_ = rhi::RhiError{rhi::RhiErrorCode::InvalidArgument, std::move(message)};
         }
     }
 
+    /// Binds descriptor heaps for subsequent operations.
+    ///
+    /// @return Returns the current bind descriptor heaps value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::bind_descriptor_heaps() {
         if (record_.list_type == D3D12_COMMAND_LIST_TYPE_COPY || !record_.resource_heap.is_valid()) {
             return;
@@ -100,6 +138,13 @@ namespace SFT::D3D12 {
         list_->SetDescriptorHeaps(heap_count, heaps);
     }
 
+    /// Uploads bind group using the supplied arguments and current state.
+    ///
+    /// @param group `group` value used by the operation.
+    /// @param layout `layout` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     std::optional<D3D12CommandEncoder::BoundTables> D3D12CommandEncoder::upload_bind_group(
         const BindGroupRecord &group,
         const BindGroupLayoutRecord &layout,
@@ -136,6 +181,13 @@ namespace SFT::D3D12 {
         return tables;
     }
 
+    /// Flushes bindings.
+    ///
+    /// @param state `state` value used by the operation.
+    /// @param graphics `graphics` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool D3D12CommandEncoder::flush_bindings(BindingState &state, bool graphics) {
         const PipelineLayoutRecord *layout = device_->pipeline_layouts_.find(state.layout);
         if (layout == nullptr) {
@@ -159,7 +211,6 @@ namespace SFT::D3D12 {
             state.push_constants_dirty = !state.push_constants.empty();
             state.layout_dirty = false;
         }
-
 
 
         for (u32 attempt = 0; attempt < 2; ++attempt) {
@@ -265,8 +316,6 @@ namespace SFT::D3D12 {
             }
 
 
-
-
             if (auto resource_heap = device_->create_shader_visible_heap(
                     D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
                     default_shader_visible_resource_descriptors)) {
@@ -321,6 +370,12 @@ namespace SFT::D3D12 {
         return !deferred_error_.has_value();
     }
 
+    /// Reports whether record outside pass holds for this `D3D12`.
+    ///
+    /// @param operation `operation` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool D3D12CommandEncoder::can_record_outside_pass(const char *operation) {
         if (finished_ || list_ == nullptr) {
             fail(std::string(operation) + ": the command encoder is already finished.");
@@ -333,6 +388,13 @@ namespace SFT::D3D12 {
         return true;
     }
 
+    /// Creates a transient upload from the supplied parameters.
+    ///
+    /// @param data Data consumed or referenced by the operation.
+    /// @param operation `operation` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<ComPtr<ID3D12Resource>> D3D12CommandEncoder::create_transient_upload(
         span<const std::byte> data, const char *operation) {
         if (data.empty()) {
@@ -359,7 +421,14 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Performs the legacy transition operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param texture Texture used or affected by the operation.
+    /// @param subresource `subresource` value used by the operation.
+    /// @param after `after` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::legacy_transition(TextureRecord &texture, u32 subresource, D3D12_RESOURCE_STATES after) {
         if (subresource >= texture.legacy_states.size()) {
             return;
@@ -385,6 +454,14 @@ namespace SFT::D3D12 {
         texture.legacy_states[subresource] = after;
     }
 
+    /// Performs the barrier operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param global_barriers `global_barriers` value used by the operation.
+    /// @param buffer_barriers Buffer used or affected by the operation.
+    /// @param texture_barriers Texture used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::barrier(span<const rhi::GlobalBarrier> global_barriers,
                                       span<const rhi::BufferBarrier> buffer_barriers,
                                       span<const rhi::TextureBarrier> texture_barriers) {
@@ -425,7 +502,6 @@ namespace SFT::D3D12 {
                 D3D12_BARRIER_ACCESS access_after = to_d3d12_access(source.dst_access);
                 normalize_sync_access(sync_before, access_before);
                 normalize_sync_access(sync_after, access_after);
-
 
 
                 buffers.push_back(D3D12_BUFFER_BARRIER{
@@ -489,13 +565,9 @@ namespace SFT::D3D12 {
         }
 
 
-
-
-
         std::vector<D3D12_RESOURCE_BARRIER> barriers;
 
         for (const rhi::GlobalBarrier &source : global_barriers) {
-
 
 
             if (rhi::has_any(source.src_access, rhi::AccessFlags::ShaderWrite | rhi::AccessFlags::MemoryWrite)) {
@@ -563,7 +635,14 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Copies buffer to buffer to its destination.
+    ///
+    /// @param src Source value or resource.
+    /// @param dst Destination value or resource.
+    /// @param region `region` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::copy_buffer_to_buffer(rhi::BufferHandle src, rhi::BufferHandle dst, const rhi::BufferCopy &region) {
         if (!can_record_outside_pass("copy_buffer_to_buffer")) {
             return;
@@ -591,10 +670,15 @@ namespace SFT::D3D12 {
     namespace {
 
 
-
-
-
-
+        /// Builds texture footprint.
+        ///
+        /// @param texture Texture used or affected by the operation.
+        /// @param region `region` value used by the operation.
+        /// @param footprint `footprint` value used by the operation.
+        /// @param row_pitch `row_pitch` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool build_texture_footprint(const TextureRecord &texture, const rhi::BufferTextureCopy &region, D3D12_PLACED_SUBRESOURCE_FOOTPRINT &footprint, u64 &row_pitch) {
             const u32 block = format_block_extent(texture.format);
             const u32 element_bytes = format_element_bytes(texture.format);
@@ -622,6 +706,14 @@ namespace SFT::D3D12 {
 
     } // namespace
 
+    /// Copies buffer to texture to its destination.
+    ///
+    /// @param src Source value or resource.
+    /// @param dst Destination value or resource.
+    /// @param region `region` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::copy_buffer_to_texture(rhi::BufferHandle src, rhi::TextureHandle dst, const rhi::BufferTextureCopy &region) {
         if (!can_record_outside_pass("copy_buffer_to_texture")) {
             return;
@@ -652,6 +744,14 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Copies texture to buffer to its destination.
+    ///
+    /// @param src Source value or resource.
+    /// @param dst Destination value or resource.
+    /// @param region `region` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::copy_texture_to_buffer(rhi::TextureHandle src, rhi::BufferHandle dst, const rhi::BufferTextureCopy &region) {
         if (!can_record_outside_pass("copy_texture_to_buffer")) {
             return;
@@ -682,6 +782,14 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Copies texture to texture to its destination.
+    ///
+    /// @param src Source value or resource.
+    /// @param dst Destination value or resource.
+    /// @param region `region` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::copy_texture_to_texture(rhi::TextureHandle src, rhi::TextureHandle dst, const rhi::TextureCopy &region) {
         if (!can_record_outside_pass("copy_texture_to_texture")) {
             return;
@@ -704,21 +812,29 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Performs the blit texture operation for `D3D12` using the supplied arguments.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::blit_texture(rhi::TextureHandle, rhi::TextureHandle, const rhi::TextureBlit &, rhi::Filter) {
         if (!can_record_outside_pass("blit_texture")) {
             return;
         }
 
 
-
-
-
-
-
         fail("blit_texture: D3D12 has no scaled/filtered image blit. Use a compute or raster downsample pass "
              "instead (this is why the operation is reported here rather than approximated).");
     }
 
+    /// Fills buffer using the supplied arguments and current state.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param size Requested or available size for the operation.
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::fill_buffer(rhi::BufferHandle buffer, u64 offset, u64 size, u32 value) {
         if (!can_record_outside_pass("fill_buffer")) {
             return;
@@ -757,6 +873,14 @@ namespace SFT::D3D12 {
         record_.transient_uploads.push_back(std::move(*upload));
     }
 
+    /// Updates buffer from the supplied values.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::update_buffer(rhi::BufferHandle buffer, u64 offset, span<const std::byte> data) {
         if (!can_record_outside_pass("update_buffer")) {
             return;
@@ -1028,6 +1152,12 @@ namespace SFT::D3D12 {
                                 dst_offset);
     }
 
+    /// Adds the supplied value to the end or work queue.
+    ///
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::push_debug_group(const char *label) {
         if (label != nullptr) {
 
@@ -1036,8 +1166,16 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Removes and returns or discards the next value from the container or queue.
+    ///
+    /// @return Returns the current pop debug group value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12CommandEncoder::pop_debug_group() { list_->EndEvent(); }
 
+    /// Returns the current or globally available finish value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::CommandBufferHandle> D3D12CommandEncoder::finish() {
         ZoneScopedN("D3D12CommandEncoder::finish");
         if (finished_) {
@@ -1077,6 +1215,13 @@ namespace SFT::D3D12 {
         return device_->command_buffers_.insert(std::move(record_));
     }
 
+    /// Performs the begin render pass operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<unique_ptr<rhi::RenderPassEncoder>> D3D12CommandEncoder::begin_render_pass(
         const rhi::RenderPassDesc &desc) {
         if (finished_ || pass_open_) {
@@ -1164,6 +1309,10 @@ namespace SFT::D3D12 {
             std::move(color_resolves)));
     }
 
+    /// Performs the begin compute pass operation for `D3D12` using the supplied arguments.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<unique_ptr<rhi::ComputePassEncoder>> D3D12CommandEncoder::begin_compute_pass(
         const rhi::ComputePassDesc &) {
         if (finished_ || pass_open_) {
@@ -1177,10 +1326,26 @@ namespace SFT::D3D12 {
         return unique_ptr<rhi::ComputePassEncoder>(std::make_unique<D3D12ComputePassEncoder>(*this));
     }
 
+    /// Performs the d3 d12 render pass encoder operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param parent `parent` value used by the operation.
+    /// @param bundles_only `bundles_only` value used by the operation.
+    /// @param color_resolves `color_resolves` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     D3D12RenderPassEncoder::D3D12RenderPassEncoder(D3D12CommandEncoder &parent, bool bundles_only, std::vector<ColorResolve> color_resolves)
         : parent_(&parent), color_resolves_(std::move(color_resolves)), bundles_only_(bundles_only) {}
+    /// Destroys the `D3D12` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     D3D12RenderPassEncoder::~D3D12RenderPassEncoder() { end(); }
 
+    /// Sets the pipeline for this `D3D12`.
+    ///
+    /// @param pipeline Pipeline used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::set_pipeline(rhi::RenderPipelineHandle pipeline) {
         const RenderPipelineRecord *record = parent_->device_->render_pipelines_.find(pipeline);
         if (ended_ || record == nullptr) {
@@ -1206,6 +1371,14 @@ namespace SFT::D3D12 {
             }
         }
     }
+    /// Sets the bind group for this `D3D12`.
+    ///
+    /// @param index Zero-based index of the target element or entry.
+    /// @param group `group` value used by the operation.
+    /// @param offsets Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::set_bind_group(u32 index, rhi::BindGroupHandle group, span<const u32> offsets) {
         if (ended_ || index >= max_tracked_bind_groups || !group.is_valid()) {
             parent_->fail("set_bind_group: invalid index, handle, or ended pass.");
@@ -1216,6 +1389,12 @@ namespace SFT::D3D12 {
         pending.dynamic_offsets.assign(offsets.begin(), offsets.end());
         pending.dirty = true;
     }
+    /// Binds vertex buffer for subsequent operations.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::bind_vertex_buffer(u32 slot) {
         if (!pipeline_bound_ || mesh_pipeline_bound_ || slot >= vertex_strides_.size()) {
             parent_->fail("set_vertex_buffer: the slot is not declared by the bound vertex pipeline.");
@@ -1236,6 +1415,14 @@ namespace SFT::D3D12 {
         };
         parent_->list_->IASetVertexBuffers(slot, 1, &view);
     }
+    /// Sets the vertex buffer for this `D3D12`.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param buffer Buffer used or affected by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::set_vertex_buffer(u32 slot, rhi::BufferHandle buffer, u64 offset) {
         const BufferRecord *record = parent_->device_->buffers_.find(buffer);
         if (ended_ || slot >= vertex_buffers_.size() || record == nullptr || offset > record->size ||
@@ -1248,6 +1435,14 @@ namespace SFT::D3D12 {
             bind_vertex_buffer(slot);
         }
     }
+    /// Sets the index buffer for this `D3D12`.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::set_index_buffer(rhi::BufferHandle buffer, rhi::IndexFormat format, u64 offset) {
         const BufferRecord *record = parent_->device_->buffers_.find(buffer);
         if (ended_ || record == nullptr || offset > record->size ||
@@ -1262,6 +1457,13 @@ namespace SFT::D3D12 {
         };
         parent_->list_->IASetIndexBuffer(&view);
     }
+    /// Sets the push constants for this `D3D12`.
+    ///
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::set_push_constants(rhi::ShaderStage, u32 offset, span<const std::byte> data) {
         if (ended_ || offset % 4 != 0 || data.size() % 4 != 0) {
             parent_->fail("set_push_constants: data and offset must be four-byte aligned.");
@@ -1273,6 +1475,12 @@ namespace SFT::D3D12 {
         std::memcpy(constants.data() + offset, data.data(), data.size());
         parent_->graphics_bindings_.push_constants_dirty = true;
     }
+    /// Sets the viewport for this `D3D12`.
+    ///
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::set_viewport(const rhi::Viewport &value) {
         if (ended_) {
             parent_->fail("set_viewport: ended pass.");
@@ -1280,11 +1488,15 @@ namespace SFT::D3D12 {
         }
 
 
-
-
         const D3D12_VIEWPORT v{value.x, value.y, value.width, value.height, value.min_depth, value.max_depth};
         parent_->list_->RSSetViewports(1, &v);
     }
+    /// Sets the scissor for this `D3D12`.
+    ///
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::set_scissor(const rhi::Rect2D &value) {
         if (ended_) {
             parent_->fail("set_scissor: ended pass.");
@@ -1295,6 +1507,12 @@ namespace SFT::D3D12 {
         const D3D12_RECT r{value.x, value.y, value.x + static_cast<LONG>(value.width), value.y + static_cast<LONG>(value.height)};
         parent_->list_->RSSetScissorRects(1, &r);
     }
+    /// Sets the blend constant for this `D3D12`.
+    ///
+    /// @param color `color` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::set_blend_constant(const rhi::ClearColor &color) {
         if (ended_) {
             parent_->fail("set_blend_constant: ended pass.");
@@ -1303,6 +1521,12 @@ namespace SFT::D3D12 {
         const float v[] = {color.r, color.g, color.b, color.a};
         parent_->list_->OMSetBlendFactor(v);
     }
+    /// Sets the stencil reference for this `D3D12`.
+    ///
+    /// @param reference `reference` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::set_stencil_reference(u32 reference) {
         if (ended_) {
             parent_->fail("set_stencil_reference: ended pass.");
@@ -1311,6 +1535,12 @@ namespace SFT::D3D12 {
         parent_->list_->OMSetStencilRef(reference);
     }
 
+    /// Draws the requested content using the current rendering state.
+    ///
+    /// @param args `args` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw(const rhi::DrawArgs &args) {
         if (ended_ || bundles_only_) {
             parent_->fail("draw: direct draws are not legal in this pass.");
@@ -1325,6 +1555,12 @@ namespace SFT::D3D12 {
         }
         parent_->list_->DrawInstanced(args.vertex_count, args.instance_count, args.first_vertex, args.first_instance);
     }
+    /// Draws indexed using the current rendering state.
+    ///
+    /// @param args `args` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw_indexed(const rhi::DrawIndexedArgs &args) {
         if (ended_ || bundles_only_) {
             parent_->fail("draw_indexed: direct draws are not legal in this pass.");
@@ -1339,6 +1575,12 @@ namespace SFT::D3D12 {
         }
         parent_->list_->DrawIndexedInstanced(args.index_count, args.instance_count, args.first_index, args.base_vertex, args.first_instance);
     }
+    /// Draws mesh tasks using the current rendering state.
+    ///
+    /// @param args `args` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw_mesh_tasks(const rhi::DrawMeshTasksArgs &args) {
         if (ended_ || bundles_only_ || parent_->list6_ == nullptr) {
             parent_->fail("draw_mesh_tasks: mesh dispatch is unavailable or not legal in this pass.");
@@ -1354,6 +1596,18 @@ namespace SFT::D3D12 {
         parent_->list6_->DispatchMesh(args.group_count_x, args.group_count_y, args.group_count_z);
     }
 
+    /// Records indirect using the supplied arguments and current state.
+    ///
+    /// @param kind `kind` value used by the operation.
+    /// @param indirect `indirect` value used by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param count Number of elements or operations to process.
+    /// @param count_offset Offset from the beginning of the relevant range or buffer.
+    /// @param max_draws `max_draws` value used by the operation.
+    /// @param stride `stride` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::record_indirect(D3D12Device::IndirectKind kind, rhi::BufferHandle indirect, u64 offset, rhi::BufferHandle count, u64 count_offset, u32 max_draws, u32 stride) {
         const BufferRecord *arguments = parent_->device_->buffers_.find(indirect);
         const BufferRecord *counter = count.is_valid() ? parent_->device_->buffers_.find(count) : nullptr;
@@ -1392,21 +1646,104 @@ namespace SFT::D3D12 {
         }
         parent_->list_->ExecuteIndirect(*signature, max_draws, arguments->resource.Get(), offset, counter ? counter->resource.Get() : nullptr, count_offset);
     }
+    /// Draws indirect using the current rendering state.
+    ///
+    /// @param b `b` value used by the operation.
+    /// @param o `o` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw_indirect(rhi::BufferHandle b, u64 o) { record_indirect(D3D12Device::IndirectKind::Draw, b, o, {}, 0, 1, sizeof(D3D12_DRAW_ARGUMENTS)); }
+    /// Draws indexed indirect using the current rendering state.
+    ///
+    /// @param b `b` value used by the operation.
+    /// @param o `o` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw_indexed_indirect(rhi::BufferHandle b, u64 o) { record_indirect(D3D12Device::IndirectKind::DrawIndexed, b, o, {}, 0, 1, sizeof(D3D12_DRAW_INDEXED_ARGUMENTS)); }
+    /// Draws indirect using the current rendering state.
+    ///
+    /// @param b `b` value used by the operation.
+    /// @param o `o` value used by the operation.
+    /// @param n `n` value used by the operation.
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw_indirect(rhi::BufferHandle b, u64 o, u32 n, u32 s) { record_indirect(D3D12Device::IndirectKind::Draw, b, o, {}, 0, n, s); }
+    /// Draws indexed indirect using the current rendering state.
+    ///
+    /// @param b `b` value used by the operation.
+    /// @param o `o` value used by the operation.
+    /// @param n `n` value used by the operation.
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw_indexed_indirect(rhi::BufferHandle b, u64 o, u32 n, u32 s) { record_indirect(D3D12Device::IndirectKind::DrawIndexed, b, o, {}, 0, n, s); }
+    /// Returns the draw indirect count for this `D3D12`.
+    ///
+    /// @param b `b` value used by the operation.
+    /// @param o `o` value used by the operation.
+    /// @param c `c` value used by the operation.
+    /// @param co `co` value used by the operation.
+    /// @param n `n` value used by the operation.
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns the requested count or size.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw_indirect_count(rhi::BufferHandle b, u64 o, rhi::BufferHandle c, u64 co, u32 n, u32 s) { record_indirect(D3D12Device::IndirectKind::Draw, b, o, c, co, n, s); }
+    /// Returns the draw indexed indirect count for this `D3D12`.
+    ///
+    /// @param b `b` value used by the operation.
+    /// @param o `o` value used by the operation.
+    /// @param c `c` value used by the operation.
+    /// @param co `co` value used by the operation.
+    /// @param n `n` value used by the operation.
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns the requested count or size.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw_indexed_indirect_count(rhi::BufferHandle b, u64 o, rhi::BufferHandle c, u64 co, u32 n, u32 s) { record_indirect(D3D12Device::IndirectKind::DrawIndexed, b, o, c, co, n, s); }
+    /// Draws mesh tasks indirect using the current rendering state.
+    ///
+    /// @param b `b` value used by the operation.
+    /// @param o `o` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw_mesh_tasks_indirect(rhi::BufferHandle b, u64 o) {
         record_indirect(D3D12Device::IndirectKind::DispatchMesh, b, o, {}, 0, 1,
                         sizeof(D3D12_DISPATCH_MESH_ARGUMENTS));
     }
+    /// Returns the draw mesh tasks indirect count for this `D3D12`.
+    ///
+    /// @param b `b` value used by the operation.
+    /// @param o `o` value used by the operation.
+    /// @param c `c` value used by the operation.
+    /// @param co `co` value used by the operation.
+    /// @param n `n` value used by the operation.
+    /// @param s `s` value used by the operation.
+    ///
+    /// @return Returns the requested count or size.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::draw_mesh_tasks_indirect_count(
         rhi::BufferHandle b, u64 o, rhi::BufferHandle c, u64 co, u32 n, u32 s) {
         record_indirect(D3D12Device::IndirectKind::DispatchMesh, b, o, c, co, n, s);
     }
+    /// Executes bundles.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::execute_bundles(span<const rhi::RenderBundleHandle>) { parent_->fail("execute_bundles: D3D12 render bundles are not implemented."); }
+    /// Performs the begin occlusion query operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param set `set` value used by the operation.
+    /// @param index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::begin_occlusion_query(rhi::QuerySetHandle set, u32 index) {
         const QuerySetRecord *q = parent_->device_->query_sets_.find(set);
         if (ended_ || q == nullptr || q->type != rhi::QueryType::Occlusion) {
@@ -1417,6 +1754,10 @@ namespace SFT::D3D12 {
         occlusion_query_set_ = set;
         occlusion_query_index_ = index;
     }
+    /// Returns the current or globally available end occlusion query value.
+    ///
+    /// @return Returns the current end occlusion query value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::end_occlusion_query() {
         const QuerySetRecord *q = parent_->device_->query_sets_.find(occlusion_query_set_);
         if (ended_ || q == nullptr) {
@@ -1426,6 +1767,10 @@ namespace SFT::D3D12 {
         parent_->list_->EndQuery(q->heap.Get(), to_d3d12_query_type(q->type, parent_->device_->enabled_features_.has(rhi::Feature::PreciseOcclusionQueries)), occlusion_query_index_);
         occlusion_query_set_ = {};
     }
+    /// Returns the one-past-the-end iterator for the range.
+    ///
+    /// @return Returns the one-past-the-end iterator.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::end() {
         if (ended_)
             return;
@@ -1438,8 +1783,22 @@ namespace SFT::D3D12 {
         parent_->pass_open_ = false;
     }
 
+    /// Performs the d3 d12 compute pass encoder operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param parent `parent` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     D3D12ComputePassEncoder::D3D12ComputePassEncoder(D3D12CommandEncoder &parent) : parent_(&parent) {}
+    /// Destroys the `D3D12` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     D3D12ComputePassEncoder::~D3D12ComputePassEncoder() { end(); }
+    /// Sets the pipeline for this `D3D12`.
+    ///
+    /// @param pipeline Pipeline used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12ComputePassEncoder::set_pipeline(rhi::ComputePipelineHandle pipeline) {
         const ComputePipelineRecord *record = parent_->device_->compute_pipelines_.find(pipeline);
         if (ended_ || record == nullptr) {
@@ -1454,6 +1813,14 @@ namespace SFT::D3D12 {
             parent_->compute_bindings_.push_constants_dirty = false;
         }
     }
+    /// Sets the bind group for this `D3D12`.
+    ///
+    /// @param index Zero-based index of the target element or entry.
+    /// @param group `group` value used by the operation.
+    /// @param offsets Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12ComputePassEncoder::set_bind_group(u32 index, rhi::BindGroupHandle group, span<const u32> offsets) {
         if (ended_ || index >= max_tracked_bind_groups || !group.is_valid()) {
             parent_->fail("set_bind_group: invalid index, handle, or ended pass.");
@@ -1464,6 +1831,13 @@ namespace SFT::D3D12 {
         pending.dynamic_offsets.assign(offsets.begin(), offsets.end());
         pending.dirty = true;
     }
+    /// Sets the push constants for this `D3D12`.
+    ///
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12ComputePassEncoder::set_push_constants(rhi::ShaderStage, u32 offset, span<const std::byte> data) {
         if (ended_ || offset % 4 != 0 || data.size() % 4 != 0) {
             parent_->fail("set_push_constants: data and offset must be four-byte aligned.");
@@ -1475,6 +1849,14 @@ namespace SFT::D3D12 {
         std::memcpy(constants.data() + offset, data.data(), data.size());
         parent_->compute_bindings_.push_constants_dirty = true;
     }
+    /// Dispatches the requested work.
+    ///
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    /// @param z `z` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12ComputePassEncoder::dispatch(u32 x, u32 y, u32 z) {
         if (ended_) {
             parent_->fail("dispatch: ended pass.");
@@ -1485,6 +1867,13 @@ namespace SFT::D3D12 {
         }
         parent_->list_->Dispatch(x, y, z);
     }
+    /// Dispatches indirect.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12ComputePassEncoder::dispatch_indirect(rhi::BufferHandle buffer, u64 offset) {
         const BufferRecord *record = parent_->device_->buffers_.find(buffer);
         if (ended_ || record == nullptr || !rhi::has_any(record->usage, rhi::BufferUsage::Indirect) ||
@@ -1502,6 +1891,10 @@ namespace SFT::D3D12 {
         }
         parent_->list_->ExecuteIndirect(*signature, 1, record->resource.Get(), offset, nullptr, 0);
     }
+    /// Returns the one-past-the-end iterator for the range.
+    ///
+    /// @return Returns the one-past-the-end iterator.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12ComputePassEncoder::end() {
         if (!ended_) {
             ended_ = true;
@@ -1509,6 +1902,12 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Creates a command encoder from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<unique_ptr<rhi::CommandEncoder>> D3D12Device::create_command_encoder(const rhi::CommandEncoderDesc &desc) {
         if (device_ == nullptr)
             return operation_failed("create_command_encoder: device is not initialized.");
@@ -1521,9 +1920,21 @@ namespace SFT::D3D12 {
             return std::unexpected(record.error());
         return unique_ptr<rhi::CommandEncoder>(std::make_unique<D3D12CommandEncoder>(*this, std::move(*record)));
     }
+    /// Creates a render bundle encoder from the supplied parameters.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<unique_ptr<rhi::RenderBundleEncoder>> D3D12Device::create_render_bundle_encoder(const rhi::RenderBundleDesc &) {
         return unsupported("create_render_bundle_encoder: D3D12 render bundles are not implemented.");
     }
+    /// Performs the indirect signature operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param kind `kind` value used by the operation.
+    /// @param stride `stride` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<ID3D12CommandSignature *> D3D12Device::indirect_signature(IndirectKind kind, u32 stride) {
         D3D12_INDIRECT_ARGUMENT_TYPE type{};
         u32 minimum_stride = 0;

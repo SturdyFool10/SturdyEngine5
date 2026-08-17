@@ -3,6 +3,19 @@
 
 namespace SFT::UI {
 
+    /// Performs the text input operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param decl `decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param input `input` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param placeholder `placeholder` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     TextInputResult text_input(Context &ctx, const ElementDecl &decl, const TextEditStyle &style,
                                                      TextEditState &state, const TextEditInput &input,
                                                      f32 delta_seconds, const UString &placeholder,
@@ -15,9 +28,6 @@ namespace SFT::UI {
                 const f32 local_x = ctx.pointer_position().x - line_bounds->position.x;
                 caret_scalar = Detail::hit_test_line_scalar(ctx, style, state.text(), local_x);
             }
-
-
-
 
 
             if (style.features.pointer_selection && input.shift_held) {
@@ -43,10 +53,6 @@ namespace SFT::UI {
         }
 
 
-
-
-
-
         if (enabled && style.features.pointer_selection && ctx.has_pointer_capture(decl.id)) {
             if (ctx.pointer_cancelled_this_frame() || (!ctx.pointer_is_down() && !ctx.pointer_pressed_this_frame())) {
                 ctx.release_pointer(decl.id);
@@ -62,9 +68,6 @@ namespace SFT::UI {
         state.update_visual(is_hovered, enabled, style, delta_seconds);
         const TextEditState::ApplyResult apply_result =
             enabled ? state.apply_input(input,               false, style.features, style.bindings) : TextEditState::ApplyResult{};
-
-
-
 
 
         if (state.focused()) {

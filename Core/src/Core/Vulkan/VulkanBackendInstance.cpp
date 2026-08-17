@@ -31,6 +31,15 @@ namespace SFT::Core::Vulkan {
     namespace {
 
 
+        /// Performs the debug callback operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param severity `severity` value used by the operation.
+        /// @param type Type value to inspect, select, or convert.
+        /// @param pCallbackData Callable invoked by the operation.
+        /// @param pUserData `pUserData` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
             VkDebugUtilsMessageSeverityFlagBitsEXT severity,
             VkDebugUtilsMessageTypeFlagsEXT type,
@@ -58,13 +67,18 @@ namespace SFT::Core::Vulkan {
 
     } // namespace
 
+    /// Performs the create vulkan instance operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param init `init` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::InitializationFailed`, `GraphicsBackendErrorCode::Unsupported`.
     RendererResult VulkanBackend::createVulkanInstance(const RendererCreateInfo &init) {
         ZoneScopedN("VulkanBackend::createVulkanInstance");
         if (auto res = volkInitialize(); res != VK_SUCCESS) {
             return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed, "Volk failed to initialize");
         }
-
-
 
 
 #pragma clang diagnostic push
@@ -89,9 +103,6 @@ namespace SFT::Core::Vulkan {
             extensions = std::move(extension_res.value());
         }
         vector<const char *> requestedLayers{};
-
-
-
 
 
         u32 supported_instance_ext_count = 0;
@@ -125,9 +136,6 @@ namespace SFT::Core::Vulkan {
 #endif
 
 
-
-
-
         hdr_swapchain_colorspace_enabled_ =
             add_supported_extension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
         if (static_cast<bool>(init.features.presentation.hdr_enabled) &&
@@ -136,10 +144,6 @@ namespace SFT::Core::Vulkan {
                                           format("HDR presentation requires Vulkan instance extension {}.",
                                                  VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME));
         }
-
-
-
-
 
 
         surface_capabilities2_enabled_ = add_supported_extension(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);

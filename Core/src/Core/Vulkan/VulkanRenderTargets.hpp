@@ -35,6 +35,12 @@ using std::vector;
 
 namespace SFT::Core::Vulkan {
 
+    /// Performs the default aspect for format operation using the supplied arguments.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkImageAspectFlags default_aspect_for_format(VkFormat format) noexcept {
         switch (format) {
             case VK_FORMAT_D16_UNORM:
@@ -67,6 +73,12 @@ namespace SFT::Core::Vulkan {
             .a = VK_COMPONENT_SWIZZLE_IDENTITY,
         };
 
+        /// Converts the supplied engine/RHI value to its Vulkan representation.
+        ///
+        /// @param image `image` value used by the operation.
+        ///
+        /// @return Returns the value converted to Vulkan representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkImageViewCreateInfo to_vk(VkImage image) const noexcept;
     };
 
@@ -100,25 +112,75 @@ namespace SFT::Core::Vulkan {
         u32 mip_levels = 1;
         u32 array_layers = 1;
 
+        /// Reports whether valid holds for this `VulkanAttachmentRef`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
+        /// Returns the current or globally available extent 2d value.
+        ///
+        /// @return Returns the current extent 2d value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkExtent2D extent_2d() const noexcept;
     };
 
     class VulkanAttachmentImage {
       public:
+        /// Constructs a `VulkanAttachmentImage` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanAttachmentImage() = default;
+        /// Destroys the `VulkanAttachmentImage` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~VulkanAttachmentImage() = default;
 
+        /// Disables this construction form for `VulkanAttachmentImage`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanAttachmentImage(const VulkanAttachmentImage &) = delete;
+        /// Assigns a new value to this `VulkanAttachmentImage`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanAttachmentImage &operator=(const VulkanAttachmentImage &) = delete;
+        /// Constructs a `VulkanAttachmentImage` from another instance.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanAttachmentImage(VulkanAttachmentImage &&) noexcept = default;
+        /// Assigns a new value to this `VulkanAttachmentImage`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanAttachmentImage &operator=(VulkanAttachmentImage &&) noexcept = default;
 
+        /// Creates a `VulkanAttachmentImage` resource or value from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param allocator Allocator used for storage owned by the operation.
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static RendererExpected<VulkanAttachmentImage> create(
             VkDevice device,
             VmaAllocator allocator,
             const VulkanAttachmentImageDesc &desc) noexcept;
 
+        /// Creates a color from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param allocator Allocator used for storage owned by the operation.
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param extent `extent` value used by the operation.
+        /// @param extra_usage Usage flags or category applied to the resource.
+        /// @param samples `samples` value used by the operation.
+        /// @param mip_levels `mip_levels` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static RendererExpected<VulkanAttachmentImage> create_color(
             VkDevice device,
             VmaAllocator allocator,
@@ -128,6 +190,18 @@ namespace SFT::Core::Vulkan {
             VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT,
             u32 mip_levels = 1) noexcept;
 
+        /// Creates a depth from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param allocator Allocator used for storage owned by the operation.
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param extent `extent` value used by the operation.
+        /// @param extra_usage Usage flags or category applied to the resource.
+        /// @param samples `samples` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static RendererExpected<VulkanAttachmentImage> create_depth(
             VkDevice device,
             VmaAllocator allocator,
@@ -136,9 +210,25 @@ namespace SFT::Core::Vulkan {
             VkImageUsageFlags extra_usage = VK_IMAGE_USAGE_SAMPLED_BIT,
             VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT) noexcept;
 
+        /// Returns the current or globally available image value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const VulkanImage &image() const noexcept;
+        /// Returns the current or globally available view value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const VulkanImageView &view() const noexcept;
+        /// Returns the current or globally available ref value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const VulkanAttachmentRef &ref() const noexcept;
+        /// Reports whether valid holds for this `VulkanAttachmentImage`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
 
       private:
@@ -147,24 +237,84 @@ namespace SFT::Core::Vulkan {
         VulkanAttachmentRef ref_{};
     };
 
-    /// Lightweight pass target description: references attachment views but does not own them. A render
-    /// graph can build one per pass for G-buffer, lighting, bloom down/up-sample, tonemap, or present.
+
     class VulkanRenderTarget {
       public:
+        /// Constructs a `VulkanRenderTarget` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanRenderTarget() = default;
 
+        /// Sets the extent for this `VulkanRenderTarget`.
+        ///
+        /// @param extent `extent` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanRenderTarget &set_extent(VkExtent2D extent) noexcept;
+        /// Sets the samples for this `VulkanRenderTarget`.
+        ///
+        /// @param samples `samples` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanRenderTarget &set_samples(VkSampleCountFlagBits samples) noexcept;
+        /// Adds color using the supplied arguments and current state.
+        ///
+        /// @param attachment `attachment` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         VulkanRenderTarget &add_color(const VulkanAttachmentRef &attachment);
+        /// Sets the colors for this `VulkanRenderTarget`.
+        ///
+        /// @param attachments `attachments` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         VulkanRenderTarget &set_colors(span<const VulkanAttachmentRef> attachments);
+        /// Sets the depth stencil for this `VulkanRenderTarget`.
+        ///
+        /// @param attachment `attachment` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanRenderTarget &set_depth_stencil(const VulkanAttachmentRef &attachment) noexcept;
 
+        /// Returns the current or globally available colors value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] span<const VulkanAttachmentRef> colors() const noexcept;
+        /// Returns the current or globally available depth stencil value.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const VulkanAttachmentRef *depth_stencil() const noexcept;
+        /// Returns the current or globally available extent value.
+        ///
+        /// @return Returns the current extent value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkExtent2D extent() const noexcept;
+        /// Renders area using the current rendering state.
+        ///
+        /// @return Returns the current render area value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkRect2D render_area() const noexcept;
+        /// Returns the current or globally available samples value.
+        ///
+        /// @return Returns the current samples value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkSampleCountFlagBits samples() const noexcept;
+        /// Reports whether this `VulkanRenderTarget` has depth stencil.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool has_depth_stencil() const noexcept;
+        /// Reports whether this `VulkanRenderTarget` contains no elements or payload.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool empty() const noexcept;
 
       private:
@@ -175,6 +325,16 @@ namespace SFT::Core::Vulkan {
         VkSampleCountFlagBits samples_ = VK_SAMPLE_COUNT_1_BIT;
     };
 
+    /// Performs the color attachment operation using the supplied arguments.
+    ///
+    /// @param attachment `attachment` value used by the operation.
+    /// @param load_op `load_op` value used by the operation.
+    /// @param store_op `store_op` value used by the operation.
+    /// @param clear `clear` value used by the operation.
+    /// @param layout `layout` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr ColorAttachment color_attachment(
         const VulkanAttachmentRef &attachment,
         VkAttachmentLoadOp load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -190,6 +350,17 @@ namespace SFT::Core::Vulkan {
         };
     }
 
+    /// Performs the color resolve attachment operation using the supplied arguments.
+    ///
+    /// @param multisampled_attachment `multisampled_attachment` value used by the operation.
+    /// @param resolve_attachment `resolve_attachment` value used by the operation.
+    /// @param resolve_mode Mode controlling how the operation is performed.
+    /// @param load_op `load_op` value used by the operation.
+    /// @param store_op `store_op` value used by the operation.
+    /// @param clear `clear` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr ColorAttachment color_resolve_attachment(
         const VulkanAttachmentRef &multisampled_attachment,
         const VulkanAttachmentRef &resolve_attachment,
@@ -209,6 +380,16 @@ namespace SFT::Core::Vulkan {
         };
     }
 
+    /// Performs the depth attachment operation using the supplied arguments.
+    ///
+    /// @param attachment `attachment` value used by the operation.
+    /// @param load_op `load_op` value used by the operation.
+    /// @param store_op `store_op` value used by the operation.
+    /// @param clear_depth `clear_depth` value used by the operation.
+    /// @param layout `layout` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr DepthAttachment depth_attachment(
         const VulkanAttachmentRef &attachment,
         VkAttachmentLoadOp load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -224,6 +405,16 @@ namespace SFT::Core::Vulkan {
         };
     }
 
+    /// Performs the stencil attachment operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param attachment `attachment` value used by the operation.
+    /// @param load_op `load_op` value used by the operation.
+    /// @param store_op `store_op` value used by the operation.
+    /// @param clear_stencil `clear_stencil` value used by the operation.
+    /// @param layout `layout` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr StencilAttachment stencil_attachment(
         const VulkanAttachmentRef &attachment,
         VkAttachmentLoadOp load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,

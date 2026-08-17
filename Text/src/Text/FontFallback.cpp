@@ -9,6 +9,12 @@ using std::string_view;
 
 namespace SFT::Text {
 
+/// Reports whether emoji codepoint holds for this `Text`.
+///
+/// @param codepoint `codepoint` value used by the operation.
+///
+/// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+/// @note This function does not throw exceptions.
 bool is_emoji_codepoint(char32_t codepoint) noexcept {
         struct Range {
             char32_t first;
@@ -61,6 +67,13 @@ bool is_emoji_codepoint(char32_t codepoint) noexcept {
 
 namespace SFT::Text::Detail {
 
+/// Decodes UTF-8.
+///
+/// @param text Text consumed by the operation.
+/// @param offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 DecodedCodepoint decode_utf8(const ustr &text, usize offset) noexcept {
             const string_view bytes = text.cpp_string_view();
             const auto lead = static_cast<unsigned char>(bytes[offset]);
@@ -105,6 +118,10 @@ struct FontChoice {
     u64 font_id = 0;
     bool is_color = false;
 
+    /// Compares the operands for equality.
+    ///
+    /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] friend bool operator==(const FontChoice &, const FontChoice &) noexcept = default;
 };
 
@@ -120,6 +137,13 @@ struct FontRun {
     FontChoice choice{};
 };
 
+/// Reports whether font has codepoint.
+///
+/// @param choice `choice` value used by the operation.
+/// @param codepoint `codepoint` value used by the operation.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool font_has_codepoint(const FontChoice &choice, char32_t codepoint) noexcept {
     if (choice.font == nullptr || !*choice.font) {
         return false;
@@ -128,6 +152,12 @@ struct FontRun {
     return hb_font_get_nominal_glyph(choice.font->handle(), static_cast<hb_codepoint_t>(codepoint), &glyph);
 }
 
+/// Reports whether cluster extender holds for this `Text`.
+///
+/// @param codepoint `codepoint` value used by the operation.
+///
+/// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool is_cluster_extender(char32_t codepoint) noexcept {
     if (codepoint == 0x200D || codepoint == 0xFE0E || codepoint == 0xFE0F || codepoint == 0x20E3 ||
         (codepoint >= 0x1F3FB && codepoint <= 0x1F3FF) ||
@@ -137,6 +167,14 @@ struct FontRun {
     return hb_unicode_combining_class(hb_unicode_funcs_get_default(), static_cast<hb_codepoint_t>(codepoint)) != 0;
 }
 
+/// Decodes source.
+///
+/// @param text Text consumed by the operation.
+/// @param source_start `source_start` value used by the operation.
+/// @param source_length `source_length` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] vector<SourceCodepoint> decode_source(const ustr &text, usize source_start, usize source_length) {
     vector<SourceCodepoint> decoded;
     usize offset = source_start;
@@ -149,6 +187,13 @@ struct FontRun {
     return decoded;
 }
 
+/// Performs the wants emoji presentation operation for `Text` using the supplied arguments.
+///
+/// @param decoded `decoded` value used by the operation.
+/// @param index Zero-based index of the target element or entry.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool wants_emoji_presentation(span<const SourceCodepoint> decoded, usize index) noexcept {
     const char32_t codepoint = decoded[index].value;
 
@@ -173,6 +218,14 @@ struct FontRun {
     return is_emoji_codepoint(codepoint);
 }
 
+/// Selects font that best satisfies the supplied requirements.
+///
+/// @param fonts `fonts` value used by the operation.
+/// @param codepoint `codepoint` value used by the operation.
+/// @param emoji_presentation `emoji_presentation` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] FontChoice select_font(const FontStack &fonts, char32_t codepoint, bool emoji_presentation) noexcept {
     const FontChoice primary{fonts.primary, fonts.primary_font_id, false};
     const FontChoice emoji{fonts.emoji, fonts.emoji_font_id, fonts.emoji_is_color};
@@ -197,11 +250,26 @@ struct FontRun {
     return primary;
 }
 
+/// Performs the coverage ignorable operation for `Text` using the supplied arguments.
+///
+/// @param codepoint `codepoint` value used by the operation.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool coverage_ignorable(char32_t codepoint) noexcept {
     return codepoint == 0x200C || codepoint == 0x200D || codepoint == 0xFE0E || codepoint == 0xFE0F ||
            (codepoint >= 0xE0020 && codepoint <= 0xE007F);
 }
 
+/// Performs the font covers range operation for `Text` using the supplied arguments.
+///
+/// @param choice `choice` value used by the operation.
+/// @param decoded `decoded` value used by the operation.
+/// @param first First position or element included in the operation.
+/// @param last End boundary for the operation; where applicable this is one-past-the-last element.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool font_covers_range(const FontChoice &choice, span<const SourceCodepoint> decoded,
                                      usize first, usize last) noexcept {
     if (choice.font == nullptr || !*choice.font) {
@@ -215,11 +283,26 @@ struct FontRun {
     return true;
 }
 
+/// Reports whether neutral script holds for this `Text`.
+///
+/// @param script `script` value used by the operation.
+///
+/// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool is_neutral_script(hb_script_t script) noexcept {
     return script == HB_SCRIPT_COMMON || script == HB_SCRIPT_INHERITED || script == HB_SCRIPT_UNKNOWN ||
            script == HB_SCRIPT_INVALID;
 }
 
+/// Appends the supplied value or range to the current contents.
+///
+/// @param runs `runs` value used by the operation.
+/// @param decoded `decoded` value used by the operation.
+/// @param first First position or element included in the operation.
+/// @param last End boundary for the operation; where applicable this is one-past-the-last element.
+/// @param choice `choice` value used by the operation.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void append_font_run(vector<FontRun> &runs, const vector<SourceCodepoint> &decoded,
                      usize first, usize last, FontChoice choice) {
     if (first >= last) {
@@ -234,6 +317,15 @@ void append_font_run(vector<FontRun> &runs, const vector<SourceCodepoint> &decod
     }
 }
 
+/// Performs the itemize fonts operation for `Text` using the supplied arguments.
+///
+/// @param fonts `fonts` value used by the operation.
+/// @param text Text consumed by the operation.
+/// @param source_start `source_start` value used by the operation.
+/// @param source_length `source_length` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] vector<FontRun> itemize_fonts(const FontStack &fonts, const ustr &text,
                                             usize source_start, usize source_length) {
     const vector<SourceCodepoint> decoded = decode_source(text, source_start, source_length);
@@ -254,8 +346,6 @@ void append_font_run(vector<FontRun> &runs, const vector<SourceCodepoint> &decod
         scripts[i] = hb_unicode_script(hb_unicode_funcs_get_default(),
                                        static_cast<hb_codepoint_t>(decoded[i].value));
     }
-
-
 
 
     hb_script_t previous_script = HB_SCRIPT_INVALID;
@@ -311,7 +401,6 @@ void append_font_run(vector<FontRun> &runs, const vector<SourceCodepoint> &decod
         }
 
 
-
         for (usize i = segment_start; i < segment_end; ++i) {
             FontChoice choice = select_font(fonts, decoded[i].value, emoji[i]);
             if (!runs.empty() && is_cluster_extender(decoded[i].value)) {
@@ -324,6 +413,15 @@ void append_font_run(vector<FontRun> &runs, const vector<SourceCodepoint> &decod
     return runs;
 }
 
+/// Performs the options for source range operation for `Text` using the supplied arguments.
+///
+/// @param options Configuration values controlling the operation.
+/// @param start First position or element included in the operation.
+/// @param length Requested or available size for the operation.
+/// @param direction `direction` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] ShapeOptions options_for_source_range(const ShapeOptions &options, usize start, usize length,
                                                      TextDirection direction) {
     ShapeOptions resolved = options;
@@ -350,6 +448,15 @@ void append_font_run(vector<FontRun> &runs, const vector<SourceCodepoint> &decod
     return resolved;
 }
 
+/// Shapes font run using the supplied arguments and current state.
+///
+/// @param whole_text `whole_text` value used by the operation.
+/// @param run `run` value used by the operation.
+/// @param direction `direction` value used by the operation.
+/// @param options Configuration values controlling the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 [[nodiscard]] TextExpected<ShapedRun> shape_font_run(const ustr &whole_text, const FontRun &run,
                                                      TextDirection direction, const ShapeOptions &options) {
     const string_view bytes = whole_text.cpp_string_view();
@@ -389,6 +496,15 @@ void append_font_run(vector<FontRun> &runs, const vector<SourceCodepoint> &decod
 
 } // namespace
 
+/// Shapes with fallback using the supplied arguments and current state.
+///
+/// @param fonts `fonts` value used by the operation.
+/// @param utf8 `utf8` value used by the operation.
+/// @param options Configuration values controlling the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`.
 TextExpected<vector<PositionedGlyph>> shape_with_fallback(const FontStack &fonts, const ustr &utf8,
                                                                                    const ShapeOptions &options) {
         if (fonts.primary == nullptr || !*fonts.primary) {
@@ -414,6 +530,14 @@ TextExpected<vector<PositionedGlyph>> shape_with_fallback(const FontStack &fonts
         return merged;
     }
 
+/// Shapes with fallback using the supplied arguments and current state.
+///
+/// @param fonts `fonts` value used by the operation.
+/// @param utf8 `utf8` value used by the operation.
+/// @param features `features` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 TextExpected<vector<PositionedGlyph>> shape_with_fallback(const FontStack &fonts, const ustr &utf8,
                                                           const OpenTypeFeatureOptions &features) {
         ShapeOptions options;
@@ -421,6 +545,15 @@ TextExpected<vector<PositionedGlyph>> shape_with_fallback(const FontStack &fonts
         return shape_with_fallback(fonts, utf8, options);
     }
 
+/// Shapes with fallback using the supplied arguments and current state.
+///
+/// @param fonts `fonts` value used by the operation.
+/// @param utf8 `utf8` value used by the operation.
+/// @param comma_separated_features `comma_separated_features` value used by the operation.
+/// @param options Configuration values controlling the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 TextExpected<vector<PositionedGlyph>> shape_with_fallback(const FontStack &fonts, const ustr &utf8,
                                                           const ustr &comma_separated_features,
                                                           const ShapeOptions &options) {
@@ -433,6 +566,15 @@ TextExpected<vector<PositionedGlyph>> shape_with_fallback(const FontStack &fonts
         return shape_with_fallback(fonts, utf8, resolved);
     }
 
+/// Shapes line with fallback using the supplied arguments and current state.
+///
+/// @param fonts `fonts` value used by the operation.
+/// @param utf8 `utf8` value used by the operation.
+/// @param options Configuration values controlling the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`, `TextErrorCode::ShapingFailed`.
 TextExpected<ShapedLine> shape_line_with_fallback(const FontStack &fonts, const ustr &utf8,
                                                    const ShapeOptions &options) {
         if (fonts.primary == nullptr || !*fonts.primary) {
@@ -546,6 +688,14 @@ TextExpected<ShapedLine> shape_line_with_fallback(const FontStack &fonts, const 
         return result;
     }
 
+/// Shapes line with fallback using the supplied arguments and current state.
+///
+/// @param fonts `fonts` value used by the operation.
+/// @param utf8 `utf8` value used by the operation.
+/// @param features `features` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 TextExpected<ShapedLine> shape_line_with_fallback(const FontStack &fonts, const ustr &utf8,
                                                    const OpenTypeFeatureOptions &features) {
         ShapeOptions options;
@@ -553,6 +703,15 @@ TextExpected<ShapedLine> shape_line_with_fallback(const FontStack &fonts, const 
         return shape_line_with_fallback(fonts, utf8, options);
     }
 
+/// Shapes line with fallback using the supplied arguments and current state.
+///
+/// @param fonts `fonts` value used by the operation.
+/// @param utf8 `utf8` value used by the operation.
+/// @param comma_separated_features `comma_separated_features` value used by the operation.
+/// @param options Configuration values controlling the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 TextExpected<ShapedLine> shape_line_with_fallback(const FontStack &fonts, const ustr &utf8,
                                                    const ustr &comma_separated_features,
                                                    const ShapeOptions &options) {

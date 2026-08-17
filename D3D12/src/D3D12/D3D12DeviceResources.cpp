@@ -17,9 +17,12 @@ namespace SFT::D3D12 {
     namespace {
 
 
-
-
-
+        /// Performs the initial state for heap operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param heap `heap` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_RESOURCE_STATES initial_state_for_heap(D3D12_HEAP_TYPE heap) noexcept {
             switch (heap) {
                 case D3D12_HEAP_TYPE_UPLOAD:
@@ -31,12 +34,26 @@ namespace SFT::D3D12 {
             }
         }
 
+        /// Performs the texture array layers operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 texture_array_layers(const rhi::TextureDesc &desc) noexcept {
 
 
             return desc.dimension == rhi::TextureDimension::Dim3D ? 1u : std::max(1u, desc.extent.depth_or_layers);
         }
 
+        /// Resolves count into the concrete value used by the engine.
+        ///
+        /// @param requested `requested` value used by the operation.
+        /// @param base `base` value used by the operation.
+        /// @param total `total` value used by the operation.
+        ///
+        /// @return Returns the requested count or size.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 resolve_count(u32 requested, u32 base, u32 total) noexcept {
             if (requested == rhi::all_remaining) {
                 return base < total ? total - base : 1u;
@@ -47,7 +64,12 @@ namespace SFT::D3D12 {
     } // namespace
 
 
-
+    /// Creates a buffer from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::BufferHandle> D3D12Device::create_buffer(const rhi::BufferDesc &desc) {
         ZoneScopedN("D3D12Device::create_buffer");
         if (device_ == nullptr) {
@@ -61,16 +83,10 @@ namespace SFT::D3D12 {
         if (rhi::has_any(desc.usage, rhi::BufferUsage::Uniform)) {
 
 
-
             size = align_up(size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
         }
 
         D3D12_HEAP_TYPE heap_type = to_d3d12_heap_type(desc.memory);
-
-
-
-
-
 
 
         const bool use_gpu_upload_heap = heap_type == D3D12_HEAP_TYPE_DEFAULT && gpu_upload_heap_supported_ &&
@@ -79,10 +95,6 @@ namespace SFT::D3D12 {
             heap_type = D3D12_HEAP_TYPE_GPU_UPLOAD;
         }
         const CD3DX12_HEAP_PROPERTIES heap_properties(heap_type);
-
-
-
-
 
 
         D3D12_RESOURCE_FLAGS resource_flags = to_d3d12_resource_flags(desc.usage);
@@ -112,6 +124,12 @@ namespace SFT::D3D12 {
         return buffers_.insert(std::move(record));
     }
 
+    /// Destroys the buffer identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_buffer(rhi::BufferHandle handle) noexcept {
         ZoneScopedN("D3D12Device::destroy_buffer");
         if (auto record = buffers_.extract(handle)) {
@@ -121,6 +139,12 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Performs the buffer device address operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<u64> D3D12Device::buffer_device_address(rhi::BufferHandle buffer) const {
         const BufferRecord *record = buffers_.find(buffer);
         if (record == nullptr) {
@@ -129,6 +153,12 @@ namespace SFT::D3D12 {
         return static_cast<u64>(record->gpu_address);
     }
 
+    /// Maps buffer for access.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<span<std::byte>> D3D12Device::map_buffer(rhi::BufferHandle buffer) {
         ZoneScopedN("D3D12Device::map_buffer");
         BufferRecord *record = buffers_.find(buffer);
@@ -141,8 +171,6 @@ namespace SFT::D3D12 {
         if (record->mapped == nullptr) {
 
 
-
-
             const CD3DX12_RANGE read_range(0, record->memory == rhi::MemoryLocation::HostReadback ? static_cast<SIZE_T>(record->size) : 0);
             if (const HRESULT hr = record->resource->Map(0, &read_range, &record->mapped); FAILED(hr)) {
                 return hresult_error(hr, "map_buffer (Map)");
@@ -151,6 +179,12 @@ namespace SFT::D3D12 {
         return span<std::byte>(static_cast<std::byte *>(record->mapped), static_cast<usize>(record->size));
     }
 
+    /// Unmaps buffer.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::unmap_buffer(rhi::BufferHandle buffer) noexcept {
         ZoneScopedN("D3D12Device::unmap_buffer");
         BufferRecord *record = buffers_.find(buffer);
@@ -163,6 +197,14 @@ namespace SFT::D3D12 {
         record->mapped = nullptr;
     }
 
+    /// Writes buffer to the associated destination.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::write_buffer(rhi::BufferHandle buffer, u64 offset, span<const std::byte> data) {
         ZoneScopedN("D3D12Device::write_buffer");
         if (data.empty()) {
@@ -191,6 +233,14 @@ namespace SFT::D3D12 {
         return {};
     }
 
+    /// Uploads via staging using the supplied arguments and current state.
+    ///
+    /// @param destination Destination value or resource.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::upload_via_staging(ID3D12Resource *destination, u64 offset, span<const std::byte> data) {
         ZoneScopedN("D3D12Device::upload_via_staging");
         if (device_ == nullptr || destination == nullptr) {
@@ -215,7 +265,6 @@ namespace SFT::D3D12 {
         staging->Unmap(0, nullptr);
 
 
-
         const rhi::QueueClass queue_class = copy_queue_ != nullptr ? rhi::QueueClass::Transfer
                                                                    : rhi::QueueClass::Graphics;
         auto command = acquire_command_buffer(rhi::QueueLane{queue_class, 0});
@@ -236,10 +285,16 @@ namespace SFT::D3D12 {
         return executed;
     }
 
+    /// Writes via GPU upload heap to the associated destination.
+    ///
+    /// @param record `record` value used by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::write_via_gpu_upload_heap(BufferRecord &record, u64 offset, span<const std::byte> data) {
         ZoneScopedN("D3D12Device::write_via_gpu_upload_heap");
-
-
 
 
         void *mapped = nullptr;
@@ -253,7 +308,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Creates a texture from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::TextureHandle> D3D12Device::create_texture(const rhi::TextureDesc &desc) {
         ZoneScopedN("D3D12Device::create_texture");
         if (device_ == nullptr) {
@@ -279,9 +339,6 @@ namespace SFT::D3D12 {
             .Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN,
             .Flags = to_d3d12_resource_flags(desc.usage, desc.format),
         };
-
-
-
 
 
         D3D12_CLEAR_VALUE clear_value{};
@@ -323,21 +380,28 @@ namespace SFT::D3D12 {
         }
 
 
-
-
-
-
         (void)desc.concurrent_queue_classes;
         return textures_.insert(std::move(record));
     }
 
+    /// Destroys the texture identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_texture(rhi::TextureHandle handle) noexcept {
         ZoneScopedN("D3D12Device::destroy_texture");
         textures_.erase(handle);
     }
 
 
-
+    /// Creates a texture view from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::TextureViewHandle> D3D12Device::create_texture_view(const rhi::TextureViewDesc &desc) {
         ZoneScopedN("D3D12Device::create_texture_view");
         TextureRecord *texture = textures_.find(desc.texture);
@@ -364,8 +428,6 @@ namespace SFT::D3D12 {
                              desc.view_type == rhi::TextureViewType::ViewCubeArray;
         const bool is_3d = desc.view_type == rhi::TextureViewType::View3D;
         const bool multisampled = texture->samples != rhi::SampleCount::X1;
-
-
 
 
         struct Rollback {
@@ -518,6 +580,12 @@ namespace SFT::D3D12 {
         return texture_views_.insert(std::move(record));
     }
 
+    /// Releases view descriptors using the supplied arguments and current state.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::release_view_descriptors(TextureViewRecord &record) noexcept {
         cpu_resource_descriptors_.release(record.srv);
         cpu_resource_descriptors_.release(record.uav);
@@ -529,6 +597,12 @@ namespace SFT::D3D12 {
         record.dsv = {};
     }
 
+    /// Destroys the texture view identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_texture_view(rhi::TextureViewHandle handle) noexcept {
         ZoneScopedN("D3D12Device::destroy_texture_view");
         if (auto record = texture_views_.extract(handle)) {
@@ -537,7 +611,12 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Creates a sampler from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::SamplerHandle> D3D12Device::create_sampler(const rhi::SamplerDesc &desc) {
         ZoneScopedN("D3D12Device::create_sampler");
         auto range = cpu_sampler_descriptors_.allocate(1);
@@ -563,6 +642,12 @@ namespace SFT::D3D12 {
         return samplers_.insert(SamplerRecord{*range});
     }
 
+    /// Destroys the sampler identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_sampler(rhi::SamplerHandle handle) noexcept {
         if (auto record = samplers_.extract(handle)) {
             cpu_sampler_descriptors_.release(record->descriptor);
@@ -570,11 +655,15 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Creates a shader module from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::ShaderModuleHandle> D3D12Device::create_shader_module(const rhi::ShaderModuleDesc &desc) {
         ZoneScopedN("D3D12Device::create_shader_module");
         if (desc.language != rhi::ShaderLanguage::Dxil) {
-
 
 
             return unsupported("create_shader_module: the D3D12 backend requires ShaderLanguage::Dxil.");
@@ -587,6 +676,12 @@ namespace SFT::D3D12 {
         return shader_modules_.insert(std::move(record));
     }
 
+    /// Destroys the shader module identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_shader_module(rhi::ShaderModuleHandle handle) noexcept {
         shader_modules_.erase(handle);
     }

@@ -37,22 +37,42 @@ namespace SFT::Platform::Windowing::Detail {
             std::unordered_map<wl_surface *, org_kde_kwin_blur *> kde_surfaces;
         };
 
+        /// Returns the current or globally available connection mutex value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         std::mutex &connection_mutex() noexcept {
             static std::mutex mutex;
             return mutex;
         }
 
+        /// Returns the current or globally available connections value.
+        ///
+        /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+        /// @note This function does not throw exceptions.
         std::vector<std::unique_ptr<WaylandBackgroundEffectConnection>> &connections() noexcept {
             static std::vector<std::unique_ptr<WaylandBackgroundEffectConnection>> values;
             return values;
         }
 
+        /// Assigns queue using the supplied arguments and current state.
+        ///
+        /// @param proxy `proxy` value used by the operation.
+        /// @param queue Queue used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void assign_queue(void *proxy, wl_event_queue *queue) noexcept {
             if (proxy != nullptr) {
                 wl_proxy_set_queue(static_cast<wl_proxy *>(proxy), queue);
             }
         }
 
+        /// Performs the ext capabilities operation for `Detail` using the supplied arguments.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param flags Flags controlling optional behavior.
+        ///
+        /// @note This function does not throw exceptions.
         void ext_capabilities(void *data, ext_background_effect_manager_v1 *, u32 flags) noexcept {
             static_cast<WaylandBackgroundEffectConnection *>(data)->ext_capabilities = flags;
         }
@@ -61,6 +81,15 @@ namespace SFT::Platform::Windowing::Detail {
             .capabilities = ext_capabilities,
         };
 
+        /// Performs the registry global operation for `Detail` using the supplied arguments.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param registry `registry` value used by the operation.
+        /// @param name Name used to identify or label the target.
+        /// @param interface `interface` value used by the operation.
+        /// @param version `version` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void registry_global(void *data, wl_registry *registry, u32 name,
                              const char *interface, u32 version) noexcept {
             auto &connection = *static_cast<WaylandBackgroundEffectConnection *>(data);
@@ -87,6 +116,9 @@ namespace SFT::Platform::Windowing::Detail {
             }
         }
 
+        /// Performs the registry global remove operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void registry_global_remove(void *, wl_registry *, u32) noexcept {}
 
         constexpr wl_registry_listener registry_listener{
@@ -94,6 +126,12 @@ namespace SFT::Platform::Windowing::Detail {
             .global_remove = registry_global_remove,
         };
 
+        /// Finds connection in the available state.
+        ///
+        /// @param display `display` value used by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note This function does not throw exceptions.
         WaylandBackgroundEffectConnection *find_connection(wl_display *display) noexcept {
             const auto found = std::ranges::find_if(connections(), [display](const auto &connection) {
                 return connection->display == display;
@@ -101,6 +139,13 @@ namespace SFT::Platform::Windowing::Detail {
             return found != connections().end() ? found->get() : nullptr;
         }
 
+        /// Removes the ext effect from its owning collection or system.
+        ///
+        /// @param connection Connection used or affected by the operation.
+        /// @param surface Surface used or affected by the operation.
+        /// @param commit_surface Surface used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void remove_ext_effect(WaylandBackgroundEffectConnection &connection, wl_surface *surface,
                                bool commit_surface) noexcept {
             const auto found = connection.ext_surfaces.find(surface);
@@ -114,6 +159,12 @@ namespace SFT::Platform::Windowing::Detail {
             }
         }
 
+        /// Removes the kde effect from its owning collection or system.
+        ///
+        /// @param connection Connection used or affected by the operation.
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void remove_kde_effect(WaylandBackgroundEffectConnection &connection, wl_surface *surface) noexcept {
             const auto found = connection.kde_surfaces.find(surface);
             if (found == connection.kde_surfaces.end()) {
@@ -126,6 +177,11 @@ namespace SFT::Platform::Windowing::Detail {
             connection.kde_surfaces.erase(found);
         }
 
+        /// Destroys the connection identified by the supplied parameters.
+        ///
+        /// @param connection Connection used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy_connection(WaylandBackgroundEffectConnection &connection) noexcept {
             for (auto &[surface, effect] : connection.ext_surfaces) {
                 (void)surface;
@@ -159,6 +215,13 @@ namespace SFT::Platform::Windowing::Detail {
             }
         }
 
+        /// Finds or creates the connection required by the operation.
+        ///
+        /// @param display `display` value used by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         WaylandBackgroundEffectConnection *ensure_connection(wl_display *display) noexcept {
             if (WaylandBackgroundEffectConnection *existing = find_connection(display)) {
                 return existing;
@@ -179,8 +242,6 @@ namespace SFT::Platform::Windowing::Detail {
             wl_registry_add_listener(connection->registry, &registry_listener, connection.get());
 
 
-
-
             if (wl_display_roundtrip_queue(display, connection->event_queue) < 0 ||
                 wl_display_roundtrip_queue(display, connection->event_queue) < 0) {
                 destroy_connection(*connection);
@@ -192,6 +253,13 @@ namespace SFT::Platform::Windowing::Detail {
             return result;
         }
 
+        /// Performs the full surface region operation for `Detail` using the supplied arguments.
+        ///
+        /// @param connection Connection used or affected by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         wl_region *full_surface_region(WaylandBackgroundEffectConnection &connection) noexcept {
             if (connection.compositor == nullptr) {
                 return nullptr;
@@ -205,6 +273,15 @@ namespace SFT::Platform::Windowing::Detail {
             return region;
         }
 
+        /// Sets the ext blur for this `Detail`.
+        ///
+        /// @param connection Connection used or affected by the operation.
+        /// @param surface Surface used or affected by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         WindowEffectResult set_ext_blur(WaylandBackgroundEffectConnection &connection,
                                         wl_surface *surface, bool enabled) noexcept {
             if (!enabled) {
@@ -243,6 +320,15 @@ namespace SFT::Platform::Windowing::Detail {
             return WindowEffectResult::success("ext-background-effect-v1 blur applied.");
         }
 
+        /// Sets the kde blur for this `Detail`.
+        ///
+        /// @param connection Connection used or affected by the operation.
+        /// @param surface Surface used or affected by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         WindowEffectResult set_kde_blur(WaylandBackgroundEffectConnection &connection,
                                         wl_surface *surface, bool enabled) noexcept {
             if (!enabled) {
@@ -279,6 +365,14 @@ namespace SFT::Platform::Windowing::Detail {
 
     } // namespace
 
+    /// Sets the wayland background blur for this `Detail`.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     WindowEffectResult set_wayland_background_blur(
         NativeWindowHandle handle, WindowEffect effect) noexcept {
         ZoneScopedN("Windowing::set_wayland_background_blur");
@@ -293,7 +387,6 @@ namespace SFT::Platform::Windowing::Detail {
         if (connection == nullptr) {
             return WindowEffectResult::failed("Failed to discover Wayland background-effect globals.");
         }
-
 
 
         if (wl_display_dispatch_queue_pending(display, connection->event_queue) < 0) {
@@ -333,6 +426,12 @@ namespace SFT::Platform::Windowing::Detail {
             "Neither ext-background-effect-v1 nor org_kde_kwin_blur is available on this compositor.");
     }
 
+    /// Releases wayland background effects using the supplied arguments and current state.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param release_display `release_display` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void release_wayland_background_effects(
         NativeWindowHandle handle, bool release_display) noexcept {
         if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr) {

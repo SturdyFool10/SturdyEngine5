@@ -22,63 +22,128 @@ using std::span;
 
 namespace SFT::Core::Vulkan {
 
-    /// Wraps a VkQueue with a per-queue mutex. All Vulkan queue commands require external
-    /// synchronization on the queue handle; this type provides it automatically.
-    /// Move-only (the mutex is not transferred on move — a fresh one is created in the destination).
+
     class VulkanQueue {
       public:
+        /// Constructs a `VulkanQueue` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanQueue() = default;
 
+        /// Constructs a `VulkanQueue` from the supplied initialization values.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        /// @param family_index Zero-based index of the target element or entry.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanQueue(VkQueue handle, u32 family_index) noexcept;
 
+        /// Disables this construction form for `VulkanQueue`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanQueue(const VulkanQueue &) = delete;
+        /// Assigns a new value to this `VulkanQueue`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanQueue &operator=(const VulkanQueue &) = delete;
 
+        /// Constructs a `VulkanQueue` from the supplied initialization values.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanQueue(VulkanQueue &&o) noexcept;
 
+        /// Assigns a new value to this `VulkanQueue`.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanQueue &operator=(VulkanQueue &&o) noexcept;
 
+        /// Returns the Vulkan handle associated with this `VulkanQueue`.
+        ///
+        /// @return Returns the current Vulkan handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkQueue vk_handle() const noexcept;
+        /// Computes the family index required by the supplied values.
+        ///
+        /// @return Returns the current family index value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 family_index() const noexcept;
+        /// Reports whether valid holds for this `VulkanQueue`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
 
+        /// Submits the requested work.
+        ///
+        /// @param submits `submits` value used by the operation.
+        /// @param fence Fence used or affected by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::DeviceLost`, `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererResult submit(span<const VkSubmitInfo2> submits,
                                             VkFence fence = VK_NULL_HANDLE) noexcept;
 
-        /// Convenience for the common one-command-buffer submission.
+
+        /// Submits the requested work.
+        ///
+        /// @param command_buffer Buffer used or affected by the operation.
+        /// @param waits `waits` value used by the operation.
+        /// @param signals `signals` value used by the operation.
+        /// @param fence Fence used or affected by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererResult submit(
             const VkCommandBufferSubmitInfo &command_buffer,
             span<const VkSemaphoreSubmitInfo> waits,
             span<const VkSemaphoreSubmitInfo> signals,
             VkFence fence = VK_NULL_HANDLE) noexcept;
 
-        /// Distinguishes Success from Suboptimal (still usable, rebuild soon) from OutOfDate (stop
-        /// presenting to this swapchain until rebuilt) -- see PresentOutcome's own doc comment.
-        /// VK_ERROR_SURFACE_LOST_KHR and VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT are reported as
-        /// their own distinct GraphicsBackendErrorCode (not folded into the generic OperationFailed
-        /// bucket) so callers can recover appropriately instead of hard-failing.
+
+        /// Presents the completed frame to the target surface or swapchain.
         ///
-        /// `lock_wait_ms`, when non-null, is set to how long this call spent waiting on
-        /// `submission_lock_` before it could even start `vkQueuePresentKHR` — separating "blocked on
-        /// our own queue mutex" from "blocked inside the driver/Windows presentation engine" for
-        /// callers profiling present-stage latency (see RendererLifecycle.cpp's "present RHI frame"
-        /// stage timer).
+        /// @param info Description of the resource or operation to perform.
+        /// @param lock_wait_ms `lock_wait_ms` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::DeviceLost`, `GraphicsBackendErrorCode::SurfaceLost`, `GraphicsBackendErrorCode::FullScreenExclusiveLost`, `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererExpected<PresentOutcome> present(const VkPresentInfoKHR &info, f64 *lock_wait_ms = nullptr) noexcept;
 
+        /// Waits for idle to complete.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::DeviceLost`, `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererResult wait_idle() noexcept;
 
+        /// Binds sparse for subsequent operations.
+        ///
+        /// @param infos Description of the resource or operation to perform.
+        /// @param fence Fence used or affected by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererResult bind_sparse(span<const VkBindSparseInfo> infos,
                                                  VkFence fence = VK_NULL_HANDLE) noexcept;
 
       private:
         VkQueue handle_ = VK_NULL_HANDLE;
         u32 family_index_ = 0;
-        /// Pure external-synchronization lock for the four Vulkan queue calls below — handle_ itself
-        /// is never concurrently mutated (moves happen during single-threaded setup), so there's
-        /// nothing to guard; Async::Mutex<T> still needs some T, so this holds an empty marker purely
-        /// for its lock()/MutexGuard semantics. Not moved on VulkanQueue's own move (Async::Mutex is
-        /// itself non-movable, so — like the std::mutex this replaces — a fresh one is implicitly
-        /// default-constructed in the destination; see the move constructor's doc comment above).
+
+
         mutable Async::Mutex<std::monostate> submission_lock_;
     };
 

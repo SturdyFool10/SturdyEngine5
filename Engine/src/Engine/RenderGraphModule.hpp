@@ -19,9 +19,17 @@ namespace SFT::Engine {
         u32 index = std::numeric_limits<u32>::max();
         u32 generation = 0;
 
+        /// Converts the `RenderGraphTextureHandle` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] explicit constexpr operator bool() const noexcept {
             return index != std::numeric_limits<u32>::max() && generation != 0;
         }
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend constexpr bool operator==(RenderGraphTextureHandle, RenderGraphTextureHandle) noexcept = default;
     };
 
@@ -29,14 +37,21 @@ namespace SFT::Engine {
         u32 index = std::numeric_limits<u32>::max();
         u32 generation = 0;
 
+        /// Converts the `RenderGraphPassHandle` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] explicit constexpr operator bool() const noexcept {
             return index != std::numeric_limits<u32>::max() && generation != 0;
         }
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend constexpr bool operator==(RenderGraphPassHandle, RenderGraphPassHandle) noexcept = default;
     };
 
-    /// Semantic formats deliberately stop above RHI. Renderer resolves these to concrete backend-
-    /// compatible formats when lowering the graph for a surface.
+
     enum class RenderGraphTextureFormat : u8 {
         Inherit,
         SceneLinearHdr,
@@ -63,18 +78,42 @@ namespace SFT::Engine {
         u32 height = 0;
         RenderGraphTextureHandle input{};
 
+        /// Renders resolution using the current rendering state.
+        ///
+        /// @param scale `scale` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static constexpr RenderGraphExtent render_resolution(f32 scale = 1.0f) noexcept {
             return RenderGraphExtent{.mode = RenderGraphExtentMode::RenderResolution,
                                      .scale_x = scale, .scale_y = scale};
         }
+        /// Presents the completed frame to the target surface or swapchain.
+        ///
+        /// @return Returns the current presentation resolution value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static constexpr RenderGraphExtent presentation_resolution() noexcept {
             return RenderGraphExtent{.mode = RenderGraphExtentMode::PresentationResolution};
         }
+        /// Performs the relative to operation for `RenderGraphExtent` using the supplied arguments.
+        ///
+        /// @param texture Texture used or affected by the operation.
+        /// @param scale `scale` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static constexpr RenderGraphExtent relative_to(
             RenderGraphTextureHandle texture, f32 scale = 1.0f) noexcept {
             return RenderGraphExtent{.mode = RenderGraphExtentMode::RelativeToInput,
                                      .scale_x = scale, .scale_y = scale, .input = texture};
         }
+        /// Performs the absolute operation for `RenderGraphExtent` using the supplied arguments.
+        ///
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static constexpr RenderGraphExtent absolute(u32 width, u32 height) noexcept {
             return RenderGraphExtent{.mode = RenderGraphExtentMode::Absolute,
                                      .width = width, .height = height};
@@ -100,9 +139,7 @@ namespace SFT::Engine {
         Present,
     };
 
-    /// Engine-owned, RHI-free fullscreen module description. Source identity and constants are copied
-    /// into the immutable prepared-frame snapshot; Renderer owns compilation, reflection, descriptors,
-    /// command recording, synchronization, and retirement.
+
     struct FullscreenEffectDescription {
         std::filesystem::path shader_path;
         std::string module_name;
@@ -110,6 +147,10 @@ namespace SFT::Engine {
         std::vector<std::byte> push_constants;
         UString label;
 
+        /// Sets the push constants for this `FullscreenEffectDescription`.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename Constants>
             requires std::is_trivially_copyable_v<Constants>
         FullscreenEffectDescription &set_push_constants(const Constants &constants) {
@@ -122,10 +163,7 @@ namespace SFT::Engine {
 
     using RasterEffectDescription = FullscreenEffectDescription;
 
-    /// One-input/one-output scene-linear HDR compute contract. The selected entry point must use
-    /// [numthreads(8, 8, 1)] and expose only set 0 resources named sourceTexture (Texture2D<float4>),
-    /// sourceSampler (SamplerState), and outputTexture (RWTexture2D<float4>). Dispatch rounds up to the
-    /// render extent, so application shaders must bounds-check their dispatch-thread coordinates.
+
     struct ComputeEffectDescription {
         std::filesystem::path shader_path;
         std::string module_name;
@@ -133,6 +171,10 @@ namespace SFT::Engine {
         std::vector<std::byte> push_constants;
         UString label;
 
+        /// Sets the push constants for this `ComputeEffectDescription`.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename Constants>
             requires std::is_trivially_copyable_v<Constants>
         ComputeEffectDescription &set_push_constants(const Constants &constants) {
@@ -143,8 +185,7 @@ namespace SFT::Engine {
         }
     };
 
-    /// Exact same-format, same-extent, single-mip GPU texture copy. It performs no filtering, scaling,
-    /// format conversion, persistence, or readback.
+
     struct CopyDescription {
         UString label;
     };
@@ -157,7 +198,7 @@ namespace SFT::Engine {
         FullscreenEffectDescription fullscreen_effect{};
         ComputeEffectDescription compute_effect{};
         CopyDescription copy{};
-        /// Present-only destination. Invalid means the frame's window surface.
+
         RenderTargetHandle target{};
         UString label;
     };
@@ -165,57 +206,117 @@ namespace SFT::Engine {
     namespace RenderModules {
 
         struct DeferredScene {
+            /// Builds the requested object or derived state.
+            ///
+            /// @param graph `graph` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 
         struct AntiAliasing {
             RenderGraphTextureHandle input{};
+            /// Builds the requested object or derived state.
+            ///
+            /// @param graph `graph` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 
         struct Bloom {
             RenderGraphTextureHandle input{};
+            /// Builds the requested object or derived state.
+            ///
+            /// @param graph `graph` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 
         struct FullscreenEffect {
             RenderGraphTextureHandle input{};
             FullscreenEffectDescription effect{};
+            /// Builds the requested object or derived state.
+            ///
+            /// @param graph `graph` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 
         struct RasterEffect {
             RenderGraphTextureHandle input{};
             RasterEffectDescription effect{};
+            /// Builds the requested object or derived state.
+            ///
+            /// @param graph `graph` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 
         struct ComputeEffect {
             RenderGraphTextureHandle input{};
             ComputeEffectDescription effect{};
+            /// Builds the requested object or derived state.
+            ///
+            /// @param graph `graph` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 
         struct Copy {
             RenderGraphTextureHandle input{};
             CopyDescription copy{};
+            /// Builds the requested object or derived state.
+            ///
+            /// @param graph `graph` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 
         struct ToneMapping {
             RenderGraphTextureHandle input{};
+            /// Builds the requested object or derived state.
+            ///
+            /// @param graph `graph` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 
         struct DebugOverlay {
             RenderGraphTextureHandle input{};
+            /// Builds the requested object or derived state.
+            ///
+            /// @param graph `graph` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 
         struct Present {
             RenderGraphTextureHandle input{};
-            /// Invalid preserves standard on-screen presentation; a live handle selects an offscreen target.
+
             RenderTargetHandle target{};
+            /// Builds the requested object or derived state.
+            ///
+            /// @param graph `graph` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] RenderGraphPassHandle build(RenderGraph &graph) const;
         };
 

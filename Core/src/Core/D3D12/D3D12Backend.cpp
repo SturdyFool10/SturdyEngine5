@@ -15,12 +15,24 @@ namespace SFT::Core::D3D12 {
 
     namespace {
 
+        /// Converts the backend-specific value to the corresponding RHI representation.
+        ///
+        /// @param system `system` value used by the operation.
+        ///
+        /// @return Returns the value converted to RHI window system representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::WindowSystem to_rhi_window_system(Platform::Windowing::NativeWindowSystem system) noexcept {
             return system == Platform::Windowing::NativeWindowSystem::Win32
                 ? RHI::WindowSystem::Win32
                 : RHI::WindowSystem::Unknown;
         }
 
+        /// Retrieves or produces the to graphics error code selected by the supplied arguments.
+        ///
+        /// @param code `code` value used by the operation.
+        ///
+        /// @return Returns the value converted to graphics error code representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] GraphicsBackendErrorCode to_graphics_error_code(RHI::RhiErrorCode code) noexcept {
             switch (code) {
                 case RHI::RhiErrorCode::Unsupported: return GraphicsBackendErrorCode::Unsupported;
@@ -37,11 +49,26 @@ namespace SFT::Core::D3D12 {
 
     } // namespace
 
+    /// Performs the d3 d12 backend operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param key Key used to identify the requested entry.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     D3D12Backend::D3D12Backend(ConstructorKey key)
         : EngineBackend(key) {}
 
+    /// Destroys the `D3D12` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     D3D12Backend::~D3D12Backend() { destroy_resources(); }
 
+    /// Initializes the `D3D12` for use.
+    ///
+    /// @param init `init` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::InitializationFailed`, `GraphicsBackendErrorCode::Unsupported`.
     RendererExpected<RenderSurfaceHandle> D3D12Backend::initialize(const RendererCreateInfo &init) {
         if (initialized_) [[unlikely]] {
             return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
@@ -93,7 +120,6 @@ namespace SFT::Core::D3D12 {
         };
 
 
-
         const auto selected = std::ranges::find_if(*adapters, [&](const auto &candidate) {
             return candidate->supported_features().contains_all(device_request.required_features) &&
                    (init.physical_device_id.empty() || candidate->info().physical_device_id == init.physical_device_id);
@@ -124,6 +150,13 @@ namespace SFT::Core::D3D12 {
         return primary_surface;
     }
 
+    /// Creates a surface from the supplied parameters.
+    ///
+    /// @param window Window used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::InitializationFailed`, `GraphicsBackendErrorCode::Unsupported`.
     RendererExpected<RenderSurfaceHandle> D3D12Backend::create_surface(Platform::Windowing::Window &window) {
         if (!initialized_ || !device_) [[unlikely]] {
             return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
@@ -158,6 +191,13 @@ namespace SFT::Core::D3D12 {
         return RenderSurfaceHandle{window_id};
     }
 
+    /// Creates a window surface from the supplied parameters.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param desired_frames_in_flight `desired_frames_in_flight` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     RendererExpected<RenderSurfaceHandle> D3D12Backend::create_window_surface(
         Platform::Windowing::Window &window,
         u32 desired_frames_in_flight) {
@@ -165,6 +205,12 @@ namespace SFT::Core::D3D12 {
         return create_surface(window);
     }
 
+    /// Destroys the window surface identified by the supplied parameters.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Backend::destroy_window_surface(RenderSurfaceHandle surface) noexcept {
         const auto it = surfaces_.find(surface.window_id);
         if (it == surfaces_.end()) {
@@ -176,14 +222,29 @@ namespace SFT::Core::D3D12 {
         surfaces_.erase(it);
     }
 
+    /// Handles the on surface resize needed callback and updates the associated platform state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Backend::on_surface_resize_needed(RenderSurfaceHandle surface, Extent2D extent) noexcept {
         (void)surface;
         (void)extent;
 
     }
 
+    /// Returns the current or globally available capabilities value.
+    ///
+    /// @return Returns the current capabilities value.
+    /// @note This function does not throw exceptions.
     RendererCapabilities D3D12Backend::capabilities() const noexcept { return capabilities_; }
 
+    /// Returns the current render threading capabilities.
+    ///
+    /// @return Returns the current render threading capabilities value.
+    /// @note This function does not throw exceptions.
     RHI::RenderThreadingCapabilities D3D12Backend::render_threading_capabilities() const noexcept {
         return RHI::RenderThreadingCapabilities{
             .backend_allows_dedicated_render_thread = true,
@@ -199,10 +260,25 @@ namespace SFT::Core::D3D12 {
         };
     }
 
+    /// Returns the current or globally available RHI device value.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     RHI::RhiDevice *D3D12Backend::rhi_device() noexcept { return device_.get(); }
 
+    /// Returns the current or globally available RHI device value.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     const RHI::RhiDevice *D3D12Backend::rhi_device() const noexcept { return device_.get(); }
 
+    /// Resolves the RHI surface associated with the supplied key, handle, or resource.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     RendererExpected<RHI::SurfaceHandle> D3D12Backend::rhi_surface_for(RenderSurfaceHandle surface) {
         const auto it = surfaces_.find(surface.window_id);
         if (it == surfaces_.end()) [[unlikely]] {
@@ -212,6 +288,10 @@ namespace SFT::Core::D3D12 {
         return it->second;
     }
 
+    /// Returns the current GPU info.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<GpuInfo> D3D12Backend::gpu_info() const {
         if (!adapter_info_) {
             return std::nullopt;
@@ -227,12 +307,20 @@ namespace SFT::Core::D3D12 {
         };
     }
 
+    /// Waits for idle to complete.
+    ///
+    /// @return Returns the current wait idle value.
+    /// @note This function does not throw exceptions.
     void D3D12Backend::wait_idle() noexcept {
         if (device_) {
             device_->wait_idle();
         }
     }
 
+    /// Destroys the resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy resources value.
+    /// @note This function does not throw exceptions.
     void D3D12Backend::destroy_resources() noexcept {
         wait_idle();
         if (device_) {
@@ -247,6 +335,12 @@ namespace SFT::Core::D3D12 {
         initialized_ = false;
     }
 
+    /// Removes and returns or discards the next value from the container or queue.
+    ///
+    /// @param init `init` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Backend::populate_capabilities(const RendererCreateInfo &init) noexcept {
         const RHI::FeatureSet &enabled = device_->enabled_features();
         capabilities_.multithreaded_command_recording = true;
@@ -263,6 +357,10 @@ namespace SFT::Core::D3D12 {
 
 namespace SFT::Core {
 
+    /// Creates a D3D12 backend from the supplied parameters.
+    ///
+    /// @return Returns the current create D3D12 backend value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     unique_ptr<EngineBackend> create_d3d12_backend() {
         return EngineBackend::create_erased<D3D12::D3D12Backend>();
     }

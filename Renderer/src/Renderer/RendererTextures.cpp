@@ -30,7 +30,14 @@ namespace SFT::Renderer {
     namespace {
 
 
-
+        /// Computes the texture data bytes required by the supplied values.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 texture_data_bytes(RHI::Format format, u32 width, u32 height) noexcept {
             if (width == 0 || height == 0) {
                 return 0;
@@ -70,6 +77,12 @@ namespace SFT::Renderer {
             return texels <= std::numeric_limits<u64>::max() / texel_size ? texels * texel_size : 0;
         }
 
+        /// Computes the texture copy offset alignment required by the supplied values.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 texture_copy_offset_alignment(RHI::Format format) noexcept {
             switch (format) {
                 case RHI::Format::BC7Unorm:
@@ -87,6 +100,13 @@ namespace SFT::Renderer {
             }
         }
 
+        /// Performs the align up operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        /// @param alignment `alignment` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 align_up(u64 value, u64 alignment) noexcept {
             if (alignment == 0 || value > std::numeric_limits<u64>::max() - (alignment - 1u)) {
                 return 0;
@@ -94,6 +114,13 @@ namespace SFT::Renderer {
             return ((value + alignment - 1u) / alignment) * alignment;
         }
 
+        /// Returns the texture mip level count for this `Renderer`.
+        ///
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        ///
+        /// @return Returns the requested count or size.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 texture_mip_level_count(u32 width, u32 height) noexcept {
             u32 levels = 0;
             while (width != 0 && height != 0) {
@@ -107,6 +134,15 @@ namespace SFT::Renderer {
             return levels;
         }
 
+        /// Computes the texture mip chain bytes required by the supplied values.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param mip_levels `mip_levels` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 texture_mip_chain_bytes(
             RHI::Format format, u32 width, u32 height, u32 mip_levels) noexcept {
             if (mip_levels == 0 || mip_levels > texture_mip_level_count(width, height)) {
@@ -137,6 +173,19 @@ namespace SFT::Renderer {
 
     } // namespace
 
+    /// Creates a texture from the supplied parameters.
+    ///
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param data Data consumed or referenced by the operation.
+    /// @param label `label` value used by the operation.
+    /// @param concurrent_queue_classes Queue used or affected by the operation.
+    /// @param mip_levels `mip_levels` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<TextureHandle> Renderer::create_texture(u32 width, u32 height, RHI::Format format,
                                                                    span<const std::byte> data, const char *label,
                                                                    span<const RHI::QueueClass> concurrent_queue_classes,
@@ -179,6 +228,14 @@ namespace SFT::Renderer {
         return textures_.back().handle;
     }
 
+    /// Creates a owned texture GPU from the supplied parameters.
+    ///
+    /// @param resource `resource` value used by the operation.
+    /// @param concurrent_queue_classes Queue used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::create_owned_texture_gpu(TextureResource &resource,
                                                             span<const RHI::QueueClass> concurrent_queue_classes) {
         ZoneScopedN("Renderer::create_owned_texture_gpu");
@@ -259,6 +316,14 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Clears placeholder texture.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param color `color` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::clear_placeholder_texture(TextureHandle handle, RHI::ClearColor color) {
         ZoneScopedN("Renderer::clear_placeholder_texture");
         RHI::RhiDevice *device = rhi_device();
@@ -333,6 +398,20 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Submits texture upload.
+    ///
+    /// @param resource `resource` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param staging `staging` value used by the operation.
+    /// @param staging_offset Offset from the beginning of the relevant range or buffer.
+    /// @param queue Queue used or affected by the operation.
+    /// @param d3d12_padded_rows `d3d12_padded_rows` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<TextureUploadSubmission> Renderer::submit_texture_upload(
         TextureResource &resource, u32 width, u32 height, RHI::Format format, RHI::BufferHandle staging,
         u64 staging_offset, RHI::QueueLane queue, bool d3d12_padded_rows) {
@@ -348,9 +427,6 @@ namespace SFT::Renderer {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "Texture upload description does not match the destination resource."});
         }
-
-
-
 
 
         auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.queue = queue, .label = "renderer texture upload"});
@@ -437,6 +513,17 @@ namespace SFT::Renderer {
         return TextureUploadSubmission{*command_buffer, *fence};
     }
 
+    /// Uploads texture rgba using the supplied arguments and current state.
+    ///
+    /// @param resource `resource` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::upload_texture_rgba(TextureResource &resource, u32 width, u32 height,
                                                        RHI::Format format, span<const std::byte> data) {
         ZoneScopedN("Renderer::upload_texture_rgba");
@@ -503,7 +590,6 @@ namespace SFT::Renderer {
         if (!*waited) {
 
 
-
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "wait texture upload fence: vkWaitForFences timed out.");
         }
@@ -514,6 +600,10 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Finds or creates the default white texture required by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<TextureHandle> Renderer::ensure_default_white_texture() {
         ZoneScopedN("Renderer::ensure_default_white_texture");
         if (TextureResource *existing = texture(default_white_texture_)) {
@@ -529,6 +619,16 @@ namespace SFT::Renderer {
         return *handle;
     }
 
+    /// Performs the adopt texture operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param texture Texture used or affected by the operation.
+    /// @param view `view` value used by the operation.
+    /// @param sampler Sampler used or affected by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<TextureHandle> Renderer::adopt_texture(RHI::TextureHandle texture, RHI::TextureViewHandle view,
                                                                    RHI::SamplerHandle sampler, const char *label) {
         ZoneScopedN("Renderer::adopt_texture");
@@ -549,6 +649,12 @@ namespace SFT::Renderer {
         return textures_.back().handle;
     }
 
+    /// Destroys the texture identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_texture(TextureHandle handle) noexcept {
         ZoneScopedN("Renderer::destroy_texture");
         TextureResource *resource = texture(handle);
@@ -571,6 +677,13 @@ namespace SFT::Renderer {
         *resource = {};
     }
 
+    /// Performs the texture operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     TextureResource *Renderer::texture(TextureHandle handle) noexcept {
         ZoneScopedN("Renderer::texture");
         if (!handle || handle.value > textures_.size()) {
@@ -580,6 +693,13 @@ namespace SFT::Renderer {
         return resource.alive ? &resource : nullptr;
     }
 
+    /// Performs the texture operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const TextureResource *Renderer::texture(TextureHandle handle) const noexcept {
         ZoneScopedN("Renderer::texture");
         if (!handle || handle.value > textures_.size()) {

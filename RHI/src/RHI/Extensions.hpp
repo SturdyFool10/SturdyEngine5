@@ -12,44 +12,53 @@ using std::string_view;
 
 namespace SFT::RHI {
 
-    /// ─── Extension identity ───────────────────────────────────────────────────────
-    ///
-    /// `Feature` (:Features) is for stable, cross-backend optional capabilities the core RHI knows by
-    /// name. `ExtensionId` is the escape hatch for API/vendor-specific or still-experimental features
-    /// that should still be expressible without baking every vendor experiment into the core enum.
-    ///
-    /// An extension is identified by a namespace + name + interface version. Examples:
-    ///   - {"metal", "tile-shaders", 1}
-    ///   - {"apple", "programmable-blending", 1}
-    ///   - {"nvidia", "opacity-micromaps", 1}
-    ///
-    /// The safe pattern is the same as features: adapters report support, device creation enables the
-    /// required/optional subset, and use-sites branch on `RhiDevice::is_extension_enabled(...)`. A
-    /// mature extension can later graduate into the core `Feature` enum + first-class descriptors
-    /// without changing this negotiation shape.
+
     struct ExtensionId {
         string_view name_space;
         string_view name;
         u32 version = 1;
 
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend constexpr bool operator==(const ExtensionId &, const ExtensionId &) noexcept = default;
     };
 
+    /// Performs the extension matches operation using the supplied arguments.
+    ///
+    /// @param supported `supported` value used by the operation.
+    /// @param requested `requested` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool extension_matches(ExtensionId supported, ExtensionId requested) noexcept {
         return supported.name_space == requested.name_space && supported.name == requested.name &&
                supported.version >= requested.version;
     }
 
+    /// Reports whether extension holds.
+    ///
+    /// @param supported `supported` value used by the operation.
+    /// @param requested `requested` value used by the operation.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool contains_extension(span<const ExtensionId> supported,
                                                  ExtensionId requested) noexcept;
 
-    /// Base class for extension-specific typed interfaces. A dedicated extension partition can derive
-    /// from this with first-class RHI descriptors/commands for one backend/vendor feature; the device
-    /// returns that interface only when the extension was enabled. Returning nullptr is the safe-fail
-    /// path for unsupported or non-enabled extensions.
+
     class RhiDeviceExtension {
       public:
+        /// Destroys the `RhiDeviceExtension` and releases resources owned by it.
+        ///
+        /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
         virtual ~RhiDeviceExtension() = default;
+        /// Returns the current or globally available extension ID value.
+        ///
+        /// @return Returns the current extension ID value.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual ExtensionId extension_id() const noexcept = 0;
     };
 

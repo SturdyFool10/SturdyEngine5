@@ -5,16 +5,20 @@
 
 namespace SFT::Engine {
 
-    /// Global time dilation multiplier for gameplay/tooling to slow down, speed up, or pause
-    /// simulation time without touching real (wall-clock) delta. Ecs::WriteResource<TimeScale> lets
-    /// any system change it (a pause menu, a bullet-time ability, an editor timeline scrubber);
-    /// Engine::update() reads it once per call to scale the delta it feeds into FrameTime — see
-    /// FrameTime.hpp for the resulting scaled/unscaled split. Negative scales are rejected (clamped to
-    /// zero) since nothing in the engine is designed to run simulation time backwards.
+
     class TimeScale {
       public:
+        /// Performs the set operation for `TimeScale` using the supplied arguments.
+        ///
+        /// @param scale `scale` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set(f64 scale) noexcept;
 
+        /// Returns the current or globally available value value.
+        ///
+        /// @return Returns the current value value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f64 value() const noexcept;
 
       private:

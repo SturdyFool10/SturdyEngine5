@@ -6,9 +6,9 @@
 
 namespace SFT::Platform::Windowing {
 
-    /// Which windowing library backs a live Window. This reports provider identity after explicit
-    /// provider composition; it is not a runtime selector. Products choose optional providers through
-    /// a WindowFactory so unreferenced provider archives remain dead-strippable.
+                                                                                                  
+                                                                                                      
+                                                                                 
     enum class WindowBackendKind {
         SDL3,
         GLFW,
@@ -60,13 +60,13 @@ namespace SFT::Platform::Windowing {
         bool resizable = true;
         bool decorated = true;
         bool high_dpi = true;
-        /// Per-pixel window transparency, honored at creation time by every backend (SDL3:
-        /// SDL_WINDOW_TRANSPARENT, GLFW: GLFW_TRANSPARENT_FRAMEBUFFER). This is the *only* way to get
-        /// a transparent window on Linux (X11's visual — the thing that determines whether a window's
-        /// framebuffer even has an alpha channel — can only be chosen at XCreateWindow time; there is
-        /// no protocol operation to change it on a live window), so toggling this on Linux means going
-        /// through Window::recreate() rather than Window::set_transparent(). Windows/macOS additionally
-        /// support toggling transparency live via Window::set_transparent() without needing this flag.
+                                                                                           
+                                                                                                      
+                                                                                                        
+                                                                                                        
+                                                                                                       
+                                                                                                        
+                                                                                                       
         bool transparent = false;
         WindowMode mode = WindowMode::Windowed;
         WindowGraphicsApi graphics_api = WindowGraphicsApi::None;

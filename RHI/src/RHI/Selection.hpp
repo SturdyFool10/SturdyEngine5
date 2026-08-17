@@ -33,27 +33,13 @@ using std::vector;
 namespace SFT::RHI {
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
     enum class PowerPreference : u32 {
         None,
         LowPower,
         HighPerformance,
     };
 
-    /// A bitmask over `DeviceType` for allow/deny filtering. `AllHardware` is every category except the
-    /// software rasterizer — the sane default that keeps a renderer off lavapipe/WARP unless it opts in.
+
     enum class DeviceTypeMask : u32 {
         None = 0,
         Other = 1u << 0,
@@ -67,7 +53,13 @@ namespace SFT::RHI {
     template <>
     struct enable_flag_ops<DeviceTypeMask> : std::true_type {};
 
-    /// The single-category bit for a device type — used to test membership in an allow mask.
+
+    /// Performs the device type bit operation using the supplied arguments.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr DeviceTypeMask device_type_bit(DeviceType type) noexcept {
         switch (type) {
             case DeviceType::Other: return DeviceTypeMask::Other;
@@ -81,24 +73,43 @@ namespace SFT::RHI {
 
     struct AdapterCriteria {
         PowerPreference power_preference = PowerPreference::HighPerformance;
-        /// Hard capability gates — an adapter missing any required feature/extension is rejected.
+
         FeatureSet required_features;
         span<const ExtensionId> required_extensions;
-        /// Device categories permitted; defaults to hardware-only (software adapters excluded).
+
         DeviceTypeMask allowed_types = DeviceTypeMask::AllHardware;
-        /// Case-insensitive substring an adapter's name must contain; empty means "any name".
+
         string_view name_filter;
     };
 
-    /// Case-insensitive substring test (ASCII), used for `name_filter`.
+
+    /// Performs the name contains ci operation using the supplied arguments.
+    ///
+    /// @param haystack `haystack` value used by the operation.
+    /// @param needle `needle` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool name_contains_ci(string_view haystack, string_view needle) noexcept;
 
-    /// Does `adapter` pass every hard filter in `criteria` (type, name, features, extensions)? This is
-    /// the yes/no gate; `score_adapter` then ranks the ones that pass.
+
+    /// Performs the adapter matches operation using the supplied arguments.
+    ///
+    /// @param adapter `adapter` value used by the operation.
+    /// @param criteria `criteria` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] bool adapter_matches(const RhiAdapter &adapter, const AdapterCriteria &criteria);
 
-    /// Ranks an adapter for a power preference; higher wins. Only meaningful among adapters that have
-    /// already passed `adapter_matches`.
+
+    /// Performs the score adapter operation using the supplied arguments.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    /// @param preference `preference` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr i64 score_adapter(DeviceType type, PowerPreference preference) noexcept {
         switch (preference) {
             case PowerPreference::HighPerformance:
@@ -132,40 +143,51 @@ namespace SFT::RHI {
         return 0;
     }
 
-    /// The single best adapter matching `criteria`, or nullptr if none qualifies. The returned pointer
-    /// aliases into `adapters`, so keep that vector alive while using it (create the device, then the
-    /// adapters may drop — an adapter need not outlive the device it creates).
+
+    /// Selects adapter that best satisfies the supplied requirements.
+    ///
+    /// @param adapters `adapters` value used by the operation.
+    /// @param criteria `criteria` value used by the operation.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] RhiAdapter *select_adapter(span<const unique_ptr<RhiAdapter>> adapters,
                                                     const AdapterCriteria &criteria);
 
-    /// Every adapter matching `criteria`, ranked best-first — for presenting a chooser UI or falling
-    /// back down the list. Pointers alias into `adapters` (same lifetime rule as select_adapter).
+
+    /// Performs the filter adapters operation using the supplied arguments.
+    ///
+    /// @param adapters `adapters` value used by the operation.
+    /// @param criteria `criteria` value used by the operation.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<RhiAdapter *> filter_adapters(span<const unique_ptr<RhiAdapter>> adapters,
                                                               const AdapterCriteria &criteria);
 
-    /// Explicit-by-name lookup: the first adapter whose name contains `name` (case-insensitive), or
-    /// nullptr. For honoring a saved user choice without building a whole criteria struct.
+
+    /// Returns a human-readable name for the supplied find adapter by value.
+    ///
+    /// @param adapters `adapters` value used by the operation.
+    /// @param name Name used to identify or label the target.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] RhiAdapter *find_adapter_by_name(span<const unique_ptr<RhiAdapter>> adapters,
                                                           string_view name);
 
 
-
-
-
-
-
     struct DeviceSelection {
-        /// Which graphics API to use. nullopt asks the registry for its preferred available backend —
-        /// the runtime D3D12-vs-Vulkan choice lives here (set it to force one).
+
+
         optional<BackendType> backend;
         InstanceDesc instance;
         AdapterCriteria adapter;
         DeviceRequest device;
     };
 
-    /// The realized result. `instance` is retained because a device must not outlive the instance it
-    /// came from; the chosen adapter is not (it isn't needed past device creation) so only its info is
-    /// kept, for logging/telemetry.
+
     struct SelectedDevice {
         unique_ptr<RhiInstance> instance;
         unique_ptr<RhiDevice> device;
@@ -173,6 +195,13 @@ namespace SFT::RHI {
         BackendType backend = BackendType::Vulkan;
     };
 
+    /// Selects and create device that best satisfies the supplied requirements.
+    ///
+    /// @param registry `registry` value used by the operation.
+    /// @param selection `selection` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     [[nodiscard]] RhiExpected<SelectedDevice> select_and_create_device(
         const BackendRegistry &registry, const DeviceSelection &selection);
 

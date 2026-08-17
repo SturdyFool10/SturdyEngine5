@@ -1,13 +1,7 @@
 
 
-
-
-
 #pragma region Imports
 #if defined(_WIN32)
-
-
-
 
 
 #if !defined(NOMINMAX)
@@ -34,14 +28,17 @@ namespace SFT::Core::Vulkan {
 
         class Win32FullScreenExclusiveRequest final : public FullScreenExclusiveRequest {
           public:
+            /// Constructs a `Win32FullScreenExclusiveRequest` from the supplied initialization values.
+            ///
+            /// @param monitor `monitor` value used by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             explicit Win32FullScreenExclusiveRequest(HMONITOR monitor) noexcept {
                 win32_info_ = VkSurfaceFullScreenExclusiveWin32InfoEXT{
                     .sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_WIN32_INFO_EXT,
                     .pNext = nullptr,
                     .hmonitor = monitor,
                 };
-
-
 
 
                 info_ = VkSurfaceFullScreenExclusiveInfoEXT{
@@ -51,6 +48,10 @@ namespace SFT::Core::Vulkan {
                 };
             }
 
+            /// Returns the current or globally available pnext value.
+            ///
+            /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] const void *pnext() const noexcept override { return &info_; }
 
           private:
@@ -60,6 +61,12 @@ namespace SFT::Core::Vulkan {
 
     } // namespace
 
+    /// Builds full screen exclusive request.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note This function does not throw exceptions.
     std::unique_ptr<FullScreenExclusiveRequest> build_full_screen_exclusive_request(
         const GraphicsPlatform::NativeSurfaceHandle &surface) noexcept {
         if (surface.system != GraphicsPlatform::WindowSystem::Win32 || surface.window == nullptr) {
@@ -67,11 +74,19 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
         HMONITOR monitor = MonitorFromWindow(static_cast<HWND>(surface.window), MONITOR_DEFAULTTONEAREST);
         return std::make_unique<Win32FullScreenExclusiveRequest>(monitor);
     }
 
+    /// Acquires full screen exclusive mode.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param swapchain Swapchain used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::Unsupported`, `GraphicsBackendErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     RendererResult acquire_full_screen_exclusive_mode(VkDevice device, VkSwapchainKHR swapchain) noexcept {
         if (vkAcquireFullScreenExclusiveModeEXT == nullptr) {
             return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
@@ -88,6 +103,12 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
+    /// Releases full screen exclusive mode using the supplied arguments and current state.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param swapchain Swapchain used or affected by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void release_full_screen_exclusive_mode(VkDevice device, VkSwapchainKHR swapchain) noexcept {
         if (vkReleaseFullScreenExclusiveModeEXT == nullptr) {
             return;
@@ -97,16 +118,29 @@ namespace SFT::Core::Vulkan {
 
 #else
 
+    /// Builds full screen exclusive request.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note This function does not throw exceptions.
     std::unique_ptr<FullScreenExclusiveRequest> build_full_screen_exclusive_request(
         const GraphicsPlatform::NativeSurfaceHandle &            ) noexcept {
         return nullptr;
     }
 
+    /// Acquires full screen exclusive mode.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::Unsupported`.
+    /// @note This function does not throw exceptions.
     RendererResult acquire_full_screen_exclusive_mode(VkDevice           , VkSwapchainKHR              ) noexcept {
         return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
                                       "VK_EXT_full_screen_exclusive is implemented only on Windows.");
     }
 
+    /// Releases full screen exclusive mode using the supplied arguments and current state.
+    ///
+    /// @note This function does not throw exceptions.
     void release_full_screen_exclusive_mode(VkDevice           , VkSwapchainKHR              ) noexcept {
     }
 

@@ -5,6 +5,13 @@
 
 namespace SFT::Text {
 
+/// Performs the detect color format operation for `Text` using the supplied arguments.
+///
+/// @param font `font` value used by the operation.
+/// @param glyph_id Identifier of the target object or resource.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 ColorGlyphFormat detect_color_format(const Font &font, u32 glyph_id) {
         if (!font) {
             return ColorGlyphFormat::None;
@@ -21,7 +28,6 @@ ColorGlyphFormat detect_color_format(const Font &font, u32 glyph_id) {
         }
 
         if (hb_ot_color_has_png(face)) {
-
 
 
             hb_blob_t *blob = hb_ot_color_glyph_reference_png(font.handle(), static_cast<hb_codepoint_t>(glyph_id));
@@ -41,6 +47,15 @@ ColorGlyphFormat detect_color_format(const Font &font, u32 glyph_id) {
 
 namespace SFT::Text::Detail {
 
+/// Rasterizes bitmap glyph using the supplied arguments and current state.
+///
+/// @param font `font` value used by the operation.
+/// @param glyph_id Identifier of the target object or resource.
+/// @param params `params` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::RasterizationFailed`.
 TextExpected<RasterizedGlyph> rasterize_bitmap_glyph(const Font &font, u32 glyph_id,
                                                                                    const ColorRasterParams &params) {
             const auto ppem = static_cast<unsigned int>(params.pixel_size + 0.5f);
@@ -89,7 +104,6 @@ TextExpected<RasterizedGlyph> rasterize_bitmap_glyph(const Font &font, u32 glyph
                 std::min(params.width / 2u, params.height / 2u));
             const u32 target_width = std::max(1u, params.width - 2u * padding);
             const u32 target_height = std::max(1u, params.height - 2u * padding);
-
 
 
             for (u32 y = 0; y < target_height; ++y) {
@@ -154,6 +168,15 @@ TextExpected<RasterizedGlyph> rasterize_bitmap_glyph(const Font &font, u32 glyph
             return result;
         }
 
+/// Rasterizes layered glyph using the supplied arguments and current state.
+///
+/// @param font `font` value used by the operation.
+/// @param glyph_id Identifier of the target object or resource.
+/// @param params `params` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::RasterizationFailed`.
 TextExpected<RasterizedGlyph> rasterize_layered_glyph(const Font &font, u32 glyph_id,
                                                                                     const ColorRasterParams &params) {
             hb_face_t *face = font.face_handle();
@@ -245,10 +268,8 @@ TextExpected<RasterizedGlyph> rasterize_layered_glyph(const Font &font, u32 glyp
             };
 
 
-
             bool have_bearing = false;
             for (const ResolvedLayer &layer : resolved_layers) {
-
 
 
                 auto mask = rasterize_glyph(layer.outline, RasterFormat::SDF, layer_raster_params);
@@ -262,7 +283,6 @@ TextExpected<RasterizedGlyph> rasterize_layered_glyph(const Font &font, u32 glyp
                 }
 
                 for (usize i = 0; i < mask->pixels.size(); ++i) {
-
 
 
                     const f32 coverage = static_cast<f32>(mask->pixels[i]) / 255.0f;
@@ -296,6 +316,15 @@ TextExpected<RasterizedGlyph> rasterize_layered_glyph(const Font &font, u32 glyp
 
 namespace SFT::Text {
 
+/// Rasterizes color glyph using the supplied arguments and current state.
+///
+/// @param font `font` value used by the operation.
+/// @param glyph_id Identifier of the target object or resource.
+/// @param params `params` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`.
 TextExpected<RasterizedGlyph> rasterize_color_glyph(const Font &font, u32 glyph_id,
                                                                              const ColorRasterParams &params) {
         if (!font) {
@@ -304,7 +333,6 @@ TextExpected<RasterizedGlyph> rasterize_color_glyph(const Font &font, u32 glyph_
         if (params.width == 0 || params.height == 0) {
             return text_error(TextErrorCode::InvalidArgument, "Cannot rasterize a color glyph into a zero-sized raster.");
         }
-
 
 
         if (detect_color_format(font, glyph_id) == ColorGlyphFormat::Layered) {

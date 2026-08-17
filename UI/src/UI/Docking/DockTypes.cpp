@@ -3,18 +3,41 @@
 
 namespace SFT::UI::Docking {
 
+    /// Reports whether contains holds for this `Docking`.
+    ///
+    /// @param point `point` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool DockRect::contains(glm::vec2 point) const noexcept {
         return point.x >= origin.x && point.x <= origin.x + size.x && point.y >= origin.y &&
                point.y <= origin.y + size.y;
     }
 
+    /// Returns the current or globally available root value.
+    ///
+    /// @return Returns the current root value.
+    /// @note This function does not throw exceptions.
     DockNodeId DockTree::root() const noexcept { return root_; }
 
+    /// Performs the node operation for `Docking` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note This function does not throw exceptions.
     const DockNode *DockTree::node(DockNodeId id) const noexcept {
         const u32 index = static_cast<u32>(id);
         return index < nodes_.size() && nodes_[index].has_value() ? &*nodes_[index] : nullptr;
     }
 
+    /// Performs the merge into leaf operation for `Docking` using the supplied arguments.
+    ///
+    /// @param target `target` value used by the operation.
+    /// @param panel `panel` value used by the operation.
+    /// @param before `before` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     bool DockTree::merge_into_leaf(DockNodeId target, DockPanelId panel,
                                        optional<usize> before) {
         DockNode *n = mutable_node(target);
@@ -27,6 +50,16 @@ namespace SFT::UI::Docking {
         return true;
     }
 
+    /// Splits leaf using the supplied arguments and current state.
+    ///
+    /// @param target `target` value used by the operation.
+    /// @param axis `axis` value used by the operation.
+    /// @param panel_first `panel_first` value used by the operation.
+    /// @param panel `panel` value used by the operation.
+    /// @param new_panel_ratio `new_panel_ratio` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool DockTree::split_leaf(DockNodeId target, DockSplitAxis axis, bool panel_first,
                                   DockPanelId panel, f32 new_panel_ratio) {
         DockNode *target_before = mutable_node(target);
@@ -44,8 +77,6 @@ namespace SFT::UI::Docking {
         new_leaf.active_tab_index = 0;
 
 
-
-
         const DockNodeId existing_id = alloc_node(std::move(existing_leaf));
         const DockNodeId new_id = alloc_node(std::move(new_leaf));
 
@@ -61,6 +92,12 @@ namespace SFT::UI::Docking {
         return true;
     }
 
+    /// Removes the panel from its owning collection or system.
+    ///
+    /// @param panel `panel` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockTree::remove_panel(const DockPanelId &panel) {
         const optional<DockNodeId> leaf_id = find_leaf_of(panel);
         if (!leaf_id) {
@@ -86,15 +123,32 @@ namespace SFT::UI::Docking {
         collapse_empty_leaf(*leaf_id);
     }
 
+    /// Finds leaf of in the available state.
+    ///
+    /// @param panel `panel` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note This function does not throw exceptions.
     optional<DockNodeId> DockTree::find_leaf_of(const DockPanelId &panel) const noexcept {
         return find_leaf_of_from(panel, root());
     }
 
+    /// Reports whether this `Docking` contains no elements or payload.
+    ///
+    /// @return Returns the current empty value.
+    /// @note This function does not throw exceptions.
     bool DockTree::empty() const noexcept {
         const DockNode *r = node(root());
         return r != nullptr && r->kind == DockNode::Kind::Leaf && r->tabs.empty();
     }
 
+    /// Sets the split ratio for this `Docking`.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param ratio `ratio` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void DockTree::set_split_ratio(DockNodeId id, f32 ratio) noexcept {
         DockNode *n = mutable_node(id);
         if (n != nullptr && n->kind == DockNode::Kind::Split) {
@@ -102,6 +156,13 @@ namespace SFT::UI::Docking {
         }
     }
 
+    /// Sets the active tab for this `Docking`.
+    ///
+    /// @param leaf `leaf` value used by the operation.
+    /// @param panel `panel` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void DockTree::set_active_tab(DockNodeId leaf, const DockPanelId &panel) noexcept {
         DockNode *n = mutable_node(leaf);
         if (n == nullptr || n->kind != DockNode::Kind::Leaf) {
@@ -115,6 +176,14 @@ namespace SFT::UI::Docking {
         }
     }
 
+    /// Performs the reorder tab operation for `Docking` using the supplied arguments.
+    ///
+    /// @param leaf `leaf` value used by the operation.
+    /// @param from_index Zero-based index of the target element or entry.
+    /// @param to_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void DockTree::reorder_tab(DockNodeId leaf, usize from_index, usize to_index) noexcept {
         DockNode *n = mutable_node(leaf);
         if (n == nullptr || n->kind != DockNode::Kind::Leaf) {
@@ -129,11 +198,23 @@ namespace SFT::UI::Docking {
         n->active_tab_index = to_index;
     }
 
+    /// Performs the mutable node operation for `Docking` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note This function does not throw exceptions.
     DockNode *DockTree::mutable_node(DockNodeId id) noexcept {
         const u32 index = static_cast<u32>(id);
         return index < nodes_.size() && nodes_[index].has_value() ? &*nodes_[index] : nullptr;
     }
 
+    /// Performs the alloc node operation for `Docking` using the supplied arguments.
+    ///
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     DockNodeId DockTree::alloc_node(DockNode value) {
         if (!free_list_.empty()) {
             const u32 index = free_list_.back();
@@ -145,6 +226,12 @@ namespace SFT::UI::Docking {
         return static_cast<DockNodeId>(nodes_.size() - 1);
     }
 
+    /// Releases previously allocated storage or resources.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockTree::free_node(DockNodeId id) {
         const u32 index = static_cast<u32>(id);
         if (index < nodes_.size()) {
@@ -153,6 +240,14 @@ namespace SFT::UI::Docking {
         }
     }
 
+    /// Finds leaf of from in the available state.
+    ///
+    /// @param panel `panel` value used by the operation.
+    /// @param from `from` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note This function does not throw exceptions.
     optional<DockNodeId> DockTree::find_leaf_of_from(const DockPanelId &panel, DockNodeId from) const noexcept {
         const DockNode *n = node(from);
         if (n == nullptr) {
@@ -172,6 +267,14 @@ namespace SFT::UI::Docking {
         return find_leaf_of_from(panel, n->second_child);
     }
 
+    /// Finds parent in the available state.
+    ///
+    /// @param child `child` value used by the operation.
+    /// @param from `from` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note This function does not throw exceptions.
     optional<DockTree::ParentLink> DockTree::find_parent(DockNodeId child, DockNodeId from) const noexcept {
         const DockNode *n = node(from);
         if (n == nullptr || n->kind != DockNode::Kind::Split) {
@@ -189,6 +292,12 @@ namespace SFT::UI::Docking {
         return find_parent(child, n->second_child);
     }
 
+    /// Performs the collapse empty leaf operation for `Docking` using the supplied arguments.
+    ///
+    /// @param leaf_id Identifier of the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockTree::collapse_empty_leaf(DockNodeId leaf_id) {
         const optional<ParentLink> link = find_parent(leaf_id, root());
         if (!link) {
@@ -207,7 +316,6 @@ namespace SFT::UI::Docking {
         } else {
 
 
-
             root_ = sibling;
         }
     }
@@ -217,6 +325,9 @@ namespace SFT::UI::Docking {
 
 namespace SFT::UI::Docking {
 
+    /// Performs the dock tree operation for `Docking` using the supplied arguments.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     DockTree::DockTree() { nodes_.push_back(DockNode{}); }
 
 } // namespace SFT::UI::Docking

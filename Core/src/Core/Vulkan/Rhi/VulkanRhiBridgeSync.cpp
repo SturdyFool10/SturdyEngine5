@@ -29,12 +29,26 @@ namespace SFT::Core::Vulkan {
 
     namespace {
 
+        /// Performs the same queue lane operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param lhs Left-hand operand.
+        /// @param rhs Right-hand operand.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr bool same_queue_lane(rhi::QueueLane lhs, rhi::QueueLane rhs) noexcept {
             return lhs.queue == rhs.queue && lhs.index == rhs.index;
         }
 
     } // namespace
 
+    /// Submits the requested work.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::OperationFailed`, `RhiErrorCode::InvalidArgument`.
     rhi::RhiResult VulkanRhiDeviceBridge::submit(const rhi::SubmitDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::submit");
         if (graphics_queue_ == nullptr) {
@@ -103,7 +117,6 @@ namespace SFT::Core::Vulkan {
                 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0));
 
 
-
             const VkPipelineStageFlags2 render_complete_stage = swapchain->is_composition_present()
                 ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT
                 : VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
@@ -136,6 +149,12 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
+    /// Creates a semaphore from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::SemaphoreHandle> VulkanRhiDeviceBridge::create_semaphore(const rhi::SemaphoreDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_semaphore");
         if (logical_device_ == nullptr) {
@@ -148,11 +167,24 @@ namespace SFT::Core::Vulkan {
         return semaphores_.insert(std::move(*semaphore));
     }
 
+    /// Destroys the semaphore identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_semaphore(rhi::SemaphoreHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_semaphore");
         semaphores_.erase(handle);
     }
 
+    /// Performs the semaphore value operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<u64> VulkanRhiDeviceBridge::semaphore_value(rhi::SemaphoreHandle handle) const {
         ZoneScopedN("VulkanRhiDeviceBridge::semaphore_value");
         const VulkanSemaphore *semaphore = semaphores_.find(handle);
@@ -166,6 +198,15 @@ namespace SFT::Core::Vulkan {
         return *value;
     }
 
+    /// Waits for semaphore to complete.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param value Value consumed by the operation.
+    /// @param timeout_ns Maximum amount of time to wait before giving up.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiResult VulkanRhiDeviceBridge::wait_semaphore(rhi::SemaphoreHandle handle, u64 value, u64 timeout_ns) {
         ZoneScopedN("VulkanRhiDeviceBridge::wait_semaphore");
         VulkanSemaphore *semaphore = semaphores_.find(handle);
@@ -178,6 +219,14 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
+    /// Signals semaphore.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiResult VulkanRhiDeviceBridge::signal_semaphore(rhi::SemaphoreHandle handle, u64 value) {
         ZoneScopedN("VulkanRhiDeviceBridge::signal_semaphore");
         VulkanSemaphore *semaphore = semaphores_.find(handle);
@@ -190,6 +239,12 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
+    /// Creates a fence from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::FenceHandle> VulkanRhiDeviceBridge::create_fence(const rhi::FenceDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_fence");
         if (logical_device_ == nullptr) {
@@ -202,11 +257,26 @@ namespace SFT::Core::Vulkan {
         return fences_.insert(std::move(*fence));
     }
 
+    /// Destroys the fence identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_fence(rhi::FenceHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_fence");
         fences_.erase(handle);
     }
 
+    /// Waits for fences to complete.
+    ///
+    /// @param fences Fence used or affected by the operation.
+    /// @param wait_all `wait_all` value used by the operation.
+    /// @param timeout_ns Maximum amount of time to wait before giving up.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::OperationFailed`, `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<bool> VulkanRhiDeviceBridge::wait_fences(span<const rhi::FenceHandle> fences, bool wait_all, u64 timeout_ns) {
         ZoneScopedN("VulkanRhiDeviceBridge::wait_fences");
         if (logical_device_ == nullptr) {
@@ -233,6 +303,13 @@ namespace SFT::Core::Vulkan {
         return true;
     }
 
+    /// Resets fences to its baseline state.
+    ///
+    /// @param fences Fence used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::OperationFailed`, `RhiErrorCode::InvalidArgument`.
     rhi::RhiResult VulkanRhiDeviceBridge::reset_fences(span<const rhi::FenceHandle> fences) {
         ZoneScopedN("VulkanRhiDeviceBridge::reset_fences");
         if (logical_device_ == nullptr) {

@@ -1,21 +1,6 @@
 #include "IoUringBackend.hpp"
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #if defined(__linux__)
 
 #include <Foundation/src/Foundation.hpp>
@@ -38,10 +23,6 @@
 #include <tracy/Tracy.hpp>
 
 
-
-
-
-
 #if !defined(SYS_io_uring_setup)
     #define SYS_io_uring_setup 425
 #endif
@@ -53,16 +34,29 @@ namespace SFT::Core {
 
     namespace {
 
+        /// Performs the sys I/O uring setup operation for `Core` using the supplied arguments.
+        ///
+        /// @param entries `entries` value used by the operation.
+        /// @param params `params` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] int sys_io_uring_setup(unsigned entries, io_uring_params *params) {
             return static_cast<int>(syscall(SYS_io_uring_setup, entries, params));
         }
 
+        /// Performs the sys I/O uring enter operation for `Core` using the supplied arguments.
+        ///
+        /// @param ring_fd `ring_fd` value used by the operation.
+        /// @param to_submit `to_submit` value used by the operation.
+        /// @param min_complete `min_complete` value used by the operation.
+        /// @param flags Flags controlling optional behavior.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] int sys_io_uring_enter(int ring_fd, unsigned to_submit, unsigned min_complete, unsigned flags) {
             return static_cast<int>(syscall(SYS_io_uring_enter, ring_fd, to_submit, min_complete, flags, nullptr, 0));
         }
-
-
-
 
 
         struct IoUringState {
@@ -88,16 +82,29 @@ namespace SFT::Core {
             bool available = false;
         };
 
+        /// Returns the current or globally available state value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         IoUringState &state() {
             static IoUringState instance;
             return instance;
         }
 
+        /// Returns the current or globally available state mutex value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         std::mutex &state_mutex() {
             static std::mutex instance;
             return instance;
         }
 
+        /// Performs the teardown partial locked operation for `Core` using the supplied arguments.
+        ///
+        /// @param s `s` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void teardown_partial_locked(IoUringState &s) {
             if (s.sqes != nullptr) {
                 munmap(s.sqes, s.sqes_size);
@@ -118,6 +125,10 @@ namespace SFT::Core {
         }
 
 
+        /// Finds or creates the initialized locked required by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool ensure_initialized_locked() {
             IoUringState &s = state();
             if (s.init_attempted) {
@@ -188,11 +199,22 @@ namespace SFT::Core {
 
     } // namespace
 
+    /// Returns the current or globally available I/O uring available value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool io_uring_available() noexcept {
         std::lock_guard<std::mutex> lock(state_mutex());
         return ensure_initialized_locked();
     }
 
+    /// Reads file I/O uring from the associated source.
+    ///
+    /// @param path Filesystem path identifying the target resource.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`, `RhiErrorCode::OperationFailed`.
     RHI::RhiExpected<std::vector<std::byte>> read_file_io_uring(const std::filesystem::path &path) {
         ZoneScopedN("Core::read_file_io_uring");
 
@@ -217,7 +239,6 @@ namespace SFT::Core {
         }
 
 
-
         if (static_cast<u64>(file_stat.st_size) > std::numeric_limits<unsigned>::max()) {
             close(fd);
             return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
@@ -226,8 +247,6 @@ namespace SFT::Core {
         const usize file_size = static_cast<usize>(file_stat.st_size);
 
         std::vector<std::byte> bytes(file_size);
-
-
 
 
         std::atomic_ref<unsigned> sq_tail_ref(*s.sq_tail);
@@ -254,9 +273,6 @@ namespace SFT::Core {
             return unexpected(RHI::rhi_error(RHI::RhiErrorCode::OperationFailed,
                                               "read_file_io_uring: io_uring_enter failed for '" + path.string() + "'."));
         }
-
-
-
 
 
         std::atomic_ref<unsigned> cq_tail_ref(*s.cq_tail);

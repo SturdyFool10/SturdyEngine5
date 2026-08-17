@@ -28,18 +28,37 @@ namespace SFT::Ecs {
         struct WorldAccess;
     }
 
-    /// Pointer-like direct component access that keeps its World read-borrow alive. This prevents a
-    /// Schedule or structural mutation from invalidating the component while the consumer uses it.
-    /// Deliberately move-only: copying a borrow makes its lifetime and ownership much less obvious.
+
     template <class T>
     class ComponentBorrow {
       public:
+        /// Constructs a `ComponentBorrow` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         ComponentBorrow() noexcept = default;
+        /// Disables this construction form for `ComponentBorrow`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         ComponentBorrow(const ComponentBorrow &) = delete;
+        /// Assigns a new value to this `ComponentBorrow`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         ComponentBorrow &operator=(const ComponentBorrow &) = delete;
+        /// Constructs a `ComponentBorrow` from another instance.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         ComponentBorrow(ComponentBorrow &&other) noexcept
             : component_(std::exchange(other.component_, nullptr)), access_(std::move(other.access_)) {}
 
+        /// Assigns a new value to this `ComponentBorrow`.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         ComponentBorrow &operator=(ComponentBorrow &&other) noexcept {
             if (this == &other) {
                 return *this;
@@ -50,11 +69,33 @@ namespace SFT::Ecs {
             return *this;
         }
 
+        /// Converts the `ComponentBorrow` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] explicit operator bool() const noexcept { return component_ != nullptr; }
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool operator==(std::nullptr_t) const noexcept { return component_ == nullptr; }
+        /// Accesses the object referenced by this `ComponentBorrow`.
+        ///
+        /// @return Returns a pointer through which the referenced object can be accessed.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] T *operator->() const noexcept { return component_; }
+        /// Dereferences this iterator or handle.
+        ///
+        /// @return Returns the value or reference currently addressed by the iterator/handle.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] T &operator*() const noexcept { return *component_; }
 
+        /// Compares the operands for equality.
+        ///
+        /// @param borrow `borrow` value used by the operation.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         friend bool operator==(std::nullptr_t, const ComponentBorrow &borrow) noexcept {
             return borrow == nullptr;
         }
@@ -62,6 +103,12 @@ namespace SFT::Ecs {
       private:
         friend class World;
 
+        /// Constructs a `ComponentBorrow` from the supplied initialization values.
+        ///
+        /// @param component Component used or affected by the operation.
+        /// @param access `access` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         ComponentBorrow(T *component, std::shared_lock<std::shared_mutex> access) noexcept
             : component_(component), access_(std::move(access)) {}
 
@@ -69,21 +116,43 @@ namespace SFT::Ecs {
         std::shared_lock<std::shared_mutex> access_;
     };
 
-    /// Owns every entity and archetype. The registry is engine/application-owned and must outlive the
-    /// World; sharing it across worlds gives every component the same dense ID while stable
-    /// ComponentKeys remain portable across process/language boundaries.
+
     class World {
       public:
+        /// Constructs a `World` from the supplied initialization values.
+        ///
+        /// @param registry `registry` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         explicit World(ComponentRegistry &registry) noexcept;
+        /// Destroys the `World` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~World() = default;
+        /// Disables this construction form for `World`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         World(const World &) = delete;
+        /// Assigns a new value to this `World`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         World &operator=(const World &) = delete;
+        /// Disables this construction form for `World`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         World(World &&) = delete;
+        /// Assigns a new value to this `World`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         World &operator=(World &&) = delete;
 
-        /// Spawns one entity with exactly the given components — its archetype is fixed at spawn time
-        /// from the argument types (there's no way to add/remove components afterward yet). `Ts...`
-        /// deduce to the decayed argument types (pass components by value or as rvalues).
+
+        /// Spawns the supplied asynchronous work.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class... Ts>
         [[nodiscard]] Entity spawn(Ts &&...components) {
             ZoneScopedN("World::spawn");
@@ -93,11 +162,17 @@ namespace SFT::Ecs {
             return spawn_unchecked(std::forward<Ts>(components)...);
         }
 
+        /// Destroys or releases the `World` resource represented by the supplied parameters.
+        ///
+        /// @param entity Entity used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy(Entity entity) noexcept;
 
-        /// Moves `entity` into the archetype for its current signature plus T, placement-constructing
-        /// `component` into the new column. Contract violation if `entity` is dead or already has T —
-        /// remove_component<T>() first if the intent is to replace it.
+
+        /// Adds component using the supplied arguments and current state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         void add_component(Entity entity, T component) {
             ZoneScopedN("World::add_component");
@@ -107,8 +182,10 @@ namespace SFT::Ecs {
             add_component_unchecked(entity, std::move(component));
         }
 
-        /// Moves `entity` into the archetype for its current signature minus T, destroying the removed
-        /// column. Contract violation if `entity` is dead or doesn't have T.
+
+        /// Removes the component from its owning collection or system.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         void remove_component(Entity entity) {
             ZoneScopedN("World::remove_component");
@@ -118,8 +195,18 @@ namespace SFT::Ecs {
             remove_component_unchecked<T>(entity);
         }
 
+        /// Reports whether alive holds for this `World`.
+        ///
+        /// @param entity Entity used or affected by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_alive(Entity entity) const noexcept;
 
+        /// Returns the component associated with this `World`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class T>
         [[nodiscard]] ComponentBorrow<T> get_component(Entity entity) noexcept {
             ZoneScopedN("World::get_component");
@@ -143,6 +230,10 @@ namespace SFT::Ecs {
             return ComponentBorrow<T>{static_cast<T *>(archetype.row_pointer(column, record.row)), std::move(access)};
         }
 
+        /// Returns the component associated with this `World`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class T>
         [[nodiscard]] ComponentBorrow<const T> get_component(Entity entity) const noexcept {
             ZoneScopedN("World::get_component_const");
@@ -168,10 +259,11 @@ namespace SFT::Ecs {
                 std::move(access)};
         }
 
-        /// Every archetype whose signature is a superset of {remove_const_t<Ts>...} — matched fresh on
-        /// each call. Archetype counts are small (a handful to a few dozen distinct component-set
-        /// combinations, not per-entity), so this linear scan is cheap; caching per-Ts... results is a
-        /// documented, not-yet-needed optimization (see plans/ecs-design.md).
+
+        /// Returns the current or globally available query value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class... Ts>
         [[nodiscard]] Query<Ts...> query() {
             ZoneScopedN("World::query");
@@ -181,12 +273,21 @@ namespace SFT::Ecs {
             return query_impl<Ts...>(std::move(access));
         }
 
+        /// Returns the current or globally available registry value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ComponentRegistry &registry() noexcept;
+        /// Returns the current or globally available registry value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const ComponentRegistry &registry() const noexcept;
 
-        /// Binds a non-owning singleton resource. The resource must outlive this binding and every
-        /// Schedule using it. Systems request access explicitly with ReadResource<T> or
-        /// WriteResource<T>, allowing the scheduler to include resources in conflict analysis.
+
+        /// Binds resource for subsequent operations.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         void bind_resource(T &resource) {
             ZoneScopedN("World::bind_resource");
@@ -220,6 +321,9 @@ namespace SFT::Ecs {
             resources_.emplace(key, incoming);
         }
 
+        /// Performs the unbind resource operation for `World` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         template <class T>
         void unbind_resource() noexcept {
             ZoneScopedN("World::unbind_resource");
@@ -230,6 +334,10 @@ namespace SFT::Ecs {
             resources_.erase(resource_key<ResourceT>());
         }
 
+        /// Reports whether this `World` has resource.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         template <class T>
         [[nodiscard]] bool has_resource() const noexcept {
             ZoneScopedN("World::has_resource");
@@ -254,13 +362,17 @@ namespace SFT::Ecs {
             usize size = 0;
             usize align = 0;
             void *object = nullptr;
-            /// Non-null only when the bound type is an Events<T> — lets Schedule::run() reset every
-            /// bound event buffer at the top of each run without knowing any concrete event type.
+
+
             void (*clear)(void *) noexcept = nullptr;
         };
 
-        /// Returns a type-erased clear() thunk for T when T is an Events<U> specialization, or nullptr
-        /// for an ordinary resource. Computed once per bind_resource<T>() call, not per frame.
+
+        /// Returns the current or globally available event clear fn value.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         template <class T>
         [[nodiscard]] static constexpr auto event_clear_fn() noexcept -> void (*)(void *) noexcept {
             if constexpr (is_event_resource_v<T>) {
@@ -270,6 +382,10 @@ namespace SFT::Ecs {
             }
         }
 
+        /// Spawns unchecked.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class... Ts>
         [[nodiscard]] Entity spawn_unchecked(Ts &&...components) {
             ZoneScopedN("World::spawn_unchecked");
@@ -309,6 +425,9 @@ namespace SFT::Ecs {
             return entity;
         }
 
+        /// Adds component unchecked using the supplied arguments and current state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         void add_component_unchecked(Entity entity, T component) {
             ZoneScopedN("World::add_component_unchecked");
@@ -349,6 +468,9 @@ namespace SFT::Ecs {
             record.row = destination_row;
         }
 
+        /// Removes the component unchecked from its owning collection or system.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T>
         void remove_component_unchecked(Entity entity) {
             ZoneScopedN("World::remove_component_unchecked");
@@ -386,18 +508,51 @@ namespace SFT::Ecs {
             record.row = destination_row;
         }
 
+        /// Finds or creates the not scheduled required by the operation.
+        ///
+        /// @param action `action` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void ensure_not_scheduled(string_view action) const noexcept;
 
+        /// Acquires direct mutation.
+        ///
+        /// @param action `action` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::unique_lock<std::shared_mutex> acquire_direct_mutation(string_view action) noexcept;
 
+        /// Returns the current or globally available begin scheduled execution value.
+        ///
+        /// @return Returns the current begin scheduled execution value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::unique_lock<std::shared_mutex> begin_scheduled_execution() noexcept;
 
+        /// Performs the end scheduled execution operation for `World` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void end_scheduled_execution() noexcept;
 
+        /// Reports whether alive unchecked holds for this `World`.
+        ///
+        /// @param entity Entity used or affected by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_alive_unchecked(Entity entity) const noexcept;
 
+        /// Destroys the unchecked identified by the supplied parameters.
+        ///
+        /// @param entity Entity used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy_unchecked(Entity entity) noexcept;
 
+        /// Queries impl from the active backend or runtime state.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class... Ts>
         [[nodiscard]] Query<Ts...> query_impl(std::shared_lock<std::shared_mutex> direct_access_lock = {}) {
             ZoneScopedN("World::query_impl");
@@ -436,6 +591,10 @@ namespace SFT::Ecs {
             return Query<Ts...>(&archetypes_, std::move(matches), ids, std::move(direct_access_lock));
         }
 
+        /// Returns the current or globally available resource unchecked value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         template <class T>
         [[nodiscard]] T &resource_unchecked() noexcept {
             ZoneScopedN("World::resource_unchecked");
@@ -449,8 +608,18 @@ namespace SFT::Ecs {
             return *static_cast<ResourceT *>(resource->second.object);
         }
 
+        /// Allocates entity.
+        ///
+        /// @return Returns the current allocate entity value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Entity allocate_entity();
 
+        /// Resolves the archetype index associated with the supplied key, handle, or resource.
+        ///
+        /// @param signature `signature` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] u32 archetype_index_for(const Signature &signature);
 
         ComponentRegistry *registry_ = nullptr;
@@ -465,39 +634,81 @@ namespace SFT::Ecs {
     namespace Detail {
 
         struct WorldAccess {
+            /// Performs the begin schedule operation for `WorldAccess` using the supplied arguments.
+            ///
+            /// @param world World used or affected by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] static std::unique_lock<std::shared_mutex> begin_schedule(World &world) noexcept;
 
+            /// Performs the end schedule operation for `WorldAccess` using the supplied arguments.
+            ///
+            /// @param world World used or affected by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             static void end_schedule(World &world) noexcept;
 
+            /// Returns the current or globally available query value.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <class... Ts>
             [[nodiscard]] static Query<Ts...> query(World &world) {
                 return world.query_impl<Ts...>();
             }
 
+            /// Returns the current or globally available resource value.
+            ///
+            /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+            /// @note This function does not throw exceptions.
             template <class T>
             [[nodiscard]] static T &resource(World &world) noexcept {
                 return world.resource_unchecked<T>();
             }
 
+            /// Spawns the supplied asynchronous work.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <class... Ts>
             [[nodiscard]] static Entity spawn(World &world, Ts &&...components) {
                 return world.spawn_unchecked(std::forward<Ts>(components)...);
             }
 
+            /// Destroys or releases the `WorldAccess` resource represented by the supplied parameters.
+            ///
+            /// @param world World used or affected by the operation.
+            /// @param entity Entity used or affected by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             static void destroy(World &world, Entity entity) noexcept;
 
+            /// Adds component using the supplied arguments and current state.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <class T>
             static void add_component(World &world, Entity entity, T component) {
                 world.add_component_unchecked(entity, std::move(component));
             }
 
+            /// Removes the component from its owning collection or system.
+            ///
+            /// @param world World used or affected by the operation.
+            /// @param entity Entity used or affected by the operation.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <class T>
             static void remove_component(World &world, Entity entity) {
                 world.remove_component_unchecked<T>(entity);
             }
 
-            /// Empties every bound Events<T> resource. Called once at the top of Schedule::run(),
-            /// before the stage loop, so consumers never need a per-event-type begin_frame() call.
+
+            /// Clears event resources.
+            ///
+            /// @param world World used or affected by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             static void clear_event_resources(World &world) noexcept;
         };
 

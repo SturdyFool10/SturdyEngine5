@@ -38,6 +38,12 @@ namespace SFT::Platform::Windowing {
 
         constexpr COLORREF sturdy_dwm_color_default = 0xFFFFFFFF;
 
+        /// Performs the colorref from argb operation for `Windowing` using the supplied arguments.
+        ///
+        /// @param color_argb `color_argb` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] COLORREF colorref_from_argb(u32 color_argb) noexcept {
             const BYTE red = static_cast<BYTE>((color_argb >> 16U) & 0xFFU);
             const BYTE green = static_cast<BYTE>((color_argb >> 8U) & 0xFFU);
@@ -45,10 +51,27 @@ namespace SFT::Platform::Windowing {
             return RGB(red, green, blue);
         }
 
+        /// Logs hwnd using the supplied arguments and current state.
+        ///
+        /// @param hwnd `hwnd` value used by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const void *log_hwnd(HWND hwnd) noexcept {
             return static_cast<const void *>(hwnd);
         }
 
+        /// Sets the dwm attribute for this `Windowing`.
+        ///
+        /// @param hwnd `hwnd` value used by the operation.
+        /// @param attribute `attribute` value used by the operation.
+        /// @param value Value consumed by the operation.
+        /// @param value_size Requested or available size for the operation.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         WindowEffectResult set_dwm_attribute(HWND hwnd, DWORD attribute, const void *value, DWORD value_size, const char *label) noexcept {
             const HRESULT result = DwmSetWindowAttribute(hwnd, attribute, value, value_size);
             if (FAILED(result)) [[unlikely]] {
@@ -60,6 +83,14 @@ namespace SFT::Platform::Windowing {
             return WindowEffectResult::success("Windows DWM attribute applied.");
         }
 
+        /// Sets the legacy blur for this `Windowing`.
+        ///
+        /// @param hwnd `hwnd` value used by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         WindowEffectResult set_legacy_blur(HWND hwnd, bool enabled) noexcept {
             DWM_BLURBEHIND blur{};
             blur.dwFlags = DWM_BB_ENABLE;
@@ -75,6 +106,16 @@ namespace SFT::Platform::Windowing {
             return WindowEffectResult::success("Windows legacy DWM blur applied.");
         }
 
+        /// Sets the system backdrop for this `Windowing`.
+        ///
+        /// @param hwnd `hwnd` value used by the operation.
+        /// @param enabled_backdrop Whether the associated behavior is enabled.
+        /// @param enabled Whether the associated behavior is enabled.
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         WindowEffectResult set_system_backdrop(HWND hwnd, int enabled_backdrop, bool enabled, const char *label) noexcept {
             const int backdrop = enabled ? enabled_backdrop : sturdy_dwmsbt_none;
             Detail::window_debug("Windows DWM backdrop request: hwnd={} label='{}' enabled={} backdrop={}", log_hwnd(hwnd), label, enabled, backdrop);
@@ -88,10 +129,6 @@ namespace SFT::Platform::Windowing {
             }
 
 
-
-
-
-
             WindowEffectResult fallback = set_legacy_blur(hwnd, true);
             if (fallback.succeeded()) [[likely]] {
                 Detail::window_warn("Windows DWM backdrop degraded to legacy blur: hwnd={} label='{}'", log_hwnd(hwnd), label);
@@ -102,11 +139,14 @@ namespace SFT::Platform::Windowing {
         }
 
 
-
-
-
-
-
+        /// Sets the transparent for this `Windowing`.
+        ///
+        /// @param hwnd `hwnd` value used by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         WindowEffectResult set_transparent(HWND hwnd, bool enabled) noexcept {
             const LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
             const LONG_PTR new_ex_style = enabled ? (ex_style | WS_EX_LAYERED) : (ex_style & ~WS_EX_LAYERED);
@@ -128,6 +168,10 @@ namespace SFT::Platform::Windowing {
 
     } // namespace
 
+    /// Returns the current or globally available current operating system value.
+    ///
+    /// @return Returns the current current operating system value.
+    /// @note This function does not throw exceptions.
     OperatingSystem current_operating_system() noexcept {
 #if defined(_WIN32)
         return OperatingSystem::Windows;
@@ -136,6 +180,12 @@ namespace SFT::Platform::Windowing {
 #endif
     }
 
+    /// Performs the operating system may support window effect operation for `Windowing` using the supplied arguments.
+    ///
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool operating_system_may_support_window_effect(WindowEffectKind effect) noexcept {
 #if defined(_WIN32)
         switch (effect) {
@@ -158,11 +208,25 @@ namespace SFT::Platform::Windowing {
         return false;
     }
 
+    /// Releases native window effects using the supplied arguments and current state.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param release_display `release_display` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void release_native_window_effects(NativeWindowHandle handle, bool release_display) noexcept {
         (void)handle;
         (void)release_display;
     }
 
+    /// Enables native window effect using the supplied arguments and current state.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
 #if defined(_WIN32)
         if (handle.system != NativeWindowSystem::Win32 || !handle.window) [[unlikely]] {
@@ -240,6 +304,14 @@ namespace SFT::Platform::Windowing {
 namespace SFT::Platform::Windowing::Detail {
 
 
+    /// Performs the native window handle from SDL operation for `Detail` using the supplied arguments.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`, `WindowErrorCode::Unsupported`.
+    /// @note This function does not throw exceptions.
     expected<NativeWindowHandle, WindowError> native_window_handle_from_sdl(void *window_handle) noexcept {
 #if defined(_WIN32)
         auto *window = static_cast<SDL_Window *>(window_handle);

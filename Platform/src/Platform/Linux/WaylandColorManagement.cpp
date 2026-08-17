@@ -35,16 +35,37 @@ namespace SFT::Platform::Windowing::Detail {
             bool information_done = false;
         };
 
+        /// Assigns queue using the supplied arguments and current state.
+        ///
+        /// @param proxy `proxy` value used by the operation.
+        /// @param queue Queue used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void assign_queue(void *proxy, wl_event_queue *queue) noexcept {
             if (proxy != nullptr) {
                 wl_proxy_set_queue(static_cast<wl_proxy *>(proxy), queue);
             }
         }
 
+        /// Performs the manager supported intent operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void manager_supported_intent(void *, wp_color_manager_v1 *, u32) noexcept {}
+        /// Performs the manager supported feature operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void manager_supported_feature(void *, wp_color_manager_v1 *, u32) noexcept {}
+        /// Performs the manager supported tf operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void manager_supported_tf(void *, wp_color_manager_v1 *, u32) noexcept {}
+        /// Performs the manager supported primaries operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void manager_supported_primaries(void *, wp_color_manager_v1 *, u32) noexcept {}
+        /// Performs the manager done operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void manager_done(void *, wp_color_manager_v1 *) noexcept {}
 
         constexpr wp_color_manager_v1_listener manager_listener{
@@ -55,6 +76,15 @@ namespace SFT::Platform::Windowing::Detail {
             .done = manager_done,
         };
 
+        /// Performs the registry global operation for `Detail` using the supplied arguments.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param registry `registry` value used by the operation.
+        /// @param name Name used to identify or label the target.
+        /// @param interface `interface` value used by the operation.
+        /// @param version `version` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void registry_global(void *data, wl_registry *registry, u32 name,
                              const char *interface, u32 version) noexcept {
             auto &query = *static_cast<ColorQuery *>(data);
@@ -71,6 +101,9 @@ namespace SFT::Platform::Windowing::Detail {
             }
         }
 
+        /// Performs the registry global remove operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void registry_global_remove(void *, wl_registry *, u32) noexcept {}
 
         constexpr wl_registry_listener registry_listener{
@@ -78,7 +111,13 @@ namespace SFT::Platform::Windowing::Detail {
             .global_remove = registry_global_remove,
         };
 
+        /// Performs the preferred changed operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void preferred_changed(void *, wp_color_management_surface_feedback_v1 *, u32) noexcept {}
+        /// Performs the preferred changed2 operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void preferred_changed2(void *, wp_color_management_surface_feedback_v1 *, u32, u32) noexcept {}
 
         constexpr wp_color_management_surface_feedback_v1_listener feedback_listener{
@@ -86,15 +125,30 @@ namespace SFT::Platform::Windowing::Detail {
             .preferred_changed2 = preferred_changed2,
         };
 
+        /// Performs the description failed operation for `Detail` using the supplied arguments.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void description_failed(void *data, wp_image_description_v1 *, u32,
                                 const char *) noexcept {
             static_cast<ColorQuery *>(data)->description_failed = true;
         }
 
+        /// Performs the description ready operation for `Detail` using the supplied arguments.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void description_ready(void *data, wp_image_description_v1 *, u32) noexcept {
             static_cast<ColorQuery *>(data)->description_ready = true;
         }
 
+        /// Performs the description ready2 operation for `Detail` using the supplied arguments.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void description_ready2(void *data, wp_image_description_v1 *, u32, u32) noexcept {
             static_cast<ColorQuery *>(data)->description_ready = true;
         }
@@ -105,6 +159,11 @@ namespace SFT::Platform::Windowing::Detail {
             .ready2 = description_ready2,
         };
 
+        /// Performs the information done operation for `Detail` using the supplied arguments.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void information_done(void *data, wp_image_description_info_v1 *) noexcept {
             auto &query = *static_cast<ColorQuery *>(data);
             query.information_done = true;
@@ -112,18 +171,41 @@ namespace SFT::Platform::Windowing::Detail {
 
         }
 
+        /// Performs the information icc file operation for `Detail` using the supplied arguments.
+        ///
+        /// @param fd `fd` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void information_icc_file(void *, wp_image_description_info_v1 *, i32 fd, u32) noexcept {
             if (fd >= 0) {
                 (void)::close(fd);
             }
         }
 
+        /// Performs the information primaries operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void information_primaries(void *, wp_image_description_info_v1 *,
                                    i32, i32, i32, i32, i32, i32, i32, i32) noexcept {}
+        /// Performs the information primaries named operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void information_primaries_named(void *, wp_image_description_info_v1 *, u32) noexcept {}
+        /// Performs the information tf power operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void information_tf_power(void *, wp_image_description_info_v1 *, u32) noexcept {}
+        /// Performs the information tf named operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void information_tf_named(void *, wp_image_description_info_v1 *, u32) noexcept {}
 
+        /// Performs the information luminances operation for `Detail` using the supplied arguments.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param reference_luminance `reference_luminance` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void information_luminances(void *data, wp_image_description_info_v1 *,
                                     u32, u32, u32 reference_luminance) noexcept {
             if (reference_luminance > 0) {
@@ -132,10 +214,22 @@ namespace SFT::Platform::Windowing::Detail {
             }
         }
 
+        /// Performs the information target primaries operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void information_target_primaries(void *, wp_image_description_info_v1 *,
                                           i32, i32, i32, i32, i32, i32, i32, i32) noexcept {}
+        /// Performs the information target luminance operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void information_target_luminance(void *, wp_image_description_info_v1 *, u32, u32) noexcept {}
+        /// Performs the information target max cll operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void information_target_max_cll(void *, wp_image_description_info_v1 *, u32) noexcept {}
+        /// Performs the information target max fall operation for `Detail` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void information_target_max_fall(void *, wp_image_description_info_v1 *, u32) noexcept {}
 
         constexpr wp_image_description_info_v1_listener information_listener{
@@ -152,6 +246,11 @@ namespace SFT::Platform::Windowing::Detail {
             .target_max_fall = information_target_max_fall,
         };
 
+        /// Destroys the query identified by the supplied parameters.
+        ///
+        /// @param query `query` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy_query(ColorQuery &query) noexcept {
             if (query.information != nullptr) {
                 wp_image_description_info_v1_destroy(query.information);
@@ -184,6 +283,13 @@ namespace SFT::Platform::Windowing::Detail {
 
     } // namespace
 
+    /// Queries wayland surface reference white from the active backend or runtime state.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note This function does not throw exceptions.
     std::optional<f32> query_wayland_surface_reference_white(
         NativeWindowHandle handle) noexcept {
         ZoneScopedN("Windowing::query_wayland_surface_reference_white");
@@ -201,7 +307,6 @@ namespace SFT::Platform::Windowing::Detail {
         }
 
 
-
         wl_proxy *display_wrapper = static_cast<wl_proxy *>(
             wl_proxy_create_wrapper(query.display));
         if (display_wrapper == nullptr) {
@@ -217,7 +322,6 @@ namespace SFT::Platform::Windowing::Detail {
             return std::nullopt;
         }
         wl_registry_add_listener(query.registry, &registry_listener, &query);
-
 
 
         if (wl_display_roundtrip_queue(query.display, query.queue) < 0 ||

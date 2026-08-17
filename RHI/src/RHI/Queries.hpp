@@ -21,22 +21,22 @@ namespace SFT::RHI {
 
 
     enum class QueryType : u32 {
-        /// Counts samples that pass the depth/stencil test between begin_occlusion_query/end (on the
-        /// render-pass encoder). `PreciseOcclusionQueries` graduates this from a boolean-visible result
-        /// to an exact sample count.
+                                                                                                     
+                                                                                                        
+                                     
         Occlusion,
-        /// A single GPU timestamp written by write_timestamp() at a pipeline stage. Two timestamps and
-        /// the device's timestamp period (a DeviceLimits value) give an elapsed GPU duration.
+                                                                                                       
+                                                                                              
         Timestamp,
-        /// A tuple of rasterization-pipeline counters gathered between begin/end (see PipelineStatistic).
-        /// Requires Feature::PipelineStatisticsQueries; which counters are gathered is fixed at set
-        /// creation via QuerySetDesc::statistics.
+                                                                                                          
+                                                                                                    
+                                                  
         PipelineStatistics,
     };
 
-    /// Which counters a PipelineStatistics query set gathers. A bitmask chosen at set creation; the
-    /// resolved result contains one u64 per set bit, in ascending bit order. Mirrors
-    /// VkQueryPipelineStatisticFlagBits / D3D12_QUERY_DATA_PIPELINE_STATISTICS.
+                                                                                                    
+                                                                                     
+                                                                                
     enum class PipelineStatistic : u32 {
         None = 0,
         InputAssemblyVertices = 1u << 0,
@@ -54,8 +54,8 @@ namespace SFT::RHI {
         MeshShaderInvocations = 1u << 12,
     };
 
-    /// How a query result read/resolve behaves. `Result64Bit` is the safe default (occlusion/timestamp
-    /// counters routinely exceed 32 bits); leave it set unless you have a reason not to.
+                                                                                                       
+                                                                                         
     enum class QueryResultFlags : u32 {
         None = 0,
         Result64Bit = 1u << 0,
@@ -67,7 +67,7 @@ namespace SFT::RHI {
     struct QuerySetDesc {
         QueryType type = QueryType::Timestamp;
         u32 count = 0;
-        /// Only meaningful when `type == PipelineStatistics`: the counters to gather. Ignored otherwise.
+                                                                                                         
         PipelineStatistic statistics = PipelineStatistic::None;
         const char *label = nullptr;
     };

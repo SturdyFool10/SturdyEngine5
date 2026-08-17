@@ -1,14 +1,5 @@
 
 
-
-
-
-
-
-
-
-
-
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -29,6 +20,12 @@ namespace SFT::D3D12 {
 
     namespace {
 
+        /// Retrieves or produces the to bytecode selected by the supplied arguments.
+        ///
+        /// @param module `module` value used by the operation.
+        ///
+        /// @return Returns the value converted to bytecode representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_SHADER_BYTECODE to_bytecode(const ShaderModuleRecord *module) noexcept {
             if (module == nullptr || module->bytecode.empty()) {
                 return D3D12_SHADER_BYTECODE{nullptr, 0};
@@ -36,10 +33,15 @@ namespace SFT::D3D12 {
             return D3D12_SHADER_BYTECODE{module->bytecode.data(), module->bytecode.size()};
         }
 
+        /// Converts the value to blend desc representation.
+        ///
+        /// @param target `target` value used by the operation.
+        ///
+        /// @return Returns the value converted to blend desc representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_RENDER_TARGET_BLEND_DESC to_blend_desc(const rhi::ColorTargetState &target) noexcept {
             return D3D12_RENDER_TARGET_BLEND_DESC{
                 .BlendEnable = target.blend_enable ? TRUE : FALSE,
-
 
 
                 .LogicOpEnable = FALSE,
@@ -55,12 +57,12 @@ namespace SFT::D3D12 {
         }
 
 
-
-
-
-
-
-
+        /// Performs the info queue messages operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param queue Queue used or affected by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::string info_queue_messages(ID3D12InfoQueue *queue) {
             if (queue == nullptr) return {};
             std::string result;
@@ -78,10 +80,21 @@ namespace SFT::D3D12 {
         }
 
 
+        /// Performs the arm info queue operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param queue Queue used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void arm_info_queue(ID3D12InfoQueue *queue) noexcept {
             if (queue != nullptr) queue->ClearStoredMessages();
         }
 
+        /// Converts the value to stencil desc representation.
+        ///
+        /// @param face `face` value used by the operation.
+        ///
+        /// @return Returns the value converted to stencil desc representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_DEPTH_STENCILOP_DESC to_stencil_desc(const rhi::StencilFaceState &face) noexcept {
             return D3D12_DEPTH_STENCILOP_DESC{
                 .StencilFailOp = to_d3d12(face.fail_op),
@@ -92,9 +105,13 @@ namespace SFT::D3D12 {
         }
 
 
-
-
-
+        /// Performs the mix shader module operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param hash `hash` value used by the operation.
+        /// @param module `module` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 mix_shader_module(u64 hash, const ShaderModuleRecord *module) noexcept {
             const D3D12_SHADER_BYTECODE bytecode = to_bytecode(module);
             hash = fnv1a(hash, bytecode.BytecodeLength);
@@ -102,7 +119,13 @@ namespace SFT::D3D12 {
         }
 
 
-
+        /// Returns a human-readable name for the supplied pipeline cache value.
+        ///
+        /// @param prefix `prefix` value used by the operation.
+        /// @param hash `hash` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::wstring pipeline_cache_name(const wchar_t *prefix, u64 hash) {
             wchar_t buffer[24];
             swprintf(buffer, 24, L"%ls%016llx", prefix, static_cast<unsigned long long>(hash));
@@ -111,6 +134,12 @@ namespace SFT::D3D12 {
 
     } // namespace
 
+    /// Creates a render pipeline from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::RenderPipelineHandle> D3D12Device::create_render_pipeline(
         const rhi::RenderPipelineDesc &desc) {
         ZoneScopedN("D3D12Device::create_render_pipeline");
@@ -134,7 +163,6 @@ namespace SFT::D3D12 {
         }
 
 
-
         const auto module_for = [&](const rhi::ShaderEntry &entry) -> const ShaderModuleRecord * {
             return entry.module.is_valid() ? shader_modules_.find(entry.module) : nullptr;
         };
@@ -147,9 +175,6 @@ namespace SFT::D3D12 {
             (desc.fragment.module.is_valid() && fragment == nullptr)) {
             return invalid_argument("create_render_pipeline: a shader entry names an unknown shader module.");
         }
-
-
-
 
 
         (void)desc.vertex.entry_point;
@@ -170,7 +195,6 @@ namespace SFT::D3D12 {
                                               : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
 
 
-
                         .InstanceDataStepRate =
                             buffer_layout.step_mode == rhi::VertexStepMode::Instance ? 1u : 0u,
                     });
@@ -185,7 +209,6 @@ namespace SFT::D3D12 {
         blend.AlphaToCoverageEnable = desc.multisample.alpha_to_coverage_enable ? TRUE : FALSE;
 
 
-
         blend.IndependentBlendEnable = desc.color_targets.size() > 1 ? TRUE : FALSE;
         for (u32 index = 0; index < rtv_formats.NumRenderTargets; ++index) {
             rtv_formats.RTFormats[index] = to_dxgi_view_format(desc.color_targets[index].format);
@@ -195,9 +218,6 @@ namespace SFT::D3D12 {
         CD3DX12_RASTERIZER_DESC rasterizer{D3D12_DEFAULT};
         rasterizer.FillMode = to_d3d12(desc.rasterization.polygon_mode);
         rasterizer.CullMode = to_d3d12(desc.rasterization.cull_mode);
-
-
-
 
 
         rasterizer.FrontCounterClockwise =
@@ -224,8 +244,6 @@ namespace SFT::D3D12 {
         depth_stencil.FrontFace = to_stencil_desc(desc.depth_stencil.stencil_front);
         depth_stencil.BackFace = to_stencil_desc(desc.depth_stencil.stencil_back);
         depth_stencil.DepthBoundsTestEnable = FALSE;
-
-
 
 
         vector<D3D12_VIEW_INSTANCE_LOCATION> view_locations;
@@ -277,9 +295,6 @@ namespace SFT::D3D12 {
             };
 
 
-
-
-
             stream.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
         }
 
@@ -295,11 +310,6 @@ namespace SFT::D3D12 {
             record.vertex_strides.push_back(static_cast<u32>(buffer_layout.stride));
         }
         record.is_mesh_pipeline = is_mesh_pipeline;
-
-
-
-
-
 
 
         std::wstring cache_name;
@@ -354,8 +364,6 @@ namespace SFT::D3D12 {
                 if (*library != nullptr) {
 
 
-
-
                     (void)(*library)->StorePipeline(cache_name.c_str(), record.pipeline.Get());
                 }
             }
@@ -364,10 +372,22 @@ namespace SFT::D3D12 {
         return render_pipelines_.insert(std::move(record));
     }
 
+    /// Destroys the render pipeline identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_render_pipeline(rhi::RenderPipelineHandle handle) noexcept {
         render_pipelines_.erase(handle);
     }
 
+    /// Creates a compute pipeline from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::ComputePipelineHandle> D3D12Device::create_compute_pipeline(
         const rhi::ComputePipelineDesc &desc) {
         ZoneScopedN("D3D12Device::create_compute_pipeline");
@@ -388,8 +408,6 @@ namespace SFT::D3D12 {
             .CachedPSO = {nullptr, 0},
             .Flags = D3D12_PIPELINE_STATE_FLAG_NONE,
         };
-
-
 
 
         std::wstring cache_name;
@@ -434,6 +452,12 @@ namespace SFT::D3D12 {
         return compute_pipelines_.insert(std::move(record));
     }
 
+    /// Destroys the compute pipeline identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_compute_pipeline(rhi::ComputePipelineHandle handle) noexcept {
         compute_pipelines_.erase(handle);
     }

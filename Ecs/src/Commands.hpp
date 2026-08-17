@@ -19,14 +19,21 @@ namespace SFT::Ecs {
 
         using DeferredCommand = std::move_only_function<void(World &) noexcept>;
 
-        /// One async query chunk owns one command buffer, so recording requires no locks. Schedule
-        /// applies buffers in dispatch order after every task in the current dependency stage has
-        /// completed, keeping structural mutation deterministic and query storage stable.
+
         struct CommandBuffer {
             std::vector<DeferredCommand> operations;
 
+            /// Returns the current or globally available view value.
+            ///
+            /// @return Returns the current view value.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] Commands view() noexcept;
 
+            /// Applies the supplied operation or state to `CommandBuffer`.
+            ///
+            /// @param world World used or affected by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             void apply(World &world) noexcept;
         };
 
@@ -34,15 +41,36 @@ namespace SFT::Ecs {
 
     class Commands {
       public:
+        /// Disables this construction form for `Commands`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Commands(const Commands &) = delete;
+        /// Assigns a new value to this `Commands`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Commands &operator=(const Commands &) = delete;
+        /// Constructs a `Commands` from another instance.
+        ///
+        /// @note This function does not throw exceptions.
         Commands(Commands &&) noexcept = default;
+        /// Assigns a new value to this `Commands`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         Commands &operator=(Commands &&) noexcept = default;
 
+        /// Destroys or releases the `Commands` resource represented by the supplied parameters.
+        ///
+        /// @param entity Entity used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy(Entity entity) noexcept;
 
-        /// Spawning is deferred, so no Entity can be returned synchronously. The components are
-        /// owned by the command until the stage boundary and moved into the new archetype row there.
+
+        /// Spawns the supplied asynchronous work.
+        ///
+        /// @note This function does not throw exceptions.
         template <class... Ts>
         void spawn(Ts &&...components) noexcept {
             ZoneScopedN("Commands::spawn");
@@ -63,9 +91,10 @@ namespace SFT::Ecs {
                 });
         }
 
-        /// Deferred archetype transition: T is moved into the command buffer now, then placement-
-        /// constructed into `entity`'s new archetype row at the stage boundary. Contract violation
-        /// (at apply time) if `entity` is dead or already has T by then.
+
+        /// Adds component using the supplied arguments and current state.
+        ///
+        /// @note This function does not throw exceptions.
         template <class T>
         void add_component(Entity entity, T component) noexcept {
             ZoneScopedN("Commands::add_component");
@@ -77,8 +106,10 @@ namespace SFT::Ecs {
                 });
         }
 
-        /// Deferred archetype transition: destroys T on `entity` at the stage boundary. Contract
-        /// violation (at apply time) if `entity` is dead or doesn't have T by then.
+
+        /// Removes the component from its owning collection or system.
+        ///
+        /// @note This function does not throw exceptions.
         template <class T>
         void remove_component(Entity entity) noexcept {
             ZoneScopedN("Commands::remove_component");
@@ -90,11 +121,15 @@ namespace SFT::Ecs {
       private:
         friend struct Detail::CommandBuffer;
 
+        /// Constructs a `Commands` from the supplied initialization values.
+        ///
+        /// @param buffer Buffer used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         explicit Commands(Detail::CommandBuffer &buffer) noexcept;
 
         Detail::CommandBuffer *buffer_ = nullptr;
     };
-
 
 
 } // namespace SFT::Ecs

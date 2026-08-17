@@ -19,9 +19,7 @@ using std::vector;
 
 namespace SFT::Text {
 
-    /// One global or range-scoped OpenType feature override. `value == 0` disables the feature,
-    /// `1` enables it, and higher values select indexed alternates when the feature supports them.
-    /// `start`/`end` are UTF-8 cluster indices, matching hb_feature_t exactly.
+
     struct OpenTypeFeatureSetting {
         u32 tag = 0;
         u32 value = 1;
@@ -29,9 +27,7 @@ namespace SFT::Text {
         u32 end = HB_FEATURE_GLOBAL_END;
     };
 
-    /// Granular typed feature controls. An unset field preserves the font/HarfBuzz default; set it
-    /// to 0, 1, or an alternate index to override that feature. `custom` covers arbitrary tags,
-    /// character variants (`cv01`...), stylistic sets (`ss01`...), and cluster-scoped overrides.
+
     struct OpenTypeFeatureOptions {
         optional<u32> aalt;
         optional<u32> calt;
@@ -68,60 +64,92 @@ namespace SFT::Text {
         vector<OpenTypeFeatureSetting> custom;
     };
 
-    /// One OpenType layout feature a font supports (from its GSUB — substitution: ligatures, small
-    /// caps, stylistic sets — or GPOS — positioning: kerning, mark attachment — tables). This is
-    /// the "detection" half; Text::ShapeOptions::features (Text/Shape.cppm) is the "settings" half
-    /// that actually turns one on/off during shaping.
+
     struct OpenTypeFeature {
         u32 tag = 0;
         UString name;
     };
 
-    /// Packs a 4-character OpenType feature tag (e.g. "liga") into the u32 form OpenTypeFeature and
-    /// OpenTypeFeatureSetting both use.
+
+    /// Performs the feature tag operation using the supplied arguments.
+    ///
+    /// @param code `code` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr u32 feature_tag(const char code[5]) noexcept {
         return HB_TAG(static_cast<unsigned char>(code[0]), static_cast<unsigned char>(code[1]),
                       static_cast<unsigned char>(code[2]), static_cast<unsigned char>(code[3]));
     }
 
-    /// A human-readable name for the common registered OpenType feature tags a font-settings UI is
-    /// most likely to expose — not the full ~150-entry OpenType feature registry. Returns an empty
-    /// UString for any tag not in this table; callers should fall back to displaying the raw
-    /// 4-character tag in that case.
+
+    /// Returns a human-readable name for the supplied feature value.
+    ///
+    /// @param tag `tag` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] UString feature_name(u32 tag);
 
-    /// Flattens the typed fields plus `custom` into HarfBuzz settings. Later custom entries replace
-    /// an earlier typed/custom entry with the same tag and range.
+
+    /// Performs the feature settings operation using the supplied arguments.
+    ///
+    /// @param features `features` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<OpenTypeFeatureSetting> feature_settings(const OpenTypeFeatureOptions &features);
 
-    /// Parses comma-separated HarfBuzz feature expressions. Besides the simple
-    /// "calt, liga, clig" form this accepts disabling (`-liga` or `liga=0`), alternate indices
-    /// (`salt=2`), and HarfBuzz cluster ranges. Malformed/empty entries return InvalidArgument.
+
+    /// Parses feature settings into structured state.
+    ///
+    /// @param specification `specification` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`.
     [[nodiscard]] TextExpected<vector<OpenTypeFeatureSetting>> parse_feature_settings(const ustr &specification);
 
     namespace Detail {
 
-        /// Enumerates every feature tag one layout table (GSUB or GPOS) exposes, narrowed to
-        /// `script`/`language` when a matching script is found in the table, or the table's whole
-        /// feature list otherwise (an unrecognized/empty script falls back to this, same as an
-        /// unsupported script would).
+
+        /// Performs the table feature tags operation using the supplied arguments.
+        ///
+        /// @param face `face` value used by the operation.
+        /// @param table_tag `table_tag` value used by the operation.
+        /// @param script `script` value used by the operation.
+        /// @param language `language` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] vector<u32> table_feature_tags(hb_face_t *face, hb_tag_t table_tag, const ustr &script,
                                                      const ustr &language);
 
     } // namespace Detail
 
-    /// Enumerates every OpenType layout feature `font` supports — GSUB (substitution: ligatures,
-    /// small caps, stylistic sets, ...) and GPOS (positioning: kerning, mark attachment, ...)
-    /// combined and de-duplicated — narrowed to `script`/`language` (same ISO 15924 / BCP 47
-    /// conventions as Text::ShapeOptions) when given.
+
+    /// Performs the available features operation using the supplied arguments.
+    ///
+    /// @param font `font` value used by the operation.
+    /// @param script `script` value used by the operation.
+    /// @param language `language` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<OpenTypeFeature> available_features(const Font &font, const ustr &script = ustr{},
                                                               const ustr &language = ustr{});
 
-    /// The handful of genuinely common feature toggles, as ready-to-use ShapeOptions::features
-    /// arrays — not a general preset system, just the couple of settings a font-settings screen
-    /// most often exposes as a plain on/off checkbox.
+
+    /// Disables ligatures using the supplied arguments and current state.
+    ///
+    /// @return Returns the current disable ligatures value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] OpenTypeFeatureOptions disable_ligatures();
 
+    /// Enables small caps using the supplied arguments and current state.
+    ///
+    /// @return Returns the current enable small caps value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] OpenTypeFeatureOptions enable_small_caps();
 
 } // namespace SFT::Text

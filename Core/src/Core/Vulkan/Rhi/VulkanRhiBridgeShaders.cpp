@@ -1,7 +1,5 @@
 
 
-
-
 #include <Foundation/src/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)
@@ -21,6 +19,13 @@ namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
+    /// Creates a shader module from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`, `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<rhi::ShaderModuleHandle> VulkanRhiDeviceBridge::create_shader_module(const rhi::ShaderModuleDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_shader_module");
         if (logical_device_ == nullptr) {
@@ -48,6 +53,12 @@ namespace SFT::Core::Vulkan {
         return shader_modules_.insert(std::move(*module));
     }
 
+    /// Destroys the shader module identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_shader_module(rhi::ShaderModuleHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_shader_module");
         if (VkShaderModule *module = shader_modules_.find(handle)) {

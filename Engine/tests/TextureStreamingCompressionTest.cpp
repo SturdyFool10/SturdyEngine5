@@ -12,11 +12,15 @@
 #include <random>
 #include <vector>
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @pre `srgb_mips.has_value()`; debug builds assert if this precondition is violated.
+/// @pre `srgb_mips->mip_levels == 2`; debug builds assert if this precondition is violated.
+/// @pre `srgb_mips->data.size() == checker.size() + 4`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     using namespace SFT;
-
-
-
 
 
     std::vector<std::byte> source(64 * 1024);
@@ -79,8 +83,6 @@ int main() {
         assert(decompressed->size() == source.size());
         assert(*decompressed == source);
     }
-
-
 
 
     {
@@ -147,7 +149,6 @@ int main() {
     }
 
 
-
     {
 
         const std::vector<std::byte> occlusion{
@@ -179,9 +180,6 @@ int main() {
     }
 
 
-
-
-
     {
 
         const std::vector<std::byte> metallic_roughness{
@@ -199,15 +197,12 @@ int main() {
         }
 
 
-
         auto bc5 = Engine::Detail::compress_bc5(*repacked, 2, 2);
         assert(bc5.has_value());
         assert(bc5->size() == 16);
 
         assert(!Engine::Detail::pack_metallic_roughness_rg(metallic_roughness, 3, 3).has_value());
     }
-
-
 
 
     {

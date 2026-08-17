@@ -20,6 +20,12 @@ namespace SFT::GraphicsPlatform {
 
         constexpr std::array<std::uint8_t, 8> edid_header{0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00};
 
+        /// Reads binary file from the associated source.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] std::optional<std::vector<std::uint8_t>> read_binary_file(const std::filesystem::path &path) {
             std::ifstream file(path, std::ios::binary);
             if (!file) {
@@ -32,6 +38,12 @@ namespace SFT::GraphicsPlatform {
             return data;
         }
 
+        /// Reads text file from the associated source.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::string read_text_file(const std::filesystem::path &path) {
             std::ifstream file(path);
             std::string text;
@@ -42,14 +54,32 @@ namespace SFT::GraphicsPlatform {
             return text;
         }
 
+        /// Reports whether connected holds for this `GraphicsPlatform`.
+        ///
+        /// @param connector `connector` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool is_connected(const std::filesystem::path &connector) {
             return read_text_file(connector / "status") == "connected";
         }
 
+        /// Performs the chromaticity from 10 bit operation for `GraphicsPlatform` using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] float chromaticity_from_10_bit(std::uint16_t value) noexcept {
             return static_cast<float>(value) / 1024.0f;
         }
 
+        /// Parses base chromaticity into structured state.
+        ///
+        /// @param edid `edid` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] HdrDisplayMetadata parse_base_chromaticity(const std::vector<std::uint8_t> &edid) noexcept {
             const std::uint8_t low_rx = static_cast<std::uint8_t>((edid[25] >> 6) & 0x3);
             const std::uint8_t low_ry = static_cast<std::uint8_t>((edid[25] >> 4) & 0x3);
@@ -74,6 +104,12 @@ namespace SFT::GraphicsPlatform {
             };
         }
 
+        /// Performs the cta luminance code to nits operation for `GraphicsPlatform` using the supplied arguments.
+        ///
+        /// @param code `code` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] float cta_luminance_code_to_nits(std::uint8_t code) noexcept {
             if (code == 0) {
                 return 0.0f;
@@ -81,6 +117,13 @@ namespace SFT::GraphicsPlatform {
             return 50.0f * std::pow(2.0f, static_cast<float>(code) / 32.0f);
         }
 
+        /// Performs the cta min luminance code to nits operation for `GraphicsPlatform` using the supplied arguments.
+        ///
+        /// @param code `code` value used by the operation.
+        /// @param max_luminance `max_luminance` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] float cta_min_luminance_code_to_nits(std::uint8_t code, float max_luminance) noexcept {
             if (code == 0 || max_luminance <= 0.0f) {
                 return 0.0f;
@@ -89,6 +132,12 @@ namespace SFT::GraphicsPlatform {
             return max_luminance * normalized * normalized / 100.0f;
         }
 
+        /// Parses cta HDR static metadata into structured state.
+        ///
+        /// @param edid `edid` value used by the operation.
+        /// @param capabilities `capabilities` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void parse_cta_hdr_static_metadata(const std::vector<std::uint8_t> &edid, HdrDisplayCapabilities &capabilities) {
             const std::size_t extension_count = edid[126];
             for (std::size_t extension_index = 0; extension_index < extension_count; ++extension_index) {
@@ -149,6 +198,12 @@ namespace SFT::GraphicsPlatform {
             }
         }
 
+        /// Parses edid HDR capabilities into structured state.
+        ///
+        /// @param edid `edid` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] std::optional<HdrDisplayCapabilities> parse_edid_hdr_capabilities(const std::vector<std::uint8_t> &edid) {
             if (edid.size() < 128 || !std::equal(edid_header.begin(), edid_header.end(), edid.begin())) {
                 return std::nullopt;
@@ -163,6 +218,12 @@ namespace SFT::GraphicsPlatform {
             return capabilities;
         }
 
+        /// Performs the display from drm connector operation for `GraphicsPlatform` using the supplied arguments.
+        ///
+        /// @param connector `connector` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] DisplayInfo display_from_drm_connector(const std::filesystem::path &connector) {
             DisplayInfo display{};
             display.stable_id = connector.filename().string();
@@ -180,6 +241,10 @@ namespace SFT::GraphicsPlatform {
             return display;
         }
 
+        /// Enumerates drm displays using the supplied arguments and current state.
+        ///
+        /// @return Returns the current enumerate drm displays value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::vector<DisplayInfo> enumerate_drm_displays() {
             std::vector<DisplayInfo> displays;
             const std::filesystem::path drm_root{"/sys/class/drm"};
@@ -202,6 +267,14 @@ namespace SFT::GraphicsPlatform {
             return displays;
         }
 
+        /// Performs the best HDR capabilities from displays operation for `GraphicsPlatform` using the supplied arguments.
+        ///
+        /// @param displays `displays` value used by the operation.
+        /// @param detail `detail` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `QueryStatus::Ok`, `QueryStatus::NotAvailable`, `QueryStatus::Unsupported`.
         [[nodiscard]] QueryResult<HdrDisplayCapabilities> best_hdr_capabilities_from_displays(std::vector<DisplayInfo> displays,
                                                                                               const char *detail) {
             auto hdr_display = std::ranges::find_if(displays, [](const DisplayInfo &display) {
@@ -228,6 +301,11 @@ namespace SFT::GraphicsPlatform {
 
     } // namespace
 
+    /// Queries displays from the active backend or runtime state.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `QueryStatus::Ok`.
     QueryResult<std::vector<DisplayInfo>> query_displays() {
         std::vector<DisplayInfo> displays = enumerate_drm_displays();
         return QueryResult<std::vector<DisplayInfo>>{
@@ -239,6 +317,13 @@ namespace SFT::GraphicsPlatform {
         };
     }
 
+    /// Queries HDR display capabilities from the active backend or runtime state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `QueryStatus::InvalidArgument`, `QueryStatus::Unsupported`.
     QueryResult<HdrDisplayCapabilities> query_hdr_display_capabilities(const NativeSurfaceHandle &surface) {
         std::vector<DisplayInfo> displays = enumerate_drm_displays();
         switch (surface.system) {

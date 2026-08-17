@@ -43,12 +43,24 @@ namespace SFT::Renderer {
 
         namespace slang = Core::Slang;
 
+        /// Creates an error result describing the supplied material failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError material_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
 
-
+        /// Creates an error result describing the supplied material shader failure.
+        ///
+        /// @param error Error value describing the failure.
+        /// @param operation `operation` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError material_shader_error(const slang::ShaderError &error, const char *operation) {
             string message = string(operation) + " failed: " + error.message;
             if (!error.diagnostics.empty()) {
@@ -59,9 +71,13 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
+        /// Performs the material template layout compatible operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool material_template_layout_compatible(const MaterialTemplateResource &a, const MaterialTemplateResource &b) {
             if (a.has_uniform_block != b.has_uniform_block || a.uniform_block_size != b.uniform_block_size ||
                 a.uniform_set != b.uniform_set || a.uniform_binding != b.uniform_binding ||
@@ -85,9 +101,13 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
+        /// Performs the same shader file operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool same_shader_file(std::string_view a, std::string_view b) {
             namespace fs = std::filesystem;
             std::error_code ec;
@@ -98,10 +118,13 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
+        /// Performs the entry point names operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param reflection `reflection` value used by the operation.
+        /// @param stage `stage` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] vector<string> entry_point_names(const slang::ShaderReflection &reflection, slang::ShaderStage stage) {
             vector<string> names;
             for (const slang::ShaderEntryPointReflection &entry : reflection.entry_points) {
@@ -113,6 +136,13 @@ namespace SFT::Renderer {
         }
 
 
+        /// Returns a human-readable name for the supplied entry point value.
+        ///
+        /// @param reflection `reflection` value used by the operation.
+        /// @param stage `stage` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<string> entry_point_name(const slang::ShaderReflection &reflection, slang::ShaderStage stage) {
             vector<string> names = entry_point_names(reflection, stage);
             if (names.empty()) {
@@ -122,12 +152,17 @@ namespace SFT::Renderer {
         }
 
 
-
         struct UniformLocation {
             bool present = false;
             u32 set = 0;
             u32 binding = 0;
         };
+        /// Finds uniform location in the available state.
+        ///
+        /// @param reflection `reflection` value used by the operation.
+        ///
+        /// @return Returns the located entry/position; the type-specific sentinel or empty state indicates that no match was found.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UniformLocation find_uniform_location(const slang::ShaderReflection &reflection) {
             if (reflection.global_constant_buffer_size == 0 ||
                 reflection.global_constant_buffer_size == slang::shader_unbounded_size ||
@@ -145,6 +180,10 @@ namespace SFT::Renderer {
         }
 
 
+        /// Returns the current or globally available geometry vertex attributes value.
+        ///
+        /// @return Returns the current geometry vertex attributes value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         constexpr array<RHI::VertexAttribute, 5> geometry_vertex_attributes() {
             return {
                 RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, position), .shader_location = 0},
@@ -157,6 +196,14 @@ namespace SFT::Renderer {
 
     } // namespace
 
+    /// Builds material template GPU.
+    ///
+    /// @param resource `resource` value used by the operation.
+    /// @param shader Shader used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::build_material_template_gpu(MaterialTemplateResource &resource,
                                                                const Core::Slang::Shader &shader) {
         ZoneScopedN("Renderer::build_material_template_gpu");
@@ -251,8 +298,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
         const vector<RHI::PushConstantRange> scene_draw_constants = generate_push_constant_ranges(reflection, RHI::ShaderStage::Vertex);
         if (scene_draw_constants.empty()) {
             destroy_material_template_gpu(resource);
@@ -310,6 +355,13 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Creates a material template from the supplied parameters.
+    ///
+    /// @param shader Shader used or affected by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<MaterialTemplateHandle> Renderer::create_material_template(
         const Core::Slang::Shader &shader, const char *label) {
         ZoneScopedN("Renderer::create_material_template");
@@ -331,6 +383,14 @@ namespace SFT::Renderer {
         return material_templates_.back().handle;
     }
 
+    /// Creates a material template from source from the supplied parameters.
+    ///
+    /// @param source Source value or resource.
+    /// @param options Configuration values controlling the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<MaterialTemplateHandle> Renderer::create_material_template_from_source(
         const Core::Slang::ShaderSource &source, const Core::Slang::ShaderCompileOptions &options, const char *label) {
         ZoneScopedN("Renderer::create_material_template_from_source");
@@ -345,10 +405,6 @@ namespace SFT::Renderer {
 
         slang::ShaderCompileOptions backend_options = options;
         backend_options.targets = shader_compile_targets_for_device(*device);
-
-
-
-
 
 
         slang::ShaderVariantCache variant_cache{source, std::move(backend_options), {}, recovery_create_info_.enable_shader_disk_cache};
@@ -369,7 +425,6 @@ namespace SFT::Renderer {
         }
 
 
-
         resource.shader.release_compiler_state();
         variant_cache.release_compiler_memory();
 
@@ -385,6 +440,12 @@ namespace SFT::Renderer {
         return material_templates_.back().handle;
     }
 
+    /// Performs the reload material template operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::reload_material_template(MaterialTemplateHandle handle) {
         ZoneScopedN("Renderer::reload_material_template");
         MaterialTemplateResource *tmpl = material_template(handle);
@@ -399,7 +460,6 @@ namespace SFT::Renderer {
         }
 
 
-
         tmpl->variant_cache.invalidate();
         auto recompiled = tmpl->variant_cache.get_or_compile_base();
         if (!recompiled) {
@@ -407,7 +467,6 @@ namespace SFT::Renderer {
 
             return unexpected(material_shader_error(recompiled.error(), "recompile material template on hot-reload"));
         }
-
 
 
         MaterialTemplateResource next{};
@@ -420,13 +479,9 @@ namespace SFT::Renderer {
         tmpl->variant_cache.release_compiler_memory();
 
 
-
-
         wait_idle();
 
         const bool compatible = material_template_layout_compatible(*tmpl, next);
-
-
 
 
         destroy_material_template_gpu(*tmpl);
@@ -448,11 +503,6 @@ namespace SFT::Renderer {
         tmpl->has_uniform_block = next.has_uniform_block;
         tmpl->parameters = std::move(next.parameters);
         tmpl->texture_slots = std::move(next.texture_slots);
-
-
-
-
-
 
 
         const MaterialTemplateHandle template_handle = tmpl->handle;
@@ -483,10 +533,13 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Polls shader hot reload for available work or state changes.
+    ///
+    /// @return Returns the current poll shader hot reload value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     usize Renderer::poll_shader_hot_reload() {
         ZoneScopedN("Renderer::poll_shader_hot_reload");
         using namespace std::chrono_literals;
-
 
 
         auto guard = shader_hot_reload_lock_.lock();
@@ -534,6 +587,16 @@ namespace SFT::Renderer {
         return reloaded;
     }
 
+    /// Resolves the material pipeline associated with the supplied key, handle, or resource.
+    ///
+    /// @param material_template `material_template` value used by the operation.
+    /// @param color_formats Format used for the resource, render target, or conversion.
+    /// @param depth_format Format used for the resource, render target, or conversion.
+    /// @param standard_depth_test `standard_depth_test` value used by the operation.
+    /// @param samples `samples` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::material_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format,
         bool standard_depth_test, RHI::SampleCount samples) {
@@ -586,8 +649,6 @@ namespace SFT::Renderer {
                       .depth_test_enable = true,
 
 
-
-
                       .depth_write_enable = false,
                       .depth_compare = RHI::CompareOp::Equal,
                   };
@@ -601,9 +662,6 @@ namespace SFT::Renderer {
                             : RHI::ShaderEntry{},
             .vertex_buffers = span<const RHI::VertexBufferLayout>{&vertex_layout, 1},
             .topology = RHI::PrimitiveTopology::TriangleList,
-
-
-
 
 
             .rasterization = RHI::RasterizationState{},
@@ -626,6 +684,17 @@ namespace SFT::Renderer {
         return *pipeline;
     }
 
+    /// Resolves the depth only pipeline associated with the supplied key, handle, or resource.
+    ///
+    /// @param material_template `material_template` value used by the operation.
+    /// @param depth_format Format used for the resource, render target, or conversion.
+    /// @param shadow_map `shadow_map` value used by the operation.
+    /// @param depth_bias `depth_bias` value used by the operation.
+    /// @param slope_bias `slope_bias` value used by the operation.
+    /// @param samples `samples` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::depth_only_pipeline_for(
         MaterialTemplateResource &material_template, RHI::Format depth_format, bool shadow_map,
         f32 depth_bias, f32 slope_bias, RHI::SampleCount samples) {
@@ -669,8 +738,6 @@ namespace SFT::Renderer {
                 ? RHI::RasterizationState{
 
 
-
-
                       .cull_mode = RHI::CullMode::None,
                       .depth_bias_constant = depth_bias,
                       .depth_bias_slope_scale = slope_bias,
@@ -701,6 +768,13 @@ namespace SFT::Renderer {
         return *pipeline;
     }
 
+    /// Creates a material instance from the supplied parameters.
+    ///
+    /// @param material_template_handle Handle identifying the target object or resource.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<MaterialInstanceHandle> Renderer::create_material_instance(
         MaterialTemplateHandle material_template_handle, const char *label) {
         ZoneScopedN("Renderer::create_material_instance");
@@ -727,6 +801,13 @@ namespace SFT::Renderer {
         return material_instances_.back().handle;
     }
 
+    /// Initializes material instance state for use.
+    ///
+    /// @param instance Instance used or affected by the operation.
+    /// @param tmpl `tmpl` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::initialize_material_instance_state(MaterialInstanceResource &instance,
                                                                       MaterialTemplateResource &tmpl) {
         ZoneScopedN("Renderer::initialize_material_instance_state");
@@ -753,7 +834,6 @@ namespace SFT::Renderer {
         }
 
 
-
         const u32 frame_count = capabilities_.max_frames_in_flight;
         instance.frames.assign(frame_count, MaterialInstanceFrame{});
         for (MaterialInstanceFrame &frame : instance.frames) {
@@ -775,6 +855,13 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Prepares material frame for a later operation.
+    ///
+    /// @param instance Instance used or affected by the operation.
+    /// @param frame_slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<span<const RHI::BindGroupHandle>> Renderer::prepare_material_frame(
         MaterialInstanceResource &instance, u32 frame_slot) {
         ZoneScopedN("Renderer::prepare_material_frame");
@@ -789,9 +876,6 @@ namespace SFT::Renderer {
         if (frame_slot >= instance.frames.size()) {
             return unexpected(material_error("Material frame slot out of range."));
         }
-
-
-
 
 
         auto material_frame_guard = material_frame_prepare_lock_.lock();
@@ -861,6 +945,15 @@ namespace SFT::Renderer {
         return span<const RHI::BindGroupHandle>{frame.bind_groups.data(), frame.bind_groups.size()};
     }
 
+    /// Sets the material parameter for this `Renderer`.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param name Name used to identify or label the target.
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::set_material_parameter(MaterialInstanceHandle handle, string_view name,
                                                           span<const std::byte> value) {
         ZoneScopedN("Renderer::set_material_parameter");
@@ -895,11 +988,30 @@ namespace SFT::Renderer {
                                             string("Material has no parameter named '") + string(name) + "'.");
     }
 
+    /// Sets the material float for this `Renderer`.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param name Name used to identify or label the target.
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::set_material_float(MaterialInstanceHandle handle, string_view name, f32 value) {
         ZoneScopedN("Renderer::set_material_float");
         return set_material_parameter(handle, name, std::as_bytes(span<const f32>{&value, 1}));
     }
 
+    /// Sets the material vec4 for this `Renderer`.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param name Name used to identify or label the target.
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    /// @param z `z` value used by the operation.
+    /// @param w `w` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::set_material_vec4(MaterialInstanceHandle handle, string_view name,
                                                      f32 x, f32 y, f32 z, f32 w) {
         ZoneScopedN("Renderer::set_material_vec4");
@@ -907,6 +1019,15 @@ namespace SFT::Renderer {
         return set_material_parameter(handle, name, std::as_bytes(span<const f32>{v.data(), v.size()}));
     }
 
+    /// Sets the material texture for this `Renderer`.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param texture_handle Texture used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::set_material_texture(MaterialInstanceHandle handle, string_view slot,
                                                         TextureHandle texture_handle) {
         ZoneScopedN("Renderer::set_material_texture");
@@ -940,6 +1061,13 @@ namespace SFT::Renderer {
                                             string("Material has no texture slot named '") + string(slot) + "'.");
     }
 
+    /// Performs the material template operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     MaterialTemplateResource *Renderer::material_template(MaterialTemplateHandle handle) noexcept {
         ZoneScopedN("Renderer::material_template");
         if (!handle || handle.value > material_templates_.size()) {
@@ -949,6 +1077,13 @@ namespace SFT::Renderer {
         return resource.alive ? &resource : nullptr;
     }
 
+    /// Performs the material template operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const MaterialTemplateResource *Renderer::material_template(MaterialTemplateHandle handle) const noexcept {
         ZoneScopedN("Renderer::material_template");
         if (!handle || handle.value > material_templates_.size()) {
@@ -958,6 +1093,13 @@ namespace SFT::Renderer {
         return resource.alive ? &resource : nullptr;
     }
 
+    /// Performs the material instance operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     MaterialInstanceResource *Renderer::material_instance(MaterialInstanceHandle handle) noexcept {
         ZoneScopedN("Renderer::material_instance");
         if (!handle || handle.value > material_instances_.size()) {
@@ -967,6 +1109,13 @@ namespace SFT::Renderer {
         return resource.alive ? &resource : nullptr;
     }
 
+    /// Performs the material instance operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const MaterialInstanceResource *Renderer::material_instance(MaterialInstanceHandle handle) const noexcept {
         ZoneScopedN("Renderer::material_instance");
         if (!handle || handle.value > material_instances_.size()) {
@@ -976,14 +1125,18 @@ namespace SFT::Renderer {
         return resource.alive ? &resource : nullptr;
     }
 
+    /// Destroys the material template GPU identified by the supplied parameters.
+    ///
+    /// @param resource `resource` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_material_template_gpu(MaterialTemplateResource &resource) noexcept {
         ZoneScopedN("Renderer::destroy_material_template_gpu");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
             return;
         }
-
-
 
 
         {
@@ -1025,6 +1178,12 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Destroys the material instance GPU identified by the supplied parameters.
+    ///
+    /// @param resource `resource` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_material_instance_gpu(MaterialInstanceResource &resource) noexcept {
         ZoneScopedN("Renderer::destroy_material_instance_gpu");
         RHI::RhiDevice *device = rhi_device();
@@ -1043,6 +1202,12 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Destroys the material template identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_material_template(MaterialTemplateHandle handle) noexcept {
         ZoneScopedN("Renderer::destroy_material_template");
         MaterialTemplateResource *resource = material_template(handle);
@@ -1053,6 +1218,12 @@ namespace SFT::Renderer {
         *resource = {};
     }
 
+    /// Destroys the material instance identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_material_instance(MaterialInstanceHandle handle) noexcept {
         ZoneScopedN("Renderer::destroy_material_instance");
         MaterialInstanceResource *resource = material_instance(handle);

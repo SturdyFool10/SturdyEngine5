@@ -23,88 +23,147 @@ using std::unique_ptr;
 
 namespace SFT::Core {
 
-    /// The renderer abstraction seam. Every graphics API (Vulkan today; Metal, WebGPU later) derives
-    /// from this. The Engine layer speaks only this interface and the API-agnostic types in
-    /// Renderer.cppm / RenderSurface.cppm — no Vulkan symbols ever leak upward.
-    ///
-    /// The backend owns API/device state: instance, physical/logical device, queues, allocator, and the
-    /// RHI device bridge. The renderer owns frame orchestration and all rendering/presentation resources
-    /// through RHI, so additional graphics APIs plug in by implementing RHI rather than exposing a
-    /// backend-specific render loop.
+
     class EngineBackend {
       protected:
         struct ConstructorKey {
           private:
             friend class EngineBackend;
+            /// Constructs a `ConstructorKey` in its default state.
+            ///
+            /// @note This function does not throw exceptions.
             constexpr ConstructorKey() = default;
         };
 
+        /// Constructs a `EngineBackend` from the supplied initialization values.
+        ///
+        /// @note This function does not throw exceptions.
         explicit constexpr EngineBackend(ConstructorKey) noexcept {}
 
       public:
-        /// RAII contract — implementations MUST:
-        ///   1. Call wait_idle() to drain all in-flight GPU work.
-        ///   2. Destroy backend-side surfaces in reverse creation order.
-        ///   3. Destroy the device, allocator, debug layer, and instance.
-        /// There is no separate shutdown() call — the destructor is the only teardown path.
+
+
+        /// Destroys the `EngineBackend` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         virtual ~EngineBackend() = default;
 
+        /// Disables this construction form for `EngineBackend`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         EngineBackend(const EngineBackend &) = delete;
+        /// Assigns a new value to this `EngineBackend`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         EngineBackend &operator=(const EngineBackend &) = delete;
+        /// Disables this construction form for `EngineBackend`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         EngineBackend(EngineBackend &&) = delete;
+        /// Assigns a new value to this `EngineBackend`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         EngineBackend &operator=(EngineBackend &&) = delete;
 
-        /// Bring up backend-global GPU state and construct the initial backend-side surface used for
-        /// device/queue present-support selection. The returned handle is an opaque address for render
-        /// calls and resize-needed notifications; actual frame presentation resources are owned by RHI.
+
+        /// Initializes the `EngineBackend` for use.
+        ///
+        /// @param init `init` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         virtual RendererExpected<RenderSurfaceHandle> initialize(const RendererCreateInfo &init) = 0;
 
-        /// Adds another window's backend-side surface to an already-initialized backend, sharing the
-        /// existing device/queue/allocator. RHI owns the matching presentation resources used by frames.
+
+        /// Creates a window surface from the supplied parameters.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param desired_frames_in_flight `desired_frames_in_flight` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         virtual RendererExpected<RenderSurfaceHandle> create_window_surface(
             Platform::Windowing::Window &window,
             u32 desired_frames_in_flight = 2) = 0;
 
-        /// Destroys one window's backend-side surface. Safe to call for the primary surface returned
-        /// by initialize() as well as any surface returned by create_window_surface().
+
+        /// Destroys the window surface identified by the supplied parameters.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void destroy_window_surface(RenderSurfaceHandle surface) noexcept = 0;
 
-        /// Notify the backend that a surface needs resize handling. The renderer/RHI owns swapchain
-        /// recreation; this remains a backend hook for API-specific surface bookkeeping. `extent` is
-        /// the fresh framebuffer size already resolved on the window-owning thread — implementations
-        /// must use it as-is rather than querying the Window themselves: this hook typically runs on
-        /// a dedicated render thread, and Window is not safe to touch off its owning thread (see
-        /// SDL3Window's thread-affinity contract).
+
+        /// Handles the surface resize needed event.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        /// @param extent `extent` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void on_surface_resize_needed(RenderSurfaceHandle surface, Extent2D extent) noexcept = 0;
 
-        /// What this backend can actually do, populated during initialize().
+
+        /// Returns the current or globally available capabilities value.
+        ///
+        /// @return Returns the current capabilities value.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual RendererCapabilities capabilities() const noexcept = 0;
 
-        /// Runtime threading envelope for this backend/API/platform combination. Vulkan permits host-side
-        /// multithreading, but many objects are externally synchronized: VkQueue, VkCommandPool, descriptor
-        /// pools/sets in some operations, and object destruction must not race uses. Backends should only
-        /// advertise parallel command recording once they provide per-thread command pools and ownership.
+
+        /// Returns the current render threading capabilities.
+        ///
+        /// @return Returns the current render threading capabilities value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual RHI::RenderThreadingCapabilities render_threading_capabilities() const noexcept;
 
-        /// RHI escape hatch for high-level renderer systems that need API-agnostic low-level access.
-        /// Backends return nullptr until the RHI bridge is initialized or when no RHI bridge exists yet.
+
+        /// Returns the current or globally available RHI device value.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual RHI::RhiDevice *rhi_device() noexcept;
+        /// Returns the current or globally available RHI device value.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual const RHI::RhiDevice *rhi_device() const noexcept;
 
-        /// Returns the RHI presentation surface paired with a backend-owned render surface. The backend,
-        /// not the Renderer, owns translating a window-provider surface (SDL/GLFW/native) into the concrete
-        /// API object, so higher layers do not create duplicate platform surfaces from raw native handles.
+
+        /// Resolves the RHI surface associated with the supplied key, handle, or resource.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::Unsupported`.
         [[nodiscard]] virtual RendererExpected<RHI::SurfaceHandle> rhi_surface_for(RenderSurfaceHandle surface);
 
-        /// Backend-agnostic description of the GPU currently in use (name, vendor, driver version,
-        /// ...) as plain strings/integers — no graphics-API types leak out. Returns nullopt until a
-        /// physical device has been selected (i.e. before a successful initialize()).
+
+        /// Returns the current GPU info.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
         [[nodiscard]] virtual optional<GpuInfo> gpu_info() const = 0;
 
-        /// Block until all in-flight GPU work is complete. Called automatically by the destructor;
-        /// also available as an explicit sync point before resource reloads or controlled shutdown.
+
+        /// Waits for idle to complete.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         virtual void wait_idle() noexcept = 0;
 
+        /// Constructs the requested concrete engine-backend type and returns ownership to the caller.
+        ///
+        /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename Backend, typename... Args>
             requires derived_from<Backend, EngineBackend> && requires(Args &&...args) {
                 new Backend(ConstructorKey{}, std::forward<Args>(args)...);
@@ -114,6 +173,10 @@ namespace SFT::Core {
             return unique_ptr<Backend>(new Backend(ConstructorKey{}, std::forward<Args>(args)...));
         }
 
+        /// Creates an engine backend instance and returns it through the erased/base ownership type.
+        ///
+        /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename Backend, typename... Args>
             requires derived_from<Backend, EngineBackend> && requires(Args &&...args) {
                 new Backend(ConstructorKey{}, std::forward<Args>(args)...);
@@ -123,6 +186,10 @@ namespace SFT::Core {
             return unique_ptr<EngineBackend>(new Backend(ConstructorKey{}, std::forward<Args>(args)...));
         }
 
+        /// Creates an engine backend instance with shared ownership.
+        ///
+        /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename Backend, typename... Args>
             requires derived_from<Backend, EngineBackend> && requires(Args &&...args) {
                 new Backend(ConstructorKey{}, std::forward<Args>(args)...);
@@ -133,15 +200,28 @@ namespace SFT::Core {
         }
     };
 
-    /// Constructs the Vulkan backend without pulling volk or Vulkan headers into the caller.
-    /// This is the API-selection switch point: a future build swaps in Metal or WebGPU here.
+
+    /// Creates a vulkan backend from the supplied parameters.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] unique_ptr<EngineBackend> create_vulkan_backend();
 
-    /// Creates the requested renderer backend, or nullptr when that API is not compiled for this platform.
+
+    /// Creates a engine backend from the supplied parameters.
+    ///
+    /// @param backend Backend value to inspect, select, or convert.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] unique_ptr<EngineBackend> create_engine_backend(RHI::BackendType backend);
 
 #if defined(_WIN32)
-    /// Constructs the D3D12 backend without exposing DirectX headers to Engine or application code.
+
+    /// Creates a D3D12 backend from the supplied parameters.
+    ///
+    /// @return Returns the current create D3D12 backend value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] unique_ptr<EngineBackend> create_d3d12_backend();
 #endif
 

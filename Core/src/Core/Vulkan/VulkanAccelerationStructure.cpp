@@ -4,8 +4,16 @@
 
 namespace SFT::Core::Vulkan {
 
+/// Destroys the `Vulkan` and releases resources owned by it.
+///
+/// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
 VulkanAccelerationStructure::~VulkanAccelerationStructure() { destroy(); }
 
+/// Performs the vulkan acceleration structure operation for `Vulkan` using the supplied arguments.
+///
+/// @param o `o` value used by the operation.
+///
+/// @note This function does not throw exceptions.
 VulkanAccelerationStructure::VulkanAccelerationStructure(VulkanAccelerationStructure &&o) noexcept
             : device_(o.device_), acceleration_structure_(o.acceleration_structure_), type_(o.type_) {
             ZoneScopedN("VulkanAccelerationStructure::VulkanAccelerationStructure");
@@ -13,6 +21,12 @@ VulkanAccelerationStructure::VulkanAccelerationStructure(VulkanAccelerationStruc
             o.acceleration_structure_ = VK_NULL_HANDLE;
         }
 
+/// Assigns a new value to this `Vulkan`.
+///
+/// @param o `o` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccelerationStructure &&o) noexcept {
             ZoneScopedN("VulkanAccelerationStructure::operator=");
             if (this != &o) {
@@ -26,6 +40,18 @@ VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccele
             return *this;
         }
 
+/// Creates a `Vulkan` resource or value from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param backing_buffer Buffer used or affected by the operation.
+/// @param offset Offset from the beginning of the relevant range or buffer.
+/// @param size Requested or available size for the operation.
+/// @param type Type value to inspect, select, or convert.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RendererExpected<VulkanAccelerationStructure> VulkanAccelerationStructure::create(
             VkDevice device,
             VkBuffer backing_buffer,
@@ -56,6 +82,14 @@ VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccele
             return out;
         }
 
+/// Builds sizes.
+///
+/// @param device Device used or affected by the operation.
+/// @param build_info Description of the resource or operation to perform.
+/// @param max_primitive_counts `max_primitive_counts` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] VkAccelerationStructureBuildSizesInfoKHR VulkanAccelerationStructure::build_sizes(
             VkDevice device,
             const VkAccelerationStructureBuildGeometryInfoKHR &build_info,
@@ -72,12 +106,28 @@ VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccele
             return sizes;
         }
 
+/// Returns the Vulkan handle associated with this `Vulkan`.
+///
+/// @return Returns the current Vulkan handle value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] VkAccelerationStructureKHR VulkanAccelerationStructure::vk_handle() const noexcept { return acceleration_structure_; }
 
+/// Reports whether valid holds for this `Vulkan`.
+///
+/// @return Returns the current is valid value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool VulkanAccelerationStructure::is_valid() const noexcept { return acceleration_structure_ != VK_NULL_HANDLE; }
 
+/// Returns the runtime or backend type represented by `Vulkan`.
+///
+/// @return Returns the current type value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] VkAccelerationStructureTypeKHR VulkanAccelerationStructure::type() const noexcept { return type_; }
 
+/// Returns the current or globally available device address value.
+///
+/// @return Returns the current device address value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] VkDeviceAddress VulkanAccelerationStructure::device_address() const noexcept {
             ZoneScopedN("VulkanAccelerationStructure::device_address");
             if (vkGetAccelerationStructureDeviceAddressKHR == nullptr) {
@@ -91,6 +141,10 @@ VulkanAccelerationStructure &VulkanAccelerationStructure::operator=(VulkanAccele
             return vkGetAccelerationStructureDeviceAddressKHR(device_, &info);
         }
 
+/// Destroys or releases the `Vulkan` resource represented by the supplied parameters.
+///
+/// @return Returns the current destroy value.
+/// @note This function does not throw exceptions.
 void VulkanAccelerationStructure::destroy() noexcept {
             ZoneScopedN("VulkanAccelerationStructure::destroy");
             if (acceleration_structure_ == VK_NULL_HANDLE)

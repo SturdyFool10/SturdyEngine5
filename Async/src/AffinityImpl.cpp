@@ -15,6 +15,11 @@ using std::unique_ptr;
 
 namespace SFT::Async {
 
+    /// Performs the dedicated thread operation for `Async` using the supplied arguments.
+    ///
+    /// @param name Name used to identify or label the target.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     DedicatedThread::DedicatedThread(std::string name)
         : name_(std::move(name)) {
 #if !defined(STURDY_PLATFORM_WEB)
@@ -22,6 +27,9 @@ namespace SFT::Async {
 #endif
     }
 
+    /// Destroys the `Async` and releases resources owned by it.
+    ///
+    /// @note This function does not throw exceptions.
     DedicatedThread::~DedicatedThread() noexcept {
         running_.store(false, std::memory_order_release);
         wake_cv_.notify_all();
@@ -30,6 +38,12 @@ namespace SFT::Async {
         }
     }
 
+    /// Performs the enqueue operation for `Async` using the supplied arguments.
+    ///
+    /// @param task Task used or affected by the operation.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note This function does not throw exceptions.
     void DedicatedThread::enqueue(unique_ptr<Detail::TaskBase> task) noexcept {
 #if defined(STURDY_PLATFORM_WEB)
 
@@ -43,8 +57,11 @@ namespace SFT::Async {
 #endif
     }
 
+    /// Returns the current or globally available worker loop value.
+    ///
+    /// @return Returns the current worker loop value.
+    /// @note This function does not throw exceptions.
     void DedicatedThread::worker_loop() noexcept {
-
 
 
         tracy::SetThreadName(name_.c_str());
@@ -64,7 +81,6 @@ namespace SFT::Async {
             }
 
 
-
             unique_lock<std::mutex> lock(wake_mutex_);
             wake_cv_.wait_for(lock, std::chrono::milliseconds(1), [this] {
                 if (!running_.load(std::memory_order_acquire)) {
@@ -76,12 +92,21 @@ namespace SFT::Async {
         }
     }
 
+    /// Performs the pin to core operation for `Async` using the supplied arguments.
+    ///
+    /// @param core_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool DedicatedThread::pin_to_core(u32 core_index) noexcept {
         return pin_thread_to_core(thread_, core_index);
     }
 
+    /// Returns the current or globally available pin to fastest core value.
+    ///
+    /// @return Returns the current pin to fastest core value.
+    /// @note This function does not throw exceptions.
     bool DedicatedThread::pin_to_fastest_core() noexcept {
-
 
 
         const std::vector<u32> ranked = ranked_physical_cores();

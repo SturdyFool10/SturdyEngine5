@@ -9,6 +9,14 @@ namespace SFT::Renderer {
 
     namespace {
 
+        /// Performs the missing module texture operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param module `module` value used by the operation.
+        /// @param semantic `semantic` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult missing_module_texture(const ustr &module, const ustr &semantic) {
             UString message{module};
             message.append(" requires the render-graph semantic texture '"_ustr);
@@ -19,6 +27,14 @@ namespace SFT::Renderer {
 
     } // namespace
 
+    /// Builds deferred MSAA module.
+    ///
+    /// @param context Context that supplies state required by the operation.
+    /// @param submission `submission` value used by the operation.
+    /// @param samples `samples` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::build_deferred_msaa_module(
         RenderGraphModuleBuildContext &context,
         FrameSubmission &submission,
@@ -98,6 +114,13 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Builds post process aa module.
+    ///
+    /// @param context Context that supplies state required by the operation.
+    /// @param submission `submission` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::build_post_process_aa_module(
         RenderGraphModuleBuildContext &context,
         FrameSubmission &submission) {
@@ -164,6 +187,16 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Builds custom graph stage.
+    ///
+    /// @param context Context that supplies state required by the operation.
+    /// @param submission `submission` value used by the operation.
+    /// @param stage `stage` value used by the operation.
+    /// @param logical_textures Texture used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::build_custom_graph_stage(
         RenderGraphModuleBuildContext &context,
         FrameSubmission &submission,
@@ -296,7 +329,6 @@ namespace SFT::Renderer {
         }
 
 
-
         for (usize effect_index = 0; effect_index < submission.render_graph.custom_post_processes.size(); ++effect_index) {
             if (submission.render_graph.custom_post_processes[effect_index].stage != stage) {
                 continue;
@@ -356,6 +388,16 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Builds bloom module.
+    ///
+    /// @param context Context that supplies state required by the operation.
+    /// @param submission `submission` value used by the operation.
+    /// @param frame_slot Binding or storage slot addressed by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    /// @param bloom_format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::build_bloom_module(
         RenderGraphModuleBuildContext &context,
         FrameSubmission &submission,
@@ -574,6 +616,16 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Builds tonemap module.
+    ///
+    /// @param context Context that supplies state required by the operation.
+    /// @param submission `submission` value used by the operation.
+    /// @param presentation_format Format used for the resource, render target, or conversion.
+    /// @param hdr_output `hdr_output` value used by the operation.
+    /// @param hdr_color_space `hdr_color_space` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::build_tonemap_module(
         RenderGraphModuleBuildContext &context,
         FrameSubmission &submission,

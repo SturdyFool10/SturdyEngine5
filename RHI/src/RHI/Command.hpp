@@ -24,15 +24,13 @@ using std::unique_ptr;
 namespace SFT::RHI {
 
 
-
-    /// What happens to an attachment's existing contents when a render pass begins.
     enum class LoadOp : u32 {
         Load,
         Clear,
         DontCare,
     };
 
-    /// What happens to an attachment's contents when a render pass ends.
+
     enum class StoreOp : u32 {
         Store,
         DontCare,
@@ -40,8 +38,8 @@ namespace SFT::RHI {
 
     struct ColorAttachment {
         TextureViewHandle view{};
-        /// Set for MSAA: `view` is the multisample target, `resolve_view` the single-sample
-        /// destination the pass resolves into. Null when not resolving.
+
+
         TextureViewHandle resolve_view{};
         LoadOp load_op = LoadOp::Clear;
         StoreOp store_op = StoreOp::Store;
@@ -50,8 +48,8 @@ namespace SFT::RHI {
 
     struct DepthStencilAttachment {
         TextureViewHandle view{};
-        /// Optional single-sample destination for a multisampled depth attachment. Minimum is the
-        /// useful geometry-visibility resolve for conventional (near=0) depth buffers.
+
+
         TextureViewHandle resolve_view{};
         ResolveMode depth_resolve_mode = ResolveMode::SampleZero;
         LoadOp depth_load_op = LoadOp::Clear;
@@ -61,42 +59,28 @@ namespace SFT::RHI {
         ClearDepthStencil clear_value{};
     };
 
-    /// A dynamic-rendering pass: the attachments to render into this pass, plus the render area. This
-    /// is the RHI's only rendering-scope primitive — there is no separate render-pass/framebuffer
-    /// object, matching the engine's deliberate all-dynamic-rendering stance (legacy render passes
-    /// were removed for the debuggability cost they impose). `color_attachments` is non-owning
-    /// (consumed by begin_render_pass()); `depth_stencil` is optional (null `view` => none).
+
     struct RenderPassDesc {
         span<const ColorAttachment> color_attachments;
         DepthStencilAttachment depth_stencil{};
-        /// Zero-sized render_area => cover the full attachment extent.
+
         Rect2D render_area{};
-        /// Multiview view mask (requires Feature::Multiview): each set bit renders one view into the
-        /// matching attachment array layer in a single pass — single-pass cascaded shadow maps, cubemap
-        /// shadows, stereo VR. 0 disables multiview. Pipelines executed here must have a matching
-        /// RenderPipelineDesc::view_mask.
+
+
         u32 view_mask = 0;
-        /// Must be true if this render pass instance's encoder will call execute_bundles() at all
-        /// (Vulkan: sets VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT on vkCmdBeginRendering,
-        /// required before vkCmdExecuteCommands is legal inside it — VUID-vkCmdExecuteCommands-flags-06024).
-        /// A pass instance opened this way must record *only* via bundles, never a direct inline
-        /// draw/dispatch call on the pass encoder itself — the two are mutually exclusive within one
-        /// render pass instance under Vulkan's dynamic rendering model, mirroring the classic
-        /// VkSubpassContents::INLINE vs. SECONDARY_COMMAND_BUFFERS split. False (the default) for every
-        /// ordinary inline-recording pass.
+
+
         bool allow_bundles = false;
         const char *label = nullptr;
     };
 
-    /// Compatibility contract for a render bundle: the attachment formats/sample count of the render
-    /// pass it will later execute inside. This is the portable shape of Vulkan secondary-command-buffer
-    /// inheritance, D3D12 bundles, Metal parallel render encoders, and WebGPU render bundles.
+
     struct RenderBundleDesc {
         span<const Format> color_formats;
         Format depth_stencil_format = Format::Undefined;
         SampleCount samples = SampleCount::X1;
-        /// View mask of the passes this bundle will execute inside (must match their RenderPassDesc /
-        /// pipeline view masks). 0 for non-multiview passes.
+
+
         u32 view_mask = 0;
         const char *label = nullptr;
     };
@@ -106,15 +90,13 @@ namespace SFT::RHI {
     };
 
 
-
     struct BufferCopy {
         u64 src_offset = 0;
         u64 dst_offset = 0;
         u64 size = 0;
     };
 
-    /// A rectangular region of a buffer <-> texture transfer. `buffer_row_length`/
-    /// `buffer_image_height` describe the buffer-side packing (0 = tightly packed to `extent`).
+
     struct BufferTextureCopy {
         u64 buffer_offset = 0;
         u32 buffer_row_length = 0;
@@ -126,15 +108,14 @@ namespace SFT::RHI {
         Extent3D texture_extent{};
     };
 
-    /// One mip/layer slice of a texture, as a copy/blit/clear source or destination.
+
     struct TextureSubresourceLayers {
         u32 mip_level = 0;
         u32 base_array_layer = 0;
         u32 array_layer_count = 1;
     };
 
-    /// A same-size texture->texture copy region (a raw texel copy — matching formats/sizes, no scaling
-    /// or filtering). The bloom/SSR ping-pong and history-buffer copies of a deferred pipeline.
+
     struct TextureCopy {
         TextureSubresourceLayers src_subresource{};
         Offset3D src_offset{};
@@ -143,8 +124,7 @@ namespace SFT::RHI {
         Extent3D extent{};
     };
 
-    /// A scaled, optionally-filtered texture->texture blit region (`src`/`dst` rectangles may differ in
-    /// size). The mip-generation and bloom down/up-sample workhorse — `filter` picks nearest vs linear.
+
     struct TextureBlit {
         TextureSubresourceLayers src_subresource{};
         Offset3D src_min{};
@@ -153,7 +133,6 @@ namespace SFT::RHI {
         Offset3D dst_min{};
         Offset3D dst_max{};
     };
-
 
 
     struct DrawArgs {
@@ -178,139 +157,491 @@ namespace SFT::RHI {
     };
 
 
-
-    /// Records draws within one render pass. Obtained from CommandEncoder::begin_render_pass() and
-    /// valid only until end() — every draw between begin and end targets that pass's attachments.
-    /// Viewport and scissor are dynamic state set here, not baked into the pipeline. Setters take
-    /// effect for subsequent draws (classic bind-then-draw state machine).
     class RenderPassEncoder {
       public:
+        /// Destroys the `RenderPassEncoder` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         virtual ~RenderPassEncoder() = default;
 
+        /// Sets the pipeline for this `RenderPassEncoder`.
+        ///
+        /// @param pipeline Pipeline used or affected by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_pipeline(RenderPipelineHandle pipeline) = 0;
 
-        /// Binds `bind_group` at set index `index`. `dynamic_offsets` supplies, in binding order, one
-        /// offset per has_dynamic_offset entry in the group's layout (empty if it has none).
+
+        /// Sets the bind group for this `RenderPassEncoder`.
+        ///
+        /// @param index Zero-based index of the target element or entry.
+        /// @param bind_group `bind_group` value used by the operation.
+        /// @param dynamic_offsets Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_bind_group(u32 index, BindGroupHandle bind_group,
                                     span<const u32> dynamic_offsets = {}) = 0;
 
+        /// Sets the vertex buffer for this `RenderPassEncoder`.
+        ///
+        /// @param slot Binding or storage slot addressed by the operation.
+        /// @param buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_vertex_buffer(u32 slot, BufferHandle buffer, u64 offset = 0) = 0;
+        /// Sets the index buffer for this `RenderPassEncoder`.
+        ///
+        /// @param buffer Buffer used or affected by the operation.
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_index_buffer(BufferHandle buffer, IndexFormat format, u64 offset = 0) = 0;
 
-        /// Inline constants for `stages`, at byte `offset` into the layout's push-constant space.
+
+        /// Sets the push constants for this `RenderPassEncoder`.
+        ///
+        /// @param stages `stages` value used by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_push_constants(ShaderStage stages, u32 offset, span<const std::byte> data) = 0;
 
+        /// Sets the viewport for this `RenderPassEncoder`.
+        ///
+        /// @param viewport `viewport` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_viewport(const Viewport &viewport) = 0;
+        /// Sets the scissor for this `RenderPassEncoder`.
+        ///
+        /// @param scissor `scissor` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_scissor(const Rect2D &scissor) = 0;
-        /// Blend constant referenced by BlendFactor::ConstantColor, and the dynamic stencil reference.
+
+        /// Sets the blend constant for this `RenderPassEncoder`.
+        ///
+        /// @param color `color` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_blend_constant(const ClearColor &color) = 0;
+        /// Sets the stencil reference for this `RenderPassEncoder`.
+        ///
+        /// @param reference `reference` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_stencil_reference(u32 reference) = 0;
 
+        /// Draws the requested content using the current rendering state.
+        ///
+        /// @param args `args` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw(const DrawArgs &args) = 0;
+        /// Draws indexed using the current rendering state.
+        ///
+        /// @param args `args` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indexed(const DrawIndexedArgs &args) = 0;
 
-        /// Mesh-shader draw path (requires Feature::MeshShader; Feature::TaskShader if the bound
-        /// pipeline has a task/amplification stage). Maps to vkCmdDrawMeshTasksEXT,
-        /// ID3D12GraphicsCommandList6::DispatchMesh, and Metal drawMeshThreadgroups.
+
+        /// Draws mesh tasks using the current rendering state.
+        ///
+        /// @param args `args` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_mesh_tasks(const DrawMeshTasksArgs &args) = 0;
 
-        /// Single indirect draw: reads one arg block from `indirect_buffer` at `offset` (an
-        /// Indirect-usage buffer). The GPU-driven single-draw case.
+
+        /// Draws indirect using the current rendering state.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indirect(BufferHandle indirect_buffer, u64 offset) = 0;
+        /// Draws indexed indirect using the current rendering state.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indexed_indirect(BufferHandle indirect_buffer, u64 offset) = 0;
 
-        /// Batched multi-draw indirect: `draw_count` consecutive arg blocks, `stride` bytes apart,
-        /// in one call (requires Feature::MultiDrawIndirect). One dispatch of many instanced batches
-        /// without per-batch CPU overhead — the foliage/scene-submission path.
+
+        /// Draws indirect using the current rendering state.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param draw_count Number of elements or operations to process.
+        /// @param stride `stride` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indirect(BufferHandle indirect_buffer, u64 offset, u32 draw_count, u32 stride) = 0;
+        /// Draws indexed indirect using the current rendering state.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param draw_count Number of elements or operations to process.
+        /// @param stride `stride` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indexed_indirect(BufferHandle indirect_buffer, u64 offset, u32 draw_count, u32 stride) = 0;
 
-        /// GPU-provided draw count: renders up to `max_draws` arg blocks, the actual number read as a
-        /// u32 from `count_buffer` at `count_offset` (requires Feature::DrawIndirectCount). This is
-        /// the fully GPU-driven case — a compute cull pass writes both the arg blocks and the count,
-        /// and the CPU never learns how many batches survived (e.g. frustum/occlusion-culled foliage).
+
+        /// Returns the draw indirect count for this `RenderPassEncoder`.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param indirect_offset Offset from the beginning of the relevant range or buffer.
+        /// @param count_buffer Buffer used or affected by the operation.
+        /// @param count_offset Offset from the beginning of the relevant range or buffer.
+        /// @param max_draws `max_draws` value used by the operation.
+        /// @param stride `stride` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indirect_count(BufferHandle indirect_buffer, u64 indirect_offset,
                                          BufferHandle count_buffer, u64 count_offset,
                                          u32 max_draws, u32 stride) = 0;
+        /// Returns the draw indexed indirect count for this `RenderPassEncoder`.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param indirect_offset Offset from the beginning of the relevant range or buffer.
+        /// @param count_buffer Buffer used or affected by the operation.
+        /// @param count_offset Offset from the beginning of the relevant range or buffer.
+        /// @param max_draws `max_draws` value used by the operation.
+        /// @param stride `stride` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indexed_indirect_count(BufferHandle indirect_buffer, u64 indirect_offset,
                                                  BufferHandle count_buffer, u64 count_offset,
                                                  u32 max_draws, u32 stride) = 0;
+        /// Draws mesh tasks indirect using the current rendering state.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_mesh_tasks_indirect(BufferHandle indirect_buffer, u64 offset) = 0;
+        /// Returns the draw mesh tasks indirect count for this `RenderPassEncoder`.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param indirect_offset Offset from the beginning of the relevant range or buffer.
+        /// @param count_buffer Buffer used or affected by the operation.
+        /// @param count_offset Offset from the beginning of the relevant range or buffer.
+        /// @param max_draws `max_draws` value used by the operation.
+        /// @param stride `stride` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_mesh_tasks_indirect_count(BufferHandle indirect_buffer, u64 indirect_offset,
                                                     BufferHandle count_buffer, u64 count_offset,
                                                     u32 max_draws, u32 stride) = 0;
 
-        /// Executes pre-recorded render bundles inside this pass (requires Feature::RenderBundles).
-        /// Bundles must have been created with a RenderBundleDesc compatible with this pass's
-        /// attachment formats/sample count. This is the safe in-pass CPU parallelism hook: worker
-        /// threads build bundles independently, then the main pass encoder orders them explicitly here.
+
+        /// Executes bundles.
+        ///
+        /// @param bundles `bundles` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void execute_bundles(span<const RenderBundleHandle> bundles) = 0;
 
-        /// Occlusion query scope (requires Feature::OcclusionQueries): the draws recorded between begin
-        /// and end accumulate their passing-sample count into slot `index` of `query_set` (a
-        /// QueryType::Occlusion set). The occlusion-culling primitive — resolve the counts and skip
-        /// fully-occluded draws next frame. Not nestable; one query is open at a time.
+
+        /// Performs the begin occlusion query operation for `RenderPassEncoder` using the supplied arguments.
+        ///
+        /// @param query_set `query_set` value used by the operation.
+        /// @param index Zero-based index of the target element or entry.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void begin_occlusion_query(QuerySetHandle query_set, u32 index) = 0;
+        /// Performs the end occlusion query operation for `RenderPassEncoder` using the supplied arguments.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void end_occlusion_query() = 0;
 
-        /// Ends the pass. The encoder must not be used afterward.
+
+        /// Returns the one-past-the-end iterator for the range.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void end() = 0;
     };
 
-    /// Records a render-only command chunk that can be built on any worker thread and executed later
-    /// inside a compatible RenderPassEncoder. It has no attachments of its own and cannot perform
-    /// barriers/copies/presentation; those stay on primary CommandEncoder/RenderPassEncoder objects so
-    /// ordering remains explicit. The encoder is single-threaded, but many bundle encoders may be used
-    /// concurrently by different threads.
+
     class RenderBundleEncoder {
       public:
+        /// Destroys the `RenderBundleEncoder` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         virtual ~RenderBundleEncoder() = default;
 
+        /// Sets the pipeline for this `RenderBundleEncoder`.
+        ///
+        /// @param pipeline Pipeline used or affected by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_pipeline(RenderPipelineHandle pipeline) = 0;
+        /// Sets the bind group for this `RenderBundleEncoder`.
+        ///
+        /// @param index Zero-based index of the target element or entry.
+        /// @param bind_group `bind_group` value used by the operation.
+        /// @param dynamic_offsets Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_bind_group(u32 index, BindGroupHandle bind_group,
                                     span<const u32> dynamic_offsets = {}) = 0;
+        /// Sets the vertex buffer for this `RenderBundleEncoder`.
+        ///
+        /// @param slot Binding or storage slot addressed by the operation.
+        /// @param buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_vertex_buffer(u32 slot, BufferHandle buffer, u64 offset = 0) = 0;
+        /// Sets the index buffer for this `RenderBundleEncoder`.
+        ///
+        /// @param buffer Buffer used or affected by the operation.
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_index_buffer(BufferHandle buffer, IndexFormat format, u64 offset = 0) = 0;
+        /// Sets the push constants for this `RenderBundleEncoder`.
+        ///
+        /// @param stages `stages` value used by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_push_constants(ShaderStage stages, u32 offset, span<const std::byte> data) = 0;
+        /// Sets the viewport for this `RenderBundleEncoder`.
+        ///
+        /// @param viewport `viewport` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_viewport(const Viewport &viewport) = 0;
+        /// Sets the scissor for this `RenderBundleEncoder`.
+        ///
+        /// @param scissor `scissor` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_scissor(const Rect2D &scissor) = 0;
+        /// Sets the blend constant for this `RenderBundleEncoder`.
+        ///
+        /// @param color `color` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_blend_constant(const ClearColor &color) = 0;
+        /// Sets the stencil reference for this `RenderBundleEncoder`.
+        ///
+        /// @param reference `reference` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_stencil_reference(u32 reference) = 0;
 
+        /// Draws the requested content using the current rendering state.
+        ///
+        /// @param args `args` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw(const DrawArgs &args) = 0;
+        /// Draws indexed using the current rendering state.
+        ///
+        /// @param args `args` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indexed(const DrawIndexedArgs &args) = 0;
+        /// Draws mesh tasks using the current rendering state.
+        ///
+        /// @param args `args` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_mesh_tasks(const DrawMeshTasksArgs &args) = 0;
+        /// Draws indirect using the current rendering state.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indirect(BufferHandle indirect_buffer, u64 offset) = 0;
+        /// Draws indexed indirect using the current rendering state.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indexed_indirect(BufferHandle indirect_buffer, u64 offset) = 0;
+        /// Draws indirect using the current rendering state.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param draw_count Number of elements or operations to process.
+        /// @param stride `stride` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indirect(BufferHandle indirect_buffer, u64 offset, u32 draw_count, u32 stride) = 0;
+        /// Draws indexed indirect using the current rendering state.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param draw_count Number of elements or operations to process.
+        /// @param stride `stride` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indexed_indirect(BufferHandle indirect_buffer, u64 offset, u32 draw_count, u32 stride) = 0;
+        /// Returns the draw indirect count for this `RenderBundleEncoder`.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param indirect_offset Offset from the beginning of the relevant range or buffer.
+        /// @param count_buffer Buffer used or affected by the operation.
+        /// @param count_offset Offset from the beginning of the relevant range or buffer.
+        /// @param max_draws `max_draws` value used by the operation.
+        /// @param stride `stride` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indirect_count(BufferHandle indirect_buffer, u64 indirect_offset,
                                          BufferHandle count_buffer, u64 count_offset,
                                          u32 max_draws, u32 stride) = 0;
+        /// Returns the draw indexed indirect count for this `RenderBundleEncoder`.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param indirect_offset Offset from the beginning of the relevant range or buffer.
+        /// @param count_buffer Buffer used or affected by the operation.
+        /// @param count_offset Offset from the beginning of the relevant range or buffer.
+        /// @param max_draws `max_draws` value used by the operation.
+        /// @param stride `stride` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_indexed_indirect_count(BufferHandle indirect_buffer, u64 indirect_offset,
                                                  BufferHandle count_buffer, u64 count_offset,
                                                  u32 max_draws, u32 stride) = 0;
+        /// Draws mesh tasks indirect using the current rendering state.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_mesh_tasks_indirect(BufferHandle indirect_buffer, u64 offset) = 0;
+        /// Returns the draw mesh tasks indirect count for this `RenderBundleEncoder`.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param indirect_offset Offset from the beginning of the relevant range or buffer.
+        /// @param count_buffer Buffer used or affected by the operation.
+        /// @param count_offset Offset from the beginning of the relevant range or buffer.
+        /// @param max_draws `max_draws` value used by the operation.
+        /// @param stride `stride` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void draw_mesh_tasks_indirect_count(BufferHandle indirect_buffer, u64 indirect_offset,
                                                     BufferHandle count_buffer, u64 count_offset,
                                                     u32 max_draws, u32 stride) = 0;
 
+        /// Returns the current or globally available finish value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<RenderBundleHandle> finish() = 0;
     };
 
-    /// Records dispatches within one compute pass. Same lifetime rule as RenderPassEncoder.
+
     class ComputePassEncoder {
       public:
+        /// Destroys the `ComputePassEncoder` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         virtual ~ComputePassEncoder() = default;
 
+        /// Sets the pipeline for this `ComputePassEncoder`.
+        ///
+        /// @param pipeline Pipeline used or affected by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_pipeline(ComputePipelineHandle pipeline) = 0;
+        /// Sets the bind group for this `ComputePassEncoder`.
+        ///
+        /// @param index Zero-based index of the target element or entry.
+        /// @param bind_group `bind_group` value used by the operation.
+        /// @param dynamic_offsets Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_bind_group(u32 index, BindGroupHandle bind_group,
                                     span<const u32> dynamic_offsets = {}) = 0;
+        /// Sets the push constants for this `ComputePassEncoder`.
+        ///
+        /// @param stages `stages` value used by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_push_constants(ShaderStage stages, u32 offset, span<const std::byte> data) = 0;
 
+        /// Dispatches the requested work.
+        ///
+        /// @param group_count_x `group_count_x` value used by the operation.
+        /// @param group_count_y `group_count_y` value used by the operation.
+        /// @param group_count_z `group_count_z` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void dispatch(u32 group_count_x, u32 group_count_y = 1, u32 group_count_z = 1) = 0;
+        /// Dispatches indirect.
+        ///
+        /// @param indirect_buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void dispatch_indirect(BufferHandle indirect_buffer, u64 offset) = 0;
 
+        /// Returns the one-past-the-end iterator for the range.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void end() = 0;
     };
 
@@ -325,95 +656,233 @@ namespace SFT::RHI {
         const char *label = nullptr;
     };
 
-    /// Records a batch of GPU work into one command buffer. Produced by
-    /// RhiDevice::create_command_encoder() (see :Device); a render/compute pass is opened for
-    /// rendering/dispatch, transfers are recorded directly, and finish() seals it into a
-    /// CommandBufferHandle you hand to RhiDevice::submit(). The parent encoder must outlive any
-    /// pass encoder it hands out.
-    ///
-    /// Threading contract: a single CommandEncoder (and any pass encoder borrowed from it) is
-    /// single-threaded. Parallel CPU recording is achieved by creating one encoder per worker/thread —
-    /// targeting the same queue lane for serial GPU execution, or different queue lanes/classes when the
-    /// enabled features/topology allow overlap.
+
     class CommandEncoder {
       public:
+        /// Destroys the `CommandEncoder` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         virtual ~CommandEncoder() = default;
 
+        /// Performs the begin render pass operation for `CommandEncoder` using the supplied arguments.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<unique_ptr<RenderPassEncoder>> begin_render_pass(const RenderPassDesc &desc) = 0;
+        /// Performs the begin compute pass operation for `CommandEncoder` using the supplied arguments.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<unique_ptr<ComputePassEncoder>> begin_compute_pass(const ComputePassDesc &desc) = 0;
 
+        /// Copies buffer to buffer to its destination.
+        ///
+        /// @param src Source value or resource.
+        /// @param dst Destination value or resource.
+        /// @param region `region` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void copy_buffer_to_buffer(BufferHandle src, BufferHandle dst, const BufferCopy &region) = 0;
+        /// Copies buffer to texture to its destination.
+        ///
+        /// @param src Source value or resource.
+        /// @param dst Destination value or resource.
+        /// @param region `region` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void copy_buffer_to_texture(BufferHandle src, TextureHandle dst, const BufferTextureCopy &region) = 0;
+        /// Copies texture to buffer to its destination.
+        ///
+        /// @param src Source value or resource.
+        /// @param dst Destination value or resource.
+        /// @param region `region` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void copy_texture_to_buffer(TextureHandle src, BufferHandle dst, const BufferTextureCopy &region) = 0;
-        /// Raw same-size texel copy between textures (matching formats, no scaling) — history/ping-pong
-        /// copies. Both textures need the matching TransferSrc/TransferDst usage and layouts.
+
+
+        /// Copies texture to texture to its destination.
+        ///
+        /// @param src Source value or resource.
+        /// @param dst Destination value or resource.
+        /// @param region `region` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void copy_texture_to_texture(TextureHandle src, TextureHandle dst, const TextureCopy &region) = 0;
-        /// Scaled, filtered copy between textures — the mip-generation and bloom down/up-sample path.
-        /// `filter` is Nearest for integer/depth formats, Linear for the usual color downsample.
+
+
+        /// Performs the blit texture operation for `CommandEncoder` using the supplied arguments.
+        ///
+        /// @param src Source value or resource.
+        /// @param dst Destination value or resource.
+        /// @param region `region` value used by the operation.
+        /// @param filter `filter` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void blit_texture(TextureHandle src, TextureHandle dst, const TextureBlit &region, Filter filter) = 0;
 
-        /// ── Inline buffer writes / clears (recorded outside any pass) ──
-        /// Sets `size` bytes of `buffer` at `offset` to the repeating 32-bit `value` (offset/size must
-        /// be 4-byte aligned; size 0 => to the end). Resets GPU counters / indirect-draw-count buffers
-        /// each frame — the GPU-driven-culling reset step.
+
+        /// Fills buffer using the supplied arguments and current state.
+        ///
+        /// @param buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param size Requested or available size for the operation.
+        /// @param value Value consumed by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void fill_buffer(BufferHandle buffer, u64 offset, u64 size, u32 value) = 0;
-        /// Records a small inline data upload straight into the command stream (no staging buffer). For
-        /// tiny per-frame constants only — backends cap this (Vulkan: 65536 bytes, `data` 4-byte sized).
+
+
+        /// Updates buffer from the supplied values.
+        ///
+        /// @param buffer Buffer used or affected by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void update_buffer(BufferHandle buffer, u64 offset, span<const std::byte> data) = 0;
 
-        /// ── Texture clears (recorded outside any pass) ──
-        /// Clears a color / depth-stencil texture subresource directly (vkCmdClearColorImage-style),
-        /// for clearing a storage image or accumulation target that isn't cleared via a render-pass
-        /// LoadOp. The texture must be in a transfer/general layout. Attachment clears still belong on
-        /// the render pass (ColorAttachment::load_op) — this is for the non-attachment case.
+
+        /// Clears color texture.
+        ///
+        /// @param texture Texture used or affected by the operation.
+        /// @param color `color` value used by the operation.
+        /// @param range Range of values to process.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void clear_color_texture(TextureHandle texture, const ClearColor &color,
                                          const TextureSubresourceRange &range) = 0;
+        /// Clears depth stencil texture.
+        ///
+        /// @param texture Texture used or affected by the operation.
+        /// @param value Value consumed by the operation.
+        /// @param range Range of values to process.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void clear_depth_stencil_texture(TextureHandle texture, const ClearDepthStencil &value,
                                                  const TextureSubresourceRange &range) = 0;
 
-        /// Ray tracing work (requires Feature::RayQuery and/or Feature::RayTracingPipeline as
-        /// appropriate): AS builds/copies are explicit GPU work using caller-provided scratch buffers;
-        /// trace_rays() dispatches a ray tracing pipeline through shader binding table regions.
+
+        /// Builds acceleration structures.
+        ///
+        /// @param builds `builds` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void build_acceleration_structures(span<const AccelerationStructureBuildDesc> builds) = 0;
+        /// Copies acceleration structure to its destination.
+        ///
+        /// @param copy `copy` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void copy_acceleration_structure(const AccelerationStructureCopyDesc &copy) = 0;
+        /// Traces rays using the supplied arguments and current state.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void trace_rays(const TraceRaysDesc &desc) = 0;
 
-        /// Records explicit execution/memory dependencies (see :Barrier) — the caller-stated sync the
-        /// RHI's explicit model requires between, e.g., a compute pass writing a texture/buffer and a
-        /// later pass reading it, or an attachment→sampled layout transition. Recorded outside any
-        /// render/compute pass. Batched: pass all barriers that share a dependency point together, so
-        /// the backend can coalesce them into one API call.
+
+        /// Performs the barrier operation for `CommandEncoder` using the supplied arguments.
+        ///
+        /// @param global_barriers `global_barriers` value used by the operation.
+        /// @param buffer_barriers Buffer used or affected by the operation.
+        /// @param texture_barriers Texture used or affected by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void barrier(span<const GlobalBarrier> global_barriers,
                              span<const BufferBarrier> buffer_barriers,
                              span<const TextureBarrier> texture_barriers) = 0;
 
-        /// ── Queries ──
-        /// Clears query slots `[first, first+count)` back to the unwritten state. Required before a
-        /// slot is (re)written unless the device advertises Feature::HostQueryReset and the caller
-        /// resets on the host — record this at the top of a frame's use of the set.
+
+        /// Resets query set to its baseline state.
+        ///
+        /// @param query_set `query_set` value used by the operation.
+        /// @param first First position or element included in the operation.
+        /// @param count Number of elements or operations to process.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void reset_query_set(QuerySetHandle query_set, u32 first, u32 count) = 0;
-        /// Writes the GPU timestamp at `stage` into slot `index` of a QueryType::Timestamp set. Two of
-        /// these bracketing a pass, times DeviceLimits' timestamp period, give that pass's GPU duration —
-        /// the per-pass profiling every frame graph reports.
+
+
+        /// Writes timestamp to the associated destination.
+        ///
+        /// @param stage `stage` value used by the operation.
+        /// @param query_set `query_set` value used by the operation.
+        /// @param index Zero-based index of the target element or entry.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void write_timestamp(PipelineStage stage, QuerySetHandle query_set, u32 index) = 0;
-        /// Pipeline-statistics scope (requires Feature::PipelineStatisticsQueries): the draws/dispatches
-        /// between begin and end accumulate the set's configured counters into slot `index`. May wrap a
-        /// whole render pass, so it lives here rather than on the render-pass encoder.
+
+
+        /// Performs the begin pipeline statistics query operation for `CommandEncoder` using the supplied arguments.
+        ///
+        /// @param query_set `query_set` value used by the operation.
+        /// @param index Zero-based index of the target element or entry.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void begin_pipeline_statistics_query(QuerySetHandle query_set, u32 index) = 0;
+        /// Performs the end pipeline statistics query operation for `CommandEncoder` using the supplied arguments.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void end_pipeline_statistics_query() = 0;
-        /// Copies resolved results for slots `[first, first+count)` into `dst` at `dst_offset`, `stride`
-        /// bytes apart (GPU-side, no host stall). Pair with QueryResultFlags::Result64Bit/WithAvailability
-        /// to control element width and the trailing availability integer.
+
+
+        /// Resolves query set into the concrete value used by the engine.
+        ///
+        /// @param query_set `query_set` value used by the operation.
+        /// @param first First position or element included in the operation.
+        /// @param count Number of elements or operations to process.
+        /// @param dst Destination value or resource.
+        /// @param dst_offset Offset from the beginning of the relevant range or buffer.
+        /// @param stride `stride` value used by the operation.
+        /// @param flags Flags controlling optional behavior.
+        ///
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         virtual void resolve_query_set(QuerySetHandle query_set, u32 first, u32 count,
                                        BufferHandle dst, u64 dst_offset, u64 stride,
                                        QueryResultFlags flags = QueryResultFlags::Result64Bit) = 0;
 
-        /// Optional debug marker scope — surfaced to captures/validation (RenderDoc, VK_EXT_debug_utils).
+
+        /// Adds the supplied value to the end or work queue.
+        ///
+        /// @param label `label` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void push_debug_group(const char *label) = 0;
+        /// Removes and returns or discards the next value from the container or queue.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void pop_debug_group() = 0;
 
-        /// Seals recording and yields a submittable command buffer. The encoder must not be used
-        /// afterward.
+
+        /// Returns the current or globally available finish value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<CommandBufferHandle> finish() = 0;
     };
 

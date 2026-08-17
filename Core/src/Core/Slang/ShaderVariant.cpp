@@ -6,8 +6,12 @@ namespace SFT::Core::Slang {
 namespace {
 
 
-
-
+    /// Resolves source text into the concrete value used by the engine.
+    ///
+    /// @param source Source value or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] string resolve_source_text(const ShaderSource &source) {
         if (source.kind == ShaderSourceKind::File) {
             if (auto loaded = Foundation::read_file_to_string(source.path)) {
@@ -18,6 +22,14 @@ namespace {
         return source.source;
     }
 
+    /// Reports whether disk cache is fresh for source.
+    ///
+    /// @param source Source value or resource.
+    /// @param cache_directory `cache_directory` value used by the operation.
+    /// @param cache_key Key used to identify the requested entry.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool disk_cache_is_fresh_for_source(
         const ShaderSource &source,
         const std::filesystem::path &cache_directory,
@@ -30,12 +42,24 @@ namespace {
 
 } // namespace
 
+/// Performs the shader variant key operation for `Slang` using the supplied arguments.
+///
+/// @param defines `defines` value used by the operation.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 ShaderVariantKey::ShaderVariantKey(std::initializer_list<ShaderMacro> defines) {
             for (const ShaderMacro &define : defines) {
                 set(define.name, define.value);
             }
         }
 
+/// Performs the set operation for `Slang` using the supplied arguments.
+///
+/// @param name Name used to identify or label the target.
+/// @param value Value consumed by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 ShaderVariantKey &ShaderVariantKey::set(string name, string value) {
             const auto it = std::lower_bound(defines_.begin(), defines_.end(), name,
                                              [](const ShaderMacro &macro, const string &key) { return macro.name < key; });
@@ -47,6 +71,12 @@ ShaderVariantKey &ShaderVariantKey::set(string name, string value) {
             return *this;
         }
 
+/// Performs the unset operation for `Slang` using the supplied arguments.
+///
+/// @param name Name used to identify or label the target.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 ShaderVariantKey &ShaderVariantKey::unset(string_view name) {
             const auto it = std::lower_bound(defines_.begin(), defines_.end(), name,
                                              [](const ShaderMacro &macro, string_view key) { return macro.name < key; });
@@ -56,18 +86,40 @@ ShaderVariantKey &ShaderVariantKey::unset(string_view name) {
             return *this;
         }
 
+/// Performs the has operation for `Slang` using the supplied arguments.
+///
+/// @param name Name used to identify or label the target.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool ShaderVariantKey::has(string_view name) const noexcept {
             const auto it = std::lower_bound(defines_.begin(), defines_.end(), name,
                                              [](const ShaderMacro &macro, string_view key) { return macro.name < key; });
             return it != defines_.end() && it->name == name;
         }
 
+/// Reports whether this `Slang` contains no elements or payload.
+///
+/// @return Returns the current empty value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool ShaderVariantKey::empty() const noexcept { return defines_.empty(); }
 
+/// Returns the current or globally available defines value.
+///
+/// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function does not throw exceptions.
 [[nodiscard]] const vector<ShaderMacro> &ShaderVariantKey::defines() const noexcept { return defines_; }
 
+/// Converts the value to macros representation.
+///
+/// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function does not throw exceptions.
 [[nodiscard]] const vector<ShaderMacro> &ShaderVariantKey::to_macros() const noexcept { return defines_; }
 
+/// Returns the current or globally available canonical value.
+///
+/// @return Returns the current canonical value.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] string ShaderVariantKey::canonical() const {
             string out;
             for (const ShaderMacro &define : defines_) {
@@ -81,6 +133,10 @@ ShaderVariantKey &ShaderVariantKey::unset(string_view name) {
             return out;
         }
 
+/// Hashes the supplied or associated value/state using the supplied arguments and current state.
+///
+/// @return Returns the current hash value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] u64 ShaderVariantKey::hash() const noexcept {
             u64 value = 0xcbf29ce484222325ull;
             for (const ShaderMacro &define : defines_) {
@@ -96,33 +152,80 @@ ShaderVariantKey &ShaderVariantKey::unset(string_view name) {
             return value;
         }
 
+/// Performs the shader variant cache operation for `Slang` using the supplied arguments.
+///
+/// @param source Source value or resource.
+/// @param base_options Configuration values controlling the operation.
+/// @param compiler `compiler` value used by the operation.
+/// @param enable_disk_cache Whether the associated behavior is enabled.
+/// @param disk_cache_directory `disk_cache_directory` value used by the operation.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 ShaderVariantCache::ShaderVariantCache(ShaderSource source, ShaderCompileOptions base_options, ShaderCompiler compiler,
                                        bool enable_disk_cache, std::filesystem::path disk_cache_directory)
             : compiler_(std::move(compiler)), source_(std::move(source)), base_options_(std::move(base_options)),
               enable_disk_cache_(enable_disk_cache), disk_cache_directory_(std::move(disk_cache_directory)) {}
 
+/// Returns the current or globally available source value.
+///
+/// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function does not throw exceptions.
 [[nodiscard]] const ShaderSource &ShaderVariantCache::source() const noexcept { return source_; }
 
+/// Returns the current or globally available base options value.
+///
+/// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function does not throw exceptions.
 [[nodiscard]] const ShaderCompileOptions &ShaderVariantCache::base_options() const noexcept { return base_options_; }
 
+/// Sets the source for this `Slang`.
+///
+/// @param source Source value or resource.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void ShaderVariantCache::set_source(ShaderSource source) {
             source_ = std::move(source);
             variants_.clear();
         }
 
+/// Returns the current or globally available invalidate value.
+///
+/// @return Returns the current invalidate value.
+/// @note This function does not throw exceptions.
 void ShaderVariantCache::invalidate() noexcept { variants_.clear(); }
 
+/// Releases compiler memory using the supplied arguments and current state.
+///
+/// @return Returns the current release compiler memory value.
+/// @note This function does not throw exceptions.
 void ShaderVariantCache::release_compiler_memory() noexcept {
     variants_.clear();
     compiler_.release_session();
 }
 
+/// Returns the size for this `Slang`.
+///
+/// @return Returns the current size value.
+/// @note This function does not throw exceptions.
 [[nodiscard]] usize ShaderVariantCache::size() const noexcept { return variants_.size(); }
 
+/// Reports whether contains holds for this `Slang`.
+///
+/// @param key Key used to identify the requested entry.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] bool ShaderVariantCache::contains(const ShaderVariantKey &key) const {
             return variants_.find(key.canonical()) != variants_.end();
         }
 
+/// Returns the or compile associated with this `Slang`.
+///
+/// @param key Key used to identify the requested entry.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 [[nodiscard]] ShaderExpected<Shader> ShaderVariantCache::get_or_compile(const ShaderVariantKey &key) {
             const string canonical = key.canonical();
             if (const auto it = variants_.find(canonical); it != variants_.end()) {
@@ -178,9 +281,6 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                             }
 
 
-
-
-
                             const ShaderCacheTargetArtifact *reflection_artifact = requested_artifacts.front();
                             if (const auto dxil = std::ranges::find_if(
                                     requested_artifacts,
@@ -206,7 +306,6 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
             }
 
             if (enable_disk_cache_) {
-
 
 
                 ShaderCacheEntry entry =
@@ -244,7 +343,6 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
                     } else if (options.targets.size() == 1) {
 
 
-
                         *existing = std::move(artifact);
                     }
                 }
@@ -257,12 +355,23 @@ void ShaderVariantCache::release_compiler_memory() noexcept {
             return inserted->second;
         }
 
+/// Returns the or compile base associated with this `Slang`.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 [[nodiscard]] ShaderExpected<Shader> ShaderVariantCache::get_or_compile_base() { return get_or_compile(ShaderVariantKey{}); }
 
 } // namespace SFT::Core::Slang
 
 namespace SFT::Core::Slang {
 
+    /// Compares the operands for equality.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    ///
+    /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     bool operator==(const ShaderVariantKey &a, const ShaderVariantKey &b) noexcept {
         if (a.defines_.size() != b.defines_.size()) {
             return false;

@@ -1,6 +1,5 @@
 
 
-
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -18,10 +17,14 @@ namespace SFT::D3D12 {
     namespace {
 
 
-
-
         enum class RegisterClass : u32 { Cbv, Srv, Uav, Sampler };
 
+        /// Registers class of using the supplied arguments and current state.
+        ///
+        /// @param type Type value to inspect, select, or convert.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RegisterClass register_class_of(rhi::BindingType type) noexcept {
             switch (type) {
                 case rhi::BindingType::UniformBuffer: return RegisterClass::Cbv;
@@ -34,8 +37,6 @@ namespace SFT::D3D12 {
                 case rhi::BindingType::AccelerationStructure:
 
 
-
-
                 case rhi::BindingType::InputAttachment:
                     return RegisterClass::Srv;
                 case rhi::BindingType::CombinedImageSampler:
@@ -44,6 +45,12 @@ namespace SFT::D3D12 {
             return RegisterClass::Srv;
         }
 
+        /// Converts the value to range type representation.
+        ///
+        /// @param klass `klass` value used by the operation.
+        ///
+        /// @return Returns the value converted to range type representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_DESCRIPTOR_RANGE_TYPE to_range_type(RegisterClass klass) noexcept {
             switch (klass) {
                 case RegisterClass::Cbv: return D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
@@ -54,10 +61,22 @@ namespace SFT::D3D12 {
             return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         }
 
+        /// Binds the supplied resource or state for subsequent operations.
+        ///
+        /// @param type Type value to inspect, select, or convert.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool binding_uses_sampler(rhi::BindingType type) noexcept {
             return type == rhi::BindingType::Sampler || type == rhi::BindingType::CombinedImageSampler;
         }
 
+        /// Binds the supplied resource or state for subsequent operations.
+        ///
+        /// @param type Type value to inspect, select, or convert.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool binding_uses_resource_descriptor(rhi::BindingType type) noexcept {
             return type != rhi::BindingType::Sampler;
         }
@@ -67,9 +86,20 @@ namespace SFT::D3D12 {
             UINT element_count = 0;
             UINT structure_stride = 0;
 
+            /// Reports whether raw holds for this `BufferDescriptorRange`.
+            ///
+            /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] bool is_raw() const noexcept { return structure_stride == 0; }
         };
 
+        /// Performs the buffer descriptor range operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param buffer Buffer used or affected by the operation.
+        /// @param entry `entry` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] rhi::RhiExpected<BufferDescriptorRange> buffer_descriptor_range(
             const BufferRecord &buffer,
             const rhi::BindGroupEntry &entry) {
@@ -109,9 +139,13 @@ namespace SFT::D3D12 {
         }
 
 
-
-
-
+        /// Converts the value to range flags representation.
+        ///
+        /// @param flags Flags controlling optional behavior.
+        /// @param is_sampler Sampler used or affected by the operation.
+        ///
+        /// @return Returns the value converted to range flags representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D12_DESCRIPTOR_RANGE_FLAGS to_range_flags(rhi::BindingFlags flags,
                                                                    bool is_sampler) noexcept {
             D3D12_DESCRIPTOR_RANGE_FLAGS result = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
@@ -128,14 +162,18 @@ namespace SFT::D3D12 {
     } // namespace
 
 
-
+    /// Creates a bind group layout from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::BindGroupLayoutHandle> D3D12Device::create_bind_group_layout(
         const rhi::BindGroupLayoutDesc &desc) {
         ZoneScopedN("D3D12Device::create_bind_group_layout");
 
         BindGroupLayoutRecord record{};
         record.entries.assign(desc.entries.begin(), desc.entries.end());
-
 
 
         std::ranges::sort(record.entries, [](const rhi::BindGroupLayoutEntry &a,
@@ -208,12 +246,23 @@ namespace SFT::D3D12 {
         return bind_group_layouts_.insert(std::move(record));
     }
 
+    /// Destroys the bind group layout identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_bind_group_layout(rhi::BindGroupLayoutHandle handle) noexcept {
         bind_group_layouts_.erase(handle);
     }
 
 
-
+    /// Creates a pipeline layout from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::PipelineLayoutHandle> D3D12Device::create_pipeline_layout(
         const rhi::PipelineLayoutDesc &desc) {
         ZoneScopedN("D3D12Device::create_pipeline_layout");
@@ -223,7 +272,6 @@ namespace SFT::D3D12 {
         record.sets.resize(record.set_layouts.size());
 
         vector<CD3DX12_ROOT_PARAMETER1> parameters;
-
 
 
         vector<vector<CD3DX12_DESCRIPTOR_RANGE1>> range_storage;
@@ -237,8 +285,6 @@ namespace SFT::D3D12 {
             }
             const UINT space = static_cast<UINT>(set_index);
             SetRootParameters &mapping = record.sets[set_index];
-
-
 
 
             for (const DynamicSlot &slot : layout->dynamic_slots) {
@@ -306,7 +352,6 @@ namespace SFT::D3D12 {
         }
 
 
-
         if (!desc.push_constant_ranges.empty()) {
             u32 end_bytes = 0;
             rhi::ShaderStage stages = rhi::ShaderStage::None;
@@ -326,8 +371,6 @@ namespace SFT::D3D12 {
             CD3DX12_ROOT_PARAMETER1 parameter{};
 
 
-
-
             parameter.InitAsConstants(record.push_constant_values, 0, 0,
                                       to_d3d12_visibility(stages));
             record.push_constant_root_parameter = static_cast<i32>(parameters.size());
@@ -335,16 +378,10 @@ namespace SFT::D3D12 {
         }
 
 
-
-
-
-
         CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC root_signature_desc{};
         root_signature_desc.Init_1_1(static_cast<UINT>(parameters.size()),
                                      parameters.empty() ? nullptr : parameters.data(), 0, nullptr,
                                      D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-
-
 
 
         D3D12_FEATURE_DATA_ROOT_SIGNATURE root_signature_support{D3D_ROOT_SIGNATURE_VERSION_1_1};
@@ -374,19 +411,29 @@ namespace SFT::D3D12 {
         set_debug_name(record.root_signature.Get(), desc.label);
 
 
-
         record.root_signature_content_hash =
             fnv1a_bytes(fnv1a_offset_basis, blob->GetBufferPointer(), blob->GetBufferSize());
 
         return pipeline_layouts_.insert(std::move(record));
     }
 
+    /// Destroys the pipeline layout identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_pipeline_layout(rhi::PipelineLayoutHandle handle) noexcept {
         pipeline_layouts_.erase(handle);
     }
 
 
-
+    /// Creates a bind group from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::BindGroupHandle> D3D12Device::create_bind_group(const rhi::BindGroupDesc &desc) {
         ZoneScopedN("D3D12Device::create_bind_group");
 
@@ -402,7 +449,6 @@ namespace SFT::D3D12 {
                 return invalid_argument(
                     "create_bind_group: variable_descriptor_count exceeds the layout's declared maximum.");
             }
-
 
 
             resource_count = variable.table_offset + desc.variable_descriptor_count;
@@ -437,11 +483,6 @@ namespace SFT::D3D12 {
             }
             record.samplers = *range;
         }
-
-
-
-
-
 
 
         vector<D3D12_CPU_DESCRIPTOR_HANDLE> resource_copy_dests;
@@ -496,7 +537,6 @@ namespace SFT::D3D12 {
                         const u64 size = entry.size != 0 ? entry.size : buffer->size - entry.offset;
                         const D3D12_CONSTANT_BUFFER_VIEW_DESC cbv{
                             .BufferLocation = buffer->gpu_address + entry.offset,
-
 
 
                             .SizeInBytes = static_cast<UINT>(align_up(size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT)),
@@ -625,6 +665,12 @@ namespace SFT::D3D12 {
         return bind_groups_.insert(std::move(record));
     }
 
+    /// Releases bind group descriptors using the supplied arguments and current state.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::release_bind_group_descriptors(BindGroupRecord &record) noexcept {
         cpu_resource_descriptors_.release(record.resources);
         cpu_sampler_descriptors_.release(record.samplers);
@@ -632,6 +678,12 @@ namespace SFT::D3D12 {
         record.samplers = {};
     }
 
+    /// Destroys the bind group identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_bind_group(rhi::BindGroupHandle handle) noexcept {
         ZoneScopedN("D3D12Device::destroy_bind_group");
         if (auto record = bind_groups_.extract(handle)) {

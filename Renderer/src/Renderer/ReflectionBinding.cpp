@@ -5,6 +5,12 @@
 
 namespace SFT::Renderer {
 
+/// Converts the backend-specific value to the corresponding RHI representation.
+///
+/// @param stage `stage` value used by the operation.
+///
+/// @return Returns the value converted to RHI shader stage representation.
+/// @note This function does not throw exceptions.
 RHI::ShaderStage to_rhi_shader_stage(slang::ShaderStage stage) noexcept {
         switch (stage) {
             case slang::ShaderStage::Vertex: return RHI::ShaderStage::Vertex;
@@ -28,6 +34,12 @@ RHI::ShaderStage to_rhi_shader_stage(slang::ShaderStage stage) noexcept {
         return RHI::ShaderStage::None;
     }
 
+/// Performs the reflected stage mask operation for `Renderer` using the supplied arguments.
+///
+/// @param reflection `reflection` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 RHI::ShaderStage reflected_stage_mask(const slang::ShaderReflection &reflection) noexcept {
         RHI::ShaderStage mask = RHI::ShaderStage::None;
         for (const slang::ShaderEntryPointReflection &entry : reflection.entry_points) {
@@ -36,6 +48,13 @@ RHI::ShaderStage reflected_stage_mask(const slang::ShaderReflection &reflection)
         return mask == RHI::ShaderStage::None ? RHI::ShaderStage::AllGraphics : mask;
     }
 
+/// Converts the backend-specific value to the corresponding RHI representation.
+///
+/// @param type Type value to inspect, select, or convert.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
+/// @note This function does not throw exceptions.
 optional<RHI::BindingType> to_rhi_binding_type(slang::ShaderBindingType type) noexcept {
         switch (type) {
             case slang::ShaderBindingType::Sampler: return RHI::BindingType::Sampler;
@@ -72,6 +91,12 @@ namespace {
         u32 count = 1;
     };
 
+    /// Collects descriptor bindings using the supplied arguments and current state.
+    ///
+    /// @param reflection `reflection` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<ReflectedDescriptorBinding> collect_descriptor_bindings(
         const slang::ShaderReflection &reflection) {
         vector<ReflectedDescriptorBinding> descriptors;
@@ -106,8 +131,6 @@ namespace {
         });
 
 
-
-
         for (usize begin = 0; begin < descriptors.size();) {
             const u32 set = descriptors[begin].set;
             usize end = begin + 1;
@@ -135,6 +158,14 @@ namespace {
 
 } // namespace
 
+/// Performs the generate bind group layouts operation for `Renderer` using the supplied arguments.
+///
+/// @param reflection `reflection` value used by the operation.
+/// @param visibility `visibility` value used by the operation.
+/// @param bindless_array_max_count Number of elements or operations to process.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
         const slang::ShaderReflection &reflection,
         RHI::ShaderStage visibility,
@@ -167,6 +198,13 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
         return layouts;
     }
 
+/// Performs the generate push constant ranges operation for `Renderer` using the supplied arguments.
+///
+/// @param reflection `reflection` value used by the operation.
+/// @param stages `stages` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<RHI::PushConstantRange> generate_push_constant_ranges(const slang::ShaderReflection &reflection, RHI::ShaderStage stages) {
         vector<RHI::PushConstantRange> ranges;
         for (const slang::ShaderParameterReflection &parameter : reflection.global_parameters) {
@@ -193,11 +231,25 @@ vector<RHI::PushConstantRange> generate_push_constant_ranges(const slang::Shader
 
 namespace SFT::Renderer::detail {
 
+/// Reports whether numeric leaf holds for this `detail`.
+///
+/// @param type Type value to inspect, select, or convert.
+///
+/// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+/// @note This function does not throw exceptions.
 bool is_numeric_leaf(const slang::ShaderTypeReflection &type) noexcept {
             return type.kind == slang::ShaderTypeKind::Scalar || type.kind == slang::ShaderTypeKind::Vector ||
                    type.kind == slang::ShaderTypeKind::Matrix;
         }
 
+/// Collects uniform leaves using the supplied arguments and current state.
+///
+/// @param type Type value to inspect, select, or convert.
+/// @param name Name used to identify or label the target.
+/// @param base_offset Offset from the beginning of the relevant range or buffer.
+/// @param out `out` value used by the operation.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void collect_uniform_leaves(const slang::ShaderTypeReflection &type,
                                            const string &name,
                                            u64 base_offset,
@@ -228,13 +280,18 @@ void collect_uniform_leaves(const slang::ShaderTypeReflection &type,
             }
 
 
-
         }
 
 } // namespace SFT::Renderer::detail
 
 namespace SFT::Renderer {
 
+/// Collects uniform fields using the supplied arguments and current state.
+///
+/// @param reflection `reflection` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<ReflectedUniform> collect_uniform_fields(const slang::ShaderReflection &reflection) {
         vector<ReflectedUniform> uniforms;
         for (const slang::ShaderParameterReflection &param : reflection.global_parameters) {
@@ -246,6 +303,12 @@ vector<ReflectedUniform> collect_uniform_fields(const slang::ShaderReflection &r
         return uniforms;
     }
 
+/// Collects resource bindings using the supplied arguments and current state.
+///
+/// @param reflection `reflection` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<ReflectedResource> collect_resource_bindings(const slang::ShaderReflection &reflection) {
         vector<ReflectedResource> resources;
         for (const ReflectedDescriptorBinding &descriptor : collect_descriptor_bindings(reflection)) {

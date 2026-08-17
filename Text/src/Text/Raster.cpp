@@ -2,6 +2,13 @@
 
 namespace SFT::Text {
 
+/// Selects raster format that best satisfies the supplied requirements.
+///
+/// @param long_side_px `long_side_px` value used by the operation.
+/// @param previous `previous` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 RasterFormat select_raster_format(f32 long_side_px, RasterFormat previous) noexcept {
         constexpr f32 upshift_threshold = 32.0f;
         constexpr f32 downshift_threshold = 28.0f;
@@ -11,6 +18,12 @@ RasterFormat select_raster_format(f32 long_side_px, RasterFormat previous) noexc
         return long_side_px > upshift_threshold ? RasterFormat::MSDF : RasterFormat::SDF;
     }
 
+/// Performs the glyph bounds operation for `Text` using the supplied arguments.
+///
+/// @param outline `outline` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 GlyphBounds glyph_bounds(const GlyphOutline &outline) {
         if (outline.contours.empty()) {
             return {};
@@ -30,6 +43,12 @@ GlyphBounds glyph_bounds(const GlyphOutline &outline) {
 
 namespace SFT::Text::Detail {
 
+/// Converts the value to msdfgen shape representation.
+///
+/// @param outline `outline` value used by the operation.
+///
+/// @return Returns the value converted to msdfgen shape representation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 msdfgen::Shape to_msdfgen_shape(const GlyphOutline &outline) {
             msdfgen::Shape shape;
             for (const Contour &contour : outline.contours) {
@@ -65,6 +84,12 @@ msdfgen::Shape to_msdfgen_shape(const GlyphOutline &outline) {
             return shape;
         }
 
+/// Converts the value to unorm byte representation.
+///
+/// @param value Value consumed by the operation.
+///
+/// @return Returns the value converted to unorm byte representation.
+/// @note This function does not throw exceptions.
 u8 to_unorm_byte(float value) noexcept {
             const float clamped = std::clamp(value, 0.0f, 1.0f);
             return static_cast<u8>(clamped * 255.0f + 0.5f);
@@ -74,6 +99,15 @@ u8 to_unorm_byte(float value) noexcept {
 
 namespace SFT::Text {
 
+/// Rasterizes glyph using the supplied arguments and current state.
+///
+/// @param outline `outline` value used by the operation.
+/// @param format Format used for the resource, render target, or conversion.
+/// @param params `params` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`.
 TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, RasterFormat format,
                                                                        const RasterParams &params) {
         if (params.width == 0 || params.height == 0) {
@@ -103,17 +137,6 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
         msdfgen::Shape shape = Detail::to_msdfgen_shape(outline);
 
 
-
-
-
-
-
-
-
-
-
-
-
         shape.orientContours();
         shape.normalize();
         if (format == RasterFormat::MSDF) {
@@ -128,13 +151,6 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
         const double translate_y = params.translation
                                        ? static_cast<double>(params.translation->y)
                                        : static_cast<double>(params.padding_px) / scale - bounds.b;
-
-
-
-
-
-
-
 
 
         result.bearing_x = static_cast<f32>(-translate_x * scale);

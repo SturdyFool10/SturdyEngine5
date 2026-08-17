@@ -39,23 +39,23 @@ namespace SFT::RHI {
     struct QueueSemaphoreWait {
         SemaphoreHandle semaphore{};
         u64 value = 0;
-        /// Vulkan consumes a destination stage mask for waits. APIs without stage-specific waits ignore
-        /// this and wait at queue scope. `AllCommands` is always correct; tighter masks preserve overlap.
+                                                                                                        
+                                                                                                          
         PipelineStage stages = PipelineStage::AllCommands;
     };
 
     struct QueueSemaphoreSignal {
         SemaphoreHandle semaphore{};
         u64 value = 0;
-        /// Mostly documentation today, but maps to APIs/extensions that can associate signal scope with
-        /// a stage and lets validation/debug layers explain producer intent.
+                                                                                                        
+                                                                             
         PipelineStage stages = PipelineStage::AllCommands;
     };
 
     enum class SubmitFlags : u32 {
         None = 0,
-        /// Backend may optimize for one-shot command buffers and recycle them after the associated
-        /// fence/timeline value completes. Do not set for reusable command buffers.
+                                                                                                   
+                                                                                    
         OneShot = 1u << 0,
     };
 
@@ -64,9 +64,9 @@ namespace SFT::RHI {
         span<const CommandBufferHandle> command_buffers;
         span<const QueueSemaphoreWait> waits;
         span<const QueueSemaphoreSignal> signals;
-        /// Acquired swapchain textures this submission renders into and makes ready for presentation.
-        /// Backends map this portable producer intent to their native WSI synchronization (Vulkan uses
-        /// internal binary render-finished semaphores; timeline semaphores remain the public cross-queue primitive).
+                                                                                                      
+                                                                                                       
+                                                                                                                     
         span<const SurfaceTexture> presented_textures;
         FenceHandle fence{};
         SubmitFlags flags = SubmitFlags::None;

@@ -35,6 +35,12 @@ namespace SFT::Renderer {
 
     namespace {
 
+        /// Performs the bytes per texel operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 bytes_per_texel(RHI::Format format) noexcept {
             switch (format) {
                 case RHI::Format::R8Unorm: return 1;
@@ -51,6 +57,12 @@ namespace SFT::Renderer {
             u32 reference_ppem = 1;
         };
 
+        /// Computes the format index required by the supplied values.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr usize format_index(Text::RasterFormat format) noexcept {
             switch (format) {
                 case Text::RasterFormat::SDF: return 0;
@@ -60,6 +72,12 @@ namespace SFT::Renderer {
             return 0;
         }
 
+        /// Performs the atlas texture label operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr const char *atlas_texture_label(Text::RasterFormat format) noexcept {
             switch (format) {
                 case Text::RasterFormat::SDF: return "text SDF atlas image";
@@ -69,6 +87,12 @@ namespace SFT::Renderer {
             return "text atlas image";
         }
 
+        /// Performs the atlas view label operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr const char *atlas_view_label(Text::RasterFormat format) noexcept {
             switch (format) {
                 case Text::RasterFormat::SDF: return "text SDF atlas image view";
@@ -79,8 +103,14 @@ namespace SFT::Renderer {
         }
 
 
-
-
+        /// Resolves the raster plan associated with the supplied key, handle, or resource.
+        ///
+        /// @param request `request` value used by the operation.
+        /// @param distance_padding_px `distance_padding_px` value used by the operation.
+        /// @param max_raster_extent `max_raster_extent` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RasterPlan raster_plan_for(const GlyphRequest &request, f32 distance_padding_px,
                                                  u32 max_raster_extent) noexcept {
             const f32 padding = request.format == Text::RasterFormat::Color ? color_padding_px : distance_padding_px;
@@ -137,9 +167,13 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
+        /// Performs the expand RGB to rgba operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param rgb `rgb` value used by the operation.
+        /// @param out `out` value used by the operation.
+        /// @param write_offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void expand_rgb_to_rgba(span<const u8> rgb, vector<std::byte> &out, usize write_offset) {
             const usize pixel_count = rgb.size() / 3;
             for (usize i = 0; i < pixel_count; ++i) {
@@ -154,6 +188,12 @@ namespace SFT::Renderer {
 
     } // namespace
 
+    /// Invokes the callable behavior provided by `Renderer`.
+    ///
+    /// @param key Key used to identify the requested entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     usize GlyphKeyHash::operator()(const GlyphKey &key) const noexcept {
         ZoneScopedN("GlyphKeyHash::operator");
         u64 hashed = key.font_id;
@@ -163,6 +203,13 @@ namespace SFT::Renderer {
         return static_cast<usize>(hashed);
     }
 
+    /// Performs the slot from rect operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param rect `rect` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     GlyphSlot TextAtlas::slot_from_rect(Text::RasterFormat format, RectLocation rect) const noexcept {
         ZoneScopedN("TextAtlas::slot_from_rect");
         const f32 raster_width = static_cast<f32>(rect.raster_width);
@@ -190,6 +237,14 @@ namespace SFT::Renderer {
         };
     }
 
+    /// Creates a `Renderer` resource or value from the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param config Configuration values controlling the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<TextAtlas> TextAtlas::create(RHI::RhiDevice &device, const Config &config) {
         ZoneScopedN("TextAtlas::create");
         TextAtlas atlas;
@@ -211,6 +266,15 @@ namespace SFT::Renderer {
         return atlas;
     }
 
+    /// Creates a tile from the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param size Requested or available size for the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<TextAtlas::Tile> TextAtlas::create_tile(RHI::RhiDevice &device,
                                                                    Text::RasterFormat format, u32 size) {
         ZoneScopedN("TextAtlas::create_tile");
@@ -251,6 +315,15 @@ namespace SFT::Renderer {
         return tile;
     }
 
+    /// Appends the supplied value or range to the current contents.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param size Requested or available size for the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult TextAtlas::append_tile(RHI::RhiDevice &device, Text::RasterFormat format, u32 size) {
         ZoneScopedN("TextAtlas::append_tile");
         FormatAtlas &atlas = format_atlas(format);
@@ -266,6 +339,17 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Grows tile using the supplied arguments and current state.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param encoder `encoder` value used by the operation.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param new_size Requested or available size for the operation.
+    /// @param out_retired_resources `out_retired_resources` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult TextAtlas::grow_tile(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                Text::RasterFormat format, u32 new_size,
                                                TextAtlasRetiredResources &out_retired_resources) {
@@ -282,7 +366,6 @@ namespace SFT::Renderer {
         }
         Tile replacement = std::move(*replacement_result);
         Tile previous = std::move(atlas.tiles.front());
-
 
 
         replacement.free_rects = previous.free_rects;
@@ -344,6 +427,19 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Allocates rect.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param encoder `encoder` value used by the operation.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param protected_keys `protected_keys` value used by the operation.
+    /// @param out_retired_resources `out_retired_resources` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<TextAtlas::RectLocation>
     TextAtlas::allocate_rect(RHI::RhiDevice &device, RHI::CommandEncoder &encoder, Text::RasterFormat format,
                              u32 width, u32 height, span<const GlyphKey> protected_keys,
@@ -393,7 +489,6 @@ namespace SFT::Renderer {
                         tile.free_rects.push_back(rect);
                     }
                 };
-
 
 
                 if (remaining_width > remaining_height) {
@@ -456,6 +551,13 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Releases rect using the supplied arguments and current state.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param rect `rect` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextAtlas::release_rect(Text::RasterFormat format, RectLocation rect) noexcept {
         ZoneScopedN("TextAtlas::release_rect");
         FormatAtlas &atlas = format_atlas(format);
@@ -469,7 +571,6 @@ namespace SFT::Renderer {
             .width = rect.raster_width,
             .height = rect.raster_height,
         });
-
 
 
         bool merged = true;
@@ -509,6 +610,18 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Finds or creates the resident required by the operation.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param encoder `encoder` value used by the operation.
+    /// @param requests `requests` value used by the operation.
+    /// @param out_slots `out_slots` value used by the operation.
+    /// @param out_transient_buffers Buffer used or affected by the operation.
+    /// @param out_retired_resources `out_retired_resources` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult TextAtlas::ensure_resident(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                      span<const GlyphRequest> requests, vector<GlyphSlot> &out_slots,
                                                      vector<RHI::BufferHandle> &out_transient_buffers,
@@ -517,7 +630,6 @@ namespace SFT::Renderer {
         out_slots.assign(requests.size(), GlyphSlot{});
         vector<GlyphKey> request_keys(requests.size());
         vector<PendingUpload> misses;
-
 
 
         for (const GlyphRequest &request : requests) {
@@ -537,18 +649,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
         struct Resolved {
             GlyphKey key{};
             bool hit = false;
@@ -558,9 +658,7 @@ namespace SFT::Renderer {
         vector<Resolved> resolved(requests.size());
 
 
-
         array<vector<GlyphKey>, 3> unique_batch_keys;
-
 
 
         array<u64, 3> unique_miss_area{};
@@ -660,7 +758,6 @@ namespace SFT::Renderer {
         }
 
 
-
         std::ranges::sort(misses, [](const PendingUpload &a, const PendingUpload &b) {
             if (a.rect.raster_height != b.rect.raster_height) {
                 return a.rect.raster_height > b.rect.raster_height;
@@ -696,8 +793,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
         for (usize i = 0; i < requests.size(); ++i) {
             const GlyphRequest &request = requests[i];
             const GlyphKey &key = request_keys[i];
@@ -712,6 +807,18 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Uploads misses using the supplied arguments and current state.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param encoder `encoder` value used by the operation.
+    /// @param requests `requests` value used by the operation.
+    /// @param misses `misses` value used by the operation.
+    /// @param out_slots `out_slots` value used by the operation.
+    /// @param out_transient_buffers Buffer used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult TextAtlas::upload_misses(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                   span<const GlyphRequest> requests, const vector<PendingUpload> &misses,
                                                   vector<GlyphSlot> &out_slots, vector<RHI::BufferHandle> &out_transient_buffers) {
@@ -760,7 +867,6 @@ namespace SFT::Renderer {
         }
 
 
-
         usize total_bytes = 0;
         vector<usize> byte_offsets(misses.size());
         vector<usize> row_pitches(misses.size());
@@ -768,7 +874,6 @@ namespace SFT::Renderer {
             const Text::RasterFormat format = requests[misses[i].request_index].format;
             const usize texel_bytes = bytes_per_texel(texture_format(format));
             const usize row_bytes = static_cast<usize>(misses[i].rect.raster_width) * texel_bytes;
-
 
 
             total_bytes = (total_bytes + 511u) & ~usize{511u};
@@ -813,7 +918,6 @@ namespace SFT::Renderer {
             device.destroy_buffer(*staging);
             return unexpected(graphics_error_from_rhi(written.error(), "write text atlas staging buffer"));
         }
-
 
 
         vector<std::pair<Text::RasterFormat, u32>> touched_tiles;
@@ -884,14 +988,17 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
         out_transient_buffers.push_back(*staging);
         return {};
     }
 
+    /// Performs the tile view operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param tile_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     RHI::TextureViewHandle TextAtlas::tile_view(Text::RasterFormat format, u32 tile_index) const noexcept {
         ZoneScopedN("TextAtlas::tile_view");
         const FormatAtlas &atlas = format_atlas(format);
@@ -901,11 +1008,23 @@ namespace SFT::Renderer {
         return atlas.tiles[tile_index].view;
     }
 
+    /// Returns the tile count for this `Renderer`.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the requested count or size.
+    /// @note This function does not throw exceptions.
     u32 TextAtlas::tile_count(Text::RasterFormat format) const noexcept {
         ZoneScopedN("TextAtlas::tile_count");
         return static_cast<u32>(format_atlas(format).tiles.size());
     }
 
+    /// Destroys or releases the `Renderer` resource represented by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextAtlas::destroy(RHI::RhiDevice &device) noexcept {
         ZoneScopedN("TextAtlas::destroy");
         for (FormatAtlas *atlas : {&sdf_, &msdf_, &color_}) {

@@ -19,17 +19,16 @@
 
 namespace SFT::Ecs {
 
-    /// A typed view over every entity whose archetype has (at least) every component in `Ts...`.
-    /// Built by World::query<Ts...>() — never constructed directly (it only takes a raw archetype
-    /// vector + match list, both World-owned). Each `Ts` in the pack is either `Component` (write
-    /// access) or `const Component` (read access); that const-qualification *is* the access
-    /// declaration Ecs/System.hpp's Schedule derives conflict detection from, so a system's data
-    /// dependencies never need declaring twice. Deliberately depends only on Archetype.hpp, not
-    /// World.hpp — World.hpp includes this header, not the other way around.
+
     template <class... Ts>
     class Query {
       private:
         struct DirectAccessToken {
+            /// Constructs a `DirectAccessToken` from the supplied initialization values.
+            ///
+            /// @param access `access` value used by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             explicit DirectAccessToken(std::shared_lock<std::shared_mutex> access) noexcept
                 : access(std::move(access)) {}
 
@@ -39,6 +38,14 @@ namespace SFT::Ecs {
       public:
         static constexpr usize ComponentCount = sizeof...(Ts);
 
+        /// Constructs a `Query` from the supplied initialization values.
+        ///
+        /// @param archetypes `archetypes` value used by the operation.
+        /// @param archetype_indices `archetype_indices` value used by the operation.
+        /// @param ids `ids` value used by the operation.
+        /// @param direct_access_lock `direct_access_lock` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         Query(std::vector<Archetype> *archetypes,
               std::vector<u32> archetype_indices,
               std::array<ComponentId, ComponentCount> ids,
@@ -50,25 +57,62 @@ namespace SFT::Ecs {
             }
         }
 
+        /// Disables this construction form for `Query`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Query(const Query &) = delete;
+        /// Assigns a new value to this `Query`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         Query &operator=(const Query &) = delete;
+        /// Constructs a `Query` from another instance.
+        ///
+        /// @note This function does not throw exceptions.
         Query(Query &&) noexcept = default;
+        /// Assigns a new value to this `Query`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         Query &operator=(Query &&) noexcept = default;
 
-        /// A stable row range within one matching archetype. Direct chunks share their Query's World
-        /// borrow token; Schedule chunks rely on Schedule's exclusive World borrow. A chunk is
-        /// move-only so one mutable row range cannot accidentally be dispatched more than once.
+
         class Chunk {
           public:
+            /// Disables this construction form for `Chunk`.
+            ///
+            /// @note This overload is deleted; attempting to call it is a compile-time error.
             Chunk(const Chunk &) = delete;
+            /// Assigns a new value to this `Chunk`.
+            ///
+            /// @return Returns `*this` so the operation can be chained.
+            /// @note This overload is deleted; attempting to call it is a compile-time error.
             Chunk &operator=(const Chunk &) = delete;
+            /// Constructs a `Chunk` from another instance.
+            ///
+            /// @note This function does not throw exceptions.
             Chunk(Chunk &&) noexcept = default;
+            /// Assigns a new value to this `Chunk`.
+            ///
+            /// @return Returns `*this` so the operation can be chained.
+            /// @note This function does not throw exceptions.
             Chunk &operator=(Chunk &&) noexcept = default;
 
+            /// Returns the size for this `Chunk`.
+            ///
+            /// @return Returns the current size value.
+            /// @note This function does not throw exceptions.
+            /// Returns the size for this `Chunk`.
+            ///
+            /// @return Returns the current size value.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] usize size() const noexcept {
                 return static_cast<usize>(end_row_ - begin_row_);
             }
 
+            /// Performs the each operation for `Chunk` using the supplied arguments.
+            ///
+            /// @note This function does not throw exceptions.
             template <class F>
             void each(F &&fn) const noexcept {
                 ZoneScopedN("Query::Chunk::each");
@@ -82,6 +126,15 @@ namespace SFT::Ecs {
           private:
             friend class Query;
 
+            /// Constructs a `Chunk` from the supplied initialization values.
+            ///
+            /// @param archetype `archetype` value used by the operation.
+            /// @param columns `columns` value used by the operation.
+            /// @param begin_row `begin_row` value used by the operation.
+            /// @param end_row `end_row` value used by the operation.
+            /// @param direct_access_token `direct_access_token` value used by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             Chunk(Archetype *archetype,
                   std::array<u32, ComponentCount> columns,
                   u32 begin_row,
@@ -90,6 +143,9 @@ namespace SFT::Ecs {
                 : archetype_(archetype), columns_(columns), begin_row_(begin_row), end_row_(end_row),
                   direct_access_token_(std::move(direct_access_token)) {}
 
+            /// Performs the invoke row operation for `Chunk` using the supplied arguments.
+            ///
+            /// @note This function does not throw exceptions.
             template <class F, usize... Is>
             void invoke_row(F &fn, u32 row, std::index_sequence<Is...>) const noexcept {
                 std::invoke(fn,
@@ -104,6 +160,13 @@ namespace SFT::Ecs {
             std::shared_ptr<DirectAccessToken> direct_access_token_;
         };
 
+        /// Performs the chunks operation for `Query` using the supplied arguments.
+        ///
+        /// @param minimum_rows_per_chunk `minimum_rows_per_chunk` value used by the operation.
+        /// @param target_parallelism `target_parallelism` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::vector<Chunk> chunks(usize minimum_rows_per_chunk, usize target_parallelism) const {
             ZoneScopedN("Query::chunks");
             minimum_rows_per_chunk = std::max<usize>(1, minimum_rows_per_chunk);
@@ -175,18 +238,35 @@ namespace SFT::Ecs {
 
         class Iterator {
           public:
+            /// Constructs a `Iterator` in its default state.
+            ///
+            /// @note This function does not throw exceptions.
             Iterator() noexcept = default;
 
+            /// Compares the operands for inequality.
+            ///
+            /// @param other Other object used by the operation.
+            ///
+            /// @return Returns `true` when the operands differ; otherwise returns `false`.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] bool operator!=(const Iterator &other) const noexcept {
                 return archetype_position_ != other.archetype_position_ || row_ != other.row_;
             }
 
+            /// Advances the `Iterator` to its next value or element.
+            ///
+            /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+            /// @note This function does not throw exceptions.
             Iterator &operator++() noexcept {
                 ++row_;
                 advance_to_valid();
                 return *this;
             }
 
+            /// Dereferences this iterator or handle.
+            ///
+            /// @return Returns the value or reference currently addressed by the iterator/handle.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] std::tuple<Entity, Ts &...> operator*() const noexcept {
                 return dereference(std::make_index_sequence<ComponentCount>{});
             }
@@ -194,6 +274,14 @@ namespace SFT::Ecs {
           private:
             friend class Query;
 
+            /// Constructs a `Iterator` from the supplied initialization values.
+            ///
+            /// @param archetypes `archetypes` value used by the operation.
+            /// @param archetype_indices `archetype_indices` value used by the operation.
+            /// @param ids `ids` value used by the operation.
+            /// @param archetype_position `archetype_position` value used by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             Iterator(std::vector<Archetype> *archetypes, const std::vector<u32> *archetype_indices, const std::array<ComponentId, ComponentCount> *ids, usize archetype_position) noexcept
                 : archetypes_(archetypes), archetype_indices_(archetype_indices), ids_(ids),
                   archetype_position_(archetype_position) {
@@ -201,6 +289,9 @@ namespace SFT::Ecs {
                 advance_to_valid();
             }
 
+            /// Resolves columns into the concrete value used by the engine.
+            ///
+            /// @note This function does not throw exceptions.
             void resolve_columns() noexcept {
                 if (archetype_position_ >= archetype_indices_->size()) {
                     return;
@@ -216,10 +307,10 @@ namespace SFT::Ecs {
                 }
             }
 
-            /// Skips archetypes with no rows left, resetting row_ to 0 each time archetype_position_
-            /// advances, until either a non-empty archetype is found or every matching archetype is
-            /// exhausted. The exhausted state (archetype_position_ == archetype_indices_->size(),
-            /// row_ == 0) is exactly what end() constructs by hand, so the two compare equal.
+
+            /// Reports whether advance to valid is valid for the current operation.
+            ///
+            /// @note This function does not throw exceptions.
             void advance_to_valid() noexcept {
                 while (archetype_position_ < archetype_indices_->size() &&
                        row_ >= (*archetypes_)[(*archetype_indices_)[archetype_position_]].size()) {
@@ -229,6 +320,10 @@ namespace SFT::Ecs {
                 }
             }
 
+            /// Returns the current or globally available dereference value.
+            ///
+            /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+            /// @note This function does not throw exceptions.
             template <usize... Is>
             [[nodiscard]] std::tuple<Entity, Ts &...> dereference(std::index_sequence<Is...>) const noexcept {
                 Archetype &archetype = (*archetypes_)[(*archetype_indices_)[archetype_position_]];
@@ -246,10 +341,18 @@ namespace SFT::Ecs {
             std::array<u32, ComponentCount> columns_{};
         };
 
+        /// Returns an iterator to the first element in the range.
+        ///
+        /// @return Returns an iterator referring to the first element.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Iterator begin() const noexcept {
             return Iterator(archetypes_, &archetype_indices_, &ids_, 0);
         }
 
+        /// Returns the one-past-the-end iterator for the range.
+        ///
+        /// @return Returns the one-past-the-end iterator.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Iterator end() const noexcept {
             Iterator it;
             it.archetype_position_ = archetype_indices_.size();
@@ -260,8 +363,8 @@ namespace SFT::Ecs {
         std::vector<Archetype> *archetypes_;
         std::vector<u32> archetype_indices_;
         std::array<ComponentId, ComponentCount> ids_;
-        /// Direct queries and chunks share a World borrow. Scheduled queries leave this empty because
-        /// Schedule already owns the World's exclusive execution borrow.
+
+
         std::shared_ptr<DirectAccessToken> direct_access_token_;
     };
 

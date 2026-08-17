@@ -2,6 +2,12 @@
 
 namespace SFT::Core::Vulkan {
 
+/// Returns a human-readable name for the supplied surface provider value.
+///
+/// @param provider `provider` value used by the operation.
+///
+/// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+/// @note This function does not throw exceptions.
 const char *surface_provider_name(SurfaceProvider provider) noexcept {
         switch (provider) {
             case SurfaceProvider::SDL3:
@@ -15,6 +21,12 @@ const char *surface_provider_name(SurfaceProvider provider) noexcept {
         }
     }
 
+/// Returns a human-readable name for the supplied surface system value.
+///
+/// @param system `system` value used by the operation.
+///
+/// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+/// @note This function does not throw exceptions.
 const char *surface_system_name(SurfaceSystem system) noexcept {
         switch (system) {
             case SurfaceSystem::Win32:
@@ -30,6 +42,12 @@ const char *surface_system_name(SurfaceSystem system) noexcept {
         }
     }
 
+/// Returns a human-readable name for the supplied vulkan format value.
+///
+/// @param fmt `fmt` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 UString vulkan_format_name(VkFormat fmt) {
 #define SFT_VULKAN_FORMAT_NAME(format) \
     case format:                       \
@@ -175,6 +193,12 @@ UString vulkan_format_name(VkFormat fmt) {
         return std::format("VK_FORMAT_UNKNOWN({})", static_cast<int>(fmt));
     }
 
+/// Returns a human-readable name for the supplied physical device type value.
+///
+/// @param type Type value to inspect, select, or convert.
+///
+/// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+/// @note This function does not throw exceptions.
 const char *physical_device_type_name(VkPhysicalDeviceType type) noexcept {
         switch (type) {
             case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
@@ -190,6 +214,12 @@ const char *physical_device_type_name(VkPhysicalDeviceType type) noexcept {
         }
     }
 
+/// Returns a human-readable name for the supplied vendor value.
+///
+/// @param vendor_id Identifier of the target object or resource.
+///
+/// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+/// @note This function does not throw exceptions.
 const char *vendor_name(u32 vendor_id) noexcept {
         switch (vendor_id) {
             case 0x1002:
@@ -213,6 +243,13 @@ const char *vendor_name(u32 vendor_id) noexcept {
         }
     }
 
+/// Formats driver version using the supplied arguments and current state.
+///
+/// @param vendor_id Identifier of the target object or resource.
+/// @param version `version` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 UString format_driver_version(u32 vendor_id, u32 version) {
         if (vendor_id == 0x10DE) {
             return std::format("{}.{}.{}.{}",
@@ -232,6 +269,12 @@ UString format_driver_version(u32 vendor_id, u32 version) {
                            version & 0xFFF);
     }
 
+/// Converts the value to surface system representation.
+///
+/// @param system `system` value used by the operation.
+///
+/// @return Returns the value converted to surface system representation.
+/// @note This function does not throw exceptions.
 SurfaceSystem to_surface_system(NativeWindowSystem system) noexcept {
         switch (system) {
             case NativeWindowSystem::Win32:
@@ -247,6 +290,12 @@ SurfaceSystem to_surface_system(NativeWindowSystem system) noexcept {
         }
     }
 
+/// Converts the value to surface provider representation.
+///
+/// @param kind `kind` value used by the operation.
+///
+/// @return Returns the value converted to surface provider representation.
+/// @note This function does not throw exceptions.
 SurfaceProvider to_surface_provider(WindowBackendKind kind) noexcept {
         switch (kind) {
             case WindowBackendKind::SDL3:

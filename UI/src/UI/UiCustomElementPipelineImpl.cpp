@@ -23,12 +23,26 @@ namespace SFT::UI {
     namespace {
         namespace slang = Core::Slang;
 
+        /// Creates an error result describing the supplied custom element failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError custom_element_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
     } // namespace
 
+    /// Finds shader in the available state.
+    ///
+    /// @param shader Shader used or affected by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     UiCustomElementPipeline::CachedShader *UiCustomElementPipeline::find_shader(const CustomShaderRef &shader,
                                                                                 RHI::Format color_format) noexcept {
         for (CachedShader &candidate : shaders_) {
@@ -40,6 +54,15 @@ namespace SFT::UI {
         return nullptr;
     }
 
+    /// Finds or creates the shader required by the operation.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param shader Shader used or affected by the operation.
+    /// @param enable_shader_disk_cache Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<UiCustomElementPipeline::CachedShader *> UiCustomElementPipeline::ensure_shader(
         RHI::RhiDevice &device, RHI::Format color_format, const CustomShaderRef &shader, bool enable_shader_disk_cache) {
         if (shader.shader_path.empty() || shader.module_name.empty() || shader.fragment_entry_point.empty()) {
@@ -184,6 +207,16 @@ namespace SFT::UI {
         return &shaders_.back();
     }
 
+    /// Prepares the required state or resources for a later operation.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param draws Draw descriptions processed in submission order.
+    /// @param enable_shader_disk_cache Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult UiCustomElementPipeline::prepare(RHI::RhiDevice &device, RHI::Format color_format,
                                                            span<const CustomDraw> draws, bool enable_shader_disk_cache) {
         for (const CustomDraw &draw : draws) {
@@ -198,6 +231,16 @@ namespace SFT::UI {
         return {};
     }
 
+    /// Draws the requested content using the current rendering state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param draws Draw descriptions processed in submission order.
+    /// @param viewport_size Requested or available size for the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult UiCustomElementPipeline::draw(RHI::RenderPassEncoder &pass, RHI::Format color_format,
                                                         span<const CustomDraw> draws, glm::vec2 viewport_size) {
         for (const CustomDraw &draw : draws) {
@@ -236,6 +279,12 @@ namespace SFT::UI {
         return {};
     }
 
+    /// Destroys or releases the `UI` resource represented by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiCustomElementPipeline::destroy(RHI::RhiDevice &device) noexcept {
         for (CachedShader &resource : shaders_) {
             if (resource.pipeline) device.destroy_render_pipeline(resource.pipeline);

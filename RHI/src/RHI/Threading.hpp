@@ -4,8 +4,6 @@
 namespace SFT::RHI {
 
 
-
-
 #if defined(STURDY_RHI_FORCE_SINGLE_THREADED)
     inline constexpr bool compile_time_rhi_multithreading_allowed = false;
 #elif defined(STURDY_PLATFORM_WEB)
@@ -21,11 +19,11 @@ namespace SFT::RHI {
 #endif
 
     enum class RenderThreadingMode : u8 {
-        /// Everything, including event pumping and graphics calls, runs on the caller/main thread.
+
         SingleThreaded,
-        /// A dedicated render owner thread executes all RHI/backend calls. Other threads may prepare CPU data.
+
         DedicatedRenderThread,
-        /// Multiple workers may record command work in parallel, subject to backend object ownership rules.
+
         ParallelCommandRecording,
     };
 
@@ -37,6 +35,12 @@ namespace SFT::RHI {
         RenderThreadingMode recommended_mode = RenderThreadingMode::SingleThreaded;
     };
 
+    /// Selects render threading mode that best satisfies the supplied requirements.
+    ///
+    /// @param caps `caps` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr RenderThreadingMode choose_render_threading_mode(RenderThreadingCapabilities caps) noexcept {
         if (!compile_time_rhi_multithreading_allowed || !caps.platform_allows_threads) {
             return RenderThreadingMode::SingleThreaded;

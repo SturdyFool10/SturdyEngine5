@@ -11,11 +11,7 @@
 
 using std::vector;
 
-/// Pure, stateless dock-tree layout solve — no Context/Clay dependency, same "usable/testable
-/// standalone" reasoning as DockTypes.hpp itself. DockWorkspace calls this once per frame and
-/// immediately hit-tests its own (non-stale) result against this same frame's pointer position —
-/// unlike Context::hovered()'s one-frame-stale contract, this is plain top-down arithmetic over
-/// already-known geometry, so there's no staleness to reason about here.
+
 namespace SFT::UI::Docking {
 
     struct DockNodeLayout {
@@ -28,11 +24,30 @@ namespace SFT::UI::Docking {
 
     namespace Detail {
 
+        /// Performs the solve dock layout operation using the supplied arguments.
+        ///
+        /// @param tree `tree` value used by the operation.
+        /// @param id Identifier of the target object or resource.
+        /// @param rect `rect` value used by the operation.
+        /// @param tab_strip_height `tab_strip_height` value used by the operation.
+        /// @param divider_thickness `divider_thickness` value used by the operation.
+        /// @param out `out` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void solve_dock_layout(const DockTree &tree, DockNodeId id, DockRect rect, f32 tab_strip_height,
                                        f32 divider_thickness, vector<DockNodeLayout> &out);
 
     } // namespace Detail
 
+    /// Computes dock layout using the supplied arguments and current state.
+    ///
+    /// @param tree `tree` value used by the operation.
+    /// @param workspace_rect `workspace_rect` value used by the operation.
+    /// @param tab_strip_height `tab_strip_height` value used by the operation.
+    /// @param divider_thickness `divider_thickness` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] vector<DockNodeLayout> compute_dock_layout(const DockTree &tree, DockRect workspace_rect,
                                                                      f32 tab_strip_height, f32 divider_thickness);
 

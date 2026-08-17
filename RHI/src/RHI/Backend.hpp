@@ -25,21 +25,6 @@ using std::vector;
 namespace SFT::RHI {
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-    /// A backend's instance factory. Returns a fresh `RhiInstance` for that API, or an error if the
-    /// driver/loader is missing at runtime even though the backend was compiled in.
     using InstanceFactory = RhiExpected<unique_ptr<RhiInstance>> (*)(const InstanceDesc &);
 
     struct BackendRegistration {
@@ -48,9 +33,7 @@ namespace SFT::RHI {
         InstanceFactory create_instance = nullptr;
     };
 
-    /// The default order `preferred_backend()` walks when the caller doesn't state a priority. Listed
-    /// most-preferred first; a caller wanting native-API-first on a specific platform passes its own
-    /// priority span instead.
+
     inline constexpr BackendType default_backend_priority[] = {
         BackendType::Vulkan,
         BackendType::D3D12,
@@ -58,28 +41,74 @@ namespace SFT::RHI {
         BackendType::WebGpu,
     };
 
-    /// An application-owned set of the backends available this run. Populate it at startup, then query
-    /// availability and mint instances from it.
+
     class BackendRegistry {
       public:
-        /// Adds (or replaces, if the same BackendType is already present) a backend.
+
+        /// Registers backend using the supplied arguments and current state.
+        ///
+        /// @param registration `registration` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void register_backend(const BackendRegistration &registration);
 
+        /// Returns the current or globally available backends value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] span<const BackendRegistration> backends() const noexcept;
+        /// Reports whether this `BackendRegistry` contains no elements or payload.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool empty() const noexcept;
+        /// Reports whether available holds for this `BackendRegistry`.
+        ///
+        /// @param backend Backend value to inspect, select, or convert.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_available(BackendType backend) const noexcept;
 
+        /// Finds the requested entry in the available state.
+        ///
+        /// @param backend Backend value to inspect, select, or convert.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const BackendRegistration *find(BackendType backend) const noexcept;
 
-        /// The first available backend in `priority`, else the first registered backend, else nullopt.
+
+        /// Performs the preferred backend operation for `BackendRegistry` using the supplied arguments.
+        ///
+        /// @param priority `priority` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<BackendType> preferred_backend(
             span<const BackendType> priority = default_backend_priority) const noexcept;
 
-        /// Mints an instance for `backend`. Fails with `Unsupported` if that backend isn't registered.
+
+        /// Creates a instance from the supplied parameters.
+        ///
+        /// @param backend Backend value to inspect, select, or convert.
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`.
         [[nodiscard]] RhiExpected<unique_ptr<RhiInstance>> create_instance(
             BackendType backend, const InstanceDesc &desc) const;
 
-        /// Mints an instance for the preferred available backend.
+
+        /// Creates a preferred instance from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::Unsupported`.
         [[nodiscard]] RhiExpected<unique_ptr<RhiInstance>> create_preferred_instance(
             const InstanceDesc &desc) const;
 
@@ -87,7 +116,13 @@ namespace SFT::RHI {
         vector<BackendRegistration> backends_;
     };
 
-    /// A backend's display name, using its registration's `name` when set or `backend_type_name()`.
+
+    /// Returns a human-readable name for the supplied backend display value.
+    ///
+    /// @param registration `registration` value used by the operation.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] string_view backend_display_name(const BackendRegistration &registration) noexcept;
 
 } // namespace SFT::RHI

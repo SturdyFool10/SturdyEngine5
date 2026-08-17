@@ -20,51 +20,34 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    /// GPU-visible per-glyph instance data for the SDF/MSDF text pipeline (Shaders/text_sdf.slang).
-    /// One instance = one glyph quad. `position`/`size` are in the render target's pixel space
-    /// (top-left origin, matching the fullscreen-triangle convention in Shaders/sturdy_common.slang
-    /// and Shaders/fullscreen_tonemap.slang — no Y-flip); for 3D world-space text the caller
-    /// projects the glyph's world-space quad corners to screen pixels before filling this in — the
-    /// shader itself only ever draws flat, screen-aligned pixel-space quads. `rotation` (radians,
-    /// counter-clockwise) turns the quad's `size` axes around `position` before that projection —
-    /// needed for text-on-a-spline (Renderer/Spline.cppm's GlyphPathPlacement2D::rotation feeds
-    /// straight into this) and incidentally makes ordinary rotated 2D labels possible too.
-    /// Field order is deliberate, not cosmetic: it must byte-match Shaders/text_sdf.slang's
-    /// GlyphInstance exactly, and Slang lays out StructuredBuffer elements with std430 rules
-    /// (vec2 aligned to 8, vec4 aligned to 16, the whole struct padded to a multiple of its
-    /// largest member's alignment) — rules plain C++ struct layout doesn't follow on its own. The
-    /// two vec2 pairs (8-byte aligned, 16 bytes total) then the vec4 (16-byte aligned, already at
-    /// a 32-byte/16-aligned offset) then four floats (16 bytes, no trailing pad needed) happen to
-    /// lay out identically under both C++'s natural alignment and std430 with zero gaps either
-    /// way — reordering the fields (or `stem_darkening_px`) is a hard requirement, not tidiness.
+
     struct GlyphInstance {
         glm::vec2 position{0.0f};
         glm::vec2 size{0.0f};
         glm::vec2 uv_min{0.0f};
         glm::vec2 uv_max{0.0f};
         glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
-        /// `rotation` (radians, counter-clockwise) turns the quad's `size` axes around `position`
-        /// before pixel-space projection — needed for text-on-a-spline
-        /// (Renderer/Spline.cppm's GlyphPathPlacement2D::rotation feeds straight into this) and
-        /// incidentally makes ordinary rotated 2D labels possible too.
+
+
         f32 rotation = 0.0f;
-        /// 0 = SDF (sample R, distance math), 1 = MSDF (median RGB, distance math), 2 = Color
-        /// (sample RGBA straight through, alpha-modulated only — no distance math; see
-        /// Text::RasterFormat::Color / Text/ColorGlyph.cppm).
+
+
         f32 format_kind = 0.0f;
-        /// Encoded distance band width in atlas texels. The fragment shader combines this with
-        /// fwidth(UV) and the actual atlas dimensions to recover screen-pixel distance, remaining
-        /// exact under non-uniform scale and rotation.
+
+
         f32 distance_pixel_range = 2.0f;
-        /// Stem-darkening bias, in screen pixels, added to the SDF/MSDF coverage threshold before
-        /// the alpha cutoff — see resolved_stem_darkening_px() below for what this counteracts and
-        /// why it ramps out at larger sizes.
+
+
         f32 stem_darkening_px = 0.0f;
     };
 
-    /// Maps a raster format onto GlyphInstance::format_kind — the one place this mapping is
-    /// spelled out, reused everywhere a GlyphInstance gets built from a TextAtlas::GlyphSlot
-    /// (Renderer/TextCanvasImpl.cpp, Renderer/TextRenderTargetImpl.cpp, ...).
+
+    /// Formats kind value using the supplied arguments and current state.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f32 format_kind_value(Text::RasterFormat format) noexcept {
         switch (format) {
             case Text::RasterFormat::SDF: return 0.0f;
@@ -74,19 +57,14 @@ namespace SFT::Renderer {
         return 0.0f;
     }
 
-    /// One glyph placed at a specific position, ready to be resolved against a TextAtlas and drawn
-    /// — the shared "what to draw and where" shape for anything that renders a batch of glyphs
-    /// without the caller manually calling TextAtlas::ensure_resident() and building GlyphInstances
-    /// itself (Renderer/TextCanvas.cppm's per-tile glyph store, Renderer/TextRenderTarget.cppm).
-    /// `outline`/`font` are non-owning — see TextAtlas::GlyphRequest's identical contract.
+
     struct GlyphPlacement {
         glm::vec2 position{0.0f};
-        /// Desired on-screen em-box size, not the padded atlas-raster size. make_glyph_instance()
-        /// expands the actual quad by the resident raster's guard pixels while preserving this
-        /// font size, so padding never makes the visible glyph smaller or changes its advance.
+
+
         glm::vec2 size{0.0f};
-        /// Radians counter-clockwise around the pen origin. make_glyph_instance() rotates both the
-        /// pen-to-raster bearing and the quad axes, so curved/rotated text does not drift.
+
+
         f32 rotation = 0.0f;
         glm::vec4 color{1.0f, 1.0f, 1.0f, 1.0f};
         u64 font_id = 0;
@@ -96,17 +74,21 @@ namespace SFT::Renderer {
         Text::RasterFormat format = Text::RasterFormat::SDF;
         const Text::GlyphOutline *outline = nullptr;
         const Text::Font *font = nullptr;
-        /// On by default — see resolved_stem_darkening_px(). A caller that wants perfectly literal
-        /// vector-accurate edges (e.g. an exported/print-preview path where optical compensation
-        /// would be wrong) sets this false to get the raw distance field untouched.
+
+
         bool stem_darkening = true;
     };
 
-    /// A small embolden bias (in screen pixels) applied to the SDF/MSDF coverage threshold at small
-    /// on-screen sizes, ramping to zero by `max_ppem`. Scalable SDF/MSDF outlines are unhinted
-    /// (Text::glyph_outline pulls straight from glyf/CFF, without grid-fitting), which preserves
-    /// shape at arbitrary transforms but can make small text look thin. Fixed-size hinted callers
-    /// disable this compensation so it is never applied twice.
+
+    /// Resolves the requested value into the concrete value used by the engine.
+    ///
+    /// @param pixel_size Requested or available size for the operation.
+    /// @param min_ppem `min_ppem` value used by the operation.
+    /// @param max_ppem `max_ppem` value used by the operation.
+    /// @param max_strength `max_strength` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f32 resolved_stem_darkening_px(f32 pixel_size, f32 min_ppem = 14.0f, f32 max_ppem = 28.0f,
                                                             f32 max_strength = 0.22f) noexcept {
         if (pixel_size >= max_ppem) {
@@ -118,30 +100,30 @@ namespace SFT::Renderer {
         return max_strength * (1.0f - (pixel_size - min_ppem) / (max_ppem - min_ppem));
     }
 
-    /// Builds a GlyphInstance from a resolved atlas slot — the one place `format_kind`,
-    /// `distance_pixel_range`, and `stem_darkening_px` get computed, reused by every draw path
-    /// (Renderer/RendererTextOverlay.cpp, Renderer/TextCanvasImpl.cpp,
-    /// Renderer/TextRenderTargetImpl.cpp) instead of each hand-rolling the same struct literal.
-    /// `position` is taken separately (not `placement.position`) since a tiled caller
-    /// (Renderer::TextCanvas) needs it relative to its tile's origin, not the placement's absolute
-    /// canvas position.
+
+    /// Creates a glyph instance value from the supplied arguments.
+    ///
+    /// @param position `position` value used by the operation.
+    /// @param placement `placement` value used by the operation.
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param atlas_pixel_range Range of values to process.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] GlyphInstance make_glyph_instance(glm::vec2 position, const GlyphPlacement &placement,
                                                             const GlyphSlot &slot, f32 atlas_pixel_range) noexcept;
 
     struct TextDrawBatch {
         Text::RasterFormat format = Text::RasterFormat::SDF;
         u32 tile_index = 0;
-        /// The scissor rect every instance in this batch was placed under — see TextPipeline::
-        /// prepare()'s own doc comment for the (format, tile, scissor, paint_group) batching key
-        /// this drives.
+
+
         RHI::Rect2D scissor{};
-        /// Which caller-defined paint-order group this batch's instances belong to — 0 for every
-        /// caller that has no such concept (the debug text overlay, offscreen TextRenderTarget/
-        /// TextCanvas — see prepare()'s own doc comment), UiRenderer's actual interleaving key
-        /// otherwise (mirrors UiQuadDrawBatch::paint_group exactly).
+
+
         u32 paint_group = 0;
-        /// Owned by the caller's independently fenced resource slot. It remains allocated across
-        /// frames and grows only when this slot's instance capacity is exceeded.
+
+
         RHI::BufferHandle instance_buffer{};
         u32 first_instance = 0;
         u32 instance_count = 0;
@@ -152,10 +134,7 @@ namespace SFT::Renderer {
         vector<BoundGroup> bind_groups;
     };
 
-    /// Persistent GPU state for one independently fenced text workload. The main renderer owns one
-    /// per frame-in-flight slot; offscreen text targets/canvas tiles own one beside their texture.
-    /// Buffers grow but never shrink, and bind groups are rebuilt only when that buffer grows or the
-    /// atlas image view changes.
+
     struct TextFrameResources {
         struct BindingCacheEntry {
             Text::RasterFormat format = Text::RasterFormat::SDF;
@@ -166,51 +145,76 @@ namespace SFT::Renderer {
 
         RHI::BufferHandle instance_buffer{};
         u64 instance_capacity_bytes = 0;
-        /// Exact CPU mirror of the last successful upload. Static text can revisit this frame slot
-        /// without issuing another host-to-GPU write; comparison is field-wise so struct padding
-        /// never participates.
+
+
         vector<GlyphInstance> uploaded_instances;
         vector<BindingCacheEntry> binding_cache;
     };
 
+    /// Destroys the text frame resources identified by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void destroy_text_frame_resources(RHI::RhiDevice &device, TextFrameResources &resources) noexcept;
 
-    /// The instanced glyph-quad GPU pipeline: one render pipeline (Shaders/text_sdf.slang, alpha
-    /// blended, no depth test) driving vertex-pulled instanced draws, one per (format, atlas tile,
-    /// scissor, paint_group) batch — so a whole run of unclipped same-format text still costs one
-    /// draw call per atlas tile it touches, almost always one, once the adaptively sized atlas image
-    /// for that format has reached steady state (see Renderer/TextAtlas.cpp); nested clip regions
-    /// and paint-order group boundaries each add their own batch boundary, mirroring
-    /// UiQuadPipeline's identical (texture, scissor, paint_group) batching.
+
     class TextPipeline {
       public:
+        /// Constructs a `TextPipeline` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         TextPipeline() noexcept = default;
 
+        /// Creates a `TextPipeline` resource or value from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param color_format Format used for the resource, render target, or conversion.
+        /// @param enable_shader_disk_cache Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] static Core::RendererExpected<TextPipeline> create(
             RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache = true);
 
-        /// Forms consecutive (format, tile, scissor, paint_group) batches without reordering painter
-        /// order — `instance_scissors[i]` is the clip rect `instances[i]` was placed under (a caller
-        /// with no nested clipping just repeats one full-target rect for every instance).
-        /// `instance_paint_groups[i]` is the caller's paint-order group id for instance i — required
-        /// to match too, alongside format/tile/scissor, before two instances merge into one batch
-        /// (a caller with no such concept, e.g. the debug text overlay, just repeats 0 for every
-        /// instance, same as passing no extra key at all). `resources` belongs to a fence-retired
-        /// frame slot (or a synchronous offscreen owner), so its buffer and bind groups can be
-        /// updated/reused without racing another in-flight frame.
+
+        /// Prepares the required state or resources for a later operation.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param atlas `atlas` value used by the operation.
+        /// @param instances Instance used or affected by the operation.
+        /// @param slots `slots` value used by the operation.
+        /// @param instance_scissors Instance used or affected by the operation.
+        /// @param instance_paint_groups Instance used or affected by the operation.
+        /// @param resources `resources` value used by the operation.
+        /// @param out_batches `out_batches` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult prepare(RHI::RhiDevice &device, const TextAtlas &atlas,
                                                    span<const GlyphInstance> instances, span<const GlyphSlot> slots,
                                                    span<const RHI::Rect2D> instance_scissors,
                                                    span<const u32> instance_paint_groups,
                                                    TextFrameResources &resources, vector<TextDrawBatch> &out_batches);
 
-        /// Issues one instanced draw per batch against `pass`, setting each batch's own scissor
-        /// first — a caller does not need to (and should not) call pass.set_scissor() itself around
-        /// draw(), mirroring UiQuadPipeline::draw()'s identical contract. `viewport_size` is the
-        /// render target's pixel dimensions.
+
+        /// Draws the requested content using the current rendering state.
+        ///
+        /// @param pass Render-pass encoder that receives the draw commands.
+        /// @param batches `batches` value used by the operation.
+        /// @param viewport_size Requested or available size for the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass,
                                                 span<const TextDrawBatch> batches, glm::vec2 viewport_size);
 
+        /// Destroys or releases the `TextPipeline` resource represented by the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy(RHI::RhiDevice &device) noexcept;
 
       private:

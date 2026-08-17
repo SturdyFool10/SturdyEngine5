@@ -3,6 +3,13 @@
 
 namespace SFT::UI {
 
+    /// Performs the dropdown part ID operation for `UI` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param part `part` value used by the operation.
+    /// @param option_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     UString dropdown_part_id(const UString &id, DropdownVisualPart part, std::optional<usize> option_index) {
         if (part == DropdownVisualPart::Trigger)
             return id;
@@ -19,6 +26,21 @@ namespace SFT::UI {
         return UString{id.cpp_string() + suffix};
     }
 
+    /// Performs the dropdown operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param id Identifier of the target object or resource.
+    /// @param trigger_decl `trigger_decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param selected_index Zero-based index of the target element or entry.
+    /// @param options Configuration values controlling the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    /// @param composition `composition` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     DropdownResult dropdown(Context &ctx, const UString &id, const ElementDecl &trigger_decl, const DropdownStyle &style, DropdownState &state, f32 delta_seconds, usize selected_index, span<const DropdownOption> options, bool enabled, const DropdownComposition &composition) {
         DropdownResult result{.selected_index = selected_index};
         const bool anchor_enabled = enabled && composition.anchor.enabled;
@@ -95,8 +117,6 @@ namespace SFT::UI {
             if (show_indicator) {
 
 
-
-
                 const bool attaches_right = style.arrow_attach_point == FloatingAttachPoint::RightTop ||
                                             style.arrow_attach_point == FloatingAttachPoint::RightCenter ||
                                             style.arrow_attach_point == FloatingAttachPoint::RightBottom;
@@ -137,7 +157,6 @@ namespace SFT::UI {
                     indicator_visual);
 
 
-
                 ElementDecl indicator_decl{
                     .sizing = {SizingAxis::fit(), SizingAxis::fit()},
                     .floating = FloatingConfig{
@@ -146,8 +165,6 @@ namespace SFT::UI {
                         .parent_attach_point = style.arrow_attach_point,
                         .offset = style.arrow_offset,
                         .capture_pointer = false,
-
-
 
 
                         .clip_to = FloatingClipTo::AttachedParent,
@@ -185,8 +202,6 @@ namespace SFT::UI {
                     .parent_attach_point = FloatingAttachPoint::LeftBottom,
                     .offset = {0.0f, 4.0f},
                     .z_index = static_cast<i16>(style.list_z_index),
-
-
 
 
                 },
@@ -303,7 +318,6 @@ namespace SFT::UI {
                     .capture_pointer = false,
 
 
-
                 },
             };
             if (!composition.tooltip.render_default)
@@ -319,6 +333,20 @@ namespace SFT::UI {
         return result;
     }
 
+    /// Performs the dropdown operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param id Identifier of the target object or resource.
+    /// @param trigger_decl `trigger_decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param selected_index Zero-based index of the target element or entry.
+    /// @param options Configuration values controlling the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     DropdownResult dropdown(Context &ctx, const UString &id, const ElementDecl &trigger_decl, const DropdownStyle &style, DropdownState &state, f32 delta_seconds, usize selected_index, span<const DropdownOption> options, bool enabled) {
         return dropdown(ctx, id, trigger_decl, style, state, delta_seconds, selected_index, options, enabled, DropdownComposition{});
     }

@@ -29,6 +29,12 @@ namespace SFT::Async {
 
     namespace {
 
+        /// Returns a human-readable name for the supplied core type value.
+        ///
+        /// @param type Type value to inspect, select, or convert.
+        ///
+        /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const char *core_type_name(Foundation::Cpu::CoreType type) noexcept {
             switch (type) {
                 case Foundation::Cpu::CoreType::Performance: return "Performance";
@@ -39,22 +45,31 @@ namespace SFT::Async {
         }
 
 
-
-
-
         class WorkerDeque {
           public:
 
 
-
-
+            /// Constructs a `WorkerDeque` from the supplied initialization values.
+            ///
+            /// @param debug_name Name used to identify or label the target.
+            ///
+            /// @note This function does not throw exceptions.
             explicit WorkerDeque(const char *debug_name = nullptr) noexcept { tasks_.set_debug_name(debug_name); }
 
+            /// Adds the supplied value to the end or work queue.
+            ///
+            /// @param task Task used or affected by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             void push_back(unique_ptr<Detail::TaskBase> task) noexcept {
                 auto guard = tasks_.lock();
                 guard->push_back(std::move(task));
             }
 
+            /// Removes and returns or discards the next value from the container or queue.
+            ///
+            /// @return Returns the current pop back value.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] unique_ptr<Detail::TaskBase> pop_back() noexcept {
                 auto guard = tasks_.lock();
                 if (guard->empty()) {
@@ -65,6 +80,10 @@ namespace SFT::Async {
                 return task;
             }
 
+            /// Returns the current or globally available steal value.
+            ///
+            /// @return Returns the current steal value.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] unique_ptr<Detail::TaskBase> steal() noexcept {
                 auto guard = tasks_.lock();
                 if (guard->empty()) {
@@ -75,6 +94,9 @@ namespace SFT::Async {
                 return task;
             }
 
+            /// Clears the stored state or contents.
+            ///
+            /// @note This function does not throw exceptions.
             void clear() noexcept {
                 auto guard = tasks_.lock();
                 guard->clear();
@@ -98,14 +120,14 @@ namespace SFT::Async {
             SchedulerConfig config{};
 
 
-
-
-
-
             usize heavy_worker_count = 1;
             std::atomic<u32> heavy_round_robin{0};
         };
 
+        /// Returns the current or globally available pool value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         Pool &pool() noexcept {
             static Pool instance;
             return instance;
@@ -115,6 +137,13 @@ namespace SFT::Async {
         thread_local i32 t_worker_index = -1;
         thread_local u32 t_steal_cursor = 0;
 
+        /// Attempts to take task without requiring normal failure to be exceptional.
+        ///
+        /// @param p `p` value used by the operation.
+        /// @param index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] unique_ptr<Detail::TaskBase> try_take_task(Pool &p, u32 index) noexcept {
             unique_ptr<Detail::TaskBase> task = p.deques[index]->pop_back();
             if (!task) {
@@ -140,18 +169,14 @@ namespace SFT::Async {
             return task;
         }
 
+        /// Executes one task.
+        ///
+        /// @param p `p` value used by the operation.
+        /// @param index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool execute_one_task(Pool &p, u32 index) noexcept {
-
-
-
-
-
-
-
-
-
-
-
 
 
             if (p.queued_count.load(std::memory_order_acquire) == 0) {
@@ -168,6 +193,11 @@ namespace SFT::Async {
             return true;
         }
 
+        /// Performs the worker loop operation for `Async` using the supplied arguments.
+        ///
+        /// @param index Zero-based index of the target element or entry.
+        ///
+        /// @note This function does not throw exceptions.
         void worker_loop(u32 index) noexcept {
             t_worker_index = static_cast<i32>(index);
 
@@ -199,8 +229,6 @@ namespace SFT::Async {
                 }
 
 
-
-
                 unique_lock<std::mutex> idle_lock(p.wake_mutex);
                 p.wake_cv.wait_for(idle_lock, std::chrono::microseconds(config.idle_sleep_microseconds), [&p]() {
                     return !p.running.load(std::memory_order_acquire) || p.queued_count.load(std::memory_order_acquire) > 0;
@@ -212,6 +240,10 @@ namespace SFT::Async {
 
     } // namespace
 
+    /// Notifies scheduler task completion.
+    ///
+    /// @return Returns the current notify scheduler task completion value.
+    /// @note This function does not throw exceptions.
     void Detail::notify_scheduler_task_completion() noexcept {
         Pool &p = pool();
         if (p.waiting_worker_count.load(std::memory_order_acquire) > 0) {
@@ -219,6 +251,12 @@ namespace SFT::Async {
         }
     }
 
+    /// Waits for for task to complete.
+    ///
+    /// @param done `done` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Detail::wait_for_task(std::atomic<bool> &done) noexcept {
         if (done.load(std::memory_order_acquire)) {
             return;
@@ -237,7 +275,6 @@ namespace SFT::Async {
             }
 
 
-
             unique_lock<std::mutex> idle_lock(p.wake_mutex);
             p.wake_cv.wait_for(
                 idle_lock,
@@ -250,12 +287,24 @@ namespace SFT::Async {
         p.waiting_worker_count.fetch_sub(1, std::memory_order_acq_rel);
     }
 
+    /// Initializes the `Async` for use.
+    ///
+    /// @param worker_count Number of elements or operations to process.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Scheduler::initialize(u32 worker_count) noexcept {
         SchedulerConfig config{};
         config.worker_count = worker_count;
         initialize(config);
     }
 
+    /// Initializes low latency for use.
+    ///
+    /// @param worker_count Number of elements or operations to process.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Scheduler::initialize_low_latency(u32 worker_count) noexcept {
         SchedulerConfig config{};
         config.worker_count = worker_count;
@@ -266,6 +315,12 @@ namespace SFT::Async {
         initialize(config);
     }
 
+    /// Initializes the `Async` for use.
+    ///
+    /// @param config Configuration values controlling the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Scheduler::initialize(const SchedulerConfig &config) noexcept {
         Pool &p = pool();
         if (p.running.exchange(true, std::memory_order_acq_rel)) {
@@ -273,11 +328,6 @@ namespace SFT::Async {
         }
 
         SchedulerConfig active_config = config;
-
-
-
-
-
 
 
         if (active_config.worker_count == 0) {
@@ -304,13 +354,6 @@ namespace SFT::Async {
         for (u32 i = 0; i < worker_count; ++i) {
             p.threads.emplace_back(worker_loop, i);
         }
-
-
-
-
-
-
-
 
 
         const vector<u32> ranked_cores = ranked_physical_cores();
@@ -341,8 +384,6 @@ namespace SFT::Async {
             core_map.is_hybrid());
 
 
-
-
         for (usize type_index = 0; type_index < core_map.distinct_type_count(); ++type_index) {
             const vector<usize> &members = core_map.core_indices_of_type(type_index);
             const Foundation::Cpu::CoreCapabilities &rep = core_map.core(members.front());
@@ -366,6 +407,10 @@ namespace SFT::Async {
         }
     }
 
+    /// Shuts down the `Async` and releases associated runtime state.
+    ///
+    /// @return Returns the current shutdown value.
+    /// @note This function does not throw exceptions.
     void Scheduler::shutdown() noexcept {
         Pool &p = pool();
         if (!p.running.exchange(false, std::memory_order_acq_rel)) {
@@ -384,18 +429,37 @@ namespace SFT::Async {
         p.queued_count.store(0, std::memory_order_release);
     }
 
+    /// Reports whether running holds for this `Async`.
+    ///
+    /// @return Returns the current is running value.
+    /// @note This function does not throw exceptions.
     bool Scheduler::is_running() noexcept {
         return pool().running.load(std::memory_order_acquire);
     }
 
+    /// Reports whether worker thread holds for this `Async`.
+    ///
+    /// @return Returns the current is worker thread value.
+    /// @note This function does not throw exceptions.
     bool Scheduler::is_worker_thread() noexcept {
         return t_worker_index >= 0;
     }
 
+    /// Returns the worker count for this `Async`.
+    ///
+    /// @return Returns the current worker count value.
+    /// @note This function does not throw exceptions.
     u32 Scheduler::worker_count() noexcept {
         return static_cast<u32>(pool().deques.size());
     }
 
+    /// Performs the enqueue operation for `Async` using the supplied arguments.
+    ///
+    /// @param task Task used or affected by the operation.
+    /// @param weight `weight` value used by the operation.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note This function does not throw exceptions.
     void Scheduler::enqueue(unique_ptr<Detail::TaskBase> task, TaskWeight weight) noexcept {
         Pool &p = pool();
         if (!p.running.load(std::memory_order_acquire)) {
@@ -403,13 +467,7 @@ namespace SFT::Async {
         }
 
 
-
-
-
         p.queued_count.fetch_add(1, std::memory_order_acq_rel);
-
-
-
 
 
         if (weight == TaskWeight::Heavy && p.heavy_worker_count > 0) {

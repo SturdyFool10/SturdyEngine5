@@ -2,6 +2,16 @@
 
 namespace SFT::Renderer {
 
+/// Performs the layout text on spline 2d operation for `Renderer` using the supplied arguments.
+///
+/// @param spline `spline` value used by the operation.
+/// @param glyphs `glyphs` value used by the operation.
+/// @param units_per_em `units_per_em` value used by the operation.
+/// @param pixel_size Requested or available size for the operation.
+/// @param start_offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<GlyphPathPlacement2D> layout_text_on_spline_2d(const Spline2D &spline,
                                                                                span<const Text::PositionedGlyph> glyphs,
                                                                                u32 units_per_em, f32 pixel_size,
@@ -24,6 +34,17 @@ vector<GlyphPathPlacement2D> layout_text_on_spline_2d(const Spline2D &spline,
         return placements;
     }
 
+/// Performs the layout text on spline 3d operation for `Renderer` using the supplied arguments.
+///
+/// @param spline `spline` value used by the operation.
+/// @param glyphs `glyphs` value used by the operation.
+/// @param units_per_em `units_per_em` value used by the operation.
+/// @param pixel_size Requested or available size for the operation.
+/// @param up_hint `up_hint` value used by the operation.
+/// @param start_offset Offset from the beginning of the relevant range or buffer.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<glm::mat4> layout_text_on_spline_3d(const Spline3D &spline,
                                                                     span<const Text::PositionedGlyph> glyphs,
                                                                     u32 units_per_em, f32 pixel_size, glm::vec3 up_hint,

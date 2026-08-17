@@ -12,36 +12,24 @@
 #include <vector>
 
 
-
 using std::optional;
 using std::predicate;
 
 namespace SFT::Foundation {
 
-    /// Anything `iter()` (below) can wrap — exactly `std::ranges::viewable_range`, the standard's own
-    /// name for "usable with view adaptors" (covers an lvalue range, borrowed, and an rvalue one,
-    /// owned by the result). Name a template parameter this way to accept "anything iterable" without
-    /// repeating that constraint by hand — e.g. `template <Iterable R> void process(R &&range);`.
+
     template <class R>
     concept Iterable = std::ranges::viewable_range<R>;
 
     namespace Detail {
 
-        /// Two ranges are `Chainable` if `Iter::chain()` (below) can walk one after the other:
-        /// both have to be `view`s with a fixed end (`common_range` — sentinel and iterator are the
-        /// same type, true of virtually every container/view in practice), and their elements need a
-        /// `common_reference_t` so dereferencing mid-chain always yields one consistent type
-        /// regardless of which side the cursor is currently on.
+
         template <class V1, class V2>
         concept Chainable = std::ranges::input_range<V1> && std::ranges::view<V1> && std::ranges::common_range<V1> &&
                              std::ranges::input_range<V2> && std::ranges::view<V2> && std::ranges::common_range<V2> &&
                              std::common_reference_with<std::ranges::range_reference_t<V1>, std::ranges::range_reference_t<V2>>;
 
-        /// A single-pass cursor over "every element of `V1`, then every element of `V2`" — the
-        /// iterator behind `ChainView` below. Deliberately input-only (`iterator_concept =
-        /// input_iterator_tag`) rather than forward/bidirectional/random-access: `Iter` is already a
-        /// consuming, single-pass, Rust-flavored wrapper (see its class docs), so a chained iterator
-        /// doesn't need to support revisiting a position, only advancing through it once.
+
         template <class V1, class V2>
         class ChainIterator {
           public:
@@ -50,17 +38,30 @@ namespace SFT::Foundation {
             using reference = std::common_reference_t<std::ranges::range_reference_t<V1>, std::ranges::range_reference_t<V2>>;
             using iterator_concept = std::input_iterator_tag;
 
+            /// Constructs a `ChainIterator` in its default state.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             ChainIterator() = default;
 
-            /// Constructing directly from `[it1, end1)`/`[it2, end2)` decides which side we start on:
-            /// if `it1 == end1` already (the first range is empty, or this is being used to build the
-            /// "end" sentinel with `it1 == end1` on purpose), we start in the second range immediately.
+
+            /// Constructs a `ChainIterator` from the supplied initialization values.
+            ///
+            /// @param it1 `it1` value used by the operation.
+            /// @param end1 `end1` value used by the operation.
+            /// @param it2 `it2` value used by the operation.
+            /// @param end2 `end2` value used by the operation.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             ChainIterator(std::ranges::iterator_t<V1> it1, std::ranges::iterator_t<V1> end1,
                           std::ranges::iterator_t<V2> it2, std::ranges::iterator_t<V2> end2)
                 : it1_(std::move(it1)), end1_(std::move(end1)), it2_(std::move(it2)), end2_(std::move(end2)),
                   in_first_(it1_ != end1_) {
             }
 
+            /// Dereferences this iterator or handle.
+            ///
+            /// @return Returns the value or reference currently addressed by the iterator/handle.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] reference operator*() const {
                 if (in_first_) {
                     return static_cast<reference>(*it1_);
@@ -68,6 +69,10 @@ namespace SFT::Foundation {
                 return static_cast<reference>(*it2_);
             }
 
+            /// Advances the `ChainIterator` to its next value or element.
+            ///
+            /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             ChainIterator &operator++() {
                 if (in_first_) {
                     ++it1_;
@@ -80,10 +85,19 @@ namespace SFT::Foundation {
                 return *this;
             }
 
+            /// Advances the `ChainIterator` to its next value or element.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             void operator++(int) {
                 ++*this;
             }
 
+            /// Compares the operands for equality.
+            ///
+            /// @param other Other object used by the operation.
+            ///
+            /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] bool operator==(const ChainIterator &other) const {
                 if (in_first_ != other.in_first_) {
                     return false;
@@ -99,25 +113,39 @@ namespace SFT::Foundation {
             bool in_first_ = false;
         };
 
-        /// The view behind `Iter::chain()`: `first`'s elements, then `second`'s. `begin()`/`end()` are
-        /// both `ChainIterator`s (a `common_range`) — `end()` is built with `it == end` on both sides,
-        /// which `ChainIterator`'s constructor already reads as "start in the second range", so it
-        /// doubles as the finished/sentinel state with no special-casing needed.
+
         template <class V1, class V2>
             requires Chainable<V1, V2>
         class ChainView : public std::ranges::view_interface<ChainView<V1, V2>> {
           public:
+            /// Constructs a `ChainView` in its default state.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             ChainView() = default;
 
+            /// Constructs a `ChainView` from the supplied initialization values.
+            ///
+            /// @param first First position or element included in the operation.
+            /// @param second `second` value used by the operation.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             constexpr ChainView(V1 first, V2 second)
                 : first_(std::move(first)), second_(std::move(second)) {
             }
 
+            /// Returns an iterator to the first element in the range.
+            ///
+            /// @return Returns an iterator referring to the first element.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] auto begin() {
                 return ChainIterator<V1, V2>(std::ranges::begin(first_), std::ranges::end(first_),
                                               std::ranges::begin(second_), std::ranges::end(second_));
             }
 
+            /// Returns the one-past-the-end iterator for the range.
+            ///
+            /// @return Returns the one-past-the-end iterator.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] auto end() {
                 auto end1 = std::ranges::end(first_);
                 auto end2 = std::ranges::end(second_);
@@ -131,39 +159,40 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    /// A Rust-flavored, lazily-chained wrapper over any `std::ranges` range — `.map()`/`.filter()`/
-    /// `.enumerate()`/`.zip()`/`.chain()`/`.take()`/`.skip()`/`.take_while()`/`.skip_while()`/`.rev()`
-    /// build up an adaptor chain without touching a single element (each is a thin `std::views::*`
-    /// call underneath, `.chain()` aside — see `Detail::ChainView` above, since `std::views::concat`
-    /// doesn't exist before C++26); `.for_each()`/`.fold()`/`.sum()`/`.count()`/`.any()`/`.all()`/
-    /// `.find()`/`.collect<Container>()` actually walk it. Get one via `iter()` below, not this
-    /// constructor directly.
-    ///
-    /// `Iter<V>` is itself a `std::ranges::view` (derives from `view_interface`), so it can be handed
-    /// to anything that takes a range — including back into `iter()`, `Sturdy.Async`'s `par_iter()`
-    /// (see Async/ParIter.cppm), or a plain range-`for`.
-    ///
-    /// Every method below consumes `view_` (moves out of it) to build the next stage, matching Rust's
-    /// `self`-by-value adaptor methods — chain them in one expression (`iter(v).map(f).filter(p)...`)
-    /// the way you normally would; if you do keep an intermediate in a named variable, `std::move` it
-    /// into the next call, since the original is left holding a moved-from view afterward.
+
     template <std::ranges::view V>
     class Iter : public std::ranges::view_interface<Iter<V>> {
       public:
+        /// Constructs a `Iter` from the supplied initialization values.
+        ///
+        /// @param view `view` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         explicit constexpr Iter(V view) noexcept(std::is_nothrow_move_constructible_v<V>)
             : view_(std::move(view)) {
         }
 
+        /// Returns an iterator to the first element in the range.
+        ///
+        /// @return Returns an iterator referring to the first element.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] constexpr auto begin() {
             return std::ranges::begin(view_);
         }
 
+        /// Returns the one-past-the-end iterator for the range.
+        ///
+        /// @return Returns the one-past-the-end iterator.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] constexpr auto end() {
             return std::ranges::end(view_);
         }
 
 
-
+        /// Maps the requested resource for access.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class Fn>
             requires SyncWork<Fn &, std::ranges::range_reference_t<V>>
         [[nodiscard]] auto map(Fn fn) {
@@ -171,6 +200,10 @@ namespace SFT::Foundation {
             return Iter<decltype(result)>(std::move(result));
         }
 
+        /// Returns the current or globally available filter value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class Pred>
             requires predicate<Pred &, std::ranges::range_reference_t<V>>
         [[nodiscard]] auto filter(Pred pred) {
@@ -178,21 +211,31 @@ namespace SFT::Foundation {
             return Iter<decltype(result)>(std::move(result));
         }
 
-        /// Pairs each element with its index: `(usize, T)`.
+
+        /// Enumerates the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @return Returns the current enumerate value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] auto enumerate() {
             auto result = std::views::enumerate(std::move(view_));
             return Iter<decltype(result)>(std::move(result));
         }
 
+        /// Returns the current or globally available zip value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <std::ranges::viewable_range R2>
         [[nodiscard]] auto zip(R2 &&other) {
             auto result = std::views::zip(std::move(view_), std::views::all(std::forward<R2>(other)));
             return Iter<decltype(result)>(std::move(result));
         }
 
-        /// This iterator's elements, then `other`'s — see `Detail::ChainView` above for why this needs
-        /// its own hand-rolled view rather than a one-line `std::views::*` call like the other
-        /// adaptors here.
+
+        /// Returns the current or globally available chain value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <Iterable R2>
             requires Detail::Chainable<V, std::views::all_t<R2>>
         [[nodiscard]] auto chain(R2 &&other) {
@@ -201,16 +244,32 @@ namespace SFT::Foundation {
             return Iter<decltype(result)>(std::move(result));
         }
 
+        /// Performs the take operation for `Iter` using the supplied arguments.
+        ///
+        /// @param count Number of elements or operations to process.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] auto take(std::ranges::range_difference_t<V> count) {
             auto result = std::views::take(std::move(view_), count);
             return Iter<decltype(result)>(std::move(result));
         }
 
+        /// Performs the skip operation for `Iter` using the supplied arguments.
+        ///
+        /// @param count Number of elements or operations to process.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] auto skip(std::ranges::range_difference_t<V> count) {
             auto result = std::views::drop(std::move(view_), count);
             return Iter<decltype(result)>(std::move(result));
         }
 
+        /// Returns the current or globally available take while value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class Pred>
             requires predicate<Pred &, std::ranges::range_reference_t<V>>
         [[nodiscard]] auto take_while(Pred pred) {
@@ -218,6 +277,10 @@ namespace SFT::Foundation {
             return Iter<decltype(result)>(std::move(result));
         }
 
+        /// Returns the current or globally available skip while value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class Pred>
             requires predicate<Pred &, std::ranges::range_reference_t<V>>
         [[nodiscard]] auto skip_while(Pred pred) {
@@ -225,6 +288,10 @@ namespace SFT::Foundation {
             return Iter<decltype(result)>(std::move(result));
         }
 
+        /// Returns the current or globally available rev value.
+        ///
+        /// @return Returns the current rev value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] auto rev()
             requires std::ranges::bidirectional_range<V>
         {
@@ -233,40 +300,65 @@ namespace SFT::Foundation {
         }
 
 
-
+        /// Invokes the supplied function once for each element in the input range.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class Fn>
             requires SyncWork<Fn &, std::ranges::range_reference_t<V>>
         void for_each(Fn fn) {
             std::ranges::for_each(view_, fn);
         }
 
+        /// Returns the current or globally available fold value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class T, class Fn>
         [[nodiscard]] T fold(T init, Fn fn) {
             return std::ranges::fold_left(view_, std::move(init), fn);
         }
 
+        /// Returns the current or globally available sum value.
+        ///
+        /// @return Returns the current sum value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] auto sum() {
             using T = std::ranges::range_value_t<V>;
             return std::ranges::fold_left(view_, T{}, std::plus<>{});
         }
 
+        /// Returns the count for this `Iter`.
+        ///
+        /// @return Returns the current count value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] usize count() {
             return static_cast<usize>(std::ranges::distance(view_));
         }
 
+        /// Returns the current or globally available any value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class Pred>
             requires predicate<Pred &, std::ranges::range_reference_t<V>>
         [[nodiscard]] bool any(Pred pred) {
             return std::ranges::any_of(view_, pred);
         }
 
+        /// Returns the current or globally available all value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class Pred>
             requires predicate<Pred &, std::ranges::range_reference_t<V>>
         [[nodiscard]] bool all(Pred pred) {
             return std::ranges::all_of(view_, pred);
         }
 
-        /// First element satisfying `pred`, or `nullopt` if none does.
+
+        /// Finds the requested entry in the available state.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         template <class Pred>
             requires predicate<Pred &, std::ranges::range_reference_t<V>>
         [[nodiscard]] optional<std::ranges::range_value_t<V>> find(Pred pred) {
@@ -277,8 +369,11 @@ namespace SFT::Foundation {
             return std::ranges::range_value_t<V>(*it);
         }
 
-        /// `std::ranges::to<Container>()` under the hood — `Container` is a template-template
-        /// parameter (defaults to `std::vector`) so the element type is deduced, not repeated.
+
+        /// Collects the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <template <class...> class Container = std::vector>
         [[nodiscard]] auto collect() {
             return std::ranges::to<Container>(std::move(view_));
@@ -288,15 +383,16 @@ namespace SFT::Foundation {
         V view_;
     };
 
-    /// Wraps any range in an `Iter` — the general "turn this into an iterator" entry point, and the
-    /// `Iterable` concept above is exactly its parameter constraint. A `std::ranges::range_adaptor_
-    /// closure`, so it works both as an ordinary call, `iter(range)`, and piped, `range | iter` —
-    /// the same two forms `std::views::all`/`std::views::common` support, and for the same reason:
-    /// there's no extra argument to bind first (unlike, say, `std::views::transform(fn)`), so the one
-    /// object serves as both the adaptor and its own closure.
+
     namespace Detail {
 
         struct IterFn : std::ranges::range_adaptor_closure<IterFn> {
+            /// Invokes the callable behavior provided by `IterFn`.
+            ///
+            /// @param range Range of values to process.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <Iterable R>
             [[nodiscard]] constexpr auto operator()(R &&range) const {
                 auto view = std::views::all(std::forward<R>(range));

@@ -3,6 +3,13 @@
 
 namespace SFT::Renderer {
 
+    /// Performs the shader target for device operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::Unsupported`.
     Core::RendererExpected<RendererShaderTarget> shader_target_for_device(const RHI::RhiDevice &device) {
         switch (device.backend_type()) {
             case RHI::BackendType::Vulkan:
@@ -30,6 +37,12 @@ namespace SFT::Renderer {
         });
     }
 
+    /// Performs the shader compile targets for device operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     vector<Core::Slang::ShaderTarget> shader_compile_targets_for_device(
         const RHI::RhiDevice &device) {
         if (device.backend_type() == RHI::BackendType::D3D12) {
@@ -43,6 +56,12 @@ namespace SFT::Renderer {
                       : vector<Core::Slang::ShaderTarget>{};
     }
 
+    /// Performs the shader compile targets for device operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     vector<Core::Slang::ShaderTarget> shader_compile_targets_for_device(
         const RHI::RhiDevice *device) {
         return device != nullptr ? shader_compile_targets_for_device(*device)

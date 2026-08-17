@@ -24,47 +24,126 @@ namespace SFT::Foundation::Cpu {
     namespace {
 
 
-
+        /// Adds scalar using the supplied arguments and current state.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void add_scalar(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             for (usize i = 0; i < n; ++i)
                 dst[i] = a[i] + b[i];
         }
+        /// Adds scalar using the supplied arguments and current state.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void add_scalar(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept {
             for (usize i = 0; i < n; ++i)
                 dst[i] = a[i] + b[i];
         }
+        /// Computes the mul scalar math operation over the supplied values or element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void mul_scalar(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             for (usize i = 0; i < n; ++i)
                 dst[i] = a[i] * b[i];
         }
+        /// Computes the mul scalar math operation over the supplied values or element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void mul_scalar(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept {
             for (usize i = 0; i < n; ++i)
                 dst[i] = a[i] * b[i];
         }
+        /// Computes the fma scalar math operation over the supplied values or element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param c `c` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void fma_scalar(f32 *dst, const f32 *a, const f32 *b, const f32 *c, usize n) noexcept {
             for (usize i = 0; i < n; ++i)
                 dst[i] = a[i] * b[i] + c[i];
         }
+        /// Computes the fma scalar math operation over the supplied values or element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param c `c` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void fma_scalar(f64 *dst, const f64 *a, const f64 *b, const f64 *c, usize n) noexcept {
             for (usize i = 0; i < n; ++i)
                 dst[i] = a[i] * b[i] + c[i];
         }
+        /// Computes the dot scalar math operation over the supplied values or element range.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         f32 dot_scalar(const f32 *a, const f32 *b, usize n) noexcept {
             f32 sum = 0.0f;
             for (usize i = 0; i < n; ++i)
                 sum += a[i] * b[i];
             return sum;
         }
+        /// Computes the dot scalar math operation over the supplied values or element range.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         f64 dot_scalar(const f64 *a, const f64 *b, usize n) noexcept {
             f64 sum = 0.0;
             for (usize i = 0; i < n; ++i)
                 sum += a[i] * b[i];
             return sum;
         }
+        /// Computes the sqrt scalar math operation over the supplied values or element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void sqrt_scalar(f32 *dst, const f32 *a, usize n) noexcept {
             for (usize i = 0; i < n; ++i)
                 dst[i] = std::sqrt(a[i]);
         }
+        /// Computes the sqrt scalar math operation over the supplied values or element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void sqrt_scalar(f64 *dst, const f64 *a, usize n) noexcept {
             for (usize i = 0; i < n; ++i)
                 dst[i] = std::sqrt(a[i]);
@@ -73,7 +152,10 @@ namespace SFT::Foundation::Cpu {
 #if defined(STURDY_CPU_X86)
 
 
-
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx")]] void add_avx(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 8 <= n; i += 8)
@@ -81,6 +163,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] + b[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx")]] void add_avx(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 4 <= n; i += 4)
@@ -88,6 +174,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] + b[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx")]] void mul_avx(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 8 <= n; i += 8)
@@ -95,6 +185,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx")]] void mul_avx(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 4 <= n; i += 4)
@@ -102,6 +196,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx")]] void fma_avx(f32 *dst, const f32 *a, const f32 *b, const f32 *c, usize n) noexcept {
             usize i = 0;
             for (; i + 8 <= n; i += 8) {
@@ -111,6 +209,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i] + c[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx")]] void fma_avx(f64 *dst, const f64 *a, const f64 *b, const f64 *c, usize n) noexcept {
             usize i = 0;
             for (; i + 4 <= n; i += 4) {
@@ -120,6 +222,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i] + c[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx")]] f32 dot_avx(const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
             __m256 acc = _mm256_setzero_ps();
@@ -133,6 +239,10 @@ namespace SFT::Foundation::Cpu {
                 sum += a[i] * b[i];
             return sum;
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx")]] f64 dot_avx(const f64 *a, const f64 *b, usize n) noexcept {
             usize i = 0;
             __m256d acc = _mm256_setzero_pd();
@@ -145,6 +255,10 @@ namespace SFT::Foundation::Cpu {
                 sum += a[i] * b[i];
             return sum;
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx")]] void sqrt_avx(f32 *dst, const f32 *a, usize n) noexcept {
             usize i = 0;
             for (; i + 8 <= n; i += 8)
@@ -152,6 +266,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = std::sqrt(a[i]);
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx")]] void sqrt_avx(f64 *dst, const f64 *a, usize n) noexcept {
             usize i = 0;
             for (; i + 4 <= n; i += 4)
@@ -161,16 +279,41 @@ namespace SFT::Foundation::Cpu {
         }
 
 
-
-
-
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx2,fma")]] void add_avx2(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept { add_avx(dst, a, b, n); }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx2,fma")]] void add_avx2(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept { add_avx(dst, a, b, n); }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx2,fma")]] void mul_avx2(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept { mul_avx(dst, a, b, n); }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx2,fma")]] void mul_avx2(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept { mul_avx(dst, a, b, n); }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx2,fma")]] void sqrt_avx2(f32 *dst, const f32 *a, usize n) noexcept { sqrt_avx(dst, a, n); }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx2,fma")]] void sqrt_avx2(f64 *dst, const f64 *a, usize n) noexcept { sqrt_avx(dst, a, n); }
 
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx2,fma")]] void fma_avx2(f32 *dst, const f32 *a, const f32 *b, const f32 *c, usize n) noexcept {
             usize i = 0;
             for (; i + 8 <= n; i += 8)
@@ -178,6 +321,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i] + c[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx2,fma")]] void fma_avx2(f64 *dst, const f64 *a, const f64 *b, const f64 *c, usize n) noexcept {
             usize i = 0;
             for (; i + 4 <= n; i += 4)
@@ -185,6 +332,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i] + c[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx2,fma")]] f32 dot_avx2(const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
             __m256 acc = _mm256_setzero_ps();
@@ -198,6 +349,10 @@ namespace SFT::Foundation::Cpu {
                 sum += a[i] * b[i];
             return sum;
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx2,fma")]] f64 dot_avx2(const f64 *a, const f64 *b, usize n) noexcept {
             usize i = 0;
             __m256d acc = _mm256_setzero_pd();
@@ -212,7 +367,10 @@ namespace SFT::Foundation::Cpu {
         }
 
 
-
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx512f")]] void add_avx512(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 16 <= n; i += 16)
@@ -220,6 +378,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] + b[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx512f")]] void add_avx512(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 8 <= n; i += 8)
@@ -227,6 +389,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] + b[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx512f")]] void mul_avx512(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 16 <= n; i += 16)
@@ -234,6 +400,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx512f")]] void mul_avx512(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 8 <= n; i += 8)
@@ -241,6 +411,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx512f")]] void fma_avx512(f32 *dst, const f32 *a, const f32 *b, const f32 *c, usize n) noexcept {
             usize i = 0;
             for (; i + 16 <= n; i += 16)
@@ -248,6 +422,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i] + c[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx512f")]] void fma_avx512(f64 *dst, const f64 *a, const f64 *b, const f64 *c, usize n) noexcept {
             usize i = 0;
             for (; i + 8 <= n; i += 8)
@@ -255,6 +433,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i] + c[i];
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx512f")]] f32 dot_avx512(const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
             __m512 acc = _mm512_setzero_ps();
@@ -265,6 +447,10 @@ namespace SFT::Foundation::Cpu {
                 sum += a[i] * b[i];
             return sum;
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx512f")]] f64 dot_avx512(const f64 *a, const f64 *b, usize n) noexcept {
             usize i = 0;
             __m512d acc = _mm512_setzero_pd();
@@ -275,6 +461,10 @@ namespace SFT::Foundation::Cpu {
                 sum += a[i] * b[i];
             return sum;
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx512f")]] void sqrt_avx512(f32 *dst, const f32 *a, usize n) noexcept {
             usize i = 0;
             for (; i + 16 <= n; i += 16)
@@ -282,6 +472,10 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = std::sqrt(a[i]);
         }
+        /// Returns the current or globally available target value.
+        ///
+        /// @return Returns the current target value.
+        /// @note This function does not throw exceptions.
         [[gnu::target("avx512f")]] void sqrt_avx512(f64 *dst, const f64 *a, usize n) noexcept {
             usize i = 0;
             for (; i + 8 <= n; i += 8)
@@ -293,7 +487,14 @@ namespace SFT::Foundation::Cpu {
 #elif defined(STURDY_CPU_ARM64)
 
 
-
+        /// Executes the add neon SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void add_neon(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 4 <= n; i += 4)
@@ -301,6 +502,14 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] + b[i];
         }
+        /// Executes the add neon SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void add_neon(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 2 <= n; i += 2)
@@ -308,6 +517,14 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] + b[i];
         }
+        /// Executes the mul neon SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void mul_neon(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 4 <= n; i += 4)
@@ -315,6 +532,14 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i];
         }
+        /// Executes the mul neon SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void mul_neon(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept {
             usize i = 0;
             for (; i + 2 <= n; i += 2)
@@ -322,6 +547,15 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i];
         }
+        /// Executes the fma neon SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param c `c` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void fma_neon(f32 *dst, const f32 *a, const f32 *b, const f32 *c, usize n) noexcept {
             usize i = 0;
             for (; i + 4 <= n; i += 4)
@@ -329,6 +563,15 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i] + c[i];
         }
+        /// Executes the fma neon SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param c `c` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void fma_neon(f64 *dst, const f64 *a, const f64 *b, const f64 *c, usize n) noexcept {
             usize i = 0;
             for (; i + 2 <= n; i += 2)
@@ -336,6 +579,14 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = a[i] * b[i] + c[i];
         }
+        /// Executes the dot neon SIMD implementation over the supplied element range.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         f32 dot_neon(const f32 *a, const f32 *b, usize n) noexcept {
             usize i = 0;
             float32x4_t acc = vdupq_n_f32(0.0f);
@@ -346,6 +597,14 @@ namespace SFT::Foundation::Cpu {
                 sum += a[i] * b[i];
             return sum;
         }
+        /// Executes the dot neon SIMD implementation over the supplied element range.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         f64 dot_neon(const f64 *a, const f64 *b, usize n) noexcept {
             usize i = 0;
             float64x2_t acc = vdupq_n_f64(0.0);
@@ -356,6 +615,13 @@ namespace SFT::Foundation::Cpu {
                 sum += a[i] * b[i];
             return sum;
         }
+        /// Executes the sqrt neon SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void sqrt_neon(f32 *dst, const f32 *a, usize n) noexcept {
             usize i = 0;
             for (; i + 4 <= n; i += 4)
@@ -363,6 +629,13 @@ namespace SFT::Foundation::Cpu {
             for (; i < n; ++i)
                 dst[i] = std::sqrt(a[i]);
         }
+        /// Executes the sqrt neon SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void sqrt_neon(f64 *dst, const f64 *a, usize n) noexcept {
             usize i = 0;
             for (; i + 2 <= n; i += 2)
@@ -374,9 +647,14 @@ namespace SFT::Foundation::Cpu {
 #elif defined(STURDY_CPU_RISCV64)
 
 
-
-
-
+        /// Executes the add rvv SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void add_rvv(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             for (usize i = 0; i < n;) {
                 const usize vl = __riscv_vsetvl_e32m1(n - i);
@@ -384,6 +662,14 @@ namespace SFT::Foundation::Cpu {
                 i += vl;
             }
         }
+        /// Executes the add rvv SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void add_rvv(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept {
             for (usize i = 0; i < n;) {
                 const usize vl = __riscv_vsetvl_e64m1(n - i);
@@ -391,6 +677,14 @@ namespace SFT::Foundation::Cpu {
                 i += vl;
             }
         }
+        /// Executes the mul rvv SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void mul_rvv(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept {
             for (usize i = 0; i < n;) {
                 const usize vl = __riscv_vsetvl_e32m1(n - i);
@@ -398,6 +692,14 @@ namespace SFT::Foundation::Cpu {
                 i += vl;
             }
         }
+        /// Executes the mul rvv SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void mul_rvv(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept {
             for (usize i = 0; i < n;) {
                 const usize vl = __riscv_vsetvl_e64m1(n - i);
@@ -405,6 +707,15 @@ namespace SFT::Foundation::Cpu {
                 i += vl;
             }
         }
+        /// Executes the fma rvv SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param c `c` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void fma_rvv(f32 *dst, const f32 *a, const f32 *b, const f32 *c, usize n) noexcept {
             for (usize i = 0; i < n;) {
                 const usize vl = __riscv_vsetvl_e32m1(n - i);
@@ -415,6 +726,15 @@ namespace SFT::Foundation::Cpu {
                 i += vl;
             }
         }
+        /// Executes the fma rvv SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param c `c` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void fma_rvv(f64 *dst, const f64 *a, const f64 *b, const f64 *c, usize n) noexcept {
             for (usize i = 0; i < n;) {
                 const usize vl = __riscv_vsetvl_e64m1(n - i);
@@ -425,6 +745,14 @@ namespace SFT::Foundation::Cpu {
                 i += vl;
             }
         }
+        /// Executes the dot rvv SIMD implementation over the supplied element range.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         f32 dot_rvv(const f32 *a, const f32 *b, usize n) noexcept {
             vfloat32m1_t acc = __riscv_vfmv_v_f_f32m1(0.0f, __riscv_vsetvlmax_e32m1());
             for (usize i = 0; i < n;) {
@@ -436,6 +764,14 @@ namespace SFT::Foundation::Cpu {
             const vfloat32m1_t sum = __riscv_vfredusum_vs_f32m1_f32m1(acc, zero, __riscv_vsetvlmax_e32m1());
             return __riscv_vfmv_f_s_f32m1_f32(sum);
         }
+        /// Executes the dot rvv SIMD implementation over the supplied element range.
+        ///
+        /// @param a `a` value used by the operation.
+        /// @param b `b` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         f64 dot_rvv(const f64 *a, const f64 *b, usize n) noexcept {
             vfloat64m1_t acc = __riscv_vfmv_v_f_f64m1(0.0, __riscv_vsetvlmax_e64m1());
             for (usize i = 0; i < n;) {
@@ -447,6 +783,13 @@ namespace SFT::Foundation::Cpu {
             const vfloat64m1_t sum = __riscv_vfredusum_vs_f64m1_f64m1(acc, zero, __riscv_vsetvlmax_e64m1());
             return __riscv_vfmv_f_s_f64m1_f64(sum);
         }
+        /// Executes the sqrt rvv SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void sqrt_rvv(f32 *dst, const f32 *a, usize n) noexcept {
             for (usize i = 0; i < n;) {
                 const usize vl = __riscv_vsetvl_e32m1(n - i);
@@ -454,6 +797,13 @@ namespace SFT::Foundation::Cpu {
                 i += vl;
             }
         }
+        /// Executes the sqrt rvv SIMD implementation over the supplied element range.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param a `a` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void sqrt_rvv(f64 *dst, const f64 *a, usize n) noexcept {
             for (usize i = 0; i < n;) {
                 const usize vl = __riscv_vsetvl_e64m1(n - i);
@@ -488,6 +838,10 @@ namespace SFT::Foundation::Cpu {
             SqrtFn64 sqrt64 = sqrt_scalar;
         };
 
+        /// Builds dispatch table.
+        ///
+        /// @return Returns the current build dispatch table value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DispatchTable build_dispatch_table() noexcept {
 #if defined(STURDY_CPU_X86)
             switch (best_simd_level()) {
@@ -529,6 +883,10 @@ namespace SFT::Foundation::Cpu {
             return DispatchTable{};
         }
 
+        /// Dispatches table.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const DispatchTable &dispatch_table() noexcept {
             static const DispatchTable instance = build_dispatch_table();
             return instance;
@@ -536,15 +894,95 @@ namespace SFT::Foundation::Cpu {
 
     } // namespace
 
+    /// Adds the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void add(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept { dispatch_table().add32(dst, a, b, n); }
+    /// Adds the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void add(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept { dispatch_table().add64(dst, a, b, n); }
+    /// Computes the mul math operation over the supplied values or element range.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void mul(f32 *dst, const f32 *a, const f32 *b, usize n) noexcept { dispatch_table().mul32(dst, a, b, n); }
+    /// Computes the mul math operation over the supplied values or element range.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void mul(f64 *dst, const f64 *a, const f64 *b, usize n) noexcept { dispatch_table().mul64(dst, a, b, n); }
+    /// Computes or queries `fma` using the numeric semantics of `Cpu`.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param c `c` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void fma(f32 *dst, const f32 *a, const f32 *b, const f32 *c, usize n) noexcept { dispatch_table().fma32(dst, a, b, c, n); }
+    /// Computes or queries `fma` using the numeric semantics of `Cpu`.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param c `c` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void fma(f64 *dst, const f64 *a, const f64 *b, const f64 *c, usize n) noexcept { dispatch_table().fma64(dst, a, b, c, n); }
+    /// Computes the dot math operation over the supplied values or element range.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     f32 dot(const f32 *a, const f32 *b, usize n) noexcept { return dispatch_table().dot32(a, b, n); }
+    /// Computes the dot math operation over the supplied values or element range.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     f64 dot(const f64 *a, const f64 *b, usize n) noexcept { return dispatch_table().dot64(a, b, n); }
+    /// Computes or queries `sqrt` using the numeric semantics of `Cpu`.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void sqrt(f32 *dst, const f32 *a, usize n) noexcept { dispatch_table().sqrt32(dst, a, n); }
+    /// Computes or queries `sqrt` using the numeric semantics of `Cpu`.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void sqrt(f64 *dst, const f64 *a, usize n) noexcept { dispatch_table().sqrt64(dst, a, n); }
 
 } // namespace SFT::Foundation::Cpu

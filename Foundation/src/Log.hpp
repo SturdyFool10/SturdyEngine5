@@ -17,19 +17,13 @@ using std::string_view;
 namespace SFT::Foundation {
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-    /// Log `args` formatted by `format` at an explicit `level`. Compile-time-checked format string.
+    /// Logs the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param level `level` value used by the operation.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param args `args` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     template <typename... Args>
     void log(spdlog::level::level_enum level, spdlog::format_string_t<Args...> format, Args &&...args) noexcept {
         try {
@@ -38,62 +32,133 @@ namespace SFT::Foundation {
         }
     }
 
-    /// Log a plain, already-formatted `message` at an explicit `level` (no format parsing).
+
+    /// Logs the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param level `level` value used by the operation.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void log(spdlog::level::level_enum level, string_view message) noexcept;
 
-    /// `trace`: extremely verbose, per-operation tracing — usually compiled out in release.
+
+    /// Logs trace using the supplied arguments and current state.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param args `args` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     template <typename... Args>
     void log_trace(spdlog::format_string_t<Args...> format, Args &&...args) noexcept {
         log(spdlog::level::trace, format, std::forward<Args>(args)...);
     }
 
+    /// Logs trace using the supplied arguments and current state.
+    ///
+    /// @param message Text consumed by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void log_trace(string_view message) noexcept;
 
-    /// `debug`: developer diagnostics useful while debugging, not wanted in normal runs.
+
+    /// Logs debug using the supplied arguments and current state.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param args `args` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     template <typename... Args>
     void log_debug(spdlog::format_string_t<Args...> format, Args &&...args) noexcept {
         log(spdlog::level::debug, format, std::forward<Args>(args)...);
     }
 
+    /// Logs debug using the supplied arguments and current state.
+    ///
+    /// @param message Text consumed by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void log_debug(string_view message) noexcept;
 
-    /// `info`: normal operational milestones (startup, device selection, ...).
+
+    /// Logs info using the supplied arguments and current state.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param args `args` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     template <typename... Args>
     void log_info(spdlog::format_string_t<Args...> format, Args &&...args) noexcept {
         log(spdlog::level::info, format, std::forward<Args>(args)...);
     }
 
+    /// Logs info using the supplied arguments and current state.
+    ///
+    /// @param message Text consumed by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void log_info(string_view message) noexcept;
 
-    /// `warn`: recoverable problems or degraded paths worth flagging.
+
+    /// Logs warn using the supplied arguments and current state.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param args `args` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     template <typename... Args>
     void log_warn(spdlog::format_string_t<Args...> format, Args &&...args) noexcept {
         log(spdlog::level::warn, format, std::forward<Args>(args)...);
     }
 
+    /// Logs warn using the supplied arguments and current state.
+    ///
+    /// @param message Text consumed by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void log_warn(string_view message) noexcept;
 
-    /// `error`: failures the caller could not handle transparently.
+
+    /// Logs error using the supplied arguments and current state.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param args `args` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     template <typename... Args>
     void log_error(spdlog::format_string_t<Args...> format, Args &&...args) noexcept {
         log(spdlog::level::err, format, std::forward<Args>(args)...);
     }
 
+    /// Logs error using the supplied arguments and current state.
+    ///
+    /// @param message Text consumed by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void log_error(string_view message) noexcept;
 
-    /// Render one compiler-style diagnostic as a single log record, so the logger contributes only
-    /// one timestamp/level prefix and the diagnostic's indented continuation lines remain readable.
+
+    /// Logs diagnostic using the supplied arguments and current state.
+    ///
+    /// @param diagnostic `diagnostic` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void log_diagnostic(const ConsoleDiagnostic &diagnostic) noexcept;
 
-    /// Force pending messages to their sinks. Fatal contract paths call this immediately before
-    /// termination so their final diagnostic reaches the console even if a future logger becomes
-    /// buffered or asynchronous.
+
+    /// Flushes logs.
+    ///
+    /// @note This function does not throw exceptions.
     void flush_logs() noexcept;
 
-    /// Adds a rotating file sink to spdlog's default logger, on top of whatever sinks it already has
-    /// (normally just the default console sink), so log history survives a closed console or a crash.
-    /// Also flushes on every `warn`-or-worse record, since a crash can otherwise take buffered lines
-    /// down with it. Existing sinks are left untouched; returns false if the file could not be opened.
+
+    /// Initializes file logging for use.
+    ///
+    /// @param log_file_path Filesystem path identifying the target resource.
+    /// @param max_file_size_bytes Size of the relevant data in bytes.
+    /// @param max_rotated_files `max_rotated_files` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool init_file_logging(
         const std::filesystem::path &log_file_path,
         std::size_t max_file_size_bytes = 5 * 1024 * 1024,

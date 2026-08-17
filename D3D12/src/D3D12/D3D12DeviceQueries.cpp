@@ -1,9 +1,5 @@
 
 
-
-
-
-
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -18,6 +14,12 @@
 
 namespace SFT::D3D12 {
 
+    /// Creates a query set from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::QuerySetHandle> D3D12Device::create_query_set(const rhi::QuerySetDesc &desc) {
         ZoneScopedN("D3D12Device::create_query_set");
         if (desc.count == 0) {
@@ -51,15 +53,34 @@ namespace SFT::D3D12 {
         return query_sets_.insert(std::move(record));
     }
 
+    /// Destroys the query set identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_query_set(rhi::QuerySetHandle handle) noexcept { query_sets_.erase(handle); }
 
+    /// Resets query set to its baseline state.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::reset_query_set(rhi::QuerySetHandle, u32, u32) noexcept {
-
-
 
 
     }
 
+    /// Returns the query set results associated with this `D3D12`.
+    ///
+    /// @param query_set `query_set` value used by the operation.
+    /// @param first First position or element included in the operation.
+    /// @param count Number of elements or operations to process.
+    /// @param dst Destination value or resource.
+    /// @param stride `stride` value used by the operation.
+    /// @param flags Flags controlling optional behavior.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::get_query_set_results(rhi::QuerySetHandle query_set, u32 first, u32 count, span<std::byte> dst, u64 stride, rhi::QueryResultFlags flags) {
         ZoneScopedN("D3D12Device::get_query_set_results");
         QuerySetRecord *record = query_sets_.find(query_set);
@@ -73,8 +94,6 @@ namespace SFT::D3D12 {
             return invalid_argument("get_query_set_results: the requested slot range exceeds the query set's size.");
         }
         if (!rhi::has_any(flags, rhi::QueryResultFlags::Result64Bit)) {
-
-
 
 
             return unsupported("get_query_set_results: D3D12 resolves query results as 64-bit values; "
@@ -95,7 +114,6 @@ namespace SFT::D3D12 {
         }
 
 
-
         auto command = acquire_command_buffer(rhi::QueueLane{rhi::QueueClass::Graphics, 0});
         if (!command) {
             return std::unexpected(command.error());
@@ -111,9 +129,6 @@ namespace SFT::D3D12 {
             return_command_buffer(std::move(*command));
             return hresult_error(hr, "get_query_set_results (Close)");
         }
-
-
-
 
 
         const rhi::RhiResult executed = execute_and_wait(command->list.Get(), rhi::QueueClass::Graphics);

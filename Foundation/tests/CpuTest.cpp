@@ -12,28 +12,68 @@
 
 namespace {
 
+    /// Performs the nearly equal operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param tolerance `tolerance` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class T>
     bool nearly_equal(T a, T b, T tolerance) {
         return std::fabs(a - b) <= tolerance * std::max(T(1), std::fabs(a));
     }
 
 
-
+    /// Adds reference using the supplied arguments and current state.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class T>
     void add_reference(T *dst, const T *a, const T *b, std::size_t n) {
         for (std::size_t i = 0; i < n; ++i)
             dst[i] = a[i] + b[i];
     }
+    /// Computes the mul reference math operation over the supplied values or element range.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class T>
     void mul_reference(T *dst, const T *a, const T *b, std::size_t n) {
         for (std::size_t i = 0; i < n; ++i)
             dst[i] = a[i] * b[i];
     }
+    /// Computes the fma reference math operation over the supplied values or element range.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param c `c` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class T>
     void fma_reference(T *dst, const T *a, const T *b, const T *c, std::size_t n) {
         for (std::size_t i = 0; i < n; ++i)
             dst[i] = a[i] * b[i] + c[i];
     }
+    /// Computes the dot reference math operation over the supplied values or element range.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class T>
     T dot_reference(const T *a, const T *b, std::size_t n) {
         T sum = T(0);
@@ -41,6 +81,13 @@ namespace {
             sum += a[i] * b[i];
         return sum;
     }
+    /// Computes the sqrt reference math operation over the supplied values or element range.
+    ///
+    /// @param dst Destination value or resource.
+    /// @param a `a` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class T>
     void sqrt_reference(T *dst, const T *a, std::size_t n) {
         for (std::size_t i = 0; i < n; ++i)
@@ -48,7 +95,13 @@ namespace {
     }
 
 
-
+    /// Performs the test simd ops operation using the supplied arguments.
+    ///
+    /// @param n `n` value used by the operation.
+    /// @param tolerance `tolerance` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class T>
     bool test_simd_ops(std::size_t n, T tolerance) {
         std::vector<T> a(n), b(n), c(n);
@@ -109,6 +162,12 @@ namespace {
     }
 
 
+    /// Performs the test wide array ops operation using the supplied arguments.
+    ///
+    /// @param n `n` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class T>
     bool test_wide_array_ops(std::size_t n) {
         std::vector<T> a(n), b(n), dst(n), expected(n);
@@ -142,10 +201,12 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     using namespace SFT::Foundation::Cpu;
-
-
 
 
     const CpuFeatures &f = features();

@@ -4,8 +4,7 @@
 
 namespace SFT::Renderer {
 
-    /// Mutually exclusive scene integrators. Hybrid modes preserve raster primary visibility and replace
-    /// one lighting term; FullPathTracing replaces scene rasterization and writes the canonical G-buffer.
+
     enum class SpectralRenderMode : u8 {
         RasterDeferred,
         ShadowOnly,
@@ -36,6 +35,12 @@ namespace SFT::Renderer {
 
     };
 
+    /// Performs the spectral integrator policy operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr SpectralIntegratorPolicy spectral_integrator_policy(SpectralRenderMode mode) noexcept {
         switch (mode) {
             case SpectralRenderMode::RasterDeferred:

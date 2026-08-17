@@ -22,17 +22,32 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    /// Small, stable typed handle for graph-local textures. The graph deliberately does not expose raw
-    /// vector indices so future graph compilation can move resources/passes without changing callers.
+
     struct RenderGraphTextureHandle {
         u32 index = ~0u;
+        /// Converts the `RenderGraphTextureHandle` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return index != ~0u; }
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] friend constexpr bool operator==(RenderGraphTextureHandle, RenderGraphTextureHandle) noexcept = default;
     };
 
     struct RenderGraphBufferHandle {
         u32 index = ~0u;
+        /// Converts the `RenderGraphBufferHandle` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return index != ~0u; }
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] friend constexpr bool operator==(RenderGraphBufferHandle, RenderGraphBufferHandle) noexcept = default;
     };
 
@@ -50,8 +65,8 @@ namespace SFT::Renderer {
         RenderGraphBufferHandle buffer{};
         RHI::PipelineStage stages = RHI::PipelineStage::None;
         RHI::AccessFlags access = RHI::AccessFlags::None;
-        /// Range participates in validation and future interval-aware scheduling. Synchronization is
-        /// currently conservatively emitted for the whole imported buffer because state is whole-buffer.
+
+
         u64 offset = 0;
         u64 size = 0;
         bool read = true;
@@ -61,6 +76,10 @@ namespace SFT::Renderer {
     struct RenderGraphBufferAccess {
         RHI::BufferHandle buffer{};
         u64 size = 0;
+        /// Converts the `RenderGraphBufferAccess` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return static_cast<bool>(buffer); }
     };
 
@@ -71,14 +90,12 @@ namespace SFT::Renderer {
         RHI::SampleCount samples = RHI::SampleCount::X1;
         RHI::TextureUsage usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled;
 
-        /// State at graph entry for the newly-created texture. Transients almost always start Undefined.
+
         RHI::TextureLayout initial_layout = RHI::TextureLayout::Undefined;
         RHI::PipelineStage initial_stage = RHI::PipelineStage::None;
         RHI::AccessFlags initial_access = RHI::AccessFlags::None;
 
-        /// Desired state after the final graph use. Undefined means no final transition. Since transient
-        /// textures are destroyed after execute(), most internal targets can leave this Undefined unless a
-        /// pass explicitly needs a terminal layout for debugging/capture consistency.
+
         RHI::TextureLayout final_layout = RHI::TextureLayout::Undefined;
         RHI::PipelineStage final_stage = RHI::PipelineStage::None;
         RHI::AccessFlags final_access = RHI::AccessFlags::None;
@@ -86,8 +103,7 @@ namespace SFT::Renderer {
         const char *label = nullptr;
     };
 
-    /// A texture already owned outside the graph: swapchain images, persistent history buffers, cached
-    /// post-process targets, etc.
+
     struct RenderGraphImportedTextureDesc {
         RHI::TextureHandle texture{};
         RHI::TextureViewHandle default_view{};
@@ -95,18 +111,16 @@ namespace SFT::Renderer {
         RHI::Extent3D extent{};
         u32 mip_levels = 1;
         RHI::SampleCount samples = RHI::SampleCount::X1;
-        /// Capabilities of the externally-created image. Required for validating copy/storage uses;
-        /// the graph never mutates the underlying texture's creation flags.
+
+
         RHI::TextureUsage usage = RHI::TextureUsage::None;
 
-        /// State at graph entry. Swapchain acquisition commonly starts Undefined; persistent resources will
-        /// usually enter in ShaderReadOnly/ColorAttachment/etc. The graph tracks from here.
+
         RHI::TextureLayout initial_layout = RHI::TextureLayout::Undefined;
         RHI::PipelineStage initial_stage = RHI::PipelineStage::None;
         RHI::AccessFlags initial_access = RHI::AccessFlags::None;
 
-        /// Desired state at graph exit. Presentable swapchain images use Present; sampled history buffers
-        /// use ShaderReadOnly. Undefined means "leave in last graph-written state".
+
         RHI::TextureLayout final_layout = RHI::TextureLayout::Undefined;
         RHI::PipelineStage final_stage = RHI::PipelineStage::None;
         RHI::AccessFlags final_access = RHI::AccessFlags::None;
@@ -141,9 +155,7 @@ namespace SFT::Renderer {
         RHI::ClearDepthStencil clear_value{};
     };
 
-    /// Declares that a pass samples a texture through shader resource bindings. The graph does not create
-    /// the bind group for the shader — materials/post effects still own binding — but it does make the
-    /// texture's layout and memory visibility correct before the pass callback records draws/dispatches.
+
     struct RenderGraphSampledTextureReadDesc {
         RenderGraphTextureHandle texture{};
         RHI::TextureSubresourceRange subresources{};
@@ -156,8 +168,12 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle default_view{};
         RHI::Format format = RHI::Format::Undefined;
         RHI::Extent3D extent{};
-        /// Layout of mip 0 for legacy callers; pass execution tracks every mip independently.
+
         RHI::TextureLayout current_layout = RHI::TextureLayout::Undefined;
+        /// Converts the `RenderGraphTextureAccess` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return texture && default_view; }
     };
 
@@ -165,11 +181,38 @@ namespace SFT::Renderer {
 
     class RenderGraphContext {
       public:
+        /// Constructs a `RenderGraphContext` from the supplied initialization values.
+        ///
+        /// @param graph `graph` value used by the operation.
+        /// @param command_encoder `command_encoder` value used by the operation.
+        /// @param render_pass Render-pass encoder that receives the draw commands.
+        ///
+        /// @note This function does not throw exceptions.
         RenderGraphContext(RenderGraph &graph, RHI::CommandEncoder &command_encoder, RHI::RenderPassEncoder &render_pass) noexcept;
 
+        /// Returns the current or globally available command encoder value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::CommandEncoder &command_encoder() const noexcept;
+        /// Renders pass using the current rendering state.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::RenderPassEncoder &render_pass() const noexcept;
+        /// Performs the texture operation for `RenderGraphContext` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RenderGraphTextureAccess texture(RenderGraphTextureHandle handle) const noexcept;
+        /// Performs the buffer operation for `RenderGraphContext` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RenderGraphBufferAccess buffer(RenderGraphBufferHandle handle) const noexcept;
 
       private:
@@ -187,17 +230,14 @@ namespace SFT::Renderer {
         UString label;
     };
 
-    /// Raw same-size, same-format texture->texture copy (no scaling/filtering) — distinct from
-    /// RenderGraphBlitDesc, which is the scaled/filtered path. History buffers / readback staging.
+
     struct RenderGraphCopyDesc {
         RenderGraphTextureHandle source{};
         RenderGraphTextureHandle destination{};
         UString label;
     };
 
-    /// A storage-image (RHI::TextureLayout::General) access declared by a compute pass. `read`/`write`
-    /// are independent so a pass can declare read-only, write-only, or read-modify-write access; at
-    /// least one must be true.
+
     struct RenderGraphStorageTextureAccessDesc {
         RenderGraphTextureHandle texture{};
         bool read = false;
@@ -206,12 +246,39 @@ namespace SFT::Renderer {
 
     class RenderGraphComputeContext {
       public:
+        /// Constructs a `RenderGraphComputeContext` from the supplied initialization values.
+        ///
+        /// @param graph `graph` value used by the operation.
+        /// @param command_encoder `command_encoder` value used by the operation.
+        /// @param compute_pass `compute_pass` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         RenderGraphComputeContext(RenderGraph &graph, RHI::CommandEncoder &command_encoder,
                                   RHI::ComputePassEncoder &compute_pass) noexcept;
 
+        /// Returns the current or globally available command encoder value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::CommandEncoder &command_encoder() const noexcept;
+        /// Computes pass using the supplied arguments and current state.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::ComputePassEncoder &compute_pass() const noexcept;
+        /// Performs the texture operation for `RenderGraphComputeContext` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RenderGraphTextureAccess texture(RenderGraphTextureHandle handle) const noexcept;
+        /// Performs the buffer operation for `RenderGraphComputeContext` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RenderGraphBufferAccess buffer(RenderGraphBufferHandle handle) const noexcept;
 
       private:
@@ -224,20 +291,54 @@ namespace SFT::Renderer {
 
     class RenderGraphComputePassBuilder {
       public:
+        /// Constructs a `RenderGraphComputePassBuilder` from the supplied initialization values.
+        ///
+        /// @param label `label` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         explicit RenderGraphComputePassBuilder(const ustr &label = {});
 
-        /// Sampled (ShaderReadOnly) texture read, always at the compute-shader stage.
+
+        /// Adds sampled texture using the supplied arguments and current state.
+        ///
+        /// @param texture Texture used or affected by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         RenderGraphComputePassBuilder &add_sampled_texture(RenderGraphTextureHandle texture);
 
-        /// Storage-image (RHI::TextureLayout::General) read/write/read-write access.
+
+        /// Adds storage texture using the supplied arguments and current state.
+        ///
+        /// @param access `access` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         RenderGraphComputePassBuilder &add_storage_texture(const RenderGraphStorageTextureAccessDesc &access);
 
+        /// Adds buffer using the supplied arguments and current state.
+        ///
+        /// @param access `access` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         RenderGraphComputePassBuilder &add_buffer(const RenderGraphBufferAccessDesc &access);
 
-        /// Keeps this pass live even when none of its declared texture writes contribute to a marked
-        /// graph output (for example, a compute pass whose externally visible result is a buffer).
+
+        /// Sets the side effect for this `RenderGraphComputePassBuilder`.
+        ///
+        /// @param side_effect `side_effect` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         RenderGraphComputePassBuilder &set_side_effect(bool side_effect = true) noexcept;
 
+        /// Sets the execute for this `RenderGraphComputePassBuilder`.
+        ///
+        /// @param execute `execute` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         RenderGraphComputePassBuilder &set_execute(RenderGraphComputeExecuteFn execute) noexcept;
 
       private:
@@ -253,35 +354,85 @@ namespace SFT::Renderer {
 
     class RenderGraphRenderPassBuilder {
       public:
+        /// Constructs a `RenderGraphRenderPassBuilder` from the supplied initialization values.
+        ///
+        /// @param label `label` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         explicit RenderGraphRenderPassBuilder(const ustr &label = {});
 
+        /// Adds color attachment using the supplied arguments and current state.
+        ///
+        /// @param attachment `attachment` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         RenderGraphRenderPassBuilder &add_color_attachment(const RenderGraphColorAttachmentDesc &attachment);
 
+        /// Sets the depth stencil attachment for this `RenderGraphRenderPassBuilder`.
+        ///
+        /// @param attachment `attachment` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         RenderGraphRenderPassBuilder &set_depth_stencil_attachment(const RenderGraphDepthStencilAttachmentDesc &attachment);
 
+        /// Adds sampled texture using the supplied arguments and current state.
+        ///
+        /// @param read `read` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         RenderGraphRenderPassBuilder &add_sampled_texture(const RenderGraphSampledTextureReadDesc &read);
 
+        /// Adds buffer using the supplied arguments and current state.
+        ///
+        /// @param access `access` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         RenderGraphRenderPassBuilder &add_buffer(const RenderGraphBufferAccessDesc &access);
 
+        /// Sets the render area for this `RenderGraphRenderPassBuilder`.
+        ///
+        /// @param render_area `render_area` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         RenderGraphRenderPassBuilder &set_render_area(const RHI::Rect2D &render_area) noexcept;
 
+        /// Sets the view mask for this `RenderGraphRenderPassBuilder`.
+        ///
+        /// @param view_mask `view_mask` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         RenderGraphRenderPassBuilder &set_view_mask(u32 view_mask) noexcept;
 
-        /// Opts this pass into recording via RHI::RenderBundleEncoder / RenderPassEncoder::execute_bundles
-        /// (secondary command buffers) — Vulkan's vkCmdBeginRendering only permits vkCmdExecuteCommands
-        /// inside a render pass instance opened with VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT
-        /// set (VUID-vkCmdExecuteCommands-flags-06024), and per the same dynamic-rendering model that bit
-        /// and ordinary inline vkCmdDraw calls are mutually exclusive within one instance — so any pass
-        /// whose execute_ callback might call execute_bundles (record_render_items_culled's own
-        /// >kParallelRecordThreshold-items parallel path, or a hand-rolled bundle path like the shadow
-        /// atlas pass) must set this to true, and must record *only* via bundles when it does (no direct
-        /// inline pass.draw()-style calls in that same pass). False by default, matching every ordinary
-        /// inline-recording pass.
+
+        /// Sets the allow bundles for this `RenderGraphRenderPassBuilder`.
+        ///
+        /// @param allow_bundles `allow_bundles` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         RenderGraphRenderPassBuilder &set_allow_bundles(bool allow_bundles) noexcept;
 
-        /// Keeps this pass live even when its attachments do not contribute to a marked graph output.
+
+        /// Sets the side effect for this `RenderGraphRenderPassBuilder`.
+        ///
+        /// @param side_effect `side_effect` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         RenderGraphRenderPassBuilder &set_side_effect(bool side_effect = true) noexcept;
 
+        /// Sets the execute for this `RenderGraphRenderPassBuilder`.
+        ///
+        /// @param execute `execute` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         RenderGraphRenderPassBuilder &set_execute(RenderGraphExecuteFn execute) noexcept;
 
       private:
@@ -300,11 +451,7 @@ namespace SFT::Renderer {
         RenderGraphExecuteFn execute_;
     };
 
-    /// Structured compile() failure. Every code here reflects a graph the caller actually built wrong
-    /// (not a transient GPU/allocation failure — those stay in execute()'s Core::RendererResult): a
-    /// pass declared a handle that was never created by this graph, or a pass reads a transient
-    /// texture no earlier pass produced (a genuinely uninitialized read — imported textures are
-    /// always valid to read since something outside the graph already gave them real content).
+
     enum class RenderGraphCompileErrorCode : u8 {
         UnknownTextureHandle,
         UnknownBufferHandle,
@@ -320,9 +467,8 @@ namespace SFT::Renderer {
 
     class RenderGraph {
       public:
-        /// One kind + index pair identifying a declared pass; the compiled order is just these,
-        /// reordered and with dead entries dropped. Public (not just an implementation detail) so a
-        /// CPU-only test — or future tooling — can inspect a compiled plan without an RHI device.
+
+
         enum class PassKind : u8 {
             Render,
             Blit,
@@ -335,102 +481,145 @@ namespace SFT::Renderer {
             u32 index = 0;
         };
 
-        /// The result of compile(): a dependency-ordered, dead-pass-culled pass list. A small wrapper
-        /// struct (rather than a bare vector) so the type can grow (e.g. per-pass diagnostics) without
-        /// changing compile()'s signature.
+
         struct CompiledPlan {
             vector<OrderedPass> order;
-            /// Same length/indexing as `order` — compile() computes logical-resource levels for CPU-only
-            /// inspection. execute_parallel() recomputes them after transient alias allocation so passes
-            /// touching different logical textures backed by one physical image are serialized too.
+
+
             vector<u32> levels;
         };
 
         using CompileResult = expected<CompiledPlan, RenderGraphCompileError>;
 
-        /// One executed pass's GPU timing, filled by execute() when a valid `timestamp_query_set` is
-        /// passed in. `begin_query_index`/`end_query_index` are slots in that query set (both written
-        /// at PipelineStage::AllCommands, immediately before/after the pass's own work — bracketing
-        /// exactly that pass's GPU duration); the caller resolves them to nanoseconds via
-        /// RHI::DeviceLimits::timestamp_period_ns once this frame's fence proves the GPU wrote them.
+
         struct GpuPassTiming {
             UString label;
             u32 begin_query_index = 0;
             u32 end_query_index = 0;
         };
 
-        /// One executed pass's CPU recording cost — wall-clock time spent inside that pass's
-        /// execute_ callback dispatch (barrier insertion + the callback itself). Unlike
-        /// GpuPassTiming this needs no query set/fence round trip: it's ready the instant execute()
-        /// returns, so the caller can log/display it immediately rather than one frame stale (though
-        /// in practice most callers still stash it a frame, same as GpuPassTiming, simply because
-        /// debug-overlay text for frame N is built before frame N's own execute() call runs).
+
         struct CpuPassTiming {
             UString label;
             f64 duration_ms = 0.0;
         };
 
+        /// Imports texture using the supplied arguments and current state.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] RenderGraphTextureHandle import_texture(const RenderGraphImportedTextureDesc &desc);
 
+        /// Imports buffer using the supplied arguments and current state.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] RenderGraphBufferHandle import_buffer(const RenderGraphImportedBufferDesc &desc);
 
+        /// Creates a texture from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] RenderGraphTextureHandle create_texture(const RenderGraphTextureDesc &desc);
 
+        /// Adds render pass using the supplied arguments and current state.
+        ///
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] RenderGraphRenderPassBuilder &add_render_pass(const ustr &label);
 
+        /// Adds compute pass using the supplied arguments and current state.
+        ///
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] RenderGraphComputePassBuilder &add_compute_pass(const ustr &label);
 
+        /// Adds blit pass using the supplied arguments and current state.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void add_blit_pass(const RenderGraphBlitDesc &desc);
 
+        /// Adds copy pass using the supplied arguments and current state.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void add_copy_pass(const RenderGraphCopyDesc &desc);
 
-        /// Marks a texture as a liveness root. Passes producing it and their ancestry execute even when
-        /// disconnected from presentation; this does not export or preserve a transient after its final
-        /// graph use. Importing a texture alone does not keep speculative history/cache writes live.
+
+        /// Marks output using the supplied arguments and current state.
+        ///
+        /// @param texture Texture used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void mark_output(RenderGraphTextureHandle texture);
 
+        /// Performs the texture access operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RenderGraphTextureAccess texture_access(RenderGraphTextureHandle handle) const noexcept;
+        /// Performs the buffer access operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RenderGraphBufferAccess buffer_access(RenderGraphBufferHandle handle) const noexcept;
 
-        /// Pure-CPU compile step: derives a dependency-ordered, dead-pass-culled CompiledPlan from every
-        /// pass/resource declared so far, or a structured RenderGraphCompileError if the graph itself is
-        /// malformed (unknown handles, invalid buffer ranges, or a transient read with no producer).
-        /// Needs no RHI device and performs no GPU work — safe to call from CPU-only tests/tooling, and
-        /// execute() below is just this plus resource allocation, barrier recording, and pass dispatch.
+
+        /// Compiles the supplied source or pipeline state.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `RenderGraphCompileErrorCode::UnknownTextureHandle`, `RenderGraphCompileErrorCode::UnknownBufferHandle`, `RenderGraphCompileErrorCode::InvalidBufferAccess`, `RenderGraphCompileErrorCode::IncompatibleTextureCopy`, `RenderGraphCompileErrorCode::MissingProducer`.
         [[nodiscard]] CompileResult compile() const;
 
-        /// Lazy compile/record boundary. Until this is called, passes are declarations and transient
-        /// textures are virtual: no GPU allocation or command recording occurs. Despite the historical
-        /// name, execute() only compiles the dependency graph and records commands into `encoder`; queue
-        /// submission remains asynchronous unless the high-level graph requests WaitForCompletion.
-        /// `timestamp_query_set`/`out_pass_timings`: optional GPU per-pass timing. When
-        /// `timestamp_query_set` is a valid Timestamp query set with at least `2 * compile()`'s pass
-        /// count slots, execute() resets it and brackets every executed pass with a begin/end
-        /// timestamp, appending a GpuPassTiming to `*out_pass_timings` per pass (cleared first). Pass
-        /// an invalid handle (the default) to skip timing entirely — no queries written, no cost.
-        /// `out_cpu_pass_timings`: optional CPU per-pass timing, independent of the GPU parameters
-        /// above — pass a non-null pointer to have execute() clear it then append a CpuPassTiming
-        /// (wall-clock steady_clock duration) per executed pass. No RHI cost either way; skip by
-        /// leaving it null.
+
+        /// Executes the requested work.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param encoder `encoder` value used by the operation.
+        /// @param timestamp_query_set `timestamp_query_set` value used by the operation.
+        /// @param out_pass_timings `out_pass_timings` value used by the operation.
+        /// @param out_cpu_pass_timings `out_cpu_pass_timings` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                     RHI::QuerySetHandle timestamp_query_set = {},
                                                     vector<GpuPassTiming> *out_pass_timings = nullptr,
                                                     vector<CpuPassTiming> *out_cpu_pass_timings = nullptr);
 
-        /// Parallel-recording counterpart to execute(). `primary_encoder` is a caller-created encoder
-        /// that may already have work recorded into it (e.g. text-overlay/UI prep that a render-graph
-        /// pass later reads) — this function takes ownership, finishes it as the first command buffer,
-        /// then records every render-graph pass into its own fresh encoder — one per pass for a level
-        /// with more than one mutually-independent pass (recorded concurrently via
-        /// Async::Scheduler::spawn), a single encoder otherwise — appending every resulting handle to
-        /// `out_command_buffers` in submission order (level by level, original declaration order within
-        /// a level, primary_encoder always first). The caller passes the resulting span straight into
-        /// RHI::SubmitDesc::command_buffers instead of calling finish() itself. `queue` picks which
-        /// queue lane every newly created encoder targets (RHI::QueueLane{} — Graphics, lane 0 —
-        /// matches what execute()'s caller-provided encoder is created with today). Every other
-        /// parameter matches execute() exactly, including GPU/CPU per-pass timing semantics. On failure,
-        /// every command buffer already appended to `out_command_buffers` is destroyed before returning
-        /// (nothing orphaned in the RHI's command-buffer pool) and the vector is left empty.
+
+        /// Executes parallel.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param primary_encoder `primary_encoder` value used by the operation.
+        /// @param queue Queue used or affected by the operation.
+        /// @param out_command_buffers Buffer used or affected by the operation.
+        /// @param timestamp_query_set `timestamp_query_set` value used by the operation.
+        /// @param out_pass_timings `out_pass_timings` value used by the operation.
+        /// @param out_cpu_pass_timings `out_cpu_pass_timings` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult execute_parallel(RHI::RhiDevice &device,
                                                              unique_ptr<RHI::CommandEncoder> primary_encoder,
                                                              RHI::QueueLane queue,
@@ -439,55 +628,53 @@ namespace SFT::Renderer {
                                                              vector<GpuPassTiming> *out_pass_timings = nullptr,
                                                              vector<CpuPassTiming> *out_cpu_pass_timings = nullptr);
 
+        /// Destroys the transient resources identified by the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy_transient_resources(RHI::RhiDevice &device) noexcept;
 
-        /// Hands the created transient textures/views to the caller (appending to its vectors) and clears
-        /// them from the graph, so a later destroy_transient_resources() is a no-op. This is the async
-        /// model's handoff: once a frame is submitted, its transient targets must outlive the graph object
-        /// and be destroyed only when the frame's fence retires — the caller owns that deferred cleanup.
+
+        /// Performs the take transient resources operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param textures Texture used or affected by the operation.
+        /// @param views `views` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void take_transient_resources(vector<RHI::TextureHandle> &textures,
                                       vector<RHI::TextureViewHandle> &views);
 
+        /// Resets the object to its baseline state.
+        ///
+        /// @note This function does not throw exceptions.
         void reset() noexcept;
 
-        /// First/last position a transient texture is read or written at, within a CompiledPlan's order
-        /// — the input to interval-graph aliasing (see create_transient_resources() in RenderGraph.cpp).
-        /// -1 means the texture was never used by any live pass, i.e. it gets no physical allocation at
-        /// all. Public (not just an implementation detail) so a CPU-only test can confirm an unused
-        /// create_texture() is correctly recognized as dead without needing an RHI device to observe
-        /// that create_transient_resources() then skips allocating it.
+
         struct TextureLifetime {
             i32 first_use = -1;
             i32 last_use = -1;
         };
+        /// Computes transient lifetimes using the supplied arguments and current state.
+        ///
+        /// @param execution_order `execution_order` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] vector<TextureLifetime> compute_transient_lifetimes(const vector<OrderedPass> &execution_order) const;
 
-        /// Level of each pass in `execution_order` (same length, same indexing — mirrors
-        /// compute_transient_lifetimes' parallel-array style). Level N+1 passes depend, directly or
-        /// transitively, on at least one level-N pass touching the same (physical-slot-aliased-aware)
-        /// resource. Two passes never share a level if they touch the same texture or imported buffer at
-        /// all — including a shared read — since transition_texture/transition_buffer
-        /// decides on the fly which pass actually needs to emit a layout-transition barrier, and that
-        /// decision isn't safe to race across command buffers whose relative submission order isn't
-        /// known until after they're all recorded (see compute_execution_levels' own .cpp comment for
-        /// the exact hazard this closes). Recording each level's passes into separate command buffers
-        /// therefore needs no barrier between them, and finishing/submitting levels in order preserves
-        /// whatever ordering the barriers within them depend on. Pure-CPU, same testability contract as
-        /// compile()/compute_transient_lifetimes() above.
+
+        /// Computes execution levels using the supplied arguments and current state.
         ///
-        /// This standalone entry point exists for testability (callable without re-running compile()).
-        /// compile() computes logical-resource levels internally by reusing the PassUsage it already built.
-        /// execute_parallel() calls this entry point again after create_transient_resources() so physical-
-        /// slot alias conflicts, which do not exist during the CPU-only compile step, are included.
+        /// @param execution_order `execution_order` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] vector<u32> compute_execution_levels(const vector<OrderedPass> &execution_order) const;
 
       private:
-        /// The actual GPU-visible backing for one or more virtual transient textures. Two virtual
-        /// textures whose lifetimes don't overlap (and whose creation desc matches exactly) are assigned
-        /// the same PhysicalSlot by create_transient_resources()'s aliasing pass, so layout/stage/access
-        /// state is tracked per mip of the *physical* slot, not per virtual TextureRecord: it reflects
-        /// real GPU state, which is shared whenever two virtual textures alias. Imported textures always
-        /// get a dedicated, non-owning slot (owns_resource = false — the graph never destroys it).
+
+
         struct TextureState {
             RHI::TextureLayout layout = RHI::TextureLayout::Undefined;
             RHI::PipelineStage stage = RHI::PipelineStage::None;
@@ -501,8 +688,7 @@ namespace SFT::Renderer {
             bool owns_resource = false;
         };
 
-        /// Imported buffers currently carry one conservative state for the whole allocation. Passes may
-        /// declare ranges, but barriers remain whole-buffer until interval state tracking is added.
+
         struct BufferRecord {
             RenderGraphImportedBufferDesc imported{};
             RHI::PipelineStage stage = RHI::PipelineStage::None;
@@ -514,9 +700,8 @@ namespace SFT::Renderer {
             RenderGraphImportedTextureDesc imported{};
             RenderGraphTextureDesc transient{};
             bool is_transient = false;
-            /// Index into physical_slots_. Imported textures get one immediately in import_texture();
-            /// transient textures are only assigned one once create_transient_resources() runs its
-            /// aliasing pass, so this is ~0u (invalid) between create_texture() and execute().
+
+
             u32 physical_slot = ~0u;
             RHI::Format format = RHI::Format::Undefined;
             RHI::Extent3D extent{};
@@ -529,20 +714,82 @@ namespace SFT::Renderer {
             UString label;
         };
 
+        /// Performs the texture record operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] TextureRecord *texture_record(RenderGraphTextureHandle handle) noexcept;
 
+        /// Performs the texture record operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const TextureRecord *texture_record(RenderGraphTextureHandle handle) const noexcept;
 
+        /// Resolves the physical slot associated with the supplied key, handle, or resource.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] PhysicalSlot *physical_slot_for(RenderGraphTextureHandle handle) noexcept;
 
+        /// Resolves the physical slot associated with the supplied key, handle, or resource.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const PhysicalSlot *physical_slot_for(RenderGraphTextureHandle handle) const noexcept;
 
+        /// Performs the buffer record operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] BufferRecord *buffer_record(RenderGraphBufferHandle handle) noexcept;
+        /// Performs the buffer record operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const BufferRecord *buffer_record(RenderGraphBufferHandle handle) const noexcept;
 
+        /// Performs the transition buffer operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param encoder `encoder` value used by the operation.
+        /// @param access `access` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult transition_buffer(RHI::CommandEncoder &encoder,
                                                              const RenderGraphBufferAccessDesc &access);
 
+        /// Performs the transition texture operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param encoder `encoder` value used by the operation.
+        /// @param handle Handle identifying the target object or resource.
+        /// @param next_layout `next_layout` value used by the operation.
+        /// @param next_stage `next_stage` value used by the operation.
+        /// @param next_access `next_access` value used by the operation.
+        /// @param subresources `subresources` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult transition_texture(RHI::CommandEncoder &encoder,
                                                               RenderGraphTextureHandle handle,
                                                               RHI::TextureLayout next_layout,
@@ -550,19 +797,40 @@ namespace SFT::Renderer {
                                                               RHI::AccessFlags next_access,
                                                               RHI::TextureSubresourceRange subresources = {});
 
-        /// Shared per-pass dispatch body for both execute() and execute_parallel(): writes the begin
-        /// timestamp (if enabled), dispatches to the right execute_*_pass by PassKind, writes the end
-        /// timestamp, and fills `out_gpu_timing`/`out_cpu_timing` when non-null. `begin_query_index` is
-        /// precomputed by the caller (2 * the pass's position in execution_order) rather than a shared
-        /// running counter, so it stays correct when passes execute out of order across threads.
+
+        /// Executes one pass.
+        ///
+        /// @param encoder `encoder` value used by the operation.
+        /// @param ordered `ordered` value used by the operation.
+        /// @param begin_query_index Zero-based index of the target element or entry.
+        /// @param timestamp_query_set `timestamp_query_set` value used by the operation.
+        /// @param timing_enabled `timing_enabled` value used by the operation.
+        /// @param cpu_timing_enabled `cpu_timing_enabled` value used by the operation.
+        /// @param out_gpu_timing `out_gpu_timing` value used by the operation.
+        /// @param out_cpu_timing `out_cpu_timing` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult execute_one_pass(RHI::CommandEncoder &encoder, const OrderedPass &ordered,
                                                              u32 begin_query_index, RHI::QuerySetHandle timestamp_query_set,
                                                              bool timing_enabled, bool cpu_timing_enabled,
                                                              GpuPassTiming *out_gpu_timing, CpuPassTiming *out_cpu_timing);
 
+        /// Executes render pass.
+        ///
+        /// @param encoder `encoder` value used by the operation.
+        /// @param pass Render-pass encoder that receives the draw commands.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult execute_render_pass(RHI::CommandEncoder &encoder,
                                                                RenderGraphRenderPassBuilder &pass);
 
+        /// Returns a copy or derived value with debug group applied.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         template <typename Fn>
         [[nodiscard]] Core::RendererResult with_debug_group(RHI::CommandEncoder &encoder, const UString &label, Fn &&fn) {
             if (!label.empty()) {
@@ -575,27 +843,58 @@ namespace SFT::Renderer {
             return result;
         }
 
+        /// Executes blit pass.
+        ///
+        /// @param encoder `encoder` value used by the operation.
+        /// @param pass Render-pass encoder that receives the draw commands.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult execute_blit_pass(RHI::CommandEncoder &encoder, const RenderGraphBlitDesc &pass);
 
+        /// Executes compute pass.
+        ///
+        /// @param encoder `encoder` value used by the operation.
+        /// @param pass Render-pass encoder that receives the draw commands.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult execute_compute_pass(RHI::CommandEncoder &encoder,
                                                                 RenderGraphComputePassBuilder &pass);
 
+        /// Executes copy pass.
+        ///
+        /// @param encoder `encoder` value used by the operation.
+        /// @param pass Render-pass encoder that receives the draw commands.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult execute_copy_pass(RHI::CommandEncoder &encoder, const RenderGraphCopyDesc &pass);
 
-        /// Runs compile_execution_order()'s topo-sorted/culled order through interval-graph aliasing
-        /// (see RenderGraph.cpp for the algorithm) before creating one physical GPU texture per resulting
-        /// slot instead of one per virtual transient texture, then creates the GPU resources.
+
+        /// Creates a transient resources from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param execution_order `execution_order` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult create_transient_resources(RHI::RhiDevice &device,
                                                                       const vector<OrderedPass> &execution_order);
 
+        /// Performs the transition to final states operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param encoder `encoder` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult transition_to_final_states(RHI::CommandEncoder &encoder);
 
-        /// What one pass reads from and writes to, separated into texture and buffer handles — the input
-        /// to compile()'s dependency analysis. `always_live` covers a pass with no
-        /// declared attachments at all (doesn't happen from any call site today, but nothing stops
-        /// one existing): the graph can't reason about a side effect it never declared, so such a
-        /// pass is never culled. Member functions (not free functions) purely so they can read
-        /// RenderGraphRenderPassBuilder's private fields via its existing `friend class RenderGraph`.
+
         struct PassUsage {
             vector<RenderGraphTextureHandle> writes;
             vector<RenderGraphTextureHandle> reads;
@@ -603,30 +902,56 @@ namespace SFT::Renderer {
             vector<RenderGraphBufferHandle> buffer_reads;
             bool always_live = false;
         };
+        /// Performs the pass usage of operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param pass Render-pass encoder that receives the draw commands.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphRenderPassBuilder &pass);
+        /// Performs the pass usage of operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param pass Render-pass encoder that receives the draw commands.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphBlitDesc &pass);
+        /// Performs the pass usage of operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param pass Render-pass encoder that receives the draw commands.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphComputePassBuilder &pass);
+        /// Performs the pass usage of operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param pass Render-pass encoder that receives the draw commands.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] static PassUsage pass_usage_of(const RenderGraphCopyDesc &pass);
+        /// Performs the usage of ordered operation for `RenderGraph` using the supplied arguments.
+        ///
+        /// @param ordered `ordered` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] PassUsage usage_of_ordered(const OrderedPass &ordered) const;
 
-        /// Shared core of compute_execution_levels()/compile()'s internal level computation — see
-        /// compute_execution_levels()'s own doc comment for the algorithm. Takes already-built usage
-        /// (one entry per position in whatever pass sequence is being leveled) so the two callers can
-        /// supply it however is cheapest for them: compute_execution_levels() builds it fresh via
-        /// usage_of_ordered(), compile() moves its own already-computed PassUsage array into place.
+
+        /// Computes levels from usage using the supplied arguments and current state.
+        ///
+        /// @param usage_by_position `usage_by_position` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] vector<u32> compute_levels_from_usage(const vector<PassUsage> &usage_by_position) const;
 
         vector<TextureRecord> textures_;
         vector<PhysicalSlot> physical_slots_;
         vector<BufferRecord> buffers_;
-        /// transition_texture()'s read-decide-barrier-update of a PhysicalSlot's mip_states needs no
-        /// lock: compute_execution_levels() guarantees any two passes sharing a level never touch the
-        /// same physical texture slot or imported buffer at all — read or write, an earlier version of this comment only accounted
-        /// for writes, which was the actual bug that motivated adding (and, once the level algorithm
-        /// was fixed to cover reads too, later removing) a transition_lock_ here. Also makes RenderGraph
-        /// movable again, needed for it to live as a WindowSurfaceRecord member (reused frame-to-frame
-        /// instead of a fresh stack-local — see that field's own doc comment) rather than a std::mutex-
-        /// like type that would delete WindowSurfaceRecord's move constructor.
+
+
         vector<OrderedPass> ordered_passes_;
         vector<RenderGraphRenderPassBuilder> render_passes_;
         vector<RenderGraphBlitDesc> blit_passes_;
@@ -634,13 +959,6 @@ namespace SFT::Renderer {
         vector<RenderGraphCopyDesc> copy_passes_;
         vector<RenderGraphTextureHandle> outputs_;
     };
-
-
-
-
-
-
-
 
 
 } // namespace SFT::Renderer

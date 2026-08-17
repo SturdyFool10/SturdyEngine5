@@ -23,59 +23,100 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    /// Converts an RHI-level error into a Core::GraphicsBackendError, tagged with `operation` for
-    /// context. Free-standing (unlike the private Renderer::graphics_error_from_rhi member) so any
-    /// Renderer-side class outside the main Renderer object — the tiled glyph atlas
-    /// (Renderer/TextAtlas.cppm), the tiled text canvas (Renderer/TextCanvas.cppm) — can report RHI
-    /// failures the same way the rest of the engine does.
+
+    /// Performs the graphics error from RHI operation using the supplied arguments.
+    ///
+    /// @param error Error value describing the failure.
+    /// @param operation `operation` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] Core::GraphicsBackendError graphics_error_from_rhi(const RHI::RhiError &error, const char *operation);
 
-    /// Clamps a desired tile edge length to the device's actual max 2D image dimension, so a tiled
-    /// resource (the glyph atlas — Renderer/TextAtlas.cppm; the large text canvas —
-    /// Renderer/TextCanvas.cppm) can never request a texture the GPU structurally cannot create.
-    /// `limits.max_texture_dimension_2d` unset (0, e.g. queried too early) leaves `desired` as-is.
+
+    /// Returns the requested clamp tile size.
+    ///
+    /// @param desired `desired` value used by the operation.
+    /// @param limits `limits` value used by the operation.
+    ///
+    /// @return Returns the requested count or size.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] u32 clamp_tile_size(u32 desired, const RHI::DeviceLimits &limits) noexcept;
 
-    /// A tile's position in an infinite logical grid of same-size square tiles. Signed so a grid
-    /// can extend in every direction from a (0, 0) origin (a canvas scrolled negative, say).
+
     struct TileCoord {
         i32 x = 0;
         i32 y = 0;
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] friend constexpr bool operator==(TileCoord, TileCoord) noexcept = default;
     };
 
     struct TileCoordHash {
+        /// Invokes the callable behavior provided by `TileCoordHash`.
+        ///
+        /// @param coord `coord` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize operator()(TileCoord coord) const noexcept;
     };
 
-    /// Which tile a logical pixel coordinate falls in, and its offset within that tile. Floors
-    /// toward negative infinity (not toward zero), so tiling stays consistent across the origin.
+
     struct TileAddress {
         TileCoord tile{};
         u32 local_x = 0;
         u32 local_y = 0;
     };
 
+    /// Performs the locate in grid operation using the supplied arguments.
+    ///
+    /// @param logical_x `logical_x` value used by the operation.
+    /// @param logical_y `logical_y` value used by the operation.
+    /// @param tile_size Requested or available size for the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] TileAddress locate_in_grid(i32 logical_x, i32 logical_y, u32 tile_size) noexcept;
 
-    /// Every tile a logical rectangle [x, x+width) x [y, y+height) overlaps — used to split a draw
-    /// or upload that crosses tile boundaries (Renderer/TextCanvas.cppm's draw_run()).
+
+    /// Performs the tiles overlapping operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param tile_size Requested or available size for the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] vector<TileCoord> tiles_overlapping(i32 x, i32 y, u32 width, u32 height, u32 tile_size) noexcept;
 
-    /// A least-recently-used index over `Key`, shared by the glyph atlas (Renderer/TextAtlas.cpp,
-    /// evicting individual glyph rectangles) and the large text canvas (Renderer/TextCanvas.cpp,
-    /// evicting whole tiles). Tracks residency order only — it does not own whatever `Key` maps to;
-    /// the caller looks up/destroys the associated resource when `evict_one()` returns a key.
+
     template <typename Key, typename Hash = std::hash<Key>>
     class LruIndex {
       public:
+        /// Constructs a `LruIndex` in its default state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         LruIndex() = default;
 
-        /// `nodes_` stores iterators into `order_`, so compiler-generated copy/move would preserve
-        /// iterators associated with another list under MSVC's checked-iterator mode. Rebuild the
-        /// index after every transfer to keep splice()/erase() tied to this exact list instance.
+
+        /// Constructs a `LruIndex` from another instance.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         LruIndex(const LruIndex &other) : order_(other.order_) { rebuild_nodes(); }
 
+        /// Assigns a new value to this `LruIndex`.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         LruIndex &operator=(const LruIndex &other) {
             if (this != &other) {
                 order_ = other.order_;
@@ -84,11 +125,22 @@ namespace SFT::Renderer {
             return *this;
         }
 
+        /// Constructs a `LruIndex` from another instance.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         LruIndex(LruIndex &&other) : order_(std::move(other.order_)) {
             rebuild_nodes();
             other.nodes_.clear();
         }
 
+        /// Assigns a new value to this `LruIndex`.
+        ///
+        /// @param other Other object used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         LruIndex &operator=(LruIndex &&other) {
             if (this != &other) {
                 order_ = std::move(other.order_);
@@ -98,11 +150,14 @@ namespace SFT::Renderer {
             return *this;
         }
 
-        /// Marks `key` as most-recently-used, inserting it if not already tracked. Returns true if
-        /// this was a new insertion (the caller must still assign it storage), false if `key` was
-        /// already resident (its position in the LRU order is simply refreshed).
-        bool touch(Key key) {
 
+        /// Performs the touch operation for `LruIndex` using the supplied arguments.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        bool touch(Key key) {
 
 
             const auto node = std::ranges::find(order_, key);
@@ -119,7 +174,10 @@ namespace SFT::Renderer {
             return true;
         }
 
-        /// Evicts and returns the least-recently-used key, or nullopt if nothing is tracked.
+
+        /// Returns the current or globally available evict one value.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         [[nodiscard]] optional<Key> evict_one() {
             if (order_.empty()) {
                 return std::nullopt;
@@ -130,9 +188,10 @@ namespace SFT::Renderer {
             return key;
         }
 
-        /// Evicts the least-recently-used key accepted by `predicate`. This lets a caller pin the
-        /// resources referenced by the draw it is currently building while still reclaiming older
-        /// entries. Walking from the back preserves ordinary LRU order among eligible entries.
+
+        /// Returns the current or globally available evict one if value.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         template <typename Predicate>
         [[nodiscard]] optional<Key> evict_one_if(Predicate &&predicate) {
             for (auto reverse = order_.rbegin(); reverse != order_.rend(); ++reverse) {
@@ -149,6 +208,11 @@ namespace SFT::Renderer {
             return std::nullopt;
         }
 
+        /// Erases the selected element or range from the container.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void erase(const Key &key) {
             const auto node = std::ranges::find(order_, key);
             if (node != order_.end()) {
@@ -157,11 +221,32 @@ namespace SFT::Renderer {
             nodes_.erase(key);
         }
 
+        /// Reports whether contains holds for this `LruIndex`.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool contains(const Key &key) const { return nodes_.contains(key); }
+        /// Returns the size for this `LruIndex`.
+        ///
+        /// @return Returns the current size value.
+        /// @note This function does not throw exceptions.
+        /// Returns the size for this `LruIndex`.
+        ///
+        /// @return Returns the current size value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize size() const noexcept { return order_.size(); }
+        /// Reports whether this `LruIndex` contains no elements or payload.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool empty() const noexcept { return order_.empty(); }
 
       private:
+        /// Performs the rebuild nodes operation for `LruIndex` using the supplied arguments.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void rebuild_nodes() {
             nodes_.clear();
             nodes_.reserve(order_.size());

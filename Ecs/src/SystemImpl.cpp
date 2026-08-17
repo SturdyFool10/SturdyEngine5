@@ -14,14 +14,29 @@ namespace SFT::Ecs {
 
         class ScheduledWorldScope {
           public:
+            /// Constructs a `ScheduledWorldScope` from the supplied initialization values.
+            ///
+            /// @param world World used or affected by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             explicit ScheduledWorldScope(World &world) noexcept
                 : world_(&world), access_(Detail::WorldAccess::begin_schedule(world)) {}
 
+            /// Destroys the `ScheduledWorldScope` and releases resources owned by it.
+            ///
+            /// @note This function does not throw exceptions.
             ~ScheduledWorldScope() noexcept {
                 Detail::WorldAccess::end_schedule(*world_);
             }
 
+            /// Disables this construction form for `ScheduledWorldScope`.
+            ///
+            /// @note This overload is deleted; attempting to call it is a compile-time error.
             ScheduledWorldScope(const ScheduledWorldScope &) = delete;
+            /// Assigns a new value to this `ScheduledWorldScope`.
+            ///
+            /// @return Returns `*this` so the operation can be chained.
+            /// @note This overload is deleted; attempting to call it is a compile-time error.
             ScheduledWorldScope &operator=(const ScheduledWorldScope &) = delete;
 
           private:
@@ -32,7 +47,10 @@ namespace SFT::Ecs {
     } // namespace
 
 
-
+    /// Returns the current or globally available rebuild stages value.
+    ///
+    /// @return Returns the current rebuild stages value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Schedule::rebuild_stages() {
         ZoneScopedN("Schedule::rebuild_stages");
         stages_.clear();
@@ -46,7 +64,6 @@ namespace SFT::Ecs {
             std::vector<usize> next_remaining;
             for (usize index : remaining) {
                 bool conflicts = false;
-
 
 
                 for (ResourceKey read_event : systems_[index].access.event_reads) {
@@ -80,11 +97,10 @@ namespace SFT::Ecs {
     }
 
 
-
-
-
-
-
+    /// Validates event ordering.
+    ///
+    /// @return Returns the current validate event ordering value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Schedule::validate_event_ordering() const {
         ZoneScopedN("Schedule::validate_event_ordering");
         if (!config_.clear_events_on_run) return;
@@ -118,11 +134,14 @@ namespace SFT::Ecs {
         }
     }
 
+    /// Runs the requested work.
+    ///
+    /// @param world World used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Schedule::run(World &world) {
         ZoneScopedN("Schedule::run");
-
-
-
 
 
         usize target_parallelism = 1;

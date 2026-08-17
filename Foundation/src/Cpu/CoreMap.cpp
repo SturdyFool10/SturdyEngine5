@@ -30,6 +30,13 @@
 
 namespace SFT::Foundation::Cpu {
 
+    /// Compares the operands for equality.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    ///
+    /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     bool operator==(const CoreCapabilities &a, const CoreCapabilities &b) noexcept {
         return a.type == b.type && a.l1d_bytes == b.l1d_bytes && a.l1i_bytes == b.l1i_bytes &&
                a.l2_bytes == b.l2_bytes && a.l3_bytes == b.l3_bytes && a.extensions == b.extensions;
@@ -39,20 +46,47 @@ namespace SFT::Foundation::Cpu {
 
 #if defined(STURDY_CPU_X86)
 
+        /// Reads leaf from the associated source.
+        ///
+        /// @param leaf `leaf` value used by the operation.
+        /// @param subleaf `subleaf` value used by the operation.
+        /// @param eax `eax` value used by the operation.
+        /// @param ebx `ebx` value used by the operation.
+        /// @param ecx `ecx` value used by the operation.
+        /// @param edx `edx` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void read_leaf(unsigned int leaf, unsigned int subleaf, unsigned int &eax, unsigned int &ebx, unsigned int &ecx, unsigned int &edx) noexcept {
             __get_cpuid_count(leaf, subleaf, &eax, &ebx, &ecx, &edx);
         }
 
+        /// Reports whether this `Cpu` has bit.
+        ///
+        /// @param reg `reg` value used by the operation.
+        /// @param position `position` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool has_bit(unsigned int reg, unsigned int position) noexcept {
             return ((reg >> position) & 1u) != 0u;
         }
 
+        /// Sets the bit for this `Cpu`.
+        ///
+        /// @param extensions `extensions` value used by the operation.
+        /// @param extension `extension` value used by the operation.
+        /// @param value Value consumed by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_bit(std::vector<bool> &extensions, Extension extension, bool value) noexcept {
             extensions[static_cast<usize>(extension)] = value;
         }
 
+        /// Reads x2apic ID from the associated source.
+        ///
+        /// @return Returns the current read x2apic ID value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 read_x2apic_id() noexcept {
-
 
 
             unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
@@ -71,12 +105,10 @@ namespace SFT::Foundation::Cpu {
         }
 
 
-
-
-
-
-
-
+        /// Reads smt shift width from the associated source.
+        ///
+        /// @return Returns the current read smt shift width value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 read_smt_shift_width() noexcept {
             unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
             read_leaf(0, 0, eax, ebx, ecx, edx);
@@ -97,8 +129,11 @@ namespace SFT::Foundation::Cpu {
             return eax & 0x1fu;
         }
 
+        /// Reads core type from the associated source.
+        ///
+        /// @return Returns the current read core type value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] CoreType read_core_type() noexcept {
-
 
 
             if (!Cpu::features().hybrid || Cpu::features().vendor_view() != "GenuineIntel") {
@@ -117,12 +152,11 @@ namespace SFT::Foundation::Cpu {
         }
 
 
-
-
-
-
-
-
+        /// Decodes extensions.
+        ///
+        /// @param ext `ext` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void decode_extensions(std::vector<bool> &ext) noexcept {
             unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
             read_leaf(0, 0, eax, ebx, ecx, edx);
@@ -326,9 +360,12 @@ namespace SFT::Foundation::Cpu {
         };
 
 
-
-
-
+        /// Decodes cache leaves.
+        ///
+        /// @param cache_leaf `cache_leaf` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] CacheSizes decode_cache_leaves(unsigned int cache_leaf) noexcept {
             CacheSizes sizes{};
             for (unsigned int subleaf = 0; subleaf < 16; ++subleaf) {
@@ -358,6 +395,10 @@ namespace SFT::Foundation::Cpu {
             return sizes;
         }
 
+        /// Returns the current or globally available detect current core value.
+        ///
+        /// @return Returns the current detect current core value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] CoreCapabilities detect_current_core() noexcept {
             CoreCapabilities caps{};
             caps.extensions.assign(static_cast<usize>(Extension::Count), false);
@@ -377,6 +418,10 @@ namespace SFT::Foundation::Cpu {
 
     #if defined(__linux__)
 
+        /// Enumerates the logical CPU cores available to the current process.
+        ///
+        /// @return Returns the current enumerate cores value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::vector<u32> enumerate_cores() noexcept {
             std::vector<u32> cores;
             cpu_set_t available;
@@ -399,20 +444,30 @@ namespace SFT::Foundation::Cpu {
         }
 
 
-
-
-
         class ScopedAffinityRestore {
           public:
+            /// Constructs a `ScopedAffinityRestore` in its default state.
+            ///
+            /// @note This function does not throw exceptions.
             ScopedAffinityRestore() noexcept {
                 had_original_ = pthread_getaffinity_np(pthread_self(), sizeof(original_), &original_) == 0;
             }
+            /// Destroys the `ScopedAffinityRestore` and releases resources owned by it.
+            ///
+            /// @note This function does not throw exceptions.
             ~ScopedAffinityRestore() noexcept {
                 if (had_original_) {
                     pthread_setaffinity_np(pthread_self(), sizeof(original_), &original_);
                 }
             }
+            /// Disables this construction form for `ScopedAffinityRestore`.
+            ///
+            /// @note This overload is deleted; attempting to call it is a compile-time error.
             ScopedAffinityRestore(const ScopedAffinityRestore &) = delete;
+            /// Assigns a new value to this `ScopedAffinityRestore`.
+            ///
+            /// @return Returns `*this` so the operation can be chained.
+            /// @note This overload is deleted; attempting to call it is a compile-time error.
             ScopedAffinityRestore &operator=(const ScopedAffinityRestore &) = delete;
 
           private:
@@ -420,6 +475,12 @@ namespace SFT::Foundation::Cpu {
             bool had_original_ = false;
         };
 
+        /// Pins the calling thread to the requested logical CPU core when the platform supports affinity.
+        ///
+        /// @param core_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         bool pin_current_thread(u32 core_index) noexcept {
             cpu_set_t target;
             CPU_ZERO(&target);
@@ -429,6 +490,10 @@ namespace SFT::Foundation::Cpu {
 
     #elif defined(__APPLE__)
 
+        /// Enumerates the logical CPU cores available to the current process.
+        ///
+        /// @return Returns the current enumerate cores value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::vector<u32> enumerate_cores() noexcept {
             std::vector<u32> cores;
             const unsigned int count = std::thread::hardware_concurrency();
@@ -439,14 +504,11 @@ namespace SFT::Foundation::Cpu {
         }
 
 
-
-
-
-
-
-
         class ScopedAffinityRestore {
           public:
+            /// Destroys the `ScopedAffinityRestore` and releases resources owned by it.
+            ///
+            /// @note This function does not throw exceptions.
             ~ScopedAffinityRestore() noexcept {
                 thread_affinity_policy_data_t policy{.affinity_tag = THREAD_AFFINITY_TAG_NULL};
                 thread_policy_set(pthread_mach_thread_np(pthread_self()),
@@ -456,6 +518,12 @@ namespace SFT::Foundation::Cpu {
             }
         };
 
+        /// Pins the calling thread to the requested logical CPU core when the platform supports affinity.
+        ///
+        /// @param core_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         bool pin_current_thread(u32 core_index) noexcept {
             thread_affinity_policy_data_t policy{.affinity_tag = static_cast<integer_t>(core_index)};
             return thread_policy_set(pthread_mach_thread_np(pthread_self()),
@@ -467,10 +535,10 @@ namespace SFT::Foundation::Cpu {
     #elif !defined(_WIN32)
 
 
-
-
-
-
+        /// Enumerates the logical CPU cores available to the current process.
+        ///
+        /// @return Returns the current enumerate cores value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::vector<u32> enumerate_cores() noexcept {
             std::vector<u32> cores;
             const unsigned int count = std::thread::hardware_concurrency();
@@ -482,14 +550,20 @@ namespace SFT::Foundation::Cpu {
 
         class ScopedAffinityRestore {};
 
+        /// Pins the calling thread to the requested logical CPU core when the platform supports affinity.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         bool pin_current_thread(u32               ) noexcept { return false; }
 
     #endif // platform dispatch (Windows handled inline in build_cores() below -- see its own comment)
 
+        /// Builds cores.
+        ///
+        /// @return Returns the current build cores value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::vector<CoreCapabilities> build_cores() noexcept {
     #if defined(_WIN32)
-
-
 
 
             std::vector<u32> logical_cores;
@@ -551,9 +625,10 @@ namespace SFT::Foundation::Cpu {
 #else
 
 
-
-
-
+        /// Returns the current uniform capabilities.
+        ///
+        /// @return Returns the current uniform capabilities value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] CoreCapabilities uniform_capabilities() noexcept {
             CoreCapabilities caps{};
             caps.extensions.assign(static_cast<usize>(Extension::Count), false);
@@ -567,6 +642,10 @@ namespace SFT::Foundation::Cpu {
             return caps;
         }
 
+        /// Builds cores.
+        ///
+        /// @return Returns the current build cores value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::vector<CoreCapabilities> build_cores() noexcept {
             const unsigned int count = std::thread::hardware_concurrency();
             return std::vector<CoreCapabilities>(count > 0 ? count : 1u, uniform_capabilities());
@@ -576,6 +655,9 @@ namespace SFT::Foundation::Cpu {
 
     } // namespace
 
+    /// Performs the core map operation for `Cpu` using the supplied arguments.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     CoreMap::CoreMap() : cores_(build_cores()) {
         if (cores_.empty()) {
             cores_.push_back(CoreCapabilities{});
@@ -609,11 +691,6 @@ namespace SFT::Foundation::Cpu {
                   });
 
 
-
-
-
-
-
         physical_core_of_logical_.resize(cores_.size());
 #if defined(STURDY_CPU_X86)
         const u32 smt_shift = read_smt_shift_width();
@@ -645,11 +722,20 @@ namespace SFT::Foundation::Cpu {
 #endif
     }
 
+    /// Returns the current or globally available instance value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const CoreMap &CoreMap::instance() noexcept {
         static const CoreMap instance;
         return instance;
     }
 
+    /// Returns the current or globally available capabilities of current core value.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const CoreCapabilities *CoreMap::capabilities_of_current_core() const noexcept {
         const u32 id = current_core().x2apic_id;
         const auto it = std::lower_bound(
@@ -667,29 +753,81 @@ namespace SFT::Foundation::Cpu {
 
 namespace SFT::Foundation::Cpu {
 
+    /// Performs the has operation for `Cpu` using the supplied arguments.
+    ///
+    /// @param extension `extension` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool CoreCapabilities::has(Extension extension) const noexcept {
         const auto index = static_cast<usize>(extension);
         return index < extensions.size() && extensions[index];
     }
 
+    /// Returns the core count for this `Cpu`.
+    ///
+    /// @return Returns the current core count value.
+    /// @note This function does not throw exceptions.
     usize CoreMap::core_count() const noexcept { return cores_.size(); }
 
+    /// Performs the core operation for `Cpu` using the supplied arguments.
+    ///
+    /// @param logical_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const CoreCapabilities &CoreMap::core(usize logical_index) const noexcept { return cores_.at(logical_index); }
 
+    /// Returns the distinct type count for this `Cpu`.
+    ///
+    /// @return Returns the current distinct type count value.
+    /// @note This function does not throw exceptions.
     usize CoreMap::distinct_type_count() const noexcept { return cores_of_type_.size(); }
 
+    /// Reports whether hybrid holds for this `Cpu`.
+    ///
+    /// @return Returns the current is hybrid value.
+    /// @note This function does not throw exceptions.
     bool CoreMap::is_hybrid() const noexcept { return distinct_type_count() > 1; }
 
+    /// Performs the type index of core operation for `Cpu` using the supplied arguments.
+    ///
+    /// @param logical_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     usize CoreMap::type_index_of_core(usize logical_index) const noexcept { return type_of_core_.at(logical_index); }
 
+    /// Performs the core indices of type operation for `Cpu` using the supplied arguments.
+    ///
+    /// @param type_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const std::vector<usize> &CoreMap::core_indices_of_type(usize type_index) const noexcept {
         return cores_of_type_.at(type_index);
     }
 
+    /// Returns the physical core count for this `Cpu`.
+    ///
+    /// @return Returns the current physical core count value.
+    /// @note This function does not throw exceptions.
     usize CoreMap::physical_core_count() const noexcept { return logical_cores_of_physical_core_.size(); }
 
+    /// Performs the physical core of operation for `Cpu` using the supplied arguments.
+    ///
+    /// @param logical_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     usize CoreMap::physical_core_of(usize logical_index) const noexcept { return physical_core_of_logical_.at(logical_index); }
 
+    /// Performs the logical cores of physical core operation for `Cpu` using the supplied arguments.
+    ///
+    /// @param physical_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const std::vector<usize> &CoreMap::logical_cores_of_physical_core(usize physical_index) const noexcept {
         return logical_cores_of_physical_core_.at(physical_index);
     }

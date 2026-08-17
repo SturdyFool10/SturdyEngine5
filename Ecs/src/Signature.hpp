@@ -8,11 +8,13 @@
 
 namespace SFT::Ecs {
 
-    /// A sorted list of ComponentIds identifying one archetype. Sorted so two signatures built from
-    /// the same component set (regardless of the order they were named in) compare/insert/lookup
-    /// consistently, and so signature_is_superset() can use a linear merge instead of per-id search.
+
     using Signature = std::vector<ComponentId>;
 
+    /// Creates a signature value from the supplied arguments.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     template <class... Ts>
     [[nodiscard]] Signature make_signature(ComponentRegistry &registry) {
         Signature signature{registry.component<std::remove_const_t<Ts>>()...};
@@ -31,8 +33,14 @@ namespace SFT::Ecs {
         return signature;
     }
 
-    /// True when every id in `subset` also appears in `superset`. Both must already be sorted (every
-    /// Signature in this codebase always is, by construction).
+
+    /// Reports whether signature is superset.
+    ///
+    /// @param superset `superset` value used by the operation.
+    /// @param subset `subset` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool signature_is_superset(const Signature &superset, const Signature &subset) noexcept;
 
 } // namespace SFT::Ecs

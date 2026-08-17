@@ -20,30 +20,30 @@ using std::vector;
 
 namespace SFT::Renderer {
 
-    /// Identifies one cached glyph rasterization: which font, which glyph, at what reference pixel
-    /// size, in which distance-field format. A glyph used at multiple sizes/formats concurrently
-    /// (the same font small in a UI label and large on a 3D sign) gets one cache entry per distinct
-    /// key — see Text::select_raster_format's hysteresis for why the format is part of the key
-    /// rather than something re-derived live every lookup.
+
     struct GlyphKey {
         u64 font_id = 0;
         u32 glyph_id = 0;
         u32 reference_ppem = 0;
         Text::RasterFormat format = Text::RasterFormat::SDF;
+        /// Compares the operands for equality.
+        ///
+        /// @return Returns `true` when the operands compare equal; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] friend constexpr bool operator==(const GlyphKey &, const GlyphKey &) noexcept = default;
     };
 
     struct GlyphKeyHash {
+        /// Invokes the callable behavior provided by `GlyphKeyHash`.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize operator()(const GlyphKey &key) const noexcept;
     };
 
-    /// What the atlas needs to rasterize a glyph on a cache miss. `outline`/`font` are non-owning
-    /// and only dereferenced if this exact (font, glyph, size, format) isn't already resident — the
-    /// caller (a font/shaping layer) owns their lifetime for the duration of the call. `outline` is
-    /// used for `RasterFormat::SDF`/`MSDF` (Text::rasterize_glyph); `font` is used for
-    /// `RasterFormat::Color` (Text::rasterize_color_glyph, which extracts each COLR layer's outline
-    /// itself, or decodes an embedded PNG strike — either way it needs the font, not a pre-extracted
-    /// outline).
+
     struct GlyphRequest {
         u64 font_id = 0;
         u32 glyph_id = 0;
@@ -54,45 +54,29 @@ namespace SFT::Renderer {
         const Text::Font *font = nullptr;
     };
 
-    /// Images/views superseded by grow-only atlas replacement. They remain alive until the command
-    /// buffer that copies from them (and every earlier queued draw that sampled them) retires.
+
     struct TextAtlasRetiredResources {
         vector<RHI::TextureHandle> textures;
         vector<RHI::TextureViewHandle> texture_views;
     };
 
-    /// Where a resident glyph lives in the atlas: which tile, and its normalized UV rect within
-    /// that tile's texture. `raster_size_px` is the tightly packed resident raster rectangle in
-    /// pixels — an instance builder uses it together
-    /// with `reference_ppem` to size the glyph's screen/world quad without shrinking for padding.
+
     struct GlyphSlot {
         u32 tile_index = 0;
         glm::vec2 uv_min{0.0f};
         glm::vec2 uv_max{0.0f};
         glm::vec2 raster_size_px{0.0f};
-        /// Actual em size at which this atlas entry was generated. It may be lower than the
-        /// requested display size when an unusually large glyph must be down-rasterized to fit a tile;
-        /// distance fields then scale it back up without clipping.
+
+
         f32 reference_ppem = 0.0f;
         Text::RasterFormat format = Text::RasterFormat::SDF;
-        /// Where the resident raster sits relative to the pen, in its own pixel space (see
-        /// Text::RasterizedGlyph's doc comment for the convention) — an instance builder rescales
-        /// these by the same reference-ppem-relative factor it applies to the resident raster size
-        /// before placing the glyph's quad, since a cache hit may be drawn at a different actual
-        /// pixel size than the one this slot's raster was generated at.
+
+
         f32 bearing_x = 0.0f;
         f32 bearing_top = 0.0f;
     };
 
-    /// An LRU, tile-based cache of rasterized glyphs backed by RHI textures. Three independent
-    /// sub-atlases are maintained — R8Unorm (SDF), RGBA8Unorm (MSDF), and RGBA8Unorm (Color, for
-    /// emoji — see Text/ColorGlyph.cpp) — each with its own lazily allocated image. A format starts
-    /// with no VRAM allocation; its first image is small, then that image is replaced by a doubled
-    /// image up to a configured/device-clamped ceiling. Existing texels are copied to the same
-    /// coordinates and the smaller image is fence-retired. Images never shrink, including after
-    /// eviction. This keeps ordinary UI text cheap while allowing multilingual workloads to grow.
-    /// Every glyph reserves only its actual padded ink rectangle. Eviction returns that rectangle
-    /// to a coalescing free-rectangle allocator instead of throwing away a whole tile.
+
     class TextAtlas {
       public:
         struct Config {
@@ -102,30 +86,68 @@ namespace SFT::Renderer {
             f32 padding_px = 4.0f;
         };
 
+        /// Constructs a `TextAtlas` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         TextAtlas() noexcept = default;
 
+        /// Creates a `TextAtlas` resource or value from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param config Configuration values controlling the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] static Core::RendererExpected<TextAtlas> create(RHI::RhiDevice &device, const Config &config);
 
-        /// Ensures every glyph in `requests` is resident (rasterizing any misses in parallel via
-        /// Async::par_iter, then recording their upload — one batched staging-buffer copy plus the
-        /// layout-transition barriers around it — into the caller's `encoder`), and marks each as
-        /// most-recently-used. `out_slots` is resized to `requests.size()` and filled in request
-        /// order. Deliberately does NOT submit or wait: `encoder` is the caller's own per-frame
-        /// command encoder (already recording the rest of the frame), so this upload becomes just
-        /// more commands in that one queue submission — no separate fence, no CPU stall. The staging
-        /// buffer this call creates on a miss is appended to `out_transient_buffers`; the caller must
-        /// keep it alive (and eventually destroy it) until the frame's fence retires, since the GPU
-        /// copy hasn't necessarily run yet when this function returns.
+
+        /// Finds or creates the resident required by the operation.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param encoder `encoder` value used by the operation.
+        /// @param requests `requests` value used by the operation.
+        /// @param out_slots `out_slots` value used by the operation.
+        /// @param out_transient_buffers Buffer used or affected by the operation.
+        /// @param out_retired_resources `out_retired_resources` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult ensure_resident(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                            span<const GlyphRequest> requests, vector<GlyphSlot> &out_slots,
                                                            vector<RHI::BufferHandle> &out_transient_buffers,
                                                            TextAtlasRetiredResources &out_retired_resources);
 
+        /// Performs the tile view operation for `TextAtlas` using the supplied arguments.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param tile_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::TextureViewHandle tile_view(Text::RasterFormat format, u32 tile_index) const noexcept;
+        /// Returns the tile count for this `TextAtlas`.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns the requested count or size.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 tile_count(Text::RasterFormat format) const noexcept;
+        /// Returns the tile size for this `TextAtlas`.
+        ///
+        /// @return Returns the current tile size value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 tile_size() const noexcept;
+        /// Returns the current or globally available pixel range value.
+        ///
+        /// @return Returns the current pixel range value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 pixel_range() const noexcept;
 
+        /// Destroys or releases the `TextAtlas` resource represented by the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy(RHI::RhiDevice &device) noexcept;
 
       private:
@@ -141,8 +163,8 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle view{};
             RHI::TextureLayout current_layout = RHI::TextureLayout::Undefined;
             u32 size = 0;
-            /// Disjoint rectangles covering every currently unused texel in this tile. Allocation
-            /// guillotine-splits one rectangle; release merges compatible neighbors back together.
+
+
             vector<AtlasRect> free_rects;
         };
 
@@ -157,9 +179,8 @@ namespace SFT::Renderer {
             u32 raster_width = 0;
             u32 raster_height = 0;
             f32 reference_ppem = 0.0f;
-            /// Only known once Text::rasterize_glyph actually runs (upload_misses), so a fresh
-            /// cache-miss RectLocation is inserted into resident_ with these left at 0 and
-            /// overwritten right after rasterizing — see GlyphSlot's doc comment for what they mean.
+
+
             f32 bearing_x = 0.0f;
             f32 bearing_top = 0.0f;
         };
@@ -171,25 +192,111 @@ namespace SFT::Renderer {
             bool allocated = false;
         };
 
+        /// Allocates rect.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param encoder `encoder` value used by the operation.
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param protected_keys `protected_keys` value used by the operation.
+        /// @param out_retired_resources `out_retired_resources` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<RectLocation>
         allocate_rect(RHI::RhiDevice &device, RHI::CommandEncoder &encoder, Text::RasterFormat format,
                       u32 width, u32 height, span<const GlyphKey> protected_keys,
                       TextAtlasRetiredResources &out_retired_resources);
+        /// Creates a tile from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param size Requested or available size for the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<Tile> create_tile(RHI::RhiDevice &device,
                                                                Text::RasterFormat format, u32 size);
+        /// Appends the supplied value or range to the current contents.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param size Requested or available size for the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult append_tile(RHI::RhiDevice &device, Text::RasterFormat format, u32 size);
+        /// Grows tile using the supplied arguments and current state.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param encoder `encoder` value used by the operation.
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param new_size Requested or available size for the operation.
+        /// @param out_retired_resources `out_retired_resources` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult grow_tile(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                      Text::RasterFormat format, u32 new_size,
                                                      TextAtlasRetiredResources &out_retired_resources);
+        /// Releases rect using the supplied arguments and current state.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param rect `rect` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void release_rect(Text::RasterFormat format, RectLocation rect) noexcept;
+        /// Uploads misses using the supplied arguments and current state.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param encoder `encoder` value used by the operation.
+        /// @param requests `requests` value used by the operation.
+        /// @param misses `misses` value used by the operation.
+        /// @param out_slots `out_slots` value used by the operation.
+        /// @param out_transient_buffers Buffer used or affected by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult upload_misses(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                          span<const GlyphRequest> requests, const vector<PendingUpload> &misses,
                                                          vector<GlyphSlot> &out_slots, vector<RHI::BufferHandle> &out_transient_buffers);
 
+        /// Formats atlas using the supplied arguments and current state.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] FormatAtlas &format_atlas(Text::RasterFormat format) noexcept;
+        /// Formats atlas using the supplied arguments and current state.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const FormatAtlas &format_atlas(Text::RasterFormat format) const noexcept;
+        /// Formats lru using the supplied arguments and current state.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] LruIndex<GlyphKey, GlyphKeyHash> &format_lru(Text::RasterFormat format) noexcept;
+        /// Performs the texture format operation for `TextAtlas` using the supplied arguments.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::Format texture_format(Text::RasterFormat format) const noexcept;
+        /// Performs the slot from rect operation for `TextAtlas` using the supplied arguments.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param rect `rect` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] GlyphSlot slot_from_rect(Text::RasterFormat format, RectLocation rect) const noexcept;
 
         Config config_{};

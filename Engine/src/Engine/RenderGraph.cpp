@@ -7,11 +7,21 @@
 namespace SFT::Engine {
 
     namespace {
+        /// Performs the finite operation for `Engine` using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool finite(glm::vec4 value) noexcept {
             return std::isfinite(value.x) && std::isfinite(value.y) &&
                    std::isfinite(value.z) && std::isfinite(value.w);
         }
 
+        /// Returns the current or globally available next graph generation value.
+        ///
+        /// @return Returns the current next graph generation value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 next_graph_generation() noexcept {
             static std::atomic<u32> next{1};
             u32 generation = next.fetch_add(1, std::memory_order_relaxed);
@@ -22,19 +32,37 @@ namespace SFT::Engine {
         }
     } // namespace
 
+    /// Renders the requested content using the current rendering state.
+    ///
+    /// @param description Description of the resource or operation to perform.
+    ///
+    /// @note This function does not throw exceptions.
     RenderGraph::RenderGraph(EmptyTag, RenderGraphDescription description) noexcept
         : description_(std::move(description)), generation_(next_graph_generation()) {}
 
+    /// Renders the requested content using the current rendering state.
+    ///
+    /// @note This function does not throw exceptions.
     RenderGraph::RenderGraph() noexcept
         : RenderGraph(EmptyTag{}, RenderGraphDescription{}) {
         build_standard_topology();
     }
 
+    /// Renders the requested content using the current rendering state.
+    ///
+    /// @param description Description of the resource or operation to perform.
+    ///
+    /// @note This function does not throw exceptions.
     RenderGraph::RenderGraph(RenderGraphDescription description) noexcept
         : RenderGraph(EmptyTag{}, std::move(description)) {
         build_standard_topology();
     }
 
+    /// Renders the requested content using the current rendering state.
+    ///
+    /// @param other Other object used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraph::RenderGraph(const RenderGraph &other)
         : description_(other.description_),
           generation_(other.generation_),
@@ -45,6 +73,12 @@ namespace SFT::Engine {
         rebase_handles();
     }
 
+    /// Assigns a new value to this `Engine`.
+    ///
+    /// @param other Other object used by the operation.
+    ///
+    /// @return Returns `*this` so the operation can be chained.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraph &RenderGraph::operator=(const RenderGraph &other) {
         if (this == &other) {
             return *this;
@@ -59,6 +93,10 @@ namespace SFT::Engine {
         return *this;
     }
 
+    /// Returns the current or globally available rebase handles value.
+    ///
+    /// @return Returns the current rebase handles value.
+    /// @note This function does not throw exceptions.
     void RenderGraph::rebase_handles() noexcept {
         generation_ = next_graph_generation();
         for (RenderGraphTextureDescription &texture : textures_) {
@@ -90,12 +128,26 @@ namespace SFT::Engine {
         }
     }
 
+    /// Returns the current or globally available standard value.
+    ///
+    /// @return Returns the current standard value.
+    /// @note This function does not throw exceptions.
     RenderGraph RenderGraph::standard() noexcept { return {}; }
 
+    /// Reports whether this `Engine` contains no elements or payload.
+    ///
+    /// @param description Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     RenderGraph RenderGraph::empty(RenderGraphDescription description) noexcept {
         return RenderGraph{EmptyTag{}, std::move(description)};
     }
 
+    /// Returns the current or globally available overlay only value.
+    ///
+    /// @return Returns the current overlay only value.
+    /// @note This function does not throw exceptions.
     RenderGraph RenderGraph::overlay_only() noexcept {
         RenderGraph graph;
         graph.description_.scene.enabled = false;
@@ -108,28 +160,112 @@ namespace SFT::Engine {
         return graph;
     }
 
+    /// Returns the current or globally available description value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const RenderGraphDescription &RenderGraph::description() const noexcept { return description_; }
+    /// Returns the current or globally available description value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     RenderGraphDescription &RenderGraph::description() noexcept { return description_; }
+    /// Returns the current or globally available scene value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const SceneRenderSettings &RenderGraph::scene() const noexcept { return description_.scene; }
+    /// Returns the current or globally available scene value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     SceneRenderSettings &RenderGraph::scene() noexcept { return description_.scene; }
+    /// Returns the current or globally available shadows value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const ShadowSettings &RenderGraph::shadows() const noexcept { return description_.shadows; }
+    /// Returns the current or globally available shadows value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     ShadowSettings &RenderGraph::shadows() noexcept { return description_.shadows; }
+    /// Returns the current or globally available ambient occlusion value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const AmbientOcclusionSettings &RenderGraph::ambient_occlusion() const noexcept { return description_.ambient_occlusion; }
+    /// Returns the current or globally available ambient occlusion value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     AmbientOcclusionSettings &RenderGraph::ambient_occlusion() noexcept { return description_.ambient_occlusion; }
+    /// Returns the current or globally available anti aliasing value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const AntiAliasingSettings &RenderGraph::anti_aliasing() const noexcept { return description_.anti_aliasing; }
+    /// Returns the current or globally available anti aliasing value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     AntiAliasingSettings &RenderGraph::anti_aliasing() noexcept { return description_.anti_aliasing; }
+    /// Returns the current or globally available bloom value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const BloomSettings &RenderGraph::bloom() const noexcept { return description_.bloom; }
+    /// Returns the current or globally available bloom value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     BloomSettings &RenderGraph::bloom() noexcept { return description_.bloom; }
+    /// Returns the current or globally available tone mapping value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const ToneMappingSettings &RenderGraph::tone_mapping() const noexcept { return description_.tone_mapping; }
+    /// Returns the current or globally available tone mapping value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     ToneMappingSettings &RenderGraph::tone_mapping() noexcept { return description_.tone_mapping; }
+    /// Returns the current or globally available debug overlay value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const DebugOverlayRenderSettings &RenderGraph::debug_overlay() const noexcept { return description_.debug_overlay; }
+    /// Returns the current or globally available debug overlay value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     DebugOverlayRenderSettings &RenderGraph::debug_overlay() noexcept { return description_.debug_overlay; }
+    /// Returns the current or globally available execution mode value.
+    ///
+    /// @return Returns the current execution mode value.
+    /// @note This function does not throw exceptions.
     RenderGraphExecutionMode RenderGraph::execution_mode() const noexcept { return description_.execution_mode; }
 
+    /// Returns the current or globally available textures value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const std::vector<RenderGraphTextureDescription> &RenderGraph::textures() const noexcept { return textures_; }
+    /// Returns the current or globally available passes value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const std::vector<RenderGraphPassDescription> &RenderGraph::passes() const noexcept { return passes_; }
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @return Returns the current presented texture value.
+    /// @note This function does not throw exceptions.
     RenderGraphTextureHandle RenderGraph::presented_texture() const noexcept { return presented_texture_; }
 
+    /// Returns the current or globally available selected render target value.
+    ///
+    /// @return Returns the current selected render target value.
+    /// @note This function does not throw exceptions.
     RenderTargetHandle RenderGraph::selected_render_target() const noexcept {
         const auto present = std::ranges::find_if(passes_, [](const RenderGraphPassDescription &pass) {
             return pass.kind == RenderGraphPassKind::Present;
@@ -137,12 +273,22 @@ namespace SFT::Engine {
         return present != passes_.end() ? present->target : RenderTargetHandle{};
     }
 
+    /// Reports whether pass holds for this `Engine`.
+    ///
+    /// @param kind `kind` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool RenderGraph::contains_pass(RenderGraphPassKind kind) const noexcept {
         return std::ranges::any_of(passes_, [kind](const RenderGraphPassDescription &pass) {
             return pass.kind == kind;
         });
     }
 
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @return Returns the current presentation path value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     std::vector<RenderGraphPassHandle> RenderGraph::presentation_path() const {
         const auto valid_texture = [this](RenderGraphTextureHandle handle) noexcept {
             return handle && handle.generation == generation_ && handle.index < textures_.size();
@@ -183,6 +329,12 @@ namespace SFT::Engine {
         return {};
     }
 
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @param kind `kind` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool RenderGraph::presentation_contains_pass(RenderGraphPassKind kind) const {
         const std::vector<RenderGraphPassHandle> path = presentation_path();
         return std::ranges::any_of(path, [this, kind](RenderGraphPassHandle handle) {
@@ -191,14 +343,28 @@ namespace SFT::Engine {
         });
     }
 
+    /// Marks output using the supplied arguments and current state.
+    ///
+    /// @param texture Texture used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
         if (std::find(outputs_.begin(), outputs_.end(), texture) == outputs_.end()) {
             outputs_.push_back(texture);
         }
     }
 
+    /// Returns the current or globally available outputs value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const std::vector<RenderGraphTextureHandle> &RenderGraph::outputs() const noexcept { return outputs_; }
 
+    /// Returns the current or globally available execution passes value.
+    ///
+    /// @return Returns the current execution passes value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     std::vector<RenderGraphPassHandle> RenderGraph::execution_passes() const {
         const auto valid_texture = [this](RenderGraphTextureHandle handle) noexcept {
             return handle && handle.generation == generation_ && handle.index < textures_.size();
@@ -248,6 +414,12 @@ namespace SFT::Engine {
         return result;
     }
 
+    /// Creates a texture from the supplied parameters.
+    ///
+    /// @param description Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle RenderGraph::create_texture(RenderGraphTextureDescription description) {
         const RenderGraphTextureHandle handle{
             .index = static_cast<u32>(textures_.size()),
@@ -257,6 +429,15 @@ namespace SFT::Engine {
         return handle;
     }
 
+    /// Adds builtin pass using the supplied arguments and current state.
+    ///
+    /// @param kind `kind` value used by the operation.
+    /// @param input `input` value used by the operation.
+    /// @param output `output` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle RenderGraph::add_builtin_pass(
         RenderGraphPassKind kind,
         RenderGraphTextureHandle input,
@@ -277,6 +458,13 @@ namespace SFT::Engine {
         return output_handle;
     }
 
+    /// Adds fullscreen effect using the supplied arguments and current state.
+    ///
+    /// @param input `input` value used by the operation.
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle RenderGraph::add_fullscreen_effect(
         RenderGraphTextureHandle input,
         const FullscreenEffectDescription &effect) {
@@ -300,6 +488,13 @@ namespace SFT::Engine {
         return output;
     }
 
+    /// Adds compute effect using the supplied arguments and current state.
+    ///
+    /// @param input `input` value used by the operation.
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle RenderGraph::add_compute_effect(
         RenderGraphTextureHandle input,
         const ComputeEffectDescription &effect) {
@@ -323,6 +518,13 @@ namespace SFT::Engine {
         return output;
     }
 
+    /// Adds copy using the supplied arguments and current state.
+    ///
+    /// @param input `input` value used by the operation.
+    /// @param copy `copy` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphTextureHandle RenderGraph::add_copy(
         RenderGraphTextureHandle input,
         const CopyDescription &copy) {
@@ -346,6 +548,13 @@ namespace SFT::Engine {
         return output;
     }
 
+    /// Adds present pass using the supplied arguments and current state.
+    ///
+    /// @param input `input` value used by the operation.
+    /// @param target `target` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphPassHandle RenderGraph::add_present_pass(
         RenderGraphTextureHandle input, RenderTargetHandle target) {
         const RenderGraphPassHandle pass_handle{
@@ -363,6 +572,10 @@ namespace SFT::Engine {
         return pass_handle;
     }
 
+    /// Builds standard topology.
+    ///
+    /// @return Returns the current build standard topology value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void RenderGraph::build_standard_topology() {
         RenderGraphTextureHandle color = compose(RenderModules::DeferredScene{});
         color = compose(RenderModules::AntiAliasing{.input = color});
@@ -372,6 +585,12 @@ namespace SFT::Engine {
         (void)compose(RenderModules::Present{.input = color});
     }
 
+    /// Performs the enabled operation for `Engine` using the supplied arguments.
+    ///
+    /// @param feature `feature` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool RenderGraph::enabled(RenderFeature feature) const noexcept {
         switch (feature) {
             case RenderFeature::Scene:
@@ -393,6 +612,13 @@ namespace SFT::Engine {
         return false;
     }
 
+    /// Sets the enabled for this `Engine`.
+    ///
+    /// @param feature `feature` value used by the operation.
+    /// @param enabled_value Value consumed by the operation.
+    ///
+    /// @return Returns `*this` so the operation can be chained.
+    /// @note This function does not throw exceptions.
     RenderGraph &RenderGraph::set_enabled(RenderFeature feature, bool enabled_value) noexcept {
         switch (feature) {
             case RenderFeature::Scene:
@@ -424,29 +650,72 @@ namespace SFT::Engine {
         return *this;
     }
 
+    /// Enables the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param feature `feature` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     RenderGraph &RenderGraph::enable(RenderFeature feature) noexcept { return set_enabled(feature, true); }
+    /// Disables the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param feature `feature` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     RenderGraph &RenderGraph::disable(RenderFeature feature) noexcept { return set_enabled(feature, false); }
 
+    /// Sets the execution mode for this `Engine`.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns `*this` so the operation can be chained.
+    /// @note This function does not throw exceptions.
     RenderGraph &RenderGraph::set_execution_mode(RenderGraphExecutionMode mode) noexcept {
         description_.execution_mode = mode;
         return *this;
     }
 
+    /// Sets the resolution scale for this `Engine`.
+    ///
+    /// @param scale `scale` value used by the operation.
+    ///
+    /// @return Returns `*this` so the operation can be chained.
+    /// @note This function does not throw exceptions.
     RenderGraph &RenderGraph::set_resolution_scale(f32 scale) noexcept {
         description_.resolution_scale = scale;
         return *this;
     }
 
+    /// Sets the background color for this `Engine`.
+    ///
+    /// @param color `color` value used by the operation.
+    ///
+    /// @return Returns `*this` so the operation can be chained.
+    /// @note This function does not throw exceptions.
     RenderGraph &RenderGraph::set_background_color(glm::vec4 color) noexcept {
         description_.scene.background_color = color;
         return *this;
     }
 
+    /// Returns the current or globally available inherit camera background value.
+    ///
+    /// @return Returns `*this` so the operation can be chained.
+    /// @note This function does not throw exceptions.
     RenderGraph &RenderGraph::inherit_camera_background() noexcept {
         description_.scene.background_color.reset();
         return *this;
     }
 
+    /// Sets the tone mapping for this `Engine`.
+    ///
+    /// @param operation `operation` value used by the operation.
+    /// @param exposure `exposure` value used by the operation.
+    /// @param white_point `white_point` value used by the operation.
+    /// @param saturation `saturation` value used by the operation.
+    ///
+    /// @return Returns `*this` so the operation can be chained.
+    /// @note This function does not throw exceptions.
     RenderGraph &RenderGraph::set_tone_mapping(ToneMappingOperator operation,
                                                f32 exposure,
                                                f32 white_point,
@@ -459,6 +728,12 @@ namespace SFT::Engine {
         return *this;
     }
 
+    /// Validates topology.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RenderGraphErrorCode::InvalidPassGraph`, `RenderGraphErrorCode::UnsupportedPassOrder`, `RenderGraphErrorCode::InvalidFullscreenEffect`, `RenderGraphErrorCode::InvalidComputeEffect`, `RenderGraphErrorCode::InvalidGraphOutput`.
+    /// @note This function does not throw exceptions.
     RenderGraphResult RenderGraph::validate_topology() const noexcept {
         if (passes_.empty() || textures_.empty()) {
             return std::unexpected(RenderGraphError{
@@ -475,8 +750,6 @@ namespace SFT::Engine {
         usize scene_count = 0;
         usize present_count = 0;
         RenderGraphTextureHandle present_input{};
-
-
 
 
         for (usize index = 0; index < passes_.size(); ++index) {
@@ -582,8 +855,6 @@ namespace SFT::Engine {
                 .message = UString{"The graph requires exactly one scene producer and one Present node with a matching output."_ustr},
             });
         }
-
-
 
 
         const std::vector<RenderGraphPassHandle> path = presentation_path();
@@ -710,6 +981,12 @@ namespace SFT::Engine {
         return {};
     }
 
+    /// Validates the supplied value or current state.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RenderGraphErrorCode::InvalidResolutionScale`, `RenderGraphErrorCode::InvalidBackgroundColor`, `RenderGraphErrorCode::InvalidSpectralPathTracingSettings`, `RenderGraphErrorCode::InvalidShadowSettings`, `RenderGraphErrorCode::InvalidAmbientOcclusionSettings`, `RenderGraphErrorCode::InvalidAntiAliasingSettings` among others.
+    /// @note This function does not throw exceptions.
     RenderGraphResult RenderGraph::validate() const noexcept {
         if (!std::isfinite(description_.resolution_scale) ||
             description_.resolution_scale < 0.1f || description_.resolution_scale > 2.0f) {
@@ -841,6 +1118,10 @@ namespace SFT::Engine {
         return validate_topology();
     }
 
+    /// Returns the current or globally available normalized value.
+    ///
+    /// @return Returns the current normalized value.
+    /// @note This function does not throw exceptions.
     RenderGraph RenderGraph::normalized() const noexcept {
         RenderTargetHandle fallback_target{};
         usize present_count = 0;

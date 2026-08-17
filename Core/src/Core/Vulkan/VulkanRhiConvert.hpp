@@ -20,13 +20,17 @@
 
 #include <RHI/RHI.hpp>
 
-/// Translation between the API-agnostic Sturdy.RHI vocabulary and concrete Vulkan enums/flags. Kept in
-/// one place so the RHI backend (:VulkanRhiBackend) reads as straight descriptor mapping. Every function
-/// is a pure `to_vk(...)`; there is no state here.
+
 namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkFormat to_vk(rhi::Format format) noexcept {
         switch (format) {
             case rhi::Format::Undefined: return VK_FORMAT_UNDEFINED;
@@ -81,6 +85,12 @@ namespace SFT::Core::Vulkan {
         return VK_FORMAT_UNDEFINED;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkFormat to_vk(rhi::VertexFormat format) noexcept {
         switch (format) {
             case rhi::VertexFormat::Float32: return VK_FORMAT_R32_SFLOAT;
@@ -105,6 +115,12 @@ namespace SFT::Core::Vulkan {
         return VK_FORMAT_UNDEFINED;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param samples `samples` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkSampleCountFlagBits to_vk(rhi::SampleCount samples) noexcept {
         switch (samples) {
             case rhi::SampleCount::X1: return VK_SAMPLE_COUNT_1_BIT;
@@ -116,6 +132,12 @@ namespace SFT::Core::Vulkan {
         return VK_SAMPLE_COUNT_1_BIT;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkResolveModeFlagBits to_vk(rhi::ResolveMode mode) noexcept {
         switch (mode) {
             case rhi::ResolveMode::SampleZero: return VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
@@ -126,10 +148,22 @@ namespace SFT::Core::Vulkan {
         return VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkIndexType to_vk(rhi::IndexFormat format) noexcept {
         return format == rhi::IndexFormat::Uint16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param usage Usage flags or category applied to the resource.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkBufferUsageFlags to_vk(rhi::BufferUsage usage) noexcept {
         VkBufferUsageFlags out = 0;
         if (rhi::has_any(usage, rhi::BufferUsage::TransferSrc)) out |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -150,6 +184,12 @@ namespace SFT::Core::Vulkan {
         return out;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param usage Usage flags or category applied to the resource.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkImageUsageFlags to_vk(rhi::TextureUsage usage) noexcept {
         VkImageUsageFlags out = 0;
         if (rhi::has_any(usage, rhi::TextureUsage::TransferSrc)) out |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
@@ -164,6 +204,12 @@ namespace SFT::Core::Vulkan {
         return out;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param dimension `dimension` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkImageType to_vk(rhi::TextureDimension dimension) noexcept {
         switch (dimension) {
             case rhi::TextureDimension::Dim1D: return VK_IMAGE_TYPE_1D;
@@ -173,6 +219,12 @@ namespace SFT::Core::Vulkan {
         return VK_IMAGE_TYPE_2D;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkImageViewType to_vk(rhi::TextureViewType type) noexcept {
         switch (type) {
             case rhi::TextureViewType::View1D: return VK_IMAGE_VIEW_TYPE_1D;
@@ -185,6 +237,12 @@ namespace SFT::Core::Vulkan {
         return VK_IMAGE_VIEW_TYPE_2D;
     }
 
+    /// Performs the aspect for format operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkImageAspectFlags aspect_for_format(rhi::Format format) noexcept {
         if (rhi::format_has_depth(format) && rhi::format_has_stencil(format))
             return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
@@ -193,14 +251,32 @@ namespace SFT::Core::Vulkan {
         return VK_IMAGE_ASPECT_COLOR_BIT;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param filter `filter` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkFilter to_vk(rhi::Filter filter) noexcept {
         return filter == rhi::Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkSamplerMipmapMode to_vk(rhi::MipmapMode mode) noexcept {
         return mode == rhi::MipmapMode::Nearest ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkSamplerAddressMode to_vk(rhi::AddressMode mode) noexcept {
         switch (mode) {
             case rhi::AddressMode::Repeat: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -211,6 +287,12 @@ namespace SFT::Core::Vulkan {
         return VK_SAMPLER_ADDRESS_MODE_REPEAT;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param color `color` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkBorderColor to_vk(rhi::BorderColor color) noexcept {
         switch (color) {
             case rhi::BorderColor::TransparentBlack: return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
@@ -220,6 +302,12 @@ namespace SFT::Core::Vulkan {
         return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param op `op` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkCompareOp to_vk(rhi::CompareOp op) noexcept {
         switch (op) {
             case rhi::CompareOp::Never: return VK_COMPARE_OP_NEVER;
@@ -234,6 +322,12 @@ namespace SFT::Core::Vulkan {
         return VK_COMPARE_OP_ALWAYS;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param stages `stages` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkShaderStageFlags to_vk(rhi::ShaderStage stages) noexcept {
         VkShaderStageFlags out = 0;
         if (rhi::has_any(stages, rhi::ShaderStage::Vertex)) out |= VK_SHADER_STAGE_VERTEX_BIT;
@@ -253,10 +347,22 @@ namespace SFT::Core::Vulkan {
         return out;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param stage `stage` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan single stage representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkShaderStageFlagBits to_vk_single_stage(rhi::ShaderStage stage) noexcept {
         return static_cast<VkShaderStageFlagBits>(to_vk(stage));
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkDescriptorType to_vk(rhi::BindingType type) noexcept {
         switch (type) {
             case rhi::BindingType::UniformBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -272,6 +378,12 @@ namespace SFT::Core::Vulkan {
         return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param flags Flags controlling optional behavior.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkDescriptorBindingFlags to_vk(rhi::BindingFlags flags) noexcept {
         VkDescriptorBindingFlags out = 0;
         if (rhi::has_any(flags, rhi::BindingFlags::PartiallyBound)) out |= VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
@@ -280,6 +392,12 @@ namespace SFT::Core::Vulkan {
         return out;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param topology `topology` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkPrimitiveTopology to_vk(rhi::PrimitiveTopology topology) noexcept {
         switch (topology) {
             case rhi::PrimitiveTopology::PointList: return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
@@ -291,6 +409,12 @@ namespace SFT::Core::Vulkan {
         return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkPolygonMode to_vk(rhi::PolygonMode mode) noexcept {
         switch (mode) {
             case rhi::PolygonMode::Fill: return VK_POLYGON_MODE_FILL;
@@ -300,6 +424,12 @@ namespace SFT::Core::Vulkan {
         return VK_POLYGON_MODE_FILL;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkCullModeFlags to_vk(rhi::CullMode mode) noexcept {
         switch (mode) {
             case rhi::CullMode::None: return VK_CULL_MODE_NONE;
@@ -309,19 +439,23 @@ namespace SFT::Core::Vulkan {
         return VK_CULL_MODE_NONE;
     }
 
-    /// Inverted on purpose — do not "fix" this to the obvious 1:1 mapping.
+
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
     ///
-    /// Vulkan is the one backend whose viewport gets a negative-height flip to reconcile its native
-    /// +Y-down NDC against the +Y-up convention every RHI matrix/shader is authored in (see
-    /// VulkanRhiBridgeCommands.cpp's to_vk_viewport doc comment). That viewport-space mirror also
-    /// reverses how the rasterizer classifies a triangle's winding, so passing front_face through
-    /// unchanged would silently cull exactly the faces that should be visible. D3D12's equivalent
-    /// conversion (D3D12DevicePipelines.cpp) needs no such inversion, because D3D12's viewport is never
-    /// touched.
+    /// @param face `face` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkFrontFace to_vk(rhi::FrontFace face) noexcept {
         return face == rhi::FrontFace::Clockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param factor `factor` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkBlendFactor to_vk(rhi::BlendFactor factor) noexcept {
         switch (factor) {
             case rhi::BlendFactor::Zero: return VK_BLEND_FACTOR_ZERO;
@@ -341,6 +475,12 @@ namespace SFT::Core::Vulkan {
         return VK_BLEND_FACTOR_ONE;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param op `op` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkBlendOp to_vk(rhi::BlendOp op) noexcept {
         switch (op) {
             case rhi::BlendOp::Add: return VK_BLEND_OP_ADD;
@@ -352,6 +492,12 @@ namespace SFT::Core::Vulkan {
         return VK_BLEND_OP_ADD;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param mask `mask` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkColorComponentFlags to_vk(rhi::ColorWriteMask mask) noexcept {
         VkColorComponentFlags out = 0;
         if (rhi::has_any(mask, rhi::ColorWriteMask::Red)) out |= VK_COLOR_COMPONENT_R_BIT;
@@ -361,6 +507,12 @@ namespace SFT::Core::Vulkan {
         return out;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param op `op` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkStencilOp to_vk(rhi::StencilOp op) noexcept {
         switch (op) {
             case rhi::StencilOp::Keep: return VK_STENCIL_OP_KEEP;
@@ -375,10 +527,22 @@ namespace SFT::Core::Vulkan {
         return VK_STENCIL_OP_KEEP;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkVertexInputRate to_vk(rhi::VertexStepMode mode) noexcept {
         return mode == rhi::VertexStepMode::Instance ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param op `op` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkAttachmentLoadOp to_vk(rhi::LoadOp op) noexcept {
         switch (op) {
             case rhi::LoadOp::Load: return VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -388,10 +552,22 @@ namespace SFT::Core::Vulkan {
         return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param op `op` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkAttachmentStoreOp to_vk(rhi::StoreOp op) noexcept {
         return op == rhi::StoreOp::Store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param layout `layout` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkImageLayout to_vk(rhi::TextureLayout layout) noexcept {
         switch (layout) {
             case rhi::TextureLayout::Undefined: return VK_IMAGE_LAYOUT_UNDEFINED;
@@ -407,6 +583,12 @@ namespace SFT::Core::Vulkan {
         return VK_IMAGE_LAYOUT_UNDEFINED;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param stages `stages` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkPipelineStageFlags2 to_vk(rhi::PipelineStage stages) noexcept {
 
 
@@ -434,6 +616,12 @@ namespace SFT::Core::Vulkan {
         return out;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param access `access` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkAccessFlags2 to_vk(rhi::AccessFlags access) noexcept {
         VkAccessFlags2 out = 0;
         using A = rhi::AccessFlags;
@@ -458,6 +646,12 @@ namespace SFT::Core::Vulkan {
         return out;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkQueryType to_vk(rhi::QueryType type) noexcept {
         switch (type) {
             case rhi::QueryType::Occlusion: return VK_QUERY_TYPE_OCCLUSION;
@@ -467,6 +661,12 @@ namespace SFT::Core::Vulkan {
         return VK_QUERY_TYPE_TIMESTAMP;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param stats `stats` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkQueryPipelineStatisticFlags to_vk(rhi::PipelineStatistic stats) noexcept {
         VkQueryPipelineStatisticFlags out = 0;
         using P = rhi::PipelineStatistic;
@@ -486,6 +686,13 @@ namespace SFT::Core::Vulkan {
         return out;
     }
 
+    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    ///
+    /// @param flags Flags controlling optional behavior.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkQueryResultFlags to_vk(rhi::QueryResultFlags flags) noexcept {
         VkQueryResultFlags out = 0;
         using Q = rhi::QueryResultFlags;
@@ -496,12 +703,18 @@ namespace SFT::Core::Vulkan {
         return out;
     }
 
-    /// How a MemoryLocation maps onto a VMA allocation request.
+
     struct VmaMapping {
         VmaMemoryUsage usage = VMA_MEMORY_USAGE_AUTO;
         VmaAllocationCreateFlags flags = 0;
     };
 
+    /// Converts the value to vma representation.
+    ///
+    /// @param location `location` value used by the operation.
+    ///
+    /// @return Returns the value converted to vma representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VmaMapping to_vma(rhi::MemoryLocation location) noexcept {
         switch (location) {
             case rhi::MemoryLocation::DeviceLocal:
@@ -516,6 +729,12 @@ namespace SFT::Core::Vulkan {
         return {VMA_MEMORY_USAGE_AUTO, 0};
     }
 
+    /// Converts the backend-specific value to the corresponding RHI representation.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    ///
+    /// @return Returns the value converted to RHI device type representation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr rhi::DeviceType to_rhi_device_type(VkPhysicalDeviceType type) noexcept {
         switch (type) {
             case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return rhi::DeviceType::IntegratedGpu;

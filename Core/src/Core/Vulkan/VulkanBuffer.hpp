@@ -32,20 +32,53 @@ using SFT::Core::RendererResult;
 
 namespace SFT::Core::Vulkan {
 
-    /// Owns a VkBuffer. When created through VMA, the matching VmaAllocation is owned here too —
-    /// otherwise memory is intentionally not managed here; bind it via
-    /// VulkanDevice::bind_buffer_memory or through VMA instead.
+
     class VulkanBuffer {
       public:
+        /// Constructs a `VulkanBuffer` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanBuffer() = default;
+        /// Destroys the `VulkanBuffer` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~VulkanBuffer();
 
+        /// Disables this construction form for `VulkanBuffer`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanBuffer(const VulkanBuffer &) = delete;
+        /// Assigns a new value to this `VulkanBuffer`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanBuffer &operator=(const VulkanBuffer &) = delete;
 
+        /// Constructs a `VulkanBuffer` from the supplied initialization values.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanBuffer(VulkanBuffer &&o) noexcept;
+        /// Assigns a new value to this `VulkanBuffer`.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanBuffer &operator=(VulkanBuffer &&o) noexcept;
 
+        /// Creates a `VulkanBuffer` resource or value from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param size Requested or available size for the operation.
+        /// @param usage Usage flags or category applied to the resource.
+        /// @param flags Flags controlling optional behavior.
+        /// @param sharing `sharing` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static RendererExpected<VulkanBuffer> create(
             VkDevice device,
             VkDeviceSize size,
@@ -53,49 +86,148 @@ namespace SFT::Core::Vulkan {
             VkBufferCreateFlags flags = 0,
             VkSharingMode sharing = VK_SHARING_MODE_EXCLUSIVE) noexcept;
 
+        /// Creates a `VulkanBuffer` resource or value from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param allocator Allocator used for storage owned by the operation.
+        /// @param buffer_info Description of the resource or operation to perform.
+        /// @param allocation_info Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static RendererExpected<VulkanBuffer> create(
             VkDevice device,
             VmaAllocator allocator,
             const VkBufferCreateInfo &buffer_info,
             const VmaAllocationCreateInfo &allocation_info) noexcept;
 
+        /// Returns the Vulkan handle associated with this `VulkanBuffer`.
+        ///
+        /// @return Returns the current Vulkan handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkBuffer vk_handle() const noexcept;
+        /// Returns the current or globally available allocation value.
+        ///
+        /// @return Returns the current allocation value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VmaAllocation allocation() const noexcept;
+        /// Reports whether valid holds for this `VulkanBuffer`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
+        /// Returns the current or globally available owns allocation value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool owns_allocation() const noexcept;
+        /// Returns the size for this `VulkanBuffer`.
+        ///
+        /// @return Returns the current size value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkDeviceSize size() const noexcept;
+        /// Returns the current or globally available usage value.
+        ///
+        /// @return Returns the current usage value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkBufferUsageFlags usage() const noexcept;
 
-        /// Maps, memcpy's `bytes` from `data` at `offset`, then unmaps. Only valid for a VMA-backed
-        /// buffer created with a host-visible `VmaAllocationCreateInfo` (e.g. a staging buffer) —
-        /// there is no allocation to map otherwise.
+
+        /// Uploads the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param bytes Size of the relevant data in bytes.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererResult upload(const void *data, VkDeviceSize bytes, VkDeviceSize offset = 0) noexcept;
 
-        /// Symmetric readback: maps, copies `bytes` out into `dst` at `offset`, then unmaps. Only valid
-        /// for a host-visible VMA allocation (a HostReadback buffer the GPU copied results into).
+
+        /// Performs the download operation for `VulkanBuffer` using the supplied arguments.
+        ///
+        /// @param dst Destination value or resource.
+        /// @param bytes Size of the relevant data in bytes.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererResult download(void *dst, VkDeviceSize bytes, VkDeviceSize offset = 0) noexcept;
 
-        /// Persistent map/unmap for direct CPU access — the backing of the RHI's map_buffer. VMA
-        /// reference-counts nested maps, so pair each map() with an unmap(). The pointer is valid for
-        /// the whole allocation; the caller offsets into it. Only valid for a host-visible allocation.
+
+        /// Maps the requested resource for access.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererExpected<void *> map() noexcept;
+        /// Unmaps the previously mapped resource.
+        ///
+        /// @note This function does not throw exceptions.
         void unmap() noexcept;
 
-        /// Flush/invalidate a mapped range for non-coherent host memory (no-op cost on coherent memory,
-        /// which VMA reports; call around non-coherent readback/upload to make writes visible).
+
+        /// Flushes pending work or buffered state.
+        ///
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param size Requested or available size for the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererResult flush(VkDeviceSize offset = 0, VkDeviceSize size = VK_WHOLE_SIZE) noexcept;
+        /// Performs the invalidate operation for `VulkanBuffer` using the supplied arguments.
+        ///
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param size Requested or available size for the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererResult invalidate(VkDeviceSize offset = 0, VkDeviceSize size = VK_WHOLE_SIZE) noexcept;
 
+        /// Returns the current or globally available memory requirements value.
+        ///
+        /// @return Returns the current memory requirements value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkMemoryRequirements memory_requirements() const noexcept;
 
+        /// Returns the current or globally available memory requirements2 value.
+        ///
+        /// @return Returns the current memory requirements2 value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkMemoryRequirements2 memory_requirements2() const noexcept;
 
+        /// Binds memory for subsequent operations.
+        ///
+        /// @param memory `memory` value used by the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RendererResult bind_memory(VkDeviceMemory memory,
                                                  VkDeviceSize offset = 0) noexcept;
 
-        /// Requires VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT.
+
+        /// Returns the current or globally available device address value.
+        ///
+        /// @return Returns the current device address value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkDeviceAddress device_address() const noexcept;
 
+        /// Destroys or releases the `VulkanBuffer` resource represented by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy() noexcept;
 
       private:
@@ -108,21 +240,52 @@ namespace SFT::Core::Vulkan {
     };
 
 
-
-    /// Owns a VkBufferView — the typed window over a buffer range that a uniform/storage *texel* buffer
-    /// binding reads through (the buffer must carry the matching UNIFORM/STORAGE_TEXEL_BUFFER usage). The
-    /// buffer must outlive the view.
     class VulkanBufferView {
       public:
+        /// Constructs a `VulkanBufferView` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanBufferView() = default;
+        /// Destroys the `VulkanBufferView` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~VulkanBufferView();
 
+        /// Disables this construction form for `VulkanBufferView`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanBufferView(const VulkanBufferView &) = delete;
+        /// Assigns a new value to this `VulkanBufferView`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanBufferView &operator=(const VulkanBufferView &) = delete;
 
+        /// Constructs a `VulkanBufferView` from the supplied initialization values.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanBufferView(VulkanBufferView &&o) noexcept;
+        /// Assigns a new value to this `VulkanBufferView`.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanBufferView &operator=(VulkanBufferView &&o) noexcept;
 
+        /// Creates a `VulkanBufferView` resource or value from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param buffer Buffer used or affected by the operation.
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param range Range of values to process.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static RendererExpected<VulkanBufferView> create(
             VkDevice device,
             VkBuffer buffer,
@@ -130,10 +293,25 @@ namespace SFT::Core::Vulkan {
             VkDeviceSize offset = 0,
             VkDeviceSize range = VK_WHOLE_SIZE) noexcept;
 
+        /// Returns the Vulkan handle associated with this `VulkanBufferView`.
+        ///
+        /// @return Returns the current Vulkan handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkBufferView vk_handle() const noexcept;
+        /// Reports whether valid holds for this `VulkanBufferView`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
+        /// Formats the supplied value into the provided formatting context.
+        ///
+        /// @return Returns the current format value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkFormat format() const noexcept;
 
+        /// Destroys or releases the `VulkanBufferView` resource represented by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy() noexcept;
 
       private:

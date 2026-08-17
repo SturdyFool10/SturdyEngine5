@@ -1,6 +1,5 @@
 
 
-
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -37,6 +36,13 @@ namespace SFT::Core::Vulkan {
 
     namespace {
 
+        /// Returns the queue lane count for this `Vulkan`.
+        ///
+        /// @param lanes `lanes` value used by the operation.
+        /// @param fallback Fallback value used when the primary value is unavailable.
+        ///
+        /// @return Returns the requested count or size.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 queue_lane_count(const std::vector<VulkanQueue> &lanes, VulkanQueue *fallback) noexcept {
             if (!lanes.empty()) {
                 return static_cast<u32>(lanes.size());
@@ -44,6 +50,12 @@ namespace SFT::Core::Vulkan {
             return fallback != nullptr && fallback->is_valid() ? 1u : 0u;
         }
 
+        /// Returns a human-readable name for the supplied queue class value.
+        ///
+        /// @param queue Queue used or affected by the operation.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr std::string_view queue_class_name(rhi::QueueClass queue) noexcept {
             switch (queue) {
                 case rhi::QueueClass::Graphics: return "Graphics";
@@ -59,6 +71,23 @@ namespace SFT::Core::Vulkan {
 
     } // namespace
 
+    /// Performs the vulkan RHI device bridge operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param backend Backend value to inspect, select, or convert.
+    /// @param instance Instance used or affected by the operation.
+    /// @param physical_device Device used or affected by the operation.
+    /// @param logical_device Device used or affected by the operation.
+    /// @param graphics_queue Queue used or affected by the operation.
+    /// @param present_queue Queue used or affected by the operation.
+    /// @param compute_queue Queue used or affected by the operation.
+    /// @param transfer_queue Queue used or affected by the operation.
+    /// @param allocator Allocator used for storage owned by the operation.
+    /// @param feature_report `feature_report` value used by the operation.
+    /// @param enable_native_access_extension Whether the associated behavior is enabled.
+    /// @param hdr_swapchain_colorspace_enabled Swapchain used or affected by the operation.
+    /// @param hdr_metadata_enabled `hdr_metadata_enabled` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     VulkanRhiDeviceBridge::VulkanRhiDeviceBridge(VulkanBackend &backend,
                                                  VkInstance instance,
                                                  const VulkanPhysicalDevice &physical_device,
@@ -258,23 +287,16 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
-
-
-
-
         if (auto cache = VulkanPipelineCache::create(logical_device_->vk_handle(), {})) {
             pipeline_cache_ = std::move(*cache);
         }
     }
 
+    /// Destroys the `Vulkan` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     VulkanRhiDeviceBridge::~VulkanRhiDeviceBridge() {
         ZoneScopedN("VulkanRhiDeviceBridge::~VulkanRhiDeviceBridge");
-
-
-
 
 
         wait_idle();
@@ -289,14 +311,53 @@ namespace SFT::Core::Vulkan {
         }
     }
 
+    /// Returns the current or globally available backend type value.
+    ///
+    /// @return Returns the current backend type value.
+    /// @note This function does not throw exceptions.
     rhi::BackendType VulkanRhiDeviceBridge::backend_type() const noexcept { return rhi::BackendType::Vulkan; }
+    /// Returns the current adapter info.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const rhi::AdapterInfo &VulkanRhiDeviceBridge::adapter_info() const noexcept { return adapter_info_; }
+    /// Returns the current or globally available limits value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const rhi::DeviceLimits &VulkanRhiDeviceBridge::limits() const noexcept { return limits_; }
+    /// Returns the current or globally available feature negotiation report value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const rhi::FeatureNegotiationReport &VulkanRhiDeviceBridge::feature_negotiation_report() const noexcept { return feature_report_; }
+    /// Returns the current or globally available enabled features value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const rhi::FeatureSet &VulkanRhiDeviceBridge::enabled_features() const noexcept { return enabled_features_; }
+    /// Returns the current or globally available feature properties value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const rhi::FeatureProperties &VulkanRhiDeviceBridge::feature_properties() const noexcept { return feature_properties_; }
+    /// Returns the current or globally available queue infos value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     std::span<const rhi::QueueInfo> VulkanRhiDeviceBridge::queue_infos() const noexcept { return queue_infos_; }
+    /// Returns the current or globally available enabled extensions value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     std::span<const rhi::ExtensionId> VulkanRhiDeviceBridge::enabled_extensions() const noexcept { return enabled_extensions_; }
+    /// Performs the extension interface operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param extension `extension` value used by the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     rhi::RhiDeviceExtension *VulkanRhiDeviceBridge::extension_interface(rhi::ExtensionId extension) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::extension_interface");
         if (native_access_extension_.has_value() &&
@@ -306,6 +367,10 @@ namespace SFT::Core::Vulkan {
         return nullptr;
     }
 
+    /// Waits for idle to complete.
+    ///
+    /// @return Returns the current wait idle value.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::wait_idle() noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::wait_idle");
         if (logical_device_ != nullptr) {
@@ -313,6 +378,13 @@ namespace SFT::Core::Vulkan {
         }
     }
 
+    /// Performs the queue for lane operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param lane `lane` value used by the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     VulkanQueue *VulkanRhiDeviceBridge::queue_for_lane(rhi::QueueLane lane) const noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::queue_for_lane");
         auto lane_from = [index = lane.index](std::vector<VulkanQueue> &lanes, VulkanQueue *fallback) noexcept -> VulkanQueue * {
@@ -321,15 +393,6 @@ namespace SFT::Core::Vulkan {
             }
             return index == 0 && fallback != nullptr && fallback->is_valid() ? fallback : nullptr;
         };
-
-
-
-
-
-
-
-
-
 
 
         switch (lane.queue) {
@@ -358,6 +421,12 @@ namespace SFT::Core::Vulkan {
         return nullptr;
     }
 
+    /// Performs the queue family for lane operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param lane `lane` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     u32 VulkanRhiDeviceBridge::queue_family_for_lane(rhi::QueueLane lane) const noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::queue_family_for_lane");
         if (VulkanQueue *queue = queue_for_lane(lane)) {
@@ -366,6 +435,14 @@ namespace SFT::Core::Vulkan {
         return VK_QUEUE_FAMILY_IGNORED;
     }
 
+    /// Validates queue lane.
+    ///
+    /// @param lane `lane` value used by the operation.
+    /// @param operation `operation` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiResult VulkanRhiDeviceBridge::validate_queue_lane(rhi::QueueLane lane, const char *operation) const {
         ZoneScopedN("VulkanRhiDeviceBridge::validate_queue_lane");
         if (queue_for_lane(lane) != nullptr) {
@@ -381,6 +458,13 @@ namespace SFT::Core::Vulkan {
         return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, std::move(message));
     }
 
+    /// Performs the RHI error from graphics operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param error Error value describing the failure.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::OperationFailed`, `GraphicsBackendErrorCode::Unsupported`, `RhiErrorCode::Unsupported`, `GraphicsBackendErrorCode::OutOfMemory`, `RhiErrorCode::OutOfMemory`, `GraphicsBackendErrorCode::DeviceLost` among others.
     std::unexpected<rhi::RhiError> VulkanRhiDeviceBridge::rhi_error_from_graphics(const GraphicsBackendError &error) {
         ZoneScopedN("VulkanRhiDeviceBridge::rhi_error_from_graphics");
         rhi::RhiErrorCode code = rhi::RhiErrorCode::OperationFailed;
@@ -399,22 +483,33 @@ namespace SFT::Core::Vulkan {
         return std::unexpected(rhi::RhiError{code, error.message});
     }
 
+    /// Returns the current or globally available RHI device value.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     rhi::RhiDevice *VulkanBackend::rhi_device() noexcept {
         ZoneScopedN("VulkanBackend::rhi_device");
         return rhiDevice.get();
     }
 
+    /// Returns the current or globally available RHI device value.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     const rhi::RhiDevice *VulkanBackend::rhi_device() const noexcept {
         ZoneScopedN("VulkanBackend::rhi_device");
         return rhiDevice.get();
     }
 
+    /// Returns the current or globally available install RHI bridge value.
+    ///
+    /// @return Returns the current install RHI bridge value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void VulkanBackend::installRhiBridge() {
         ZoneScopedN("VulkanBackend::installRhiBridge");
         auto &device_present_queue = logicalDevice.present_queue();
         auto &device_compute_queue = logicalDevice.compute_queue();
         auto &device_transfer_queue = logicalDevice.transfer_queue();
-
 
 
         VulkanQueue *present_queue = &gfxQueue;

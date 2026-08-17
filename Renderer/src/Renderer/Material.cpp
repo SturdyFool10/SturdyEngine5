@@ -3,6 +3,12 @@
 
 namespace SFT::Renderer {
 
+    /// Performs the material parameter type of operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param uniform `uniform` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     MaterialParameterType material_parameter_type_of(const ReflectedUniform &uniform) noexcept {
         const bool is_float = uniform.scalar == slang::ShaderScalarType::Float32 ||
                               uniform.scalar == slang::ShaderScalarType::Float16 ||

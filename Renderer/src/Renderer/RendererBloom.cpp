@@ -42,11 +42,23 @@ namespace SFT::Renderer {
         };
         static_assert(sizeof(BloomCompositeConstants) == 8);
 
+        /// Creates an error result describing the supplied bloom failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError bloom_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
     } // namespace
 
+    /// Finds or creates the bloom resources required by the operation.
+    ///
+    /// @param color_format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_bloom_resources(RHI::Format color_format) {
         ZoneScopedN("Renderer::ensure_bloom_resources");
         auto guard = bloom_.lock();
@@ -162,7 +174,6 @@ namespace SFT::Renderer {
             if (additive) {
 
 
-
                 target.color = RHI::BlendComponent{
                     .src_factor = RHI::BlendFactor::ConstantColor,
                     .dst_factor = RHI::BlendFactor::OneMinusConstantColor,
@@ -201,6 +212,21 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Records bloom draw using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param source_view `source_view` value used by the operation.
+    /// @param source_texel_size Requested or available size for the operation.
+    /// @param threshold `threshold` value used by the operation.
+    /// @param soft_knee `soft_knee` value used by the operation.
+    /// @param scatter `scatter` value used by the operation.
+    /// @param filter_scale `filter_scale` value used by the operation.
+    /// @param prefilter `prefilter` value used by the operation.
+    /// @param upsample `upsample` value used by the operation.
+    /// @param bind_group `bind_group` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_bloom_draw(RHI::RenderPassEncoder &pass,
                                                        RHI::TextureViewHandle source_view, glm::vec2 source_texel_size,
                                                        f32 threshold, f32 soft_knee, f32 scatter,
@@ -236,6 +262,18 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Records bloom downsample using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param source_view `source_view` value used by the operation.
+    /// @param source_texel_size Requested or available size for the operation.
+    /// @param settings Configuration values controlling the operation.
+    /// @param filter_scale `filter_scale` value used by the operation.
+    /// @param apply_threshold `apply_threshold` value used by the operation.
+    /// @param bind_group `bind_group` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_bloom_downsample(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source_view,
                                                             glm::vec2 source_texel_size, const RenderGraphSettings &settings,
                                                             glm::vec2 filter_scale, bool apply_threshold,
@@ -246,6 +284,16 @@ namespace SFT::Renderer {
                                  filter_scale, apply_threshold, false, bind_group);
     }
 
+    /// Records bloom upsample using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param source_view `source_view` value used by the operation.
+    /// @param source_texel_size Requested or available size for the operation.
+    /// @param settings Configuration values controlling the operation.
+    /// @param bind_group `bind_group` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_bloom_upsample(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source_view,
                                                           glm::vec2 source_texel_size, const RenderGraphSettings &settings,
                                                           RHI::BindGroupHandle bind_group) {
@@ -255,8 +303,18 @@ namespace SFT::Renderer {
                                  glm::vec2{1.0f}, false, true, bind_group);
     }
 
+    /// Destroys the bloom resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy bloom resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_bloom_resources() noexcept { auto guard = bloom_.lock(); destroy_bloom_resources_locked(*guard); }
 
+    /// Destroys the bloom resources locked identified by the supplied parameters.
+    ///
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_bloom_resources_locked(BloomResources &resources) noexcept {
         ZoneScopedN("Renderer::destroy_bloom_resources_locked");
         RHI::RhiDevice *device = rhi_device();
@@ -275,6 +333,12 @@ namespace SFT::Renderer {
         resources = {};
     }
 
+    /// Creates a bloom source bind group from the supplied parameters.
+    ///
+    /// @param source_view `source_view` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::BindGroupHandle> Renderer::create_bloom_source_bind_group(RHI::TextureViewHandle source_view) {
         ZoneScopedN("Renderer::create_bloom_source_bind_group");
         auto guard = bloom_.lock();
@@ -299,6 +363,10 @@ namespace SFT::Renderer {
         return *group;
     }
 
+    /// Finds or creates the bloom composite resources required by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_bloom_composite_resources() {
         ZoneScopedN("Renderer::ensure_bloom_composite_resources");
         auto guard = bloom_composite_.lock();
@@ -374,8 +442,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
         bool has_scene_binding = false;
         bool has_bloom_binding = false;
         bool has_sampler_binding = false;
@@ -429,6 +495,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Resolves the bloom composite pipeline associated with the supplied key, handle, or resource.
+    ///
+    /// @param color_format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::bloom_composite_pipeline_for(RHI::Format color_format) {
         ZoneScopedN("Renderer::bloom_composite_pipeline_for");
         if (Core::RendererResult ready = ensure_bloom_composite_resources(); !ready) return unexpected(ready.error());
@@ -457,6 +529,18 @@ namespace SFT::Renderer {
         return *pipeline;
     }
 
+    /// Records bloom composite using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param scene_view `scene_view` value used by the operation.
+    /// @param bloom_view `bloom_view` value used by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param bloom_intensity `bloom_intensity` value used by the operation.
+    /// @param threshold_enabled `threshold_enabled` value used by the operation.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_bloom_composite(RHI::RenderPassEncoder &pass,
                                                            RHI::TextureViewHandle scene_view,
                                                            RHI::TextureViewHandle bloom_view,
@@ -514,12 +598,22 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the bloom composite resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy bloom composite resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_bloom_composite_resources() noexcept {
         ZoneScopedN("Renderer::destroy_bloom_composite_resources");
         auto guard = bloom_composite_.lock();
         destroy_bloom_composite_resources_locked(*guard);
     }
 
+    /// Destroys the bloom composite resources locked identified by the supplied parameters.
+    ///
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_bloom_composite_resources_locked(BloomCompositeResources &resources) noexcept {
         ZoneScopedN("Renderer::destroy_bloom_composite_resources_locked");
         RHI::RhiDevice *device = rhi_device();

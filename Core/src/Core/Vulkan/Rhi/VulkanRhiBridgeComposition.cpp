@@ -1,17 +1,7 @@
 
 
-
-
-
-
 #pragma region Imports
 #if defined(_WIN32)
-
-
-
-
-
-
 
 
 #if !defined(NOMINMAX)
@@ -42,15 +32,13 @@ namespace SFT::Core::Vulkan {
     namespace {
 
 
-
-
-
-
-
-
-
-
-
+        /// Performs the Vulkan format to composition format operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<GraphicsPlatform::CompositionFormat> vk_format_to_composition_format(
             VkFormat format) noexcept {
             switch (format) {
@@ -61,14 +49,19 @@ namespace SFT::Core::Vulkan {
                 case VK_FORMAT_R16G16B16A16_SFLOAT: return GraphicsPlatform::CompositionFormat::Rgba16Float;
 
 
-
-
-
                 case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return GraphicsPlatform::CompositionFormat::Rgb10a2Unorm;
                 default: return std::nullopt;
             }
         }
 
+        /// Computes the find device local memory type index required by the supplied values.
+        ///
+        /// @param physical_device Device used or affected by the operation.
+        /// @param allowed_type_bits `allowed_type_bits` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<u32> find_device_local_memory_type_index(
             VkPhysicalDevice physical_device, u32 allowed_type_bits) noexcept {
             VkPhysicalDeviceMemoryProperties properties{};
@@ -85,15 +78,12 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
-
-
-
-
-
-
+        /// Performs the duplicate handle for import operation for `Vulkan` using the supplied arguments.
+        ///
+        /// @param source Source value or resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] HANDLE duplicate_handle_for_import(HANDLE source) noexcept {
             HANDLE duplicated = nullptr;
             const HANDLE process = GetCurrentProcess();
@@ -104,9 +94,14 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
+        /// Imports composition fences using the supplied arguments and current state.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param resources `resources` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::Unsupported`, `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] RendererResult import_composition_fences(VkDevice device, CompositionSwapchainResources &resources) {
             if (vkImportSemaphoreWin32HandleKHR == nullptr) {
                 return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
@@ -138,7 +133,6 @@ namespace SFT::Core::Vulkan {
                 const VkResult result = vkImportSemaphoreWin32HandleKHR(device, &import_info);
 
 
-
                 CloseHandle(duplicated);
                 if (result != VK_SUCCESS) {
                     return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
@@ -162,12 +156,19 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
-
-
-
+        /// Imports composition images using the supplied arguments and current state.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param physical_device Device used or affected by the operation.
+        /// @param vk_format Format used for the resource, render target, or conversion.
+        /// @param usage Usage flags or category applied to the resource.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        /// @param resources `resources` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] RendererResult import_composition_images(
             VkDevice device, VkPhysicalDevice physical_device, VkFormat vk_format, VkImageUsageFlags usage,
             u32 width, u32 height, CompositionSwapchainResources &resources) {
@@ -182,8 +183,6 @@ namespace SFT::Core::Vulkan {
                 .pNext = nullptr,
 
 
-
-
                 .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT,
             };
             const VkImageCreateInfo image_info{
@@ -196,7 +195,6 @@ namespace SFT::Core::Vulkan {
                 .mipLevels = 1,
                 .arrayLayers = 1,
                 .samples = VK_SAMPLE_COUNT_1_BIT,
-
 
 
                 .tiling = VK_IMAGE_TILING_OPTIMAL,
@@ -235,17 +233,12 @@ namespace SFT::Core::Vulkan {
             };
 
 
-
-
             const VkMemoryDedicatedAllocateInfo dedicated_info{
                 .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
                 .pNext = &import_memory_info,
                 .image = image->vk_handle(),
                 .buffer = VK_NULL_HANDLE,
             };
-
-
-
 
 
             const VkMemoryAllocateInfo allocate_info{
@@ -256,7 +249,6 @@ namespace SFT::Core::Vulkan {
             };
             VkDeviceMemory memory = VK_NULL_HANDLE;
             const VkResult allocate_result = vkAllocateMemory(device, &allocate_info, nullptr, &memory);
-
 
 
             CloseHandle(duplicated);
@@ -277,7 +269,6 @@ namespace SFT::Core::Vulkan {
             if (!view) {
 
 
-
                 image->destroy();
                 vkFreeMemory(device, memory, nullptr);
                 destroy_composition_swapchain_resources(device, resources);
@@ -293,6 +284,21 @@ namespace SFT::Core::Vulkan {
 
     } // namespace
 
+    /// Creates a composition swapchain resources from the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param physical_device Device used or affected by the operation.
+    /// @param surface Surface used or affected by the operation.
+    /// @param vk_format Format used for the resource, render target, or conversion.
+    /// @param usage Usage flags or category applied to the resource.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param image_count Number of elements or operations to process.
+    /// @param alpha_mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::Unsupported`.
     RendererExpected<CompositionSwapchainResources> create_composition_swapchain_resources(
         VkDevice device,
         VkPhysicalDevice physical_device,
@@ -315,7 +321,6 @@ namespace SFT::Core::Vulkan {
         VkPhysicalDeviceProperties2 properties2{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
                                                 .pNext = &id_properties};
         vkGetPhysicalDeviceProperties2(physical_device, &properties2);
-
 
 
         u64 adapter_luid_bits = 0;
@@ -342,7 +347,6 @@ namespace SFT::Core::Vulkan {
         resources.presenter = std::move(presenter_result.value);
 
 
-
         if (auto imported = import_composition_fences(device, resources); !imported) {
             destroy_composition_swapchain_resources(device, resources);
             return std::unexpected(imported.error());
@@ -355,6 +359,19 @@ namespace SFT::Core::Vulkan {
         return resources;
     }
 
+    /// Changes the logical size to the requested value, creating or removing elements as needed.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param physical_device Device used or affected by the operation.
+    /// @param previous `previous` value used by the operation.
+    /// @param vk_format Format used for the resource, render target, or conversion.
+    /// @param usage Usage flags or category applied to the resource.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::DeviceLost`.
     RendererExpected<CompositionSwapchainResources> resize_composition_swapchain_resources(
         VkDevice device,
         VkPhysicalDevice physical_device,
@@ -370,26 +387,7 @@ namespace SFT::Core::Vulkan {
         }
 
 
-
-
-
-
-
-
-
-
-
-
-
         (void)previous.presenter->set_live_scale(width, height);
-
-
-
-
-
-
-
-
 
 
         if (previous.render_complete_value != 0) {
@@ -406,11 +404,7 @@ namespace SFT::Core::Vulkan {
         CompositionSwapchainResources resources{};
 
 
-
-
-
         resources.presenter = std::move(previous.presenter);
-
 
 
         resources.render_complete_semaphore = std::move(previous.render_complete_semaphore);
@@ -429,11 +423,13 @@ namespace SFT::Core::Vulkan {
         return resources;
     }
 
+    /// Destroys the composition swapchain resources identified by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void destroy_composition_swapchain_resources(VkDevice device, CompositionSwapchainResources &resources) noexcept {
-
-
-
-
 
 
         resources.views.clear();
@@ -452,6 +448,11 @@ namespace SFT::Core::Vulkan {
 
 #else
 
+    /// Creates a composition swapchain resources from the supplied parameters.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::Unsupported`.
     RendererExpected<CompositionSwapchainResources> create_composition_swapchain_resources(
         VkDevice           ,
         VkPhysicalDevice                    ,
@@ -466,6 +467,9 @@ namespace SFT::Core::Vulkan {
                                       "Composition present is implemented only on Windows.");
     }
 
+    /// Destroys the composition swapchain resources identified by the supplied parameters.
+    ///
+    /// @note This function does not throw exceptions.
     void destroy_composition_swapchain_resources(VkDevice           ,
                                                  CompositionSwapchainResources &              ) noexcept {
     }

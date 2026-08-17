@@ -20,34 +20,18 @@ using std::optional;
 using std::unordered_map;
 using std::vector;
 
-/// One dockable, tabbed, splittable, resizable panel workspace, drawn/dragged entirely through
-/// UI::Context's own public API (element()/button()/DragGestureState) — same "not a Clay
-/// primitive" reasoning as Button.hpp/TextEdit.hpp. Deliberately has zero Platform/Engine/OS
-/// awareness: dragging a tab out of this workspace's own bounds just raises a
-/// DockTearOffRequest event (see end_frame()) rather than touching any window API — the
-/// Engine-level DockWindowCoordinator (Phase 3, Engine/) is what turns that into an actual new OS
-/// window. This keeps UI/Docking usable from a bare game loop exactly like the rest of UI/, per
-/// UI.hpp's own doc comment.
-///
-/// Every drag/resize gesture here (tab dragging, split-divider resizing) is built on the same
-/// UI::DragGestureState every other draggable widget in this package (Slider.hpp, ColorPicker.hpp)
-/// uses — one shared press/capture/threshold/release state machine, not a docking-specific
-/// reimplementation.
+
 namespace SFT::UI::Docking {
 
     struct DockWorkspaceStyle {
         f32 tab_strip_height = 28.0f;
         f32 divider_thickness = 6.0f;
         f32 min_leaf_size = 80.0f;
-        /// Pixels of pointer movement past a tab's press-down point before it counts as a drag
-        /// rather than a click — without this, every ordinary tab-select click would also fire a
-        /// one-pixel reorder/hover-guide flicker. Passed straight through as DragGestureState's own
-        /// `threshold` for tab gestures; split dividers use 0 (always an immediate drag).
+
+
         f32 drag_start_threshold = 4.0f;
 
-        /// Public cursor policy for the workspace's internally generated chrome. These are explicit
-        /// values rather than Auto because DockWorkspace owns the declarations; consumers can replace
-        /// any of them to match a host application's conventions.
+
         CursorIcon tab_cursor = CursorIcon::Grab;
         CursorIcon tab_dragging_cursor = CursorIcon::Grabbing;
         CursorIcon close_button_cursor = CursorIcon::Pointer;
@@ -77,9 +61,7 @@ namespace SFT::UI::Docking {
         DockDropZone zone = DockDropZone::Center;
     };
 
-    /// A dragged tab was released outside this workspace's own rect entirely — the panel is still
-    /// sitting in this workspace's tree (removal is deferred, see end_frame()'s own doc comment) so
-    /// a failed/declined spawn on the coordinator side doesn't silently lose it.
+
     struct DockTearOffRequest {
         DockPanelId panel;
         glm::vec2 workspace_local_drop_position{0.0f};
@@ -90,99 +72,163 @@ namespace SFT::UI::Docking {
         vector<DockPanelId> close_requests;
     };
 
-    /// Public, read-only snapshot for a coordinator while a tab drag is genuinely active (past its
-    /// threshold). Pointer coordinates are always local to the workspace's own top-left, regardless
-    /// of where that workspace sits in the Context root.
+
     struct DockActiveTabDragSnapshot {
         DockPanelId panel;
         DockNodeId source_leaf{};
         glm::vec2 workspace_local_pointer_position{0.0f};
     };
 
-    /// One instance per OS window once Phase 3 wires up tear-off (today: usable for a single
-    /// in-process window too — Phase 1 has no OS-window concept at all yet).
+
     class DockWorkspace {
       public:
-        /// `id_prefix` namespaces every Clay id this workspace derives (tab/divider/content ids) so
-        /// multiple DockWorkspace instances sharing one Context (or, from Phase 3 on, one per OS
-        /// window with its own Context) never collide on Context::hovered()/clicked() ids.
+
+
+        /// Constructs a `DockWorkspace` from the supplied initialization values.
+        ///
+        /// @param id_prefix `id_prefix` value used by the operation.
+        /// @param style `style` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         explicit DockWorkspace(UString id_prefix, DockWorkspaceStyle style = {});
 
+        /// Sets the content background for this `DockWorkspace`.
+        ///
+        /// @param color `color` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void set_content_background(Color color) noexcept;
 
-        /// Registers and places one logical panel as a single operation. Duplicate/empty ids and
-        /// stale/non-leaf explicit targets are rejected without changing either metadata or tree.
-        /// `placement == nullopt` docks into the focused leaf, falling back to the first live leaf.
+
+        /// Adds panel using the supplied arguments and current state.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        /// @param placement `placement` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         bool add_panel(DockPanelDesc desc, optional<DockPlacement> placement = std::nullopt);
 
-        /// Transfer destination API: accepts the complete descriptor so title/closability survive a
-        /// cross-workspace move. The same duplicate and placement validation as add_panel() applies.
+
+        /// Performs the accept panel operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        /// @param placement `placement` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         bool accept_panel(DockPanelDesc desc, optional<DockPlacement> placement = std::nullopt);
 
+        /// Removes the panel from its owning collection or system.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void remove_panel(const DockPanelId &id);
 
-        /// Transfer source API. Returns the complete descriptor and removes the panel only when the
-        /// id is registered; callers can pass the result directly to another accept_panel().
+
+        /// Performs the take panel operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<DockPanelDesc> take_panel(const DockPanelId &id);
 
+        /// Reports whether this `DockWorkspace` has panel.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool has_panel(const DockPanelId &id) const noexcept;
 
+        /// Performs the panel desc operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const DockPanelDesc *panel_desc(const DockPanelId &id) const noexcept;
 
-        /// Whole tree has zero panels — signals (for a torn-off window) "this window should now be
-        /// destroyed," since its one purpose no longer has any content.
+
+        /// Reports whether this `DockWorkspace` contains no elements or payload.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool empty() const noexcept;
 
-        /// Whichever leaf was most recently interacted with (a panel just added with no explicit
-        /// placement, a tab clicked/dragged, a placement just applied) — nullopt only before this
-        /// workspace has ever held a panel. Exposed mainly so a caller can build a DockPlacement
-        /// relative to "wherever the user is currently looking," e.g. a "new panel" button docking
-        /// next to whatever's focused rather than always at the root.
+
+        /// Returns the current or globally available focused leaf value.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<DockNodeId> focused_leaf() const noexcept;
 
+        /// Returns the current or globally available active tab drag value.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<DockActiveTabDragSnapshot> active_tab_drag() const;
 
-        /// One frame: `workspace_rect` is in Context-root coordinates. Layout and all public drag/
-        /// tear-off positions are workspace-local (origin 0,0); only emitted floating ElementDecls
-        /// are translated back by workspace_rect.origin. This keeps a nonzero workspace origin from
-        /// leaking into coordinator-facing coordinates. The caller must already have called
-        /// ctx.begin_layout(). Call panel_content_region() afterward, then end_frame().
+
+        /// Performs the begin frame operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param workspace_rect `workspace_rect` value used by the operation.
+        /// @param delta_seconds `delta_seconds` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void begin_frame(Context &ctx, DockRect workspace_rect, f32 delta_seconds);
 
-        /// Returns the ready-to-use floating ElementDecl for `id`'s content area, only when `id` is
-        /// the currently active tab of whichever leaf holds it this frame. Caller wraps its own
-        /// widget calls: `if (auto d = ws.panel_content_region(id)) { auto scope = ctx.element(*d);
-        /// ... }`.
+
+        /// Performs the panel content region operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<ElementDecl> panel_content_region(const DockPanelId &id) const;
 
-        /// Finalizes this frame: applies any tab closes (X button clicks) and returns everything
-        /// that happened this frame. Tear-off requests do *not* remove the panel from this
-        /// workspace's tree here — the caller (Phase 3's DockWindowCoordinator) owns confirming a
-        /// new OS window actually got spawned before calling remove_panel() itself, so a failed
-        /// spawn leaves the panel exactly where it was instead of silently vanishing.
+
+        /// Performs the end frame operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] DockWorkspaceEvents end_frame(Context &ctx);
 
-        /// Cross-workspace preview is intentionally non-mutating: only the coordinator owns the
-        /// descriptor and decides when to call accept_panel(). `local_pointer` is already translated
-        /// into this workspace's 0,0-based local coordinates. The returned placement remains valid
-        /// only while the target tree is unchanged.
+
+        /// Performs the preview foreign drag operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param local_pointer `local_pointer` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<DockPlacement> preview_foreign_drag(Context &ctx,
                                                                     glm::vec2 local_pointer);
 
-        /// Source-compatible compatibility overload. It now reports whether a placement is available;
-        /// it never inserts `foreign_panel`, even when `released` is true, because doing so without a
-        /// DockPanelDesc would lose title/closability metadata. Use panel_desc()/take_panel() and
-        /// accept_panel() to perform the transfer explicitly.
+
+        /// Performs the preview foreign drag operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param foreign_panel `foreign_panel` value used by the operation.
+        /// @param local_pointer `local_pointer` value used by the operation.
+        /// @param released `released` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         bool preview_foreign_drag(Context &ctx, const DockPanelId &foreign_panel,
                                   glm::vec2 local_pointer, bool released);
 
+        /// Clears foreign drag preview.
+        ///
+        /// @note This function does not throw exceptions.
         void clear_foreign_drag_preview() noexcept;
 
       private:
-        /// Business identity of whichever single gesture (at most one, since Context's pointer
-        /// capture is exclusive) is currently in progress — the low-level press/capture/threshold
-        /// tracking itself lives in the per-id DragGestureState map entries below; this is just
-        /// "which tab/divider it is and what it means" bookkeeping layered on top.
+
+
         struct ActiveDrag {
             enum class Kind : u8 { Tab, Divider } kind;
             DockPanelId panel;
@@ -193,66 +239,203 @@ namespace SFT::UI::Docking {
             optional<DockPlacement> hover_placement;
         };
 
+        /// Returns the current or globally available workspace local rect value.
+        ///
+        /// @return Returns the current workspace local rect value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DockRect workspace_local_rect() const noexcept;
 
+        /// Converts the value to context root representation.
+        ///
+        /// @param workspace_local `workspace_local` value used by the operation.
+        ///
+        /// @return Returns the value converted to context root representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] glm::vec2 to_context_root(glm::vec2 workspace_local) const noexcept;
 
+        /// Converts the value to workspace local representation.
+        ///
+        /// @param result `result` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DragGestureState::UpdateResult to_workspace_local(
             DragGestureState::UpdateResult result) const noexcept;
 
+        /// Returns the current or globally available default target leaf value.
+        ///
+        /// @return Returns the current default target leaf value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DockNodeId default_target_leaf() const noexcept;
 
+        /// Reports whether valid placement holds for this `DockWorkspace`.
+        ///
+        /// @param placement `placement` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid_placement(const DockPlacement &placement) const noexcept;
 
+        /// Applies placement using the supplied arguments and current state.
+        ///
+        /// @param target `target` value used by the operation.
+        /// @param zone `zone` value used by the operation.
+        /// @param panel `panel` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         bool apply_placement(DockNodeId target, DockDropZone zone, const DockPanelId &panel);
 
+        /// Resolves the layout associated with the supplied key, handle, or resource.
+        ///
+        /// @param id Identifier of the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const DockNodeLayout *layout_for(DockNodeId id) const noexcept;
 
+        /// Resolves the tab ID associated with the supplied key, handle, or resource.
+        ///
+        /// @param panel `panel` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UString tab_id_for(const DockPanelId &panel) const;
 
+        /// Resolves the close button ID associated with the supplied key, handle, or resource.
+        ///
+        /// @param panel `panel` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UString close_button_id_for(const DockPanelId &panel) const;
 
+        /// Resolves the divider ID associated with the supplied key, handle, or resource.
+        ///
+        /// @param node `node` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UString divider_id_for(DockNodeId node) const;
 
+        /// Performs the tab index under pointer operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param leaf `leaf` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<usize> tab_index_under_pointer(Context &ctx, DockNodeId leaf) const;
 
+        /// Performs the classify drop zone operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param rect `rect` value used by the operation.
+        /// @param point `point` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static DockDropZone classify_drop_zone(const DockRect &rect, glm::vec2 point) noexcept;
 
-        /// Finds which other leaf's tab strip or content rect (if any) `point` falls over, excluding
-        /// `exclude` (the dragged tab's own origin leaf, for an in-workspace drag; nullopt for a
-        /// foreign drag being previewed, which has no leaf of its own in this tree). Landing on a
-        /// leaf's tab strip is always treated as DockDropZone::Center — a very natural "drop it as a
-        /// tab here" target, distinct from that leaf's content-rect-based edge/center split zones.
+
+        /// Performs the hit test drop target operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param point `point` value used by the operation.
+        /// @param exclude `exclude` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<DockPlacement> hit_test_drop_target(glm::vec2 point, optional<DockNodeId> exclude) const;
 
+        /// Performs the reorder within leaf operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param active `active` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void reorder_within_leaf(Context &ctx, const ActiveDrag &active);
 
-        /// Called every frame a tab-drag is active (past the threshold, still held): decides between
-        /// live same-leaf reordering and updating the cross-leaf drop-zone preview.
+
+        /// Updates tab drag hover from the supplied values.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param active `active` value used by the operation.
+        /// @param r `r` value used by the operation.
+        ///
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         void update_tab_drag_hover(Context &ctx, ActiveDrag &active, const DragGestureState::UpdateResult &r);
 
-        /// Called the frame a tab-drag gesture ends (release or cancellation).
+
+        /// Resolves tab drag end into the concrete value used by the engine.
+        ///
+        /// @param active `active` value used by the operation.
+        /// @param r `r` value used by the operation.
+        ///
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         void resolve_tab_drag_end(const ActiveDrag &active, const DragGestureState::UpdateResult &r);
 
+        /// Applies divider delta using the supplied arguments and current state.
+        ///
+        /// @param active `active` value used by the operation.
+        /// @param r `r` value used by the operation.
+        ///
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         void apply_divider_delta(const ActiveDrag &active, const DragGestureState::UpdateResult &r);
 
-        /// Drives whichever gesture is already in progress, if any — otherwise scans every tab/
-        /// divider this frame for a fresh press. At most one DragGestureState across either map can
-        /// ever be capturing at a time (Context's pointer capture is exclusive), so re-scanning every
-        /// candidate on frames where nothing has started yet is cheap and correct: every id besides
-        /// the one actually pressed just no-ops.
+
+        /// Updates drag state from the supplied values.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void update_drag_state(Context &ctx);
 
+        /// Performs the continue active drag operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void continue_active_drag(Context &ctx);
 
+        /// Performs the scan for new drag operation for `DockWorkspace` using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void scan_for_new_drag(Context &ctx);
 
+        /// Draws leaf chrome using the current rendering state.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param nl `nl` value used by the operation.
+        /// @param n `n` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void draw_leaf_chrome(Context &ctx, const DockNodeLayout &nl, const DockNode &n);
 
+        /// Draws divider using the current rendering state.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param nl `nl` value used by the operation.
+        /// @param axis `axis` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void draw_divider(Context &ctx, const DockNodeLayout &nl, DockSplitAxis axis);
 
+        /// Draws chrome using the current rendering state.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void draw_chrome(Context &ctx);
 
+        /// Resolves the draw drop guide associated with the supplied key, handle, or resource.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param placement `placement` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void draw_drop_guide_for(Context &ctx, const DockPlacement &placement);
 
         UString id_prefix_;

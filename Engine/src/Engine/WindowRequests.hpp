@@ -19,35 +19,49 @@ namespace SFT::Engine {
 
     struct WindowRequestId {
         u64 value = 0;
+        /// Converts the `WindowRequestId` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] explicit operator bool() const noexcept;
+        /// Compares the operands and produces their ordering.
+        ///
+        /// @return Returns the comparison category describing the ordering of the operands.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] auto operator<=>(const WindowRequestId &) const = default;
     };
 
-    /// Owns WindowConfig's otherwise-borrowed title so requests can safely wait in a queue until the
-    /// Application host reaches its window-owner phase.
+
     struct OwnedWindowConfig {
         UString title{"Sturdy Engine"};
         Platform::Windowing::WindowConfig config{};
 
+        /// Constructs a `OwnedWindowConfig` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         OwnedWindowConfig() noexcept;
+        /// Constructs a `OwnedWindowConfig` from the supplied initialization values.
+        ///
+        /// @param source Source value or resource.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         explicit OwnedWindowConfig(const Platform::Windowing::WindowConfig &source);
 
+        /// Returns the current or globally available view value.
+        ///
+        /// @return Returns the current view value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Platform::Windowing::WindowConfig view() const noexcept;
     };
 
     struct SpawnWindowRequest {
         WindowRequestId id{};
         OwnedWindowConfig window{};
-        /// Null inherits ApplicationConfig::primary_window_factory.
+
         Platform::Windowing::WindowFactory factory = nullptr;
     };
 
-    /// Tears down the current primary window and spawns a replacement through `factory` (null
-    /// inherits ApplicationConfig::primary_window_factory, same convention as SpawnWindowRequest) —
-    /// e.g. switching the primary surface from Platform's built-in SDL3 provider to
-    /// GlfwWindowProvider (or back) at runtime. See Application::recreate_primary_window()'s own doc
-    /// comment for the actual teardown/promotion sequence; this struct is just the deferred request
-    /// shape, same "GameLogic can't reach Application directly" reasoning as SpawnWindowRequest.
+
     struct RecreatePrimaryWindowRequest {
         WindowRequestId id{};
         OwnedWindowConfig window{};
@@ -59,17 +73,13 @@ namespace SFT::Engine {
         Platform::Windowing::WindowId window{};
     };
 
-    /// Fire-and-forget, unlike Spawn/Close above — a caller driving this off per-frame hover state
-    /// (UI::Context::desired_cursor(), translated to Platform::Windowing::CursorIcon) has no use for
-    /// a WindowRequestId/completion round-trip for something that's already stale a frame later
-    /// anyway. Application::process_window_requests() applies it directly and moves on.
+
     struct SetCursorIconRequest {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::CursorIcon icon = Platform::Windowing::CursorIcon::Default;
     };
 
-    /// The four requests below are fire-and-forget for the same reason as SetCursorIconRequest above:
-    /// simple window state pushes with nothing for a caller to meaningfully await.
+
     struct SetFullscreenRequest {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowMode mode = Platform::Windowing::WindowMode::Windowed;
@@ -80,34 +90,26 @@ namespace SFT::Engine {
         bool decorated = true;
     };
 
-    /// See Window::set_transparent()'s own doc comment (Platform/Window/Window.hpp) for the real
-    /// per-OS constraints this ends up subject to — most notably, this no-ops with a warning on
-    /// Linux, where transparency can only be set at window-creation time (WindowConfig::transparent).
+
     struct SetTransparentRequest {
         Platform::Windowing::WindowId window{};
         bool transparent = false;
     };
 
-    /// `kind` names a specific native effect (Blur, Acrylic, Mica, ...) rather than always the
-    /// Window::set_blur_enabled() default — callers should pick from among
-    /// Platform::Windowing::operating_system_may_support_window_effect()-true kinds (see its own doc
-    /// comment) so this isn't sent for something the current OS silently no-ops+warns on.
+
     struct SetBlurRequest {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::WindowEffectKind kind = Platform::Windowing::WindowEffectKind::Blur;
         bool enabled = false;
     };
 
-    /// See Window::set_text_input_area()'s own doc comment — positions an IME composition candidate
-    /// window at a focused text field's caret. Fire-and-forget for the same reason as
-    /// SetCursorIconRequest above: a UI re-sends this every frame a focused field's bounds might have
-    /// changed, with nothing for a caller to await.
+
     struct SetTextInputAreaRequest {
         Platform::Windowing::WindowId window{};
         Platform::Windowing::TextInputArea area{};
     };
 
-    /// Toggles start_text_input()/stop_text_input() — see their own doc comments (Window.hpp).
+
     struct SetTextInputActiveRequest {
         Platform::Windowing::WindowId window{};
         bool active = true;
@@ -129,47 +131,121 @@ namespace SFT::Engine {
         UString message;
     };
 
-    /// Deferred bridge from GameLogic/ECS/editor systems (which can reach Engine but deliberately do
-    /// not own live Platform windows) to Application (the process host that does). Requests are
-    /// drained once per main-loop tick after Engine::update(); completion records can be consumed on
-    /// a later update without exposing Application or WindowManager pointers below the host layer.
+
     class WindowRequests {
       public:
+        /// Spawns the supplied asynchronous work.
+        ///
+        /// @param config Configuration values controlling the operation.
+        /// @param factory `factory` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] WindowRequestId spawn(const Platform::Windowing::WindowConfig &config,
                                             Platform::Windowing::WindowFactory factory = nullptr);
 
+        /// Closes the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @param window Window used or affected by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] WindowRequestId close(Platform::Windowing::WindowId window);
 
+        /// Recreates primary window using the supplied arguments and current state.
+        ///
+        /// @param config Configuration values controlling the operation.
+        /// @param factory `factory` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] WindowRequestId recreate_primary_window(const Platform::Windowing::WindowConfig &config,
                                                                Platform::Windowing::WindowFactory factory = nullptr);
 
-        /// See SetCursorIconRequest's own doc comment for why this has no id/completion.
+
+        /// Sets the cursor icon for this `WindowRequests`.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param icon `icon` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_cursor_icon(Platform::Windowing::WindowId window, Platform::Windowing::CursorIcon icon);
 
-        /// Borderless-fullscreen on via WindowMode::BorderlessFullscreen, off via WindowMode::Windowed
-        /// (ExclusiveFullscreen is available too — same underlying enum as Window::set_fullscreen()).
+
+        /// Sets the fullscreen for this `WindowRequests`.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_fullscreen(Platform::Windowing::WindowId window, Platform::Windowing::WindowMode mode);
 
-        /// decorated=false removes the OS title bar/border, e.g. so the app can draw its own.
+
+        /// Sets the decorated for this `WindowRequests`.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param decorated `decorated` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_decorated(Platform::Windowing::WindowId window, bool decorated);
 
+        /// Sets the transparent for this `WindowRequests`.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param transparent `transparent` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_transparent(Platform::Windowing::WindowId window, bool transparent);
 
+        /// Sets the blur for this `WindowRequests`.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param kind `kind` value used by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_blur(Platform::Windowing::WindowId window, Platform::Windowing::WindowEffectKind kind, bool enabled);
 
-        /// See SetTextInputAreaRequest's own doc comment for why this has no id/completion. Typically
-        /// driven straight from a focused text_input()/text_area() result's own caret_bounds
-        /// (UI/TextInput.hpp, UI/TextArea.hpp) every frame it has one.
+
+        /// Sets the text input area for this `WindowRequests`.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param area `area` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_text_input_area(Platform::Windowing::WindowId window, Platform::Windowing::TextInputArea area);
 
+        /// Sets the text input active for this `WindowRequests`.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param active `active` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_text_input_active(Platform::Windowing::WindowId window, bool active);
 
+        /// Drains the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @return Returns the current drain value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] vector<WindowRequest> drain();
 
+        /// Performs the complete operation for `WindowRequests` using the supplied arguments.
+        ///
+        /// @param completion `completion` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void complete(WindowRequestCompletion completion);
 
+        /// Returns the current or globally available take completions value.
+        ///
+        /// @return Returns the current take completions value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] vector<WindowRequestCompletion> take_completions();
 
+        /// Reports whether this `WindowRequests` has pending.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool has_pending() const;
 
       private:

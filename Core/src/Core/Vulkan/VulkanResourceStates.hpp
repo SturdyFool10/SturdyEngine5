@@ -10,9 +10,7 @@
 
 namespace SFT::Core::Vulkan {
 
-    /// Renderer-facing image states used by the Vulkan backend when compiling multipass dynamic
-    /// rendering work. They describe the next use of a subresource; the helpers below translate that
-    /// use into synchronization2 stage/access/layout fields.
+
     enum class VulkanImageUse : u8 {
         Undefined,
         Present,
@@ -38,9 +36,21 @@ namespace SFT::Core::Vulkan {
         u32 base_layer = 0;
         u32 layer_count = 1;
 
+        /// Converts the supplied engine/RHI value to its Vulkan representation.
+        ///
+        /// @return Returns the current to Vulkan value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkImageSubresourceRange to_vk() const noexcept;
     };
 
+    /// Performs the full image range operation using the supplied arguments.
+    ///
+    /// @param aspects `aspects` value used by the operation.
+    /// @param mip_count Number of elements or operations to process.
+    /// @param layer_count Number of elements or operations to process.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VulkanImageSubresourceRange full_image_range(
         VkImageAspectFlags aspects,
         u32 mip_count = VK_REMAINING_MIP_LEVELS,
@@ -58,10 +68,23 @@ namespace SFT::Core::Vulkan {
         VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
     };
 
+    /// Reports whether depth stencil aspect holds.
+    ///
+    /// @param aspects `aspects` value used by the operation.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool is_depth_stencil_aspect(VkImageAspectFlags aspects) noexcept {
         return (aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0;
     }
 
+    /// Performs the image state for use operation using the supplied arguments.
+    ///
+    /// @param use `use` value used by the operation.
+    /// @param aspects `aspects` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VulkanImageState image_state_for_use(VulkanImageUse use,
                                                                  VkImageAspectFlags aspects = VK_IMAGE_ASPECT_COLOR_BIT) noexcept {
         switch (use) {
@@ -174,6 +197,12 @@ namespace SFT::Core::Vulkan {
         u32 dst_queue_family = VK_QUEUE_FAMILY_IGNORED;
     };
 
+    /// Performs the image barrier operation using the supplied arguments.
+    ///
+    /// @param transition `transition` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkImageMemoryBarrier2 image_barrier(const VulkanImageTransition &transition) noexcept {
         return VkImageMemoryBarrier2{
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -191,6 +220,15 @@ namespace SFT::Core::Vulkan {
         };
     }
 
+    /// Performs the image barrier operation using the supplied arguments.
+    ///
+    /// @param image `image` value used by the operation.
+    /// @param before `before` value used by the operation.
+    /// @param after `after` value used by the operation.
+    /// @param range Range of values to process.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkImageMemoryBarrier2 image_barrier(VkImage image,
                                                                 VulkanImageUse before,
                                                                 VulkanImageUse after,
@@ -203,6 +241,12 @@ namespace SFT::Core::Vulkan {
         });
     }
 
+    /// Performs the dependency for image barrier operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param barrier `barrier` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkDependencyInfo dependency_for_image_barrier(const VkImageMemoryBarrier2 &barrier) noexcept {
         return VkDependencyInfo{
             .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,

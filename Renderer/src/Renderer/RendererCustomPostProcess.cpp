@@ -25,11 +25,24 @@ using std::vector;
 
 namespace SFT::Renderer {
     namespace {
+        /// Creates an error result describing the supplied custom effect failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError custom_effect_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
     } // namespace
 
+    /// Finds or creates the custom post process required by the operation.
+    ///
+    /// @param effect `effect` value used by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_custom_post_process(const CustomPostProcessEffect &effect,
                                                                RHI::Format color_format) {
         ZoneScopedN("Renderer::ensure_custom_post_process");
@@ -199,6 +212,16 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Records custom post process using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param source_view `source_view` value used by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param effect `effect` value used by the operation.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_custom_post_process(RHI::RenderPassEncoder &pass,
                                                                RHI::TextureViewHandle source_view,
                                                                RHI::Format color_format,
@@ -255,6 +278,10 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the custom post process resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy custom post process resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_custom_post_process_resources() noexcept {
         ZoneScopedN("Renderer::destroy_custom_post_process_resources");
         auto resources = custom_post_process_resources_.lock();

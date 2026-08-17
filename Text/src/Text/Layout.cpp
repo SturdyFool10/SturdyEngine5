@@ -8,6 +8,12 @@ namespace SFT::Text {
 
 namespace {
 
+/// Reports whether trimmable line end holds for this `Text`.
+///
+/// @param codepoint `codepoint` value used by the operation.
+///
+/// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+/// @note This function does not throw exceptions.
 [[nodiscard]] bool is_trimmable_line_end(char32_t codepoint) noexcept {
     if (codepoint == U'\t' || codepoint == U' ') {
         return true;
@@ -17,6 +23,14 @@ namespace {
     return category == HB_UNICODE_GENERAL_CATEGORY_SPACE_SEPARATOR;
 }
 
+/// Performs the visible end before space operation for `Text` using the supplied arguments.
+///
+/// @param text Text consumed by the operation.
+/// @param start First position or element included in the operation.
+/// @param end End boundary for the operation; where applicable this is one-past-the-last element.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] usize visible_end_before_space(const ustr &text, usize start, usize end) noexcept {
     usize offset = start;
     usize last_visible_end = start;
@@ -30,6 +44,13 @@ namespace {
     return last_visible_end;
 }
 
+/// Performs the paragraph content end operation for `Text` using the supplied arguments.
+///
+/// @param bytes Size of the relevant data in bytes.
+/// @param boundary `boundary` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] usize paragraph_content_end(string_view bytes, usize boundary) noexcept {
     if (boundary >= 2 && bytes[boundary - 2] == '\r' && bytes[boundary - 1] == '\n') {
         return boundary - 2;
@@ -50,6 +71,12 @@ namespace {
     return boundary;
 }
 
+/// Performs the rebase clusters operation for `Text` using the supplied arguments.
+///
+/// @param line `line` value used by the operation.
+/// @param byte_offset Offset from the beginning of the relevant range or buffer.
+///
+/// @note This function does not throw exceptions.
 void rebase_clusters(ShapedLine &line, usize byte_offset) noexcept {
     for (ShapedRun &run : line.runs) {
         for (PositionedGlyph &glyph : run.glyphs) {
@@ -58,6 +85,16 @@ void rebase_clusters(ShapedLine &line, usize byte_offset) noexcept {
     }
 }
 
+/// Shapes source range using the supplied arguments and current state.
+///
+/// @param fonts `fonts` value used by the operation.
+/// @param text Text consumed by the operation.
+/// @param start First position or element included in the operation.
+/// @param end End boundary for the operation; where applicable this is one-past-the-last element.
+/// @param options Configuration values controlling the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 [[nodiscard]] TextExpected<ShapedLine> shape_source_range(const FontStack &fonts, const ustr &text,
                                                           usize start, usize end,
                                                           const ShapeOptions &options) {
@@ -99,6 +136,14 @@ void rebase_clusters(ShapedLine &line, usize byte_offset) noexcept {
     return shaped;
 }
 
+/// Performs the include font metrics operation for `Text` using the supplied arguments.
+///
+/// @param font `font` value used by the operation.
+/// @param ascender `ascender` value used by the operation.
+/// @param descender Description of the resource or operation to perform.
+/// @param line_gap `line_gap` value used by the operation.
+///
+/// @note This function does not throw exceptions.
 void include_font_metrics(const Font *font, f32 &ascender, f32 &descender, f32 &line_gap) noexcept {
     if (font == nullptr || !*font) {
         return;
@@ -111,6 +156,15 @@ void include_font_metrics(const Font *font, f32 &ascender, f32 &descender, f32 &
 
 } // namespace
 
+/// Performs the layout text operation for `Text` using the supplied arguments.
+///
+/// @param fonts `fonts` value used by the operation.
+/// @param text Text consumed by the operation.
+/// @param options Configuration values controlling the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`, `TextErrorCode::ShapingFailed`.
 TextExpected<TextLayout> layout_text(const FontStack &fonts, const ustr &text,
                                      const TextLayoutOptions &options) {
     if (fonts.primary == nullptr || !*fonts.primary) {

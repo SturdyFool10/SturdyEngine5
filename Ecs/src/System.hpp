@@ -23,11 +23,7 @@
 
 namespace SFT::Ecs {
 
-    /// Derived from a safe per-entity system's component-reference parameters. Stable keys make the
-    /// declaration independent of one World's dense registry IDs. event_reads/event_writes are a
-    /// subset of resource_reads/resource_writes (populated only for Events<T> resources) that
-    /// Schedule uses solely for the producer-before-consumer ordering check below — they play no part
-    /// in system_access_conflicts, which already treats an event buffer as an ordinary resource.
+
     struct SystemAccess {
         std::vector<ComponentKey> reads;
         std::vector<ComponentKey> writes;
@@ -37,8 +33,11 @@ namespace SFT::Ecs {
         std::vector<ResourceKey> event_writes;
     };
 
-    /// Two systems conflict whenever either writes a component touched by the other. Read/read and
-    /// access to entirely different component columns are safe to execute concurrently.
+
+    /// Returns the current or globally available access sets conflict value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     template <class Key>
     [[nodiscard]] inline bool access_sets_conflict(const std::vector<Key> &a_reads,
                                                    const std::vector<Key> &a_writes,
@@ -67,24 +66,28 @@ namespace SFT::Ecs {
         return false;
     }
 
+    /// Performs the system access conflicts operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool system_access_conflicts(const SystemAccess &a, const SystemAccess &b) noexcept;
 
-    /// Selects how a Schedule executes chunk-level system work. Async is the default full-throughput
-    /// path and lazily starts the process-global Async::Scheduler worker pool on first use. Synchronous
-    /// never touches Async::Scheduler at all — no initialize(), no worker threads, no global state —
-    /// so a headless/deterministic/test caller that never asked for a worker pool never pays for one.
+
     enum class ExecutorPolicy {
         Async,
         Synchronous,
     };
 
     struct ScheduleConfig {
-        /// Small queries remain one task. Larger archetypes are divided toward
-        /// worker_count * tasks_per_worker without creating tiny scheduling-granularity tasks.
+
+
         usize minimum_rows_per_task = 128;
         usize tasks_per_worker = 2;
-        /// Tick/update schedules normally clear Events<T> before producers run. Secondary schedules in
-        /// the same frame can preserve those events so extraction/tooling systems observe the same tick.
+
+
         bool clear_events_on_run = true;
         ExecutorPolicy executor = ExecutorPolicy::Async;
     };
@@ -123,6 +126,10 @@ namespace SFT::Ecs {
 
         template <class... Ts>
         struct QueryAccessOf<Query<Ts...>> {
+            /// Returns the current or globally available access value.
+            ///
+            /// @return Returns the current access value.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] static SystemAccess access() {
                 SystemAccess result;
                 (accumulate<Ts>(result), ...);
@@ -130,6 +137,9 @@ namespace SFT::Ecs {
             }
 
           private:
+            /// Performs the accumulate operation for `QueryAccessOf` using the supplied arguments.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <class T>
             static void accumulate(SystemAccess &result) {
                 if constexpr (std::is_const_v<T>) {
@@ -145,15 +155,27 @@ namespace SFT::Ecs {
 
         template <class... ResourceArgs>
         struct ResourceAccessOf<std::tuple<ResourceArgs...>> {
+            /// Reports whether this `ResourceAccessOf` has writes.
+            ///
+            /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] static constexpr bool has_writes() noexcept {
                 return (ResourceArgumentTraits<ResourceArgs>::IsWrite || ... || false);
             }
 
+            /// Performs the accumulate operation for `ResourceAccessOf` using the supplied arguments.
+            ///
+            /// @param result `result` value used by the operation.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             static void accumulate(SystemAccess &result) {
                 (accumulate_one<ResourceArgs>(result), ...);
             }
 
           private:
+            /// Performs the accumulate one operation for `ResourceAccessOf` using the supplied arguments.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <class Argument>
             static void accumulate_one(SystemAccess &result) {
                 using Traits = ResourceArgumentTraits<Argument>;
@@ -173,9 +195,11 @@ namespace SFT::Ecs {
             }
         };
 
-        /// Resolves one resource-view argument (ReadResource/WriteResource/EventReader/EventWriter)
-        /// through its ResourceArgumentTraits::construct() seam — the one place that needs to know
-        /// about a new resource-view kind is that trait specialization, not here.
+
+        /// Resolves resource argument into the concrete value used by the engine.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class Argument>
         [[nodiscard]] Argument resolve_resource_argument(World &world) noexcept {
             using Traits = ResourceArgumentTraits<Argument>;
@@ -183,6 +207,10 @@ namespace SFT::Ecs {
             return Traits::construct(WorldAccess::resource<Resource>(world));
         }
 
+        /// Resolves resource arguments into the concrete value used by the engine.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <class... ResourceArgs>
         [[nodiscard]] std::tuple<ResourceArgs...> resolve_resource_arguments(World &world) noexcept {
             return std::tuple<ResourceArgs...>{resolve_resource_argument<ResourceArgs>(world)...};
@@ -193,8 +221,8 @@ namespace SFT::Ecs {
 
         template <class ArgsTuple, usize... Is>
         struct QueryFromSystemArguments<ArgsTuple, std::index_sequence<Is...>> {
-            /// Argument zero is Entity. The component parameters follow and are lvalue references;
-            /// removing only the reference preserves const as the read/write declaration.
+
+
             using Type = Query<std::remove_reference_t<std::tuple_element_t<Is + 1, ArgsTuple>>...>;
         };
 
@@ -206,13 +234,11 @@ namespace SFT::Ecs {
             using Type = std::tuple<std::tuple_element_t<Offset + Is, ArgsTuple>...>;
         };
 
-        /// Distinguishes the two system shapes add_system() accepts: an entity-and-component system
-        /// always starts with Entity by value; a resource-only ("global") system never does, since it
-        /// has no query to iterate. Checked on the raw (possibly empty) ArgsTuple so it's safe to use
-        /// before EntitySystemTraits's own ArgumentCount>=2 assertion would apply. Written with
-        /// if constexpr rather than a plain && — tuple_element_t<0, ArgsTuple> is ill-formed for an
-        /// empty ArgsTuple, and unlike runtime short-circuiting, a bare && still requires both operand
-        /// types to be valid.
+
+        /// Computes args begin with entity using the supplied arguments and current state.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class ArgsTuple>
         [[nodiscard]] consteval bool compute_args_begin_with_entity() {
             if constexpr (std::tuple_size_v<ArgsTuple> == 0) {
@@ -242,6 +268,10 @@ namespace SFT::Ecs {
 
             static constexpr usize PayloadEnd = ArgumentCount - static_cast<usize>(HasCommands);
 
+            /// Returns the component prefix count for this `EntitySystemTraits`.
+            ///
+            /// @return Returns the requested count or size.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <usize Index>
             [[nodiscard]] static consteval usize component_prefix_count() {
                 if constexpr (Index >= PayloadEnd) {
@@ -259,6 +289,10 @@ namespace SFT::Ecs {
             using ComponentIndices = std::make_index_sequence<ComponentCount>;
             using ResourceIndices = std::make_index_sequence<ResourceCount>;
 
+            /// Reports whether valid component arguments is valid for the current operation.
+            ///
+            /// @return Returns the boolean result of the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <usize... Is>
             [[nodiscard]] static consteval bool valid_component_arguments(std::index_sequence<Is...>) {
                 return ((std::is_lvalue_reference_v<std::tuple_element_t<Is + 1, ArgsTuple>> &&
@@ -267,6 +301,10 @@ namespace SFT::Ecs {
                         ...);
             }
 
+            /// Reports whether valid resource arguments is valid for the current operation.
+            ///
+            /// @return Returns the boolean result of the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <usize... Is>
             [[nodiscard]] static consteval bool valid_resource_arguments(std::index_sequence<Is...>) {
                 return ((is_resource_argument_v<std::tuple_element_t<ComponentCount + 1 + Is, ArgsTuple>> &&
@@ -289,10 +327,10 @@ namespace SFT::Ecs {
         using SystemDispatch =
             std::function<void(World &, usize, usize, ExecutorPolicy, AsyncTaskList &, CommandBufferList &)>;
 
-        /// The one place a chunk task is either run inline or handed to Async::Scheduler. Synchronous
-        /// must never call Async::Scheduler::spawn() — doing so would enqueue work that nothing ever
-        /// executes unless the scheduler happens to be running for an unrelated reason, since Schedule::run()
-        /// deliberately skips Async::Scheduler::initialize() under this policy.
+
+        /// Dispatches task.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class F>
         void dispatch_task(ExecutorPolicy policy, AsyncTaskList &tasks, F &&fn) {
             ZoneScopedN("dispatch_task");
@@ -308,6 +346,10 @@ namespace SFT::Ecs {
 
         template <class... Ts, class... ResourceArgs, bool HasCommands>
         struct EntitySystemRunner<Query<Ts...>, std::tuple<ResourceArgs...>, HasCommands> {
+            /// Reports whether valid callback is valid for the current operation.
+            ///
+            /// @return Returns the boolean result of the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <class F>
             [[nodiscard]] static consteval bool valid_callback() {
                 if constexpr (HasCommands) {
@@ -325,6 +367,9 @@ namespace SFT::Ecs {
                 }
             }
 
+            /// Performs the invoke without commands operation for `EntitySystemRunner` using the supplied arguments.
+            ///
+            /// @note This function does not throw exceptions.
             template <class F>
             static void invoke_without_commands(const F &system,
                                                 std::tuple<ResourceArgs...> &resources,
@@ -337,6 +382,9 @@ namespace SFT::Ecs {
                     resources);
             }
 
+            /// Performs the invoke with commands operation for `EntitySystemRunner` using the supplied arguments.
+            ///
+            /// @note This function does not throw exceptions.
             template <class F>
             static void invoke_with_commands(const F &system,
                                              std::tuple<ResourceArgs...> &resources,
@@ -350,6 +398,10 @@ namespace SFT::Ecs {
                     resources);
             }
 
+            /// Creates a dispatch value from the supplied arguments.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <class F>
             [[nodiscard]] static SystemDispatch make_dispatch(F fn) {
                 return [fn = std::move(fn)](World &world,
@@ -362,8 +414,6 @@ namespace SFT::Ecs {
                     auto query = WorldAccess::query<Ts...>(world);
                     auto chunks = query.chunks(minimum_rows_per_task, target_parallelism);
                     auto resources = resolve_resource_arguments<ResourceArgs...>(world);
-
-
 
 
                     if constexpr (ResourceAccessOf<std::tuple<ResourceArgs...>>::has_writes()) {
@@ -431,13 +481,15 @@ namespace SFT::Ecs {
             }
         };
 
-        /// A "global" system: resource/event access only, no Entity, no component query — the shape
-        /// an event-producing system like a hotkey mapper needs (it has no entities to iterate). Mirrors
-        /// EntitySystemTraits minus everything query-related.
+
         template <class ArgsTuple>
         struct GlobalSystemTraits {
             static constexpr usize ArgumentCount = std::tuple_size_v<ArgsTuple>;
 
+            /// Reports whether compute has commands.
+            ///
+            /// @return Returns the boolean result of the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] static consteval bool compute_has_commands() {
                 if constexpr (ArgumentCount == 0) {
                     return false;
@@ -454,6 +506,10 @@ namespace SFT::Ecs {
             static constexpr usize ResourceCount = ArgumentCount - static_cast<usize>(HasCommands);
             using ResourceIndices = std::make_index_sequence<ResourceCount>;
 
+            /// Reports whether valid resource arguments is valid for the current operation.
+            ///
+            /// @return Returns the boolean result of the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <usize... Is>
             [[nodiscard]] static consteval bool valid_resource_arguments(std::index_sequence<Is...>) {
                 return ((is_resource_argument_v<std::tuple_element_t<Is, ArgsTuple>> &&
@@ -476,6 +532,10 @@ namespace SFT::Ecs {
 
         template <class... ResourceArgs, bool HasCommands>
         struct GlobalSystemRunner<std::tuple<ResourceArgs...>, HasCommands> {
+            /// Reports whether valid callback is valid for the current operation.
+            ///
+            /// @return Returns the boolean result of the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <class F>
             [[nodiscard]] static consteval bool valid_callback() {
                 if constexpr (HasCommands) {
@@ -493,6 +553,10 @@ namespace SFT::Ecs {
                 }
             }
 
+            /// Creates a dispatch value from the supplied arguments.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <class F>
             [[nodiscard]] static SystemDispatch make_dispatch(F fn) {
                 return [fn = std::move(fn)](World &world,
@@ -537,26 +601,20 @@ namespace SFT::Ecs {
 
     } // namespace Detail
 
-    /// Safe systems are per-entity noexcept callables:
-    ///   [](Entity, Position&, const Velocity&) noexcept { ... }
-    ///   [](Entity, const Mesh&, WriteResource<RenderRequests>) noexcept { ... }
-    ///   [](Entity, const Health&, Commands&) noexcept { commands.destroy(entity); }
-    ///
-    /// Component reference constness is the access declaration. Schedule derives conflicts, splits
-    /// matching archetypes into disjoint chunks, dispatches every chunk through Async, waits at the
-    /// dependency-stage boundary, then applies deferred Commands. ReadResource/WriteResource parameters
-    /// declare singleton access; mutable resources serialize that system's chunks automatically. No
-    /// mutable World reference enters worker code. A callable is copied once per chunk; captures shared
-    /// by reference remain the consumer's synchronization responsibility.
+
     class Schedule {
       public:
+        /// Constructs a `Schedule` from the supplied initialization values.
+        ///
+        /// @param config Configuration values controlling the operation.
+        ///
+        /// @note This function does not throw exceptions.
         explicit Schedule(ScheduleConfig config = {}) noexcept;
 
-        /// Accepts either system shape: (Entity, Components&..., [ResourceArgs...], [Commands&]) for
-        /// per-entity work, or (ResourceArgs..., [Commands&]) for resource/event-only ("global") work
-        /// such as an event-producing hotkey mapper. The two are told apart purely from the callable's
-        /// own first parameter — Entity or not — matching this codebase's "derive it, don't hand-specify
-        /// it" rule elsewhere (query const-ness, resource access).
+
+        /// Adds system using the supplied arguments and current state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class F>
         void add_system(F fn) {
             ZoneScopedN("Schedule::add_system");
@@ -594,6 +652,11 @@ namespace SFT::Ecs {
             stages_dirty_ = true;
         }
 
+        /// Runs the requested work.
+        ///
+        /// @param world World used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void run(World &world);
 
       private:
@@ -602,7 +665,13 @@ namespace SFT::Ecs {
             Detail::SystemDispatch dispatch;
         };
 
+        /// Performs the rebuild stages operation for `Schedule` using the supplied arguments.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void rebuild_stages();
+        /// Validates event ordering.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void validate_event_ordering() const;
 
         ScheduleConfig config_{};

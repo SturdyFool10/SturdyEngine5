@@ -10,7 +10,6 @@
 #include <type_traits>
 
 
-
 using std::bit_cast;
 using std::floating_point;
 using std::integral;
@@ -22,10 +21,6 @@ using std::remove_cvref_t;
 using std::same_as;
 
 namespace SFT::Foundation {
-
-
-
-
 
 
     namespace Detail {
@@ -45,14 +40,64 @@ namespace SFT::Foundation {
         inline constexpr u64 f64_magnitude_mask = 0x7fffffffffffffffULL;
         inline constexpr u64 f64_exponent_bias_bits = 0x3ff0000000000000ULL;
 
+        /// Performs the f64 bits operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr u64 f64_bits(f64 x) noexcept { return bit_cast<u64>(x); }
+        /// Performs the f64 from bits operation using the supplied arguments.
+        ///
+        /// @param bits `bits` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 f64_from_bits(u64 bits) noexcept { return bit_cast<f64>(bits); }
+        /// Returns the current or globally available quiet nan f64 value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 quiet_nan_f64() noexcept { return f64_from_bits(0x7ff8000000000000ULL); }
+        /// Returns the current or globally available infinity f64 value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 infinity_f64() noexcept { return f64_from_bits(f64_exponent_mask); }
+        /// Performs the abs f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 abs_f64(f64 x) noexcept { return f64_from_bits(f64_bits(x) & f64_magnitude_mask); }
+        /// Performs the f64 isnan operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr bool f64_isnan(f64 x) noexcept { return (f64_bits(x) & f64_magnitude_mask) > f64_exponent_mask; }
+        /// Performs the f64 isinf operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr bool f64_isinf(f64 x) noexcept { return (f64_bits(x) & f64_magnitude_mask) == f64_exponent_mask; }
+        /// Performs the f64 isfinite operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr bool f64_isfinite(f64 x) noexcept { return (f64_bits(x) & f64_exponent_mask) != f64_exponent_mask; }
+        /// Performs the f64 signbit operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr bool f64_signbit(f64 x) noexcept { return (f64_bits(x) & f64_sign_mask) != 0; }
 
         struct F64Parts {
@@ -60,6 +105,12 @@ namespace SFT::Foundation {
             int exponent;
         };
 
+        /// Performs the decompose positive f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr F64Parts decompose_positive_f64(f64 x) noexcept {
             u64 bits = f64_bits(x);
             int raw_exponent = static_cast<int>((bits & f64_exponent_mask) >> 52);
@@ -73,6 +124,13 @@ namespace SFT::Foundation {
             return {f64_from_bits((bits & f64_fraction_mask) | f64_exponent_bias_bits), raw_exponent - 1023 + exponent_adjust};
         }
 
+        /// Performs the ldexp f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        /// @param exp `exp` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 ldexp_f64(f64 x, int exp) noexcept {
             if (!is_constant_evaluated())
                 return ::ldexp(x, exp);
@@ -111,6 +169,12 @@ namespace SFT::Foundation {
             return x;
         }
 
+        /// Performs the trunc f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 trunc_f64(f64 x) noexcept {
             if (!f64_isfinite(x) || x == 0.0 || abs_f64(x) >= 0x1p52)
                 return x;
@@ -120,6 +184,12 @@ namespace SFT::Foundation {
             return static_cast<f64>(integral);
         }
 
+        /// Performs the floor f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 floor_f64(f64 x) noexcept {
             if (!f64_isfinite(x) || x == 0.0 || abs_f64(x) >= 0x1p52)
                 return x;
@@ -127,6 +197,12 @@ namespace SFT::Foundation {
             return truncated > x ? truncated - 1.0 : truncated;
         }
 
+        /// Performs the ceil f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 ceil_f64(f64 x) noexcept {
             if (!f64_isfinite(x) || x == 0.0 || abs_f64(x) >= 0x1p52)
                 return x;
@@ -134,12 +210,24 @@ namespace SFT::Foundation {
             return truncated < x ? truncated + 1.0 : truncated;
         }
 
+        /// Rounds f64 using the supplied arguments and current state.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 round_f64(f64 x) noexcept {
             if (!f64_isfinite(x) || x == 0.0 || abs_f64(x) >= 0x1p52)
                 return x;
             return x < 0.0 ? ceil_f64(x - 0.5) : floor_f64(x + 0.5);
         }
 
+        /// Computes the sqrt f64 math operation over the supplied values or element range.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 sqrt_f64(f64 x) noexcept {
             if (!is_constant_evaluated())
                 return ::sqrt(x);
@@ -156,6 +244,12 @@ namespace SFT::Foundation {
             return y;
         }
 
+        /// Performs the cbrt f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 cbrt_f64(f64 x) noexcept {
             if (!is_constant_evaluated())
                 return ::cbrt(x);
@@ -177,6 +271,12 @@ namespace SFT::Foundation {
             return negative ? -y : y;
         }
 
+        /// Logs f64 using the supplied arguments and current state.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 log_f64(f64 x) noexcept {
             if (!is_constant_evaluated())
                 return ::log(x);
@@ -204,6 +304,12 @@ namespace SFT::Foundation {
             return 2.0 * sum + static_cast<f64>(parts.exponent) * 0x1.62e42fefa39efp-1;
         }
 
+        /// Performs the atan series f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 atan_series_f64(f64 x) noexcept {
             const f64 x2 = x * x;
             f64 term = x;
@@ -216,6 +322,12 @@ namespace SFT::Foundation {
             return sum;
         }
 
+        /// Performs the atan f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 atan_f64(f64 x) noexcept {
             if (!is_constant_evaluated())
                 return ::atan(x);
@@ -238,6 +350,12 @@ namespace SFT::Foundation {
             return negative ? -result : result;
         }
 
+        /// Performs the asin f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 asin_f64(f64 x) noexcept {
             if (!is_constant_evaluated())
                 return ::asin(x);
@@ -252,6 +370,13 @@ namespace SFT::Foundation {
             return atan_f64(x / sqrt_f64((1.0 - x) * (1.0 + x)));
         }
 
+        /// Performs the remainder f64 operation using the supplied arguments.
+        ///
+        /// @param x `x` value used by the operation.
+        /// @param y `y` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr f64 remainder_f64(f64 x, f64 y) noexcept {
             if (!is_constant_evaluated())
                 return ::remainder(x, y);
@@ -262,16 +387,28 @@ namespace SFT::Foundation {
             return x - round_f64(x / y) * y;
         }
 
+        /// Returns the current or globally available quiet nan value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <WideFloat T>
         [[nodiscard]] constexpr T quiet_nan() noexcept {
             return T(quiet_nan_f64());
         }
 
+        /// Computes or queries `infinity` using the numeric semantics of `Detail`.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <WideFloat T>
         [[nodiscard]] constexpr T infinity() noexcept {
             return T(infinity_f64());
         }
 
+        /// Returns the current or globally available negative infinity value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <WideFloat T>
         [[nodiscard]] constexpr T negative_infinity() noexcept {
             return -infinity<T>();
@@ -279,53 +416,140 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    /// --- classification -----------------------------------------------------------------------
-    /// Mirrors the familiar floating-point classification API while making integers trivially finite and
-    /// non-NaN/non-infinite. Wide floats inspect their `f64` limbs, so a NaN or infinity anywhere in the
-    /// expansion is reported consistently to generic callers.
+
+    /// Computes or queries `isnan` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     template <integral T>
     [[nodiscard]] constexpr bool isnan(T) noexcept {
         return false;
     }
+    /// Computes or queries `isnan` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline bool isnan(T x) noexcept {
         return std::isnan(x);
     }
+    /// Computes or queries `isnan` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isnan(u256) noexcept { return false; }
+    /// Computes or queries `isnan` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isnan(i256) noexcept { return false; }
+    /// Computes or queries `isnan` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isnan(f128 x) noexcept { return Detail::f64_isnan(x.hi) || Detail::f64_isnan(x.lo); }
+    /// Computes or queries `isnan` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isnan(const f256 &x) noexcept {
         return Detail::f64_isnan(x.x[0]) || Detail::f64_isnan(x.x[1]) || Detail::f64_isnan(x.x[2]) || Detail::f64_isnan(x.x[3]);
     }
 
+    /// Computes or queries `isinf` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     template <integral T>
     [[nodiscard]] constexpr bool isinf(T) noexcept {
         return false;
     }
+    /// Computes or queries `isinf` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline bool isinf(T x) noexcept {
         return std::isinf(x);
     }
+    /// Computes or queries `isinf` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isinf(u256) noexcept { return false; }
+    /// Computes or queries `isinf` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isinf(i256) noexcept { return false; }
+    /// Computes or queries `isinf` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isinf(f128 x) noexcept { return Detail::f64_isinf(x.hi); }
+    /// Computes or queries `isinf` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isinf(const f256 &x) noexcept { return Detail::f64_isinf(x.x[0]); }
 
+    /// Computes or queries `isfinite` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     template <integral T>
     [[nodiscard]] constexpr bool isfinite(T) noexcept {
         return true;
     }
+    /// Computes or queries `isfinite` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline bool isfinite(T x) noexcept {
         return std::isfinite(x);
     }
+    /// Computes or queries `isfinite` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isfinite(u256) noexcept { return true; }
+    /// Computes or queries `isfinite` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isfinite(i256) noexcept { return true; }
+    /// Computes or queries `isfinite` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isfinite(f128 x) noexcept { return Detail::f64_isfinite(x.hi) && Detail::f64_isfinite(x.lo); }
+    /// Computes or queries `isfinite` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool isfinite(const f256 &x) noexcept {
         return Detail::f64_isfinite(x.x[0]) && Detail::f64_isfinite(x.x[1]) && Detail::f64_isfinite(x.x[2]) && Detail::f64_isfinite(x.x[3]);
     }
 
+    /// Computes or queries `signbit` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     template <integral T>
     [[nodiscard]] constexpr bool signbit(T x) noexcept {
         if constexpr (is_unsigned_v<T>)
@@ -333,38 +557,84 @@ namespace SFT::Foundation {
         else
             return x < 0;
     }
+    /// Computes or queries `signbit` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline bool signbit(T x) noexcept {
         return std::signbit(x);
     }
+    /// Computes or queries `signbit` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool signbit(u256) noexcept { return false; }
+    /// Computes or queries `signbit` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool signbit(i256 x) noexcept { return x.is_negative(); }
+    /// Computes or queries `signbit` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool signbit(f128 x) noexcept { return Detail::f64_signbit(x.hi) || (x.hi == 0.0 && Detail::f64_signbit(x.lo)); }
+    /// Computes or queries `signbit` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool signbit(const f256 &x) noexcept {
         return Detail::f64_signbit(x.x[0]) ||
                (x.x[0] == 0.0 && (Detail::f64_signbit(x.x[1]) || Detail::f64_signbit(x.x[2]) || Detail::f64_signbit(x.x[3])));
     }
 
+    /// Reports whether nan holds.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     template <class T>
     [[nodiscard]] constexpr bool is_nan(T x) noexcept {
         return isnan(x);
     }
+    /// Reports whether inf holds.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     template <class T>
     [[nodiscard]] constexpr bool is_inf(T x) noexcept {
         return isinf(x);
     }
+    /// Reports whether finite holds.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     template <class T>
     [[nodiscard]] constexpr bool is_finite(T x) noexcept {
         return isfinite(x);
     }
 
-    /// --- abs / sign / copy sign ---------------------------------------------------------------
-    /// Sign helpers are overloaded for built-in integers/floats and all wide types. `sign()` returns -1,
-    /// 0, or 1 in the input type where that makes sense; unsigned inputs can only return 0 or 1.
+
+    /// Computes or queries `abs` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T abs(T x) noexcept {
         return ::fabs(x);
     }
+    /// Computes or queries `abs` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <integral T>
     [[nodiscard]] constexpr T abs(T x) noexcept {
         if constexpr (is_unsigned_v<T>) {
@@ -373,13 +643,53 @@ namespace SFT::Foundation {
             return x < 0 ? -x : x;
         }
     }
+    /// Computes or queries `abs` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr u128 abs(u128 x) noexcept { return x; }
+    /// Computes or queries `abs` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr i128 abs(i128 x) noexcept { return x < 0 ? -x : x; }
+    /// Computes or queries `abs` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr u256 abs(u256 x) noexcept { return x; }
+    /// Computes or queries `abs` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr i256 abs(i256 x) noexcept { return x.is_negative() ? -x : x; }
+    /// Computes or queries `abs` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 abs(f128 x) noexcept { return x.hi < 0.0 ? -x : x; }
+    /// Computes or queries `abs` using the numeric semantics of `Foundation`.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 abs(f256 x) noexcept { return x.x[0] < 0.0 ? -x : x; }
 
+    /// Returns the current or globally available sign value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <class T>
     [[nodiscard]] constexpr T sign(const T &x) noexcept {
         if constexpr (is_unsigned_v<T>) {
@@ -389,41 +699,86 @@ namespace SFT::Foundation {
         }
     }
 
+    /// Copies the supplied data or resource to its destination.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T copysign(T magnitude, T sign_source) noexcept {
         return ::copysign(magnitude, sign_source);
     }
+    /// Copies the supplied data or resource to its destination.
+    ///
+    /// @param magnitude `magnitude` value used by the operation.
+    /// @param sign_source `sign_source` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 copysign(f128 magnitude, f128 sign_source) noexcept {
         return signbit(sign_source) ? -abs(magnitude) : abs(magnitude);
     }
+    /// Copies the supplied data or resource to its destination.
+    ///
+    /// @param magnitude `magnitude` value used by the operation.
+    /// @param sign_source `sign_source` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 copysign(f256 magnitude, const f256 &sign_source) noexcept {
         return signbit(sign_source) ? -abs(magnitude) : abs(magnitude);
     }
 
-    /// --- scaling ------------------------------------------------------------------------------
-    /// Power-of-two scaling. Built-in floats use the platform `ldexp`; wide floats scale every limb by the
-    /// same exponent to preserve the expansion structure.
+
+    /// Returns the current or globally available ldexp value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T ldexp(T x, int exp) noexcept {
         return ::ldexp(x, exp);
     }
+    /// Performs the ldexp operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    /// @param exp `exp` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 ldexp(f128 x, int exp) noexcept { return f128(Detail::ldexp_f64(x.hi, exp), Detail::ldexp_f64(x.lo, exp)); }
+    /// Performs the ldexp operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    /// @param exp `exp` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 ldexp(const f256 &x, int exp) noexcept {
         return f256(Detail::ldexp_f64(x.x[0], exp), Detail::ldexp_f64(x.x[1], exp), Detail::ldexp_f64(x.x[2], exp), Detail::ldexp_f64(x.x[3], exp));
     }
+    /// Returns the current or globally available scalbn value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <class T>
     [[nodiscard]] inline T scalbn(T x, int exp) noexcept {
         return ldexp(x, exp);
     }
 
-    /// --- sqrt / cbrt --------------------------------------------------------------------------
-    /// Roots for wide floats start from an `f64` seed and refine with Newton-style iterations until the
-    /// target expansion precision is reached. Domain behavior follows the standard math functions: negative
-    /// square roots produce NaN and infinities propagate.
+
+    /// Computes or queries `sqrt` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T sqrt(T x) noexcept {
         return ::sqrt(x);
     }
+    /// Computes or queries `sqrt` using the numeric semantics of `Foundation`.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 sqrt(f128 a) noexcept {
         if (isnan(a))
             return a;
@@ -441,6 +796,12 @@ namespace SFT::Foundation {
         const Detail::TwoF64 s = Detail::two_sum(ax, diff.hi * (x * 0.5));
         return f128(s.hi, s.lo);
     }
+    /// Computes or queries `sqrt` using the numeric semantics of `Foundation`.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 sqrt(const f256 &a) noexcept {
         if (isnan(a))
             return a;
@@ -461,10 +822,20 @@ namespace SFT::Foundation {
         return a * y;
     }
 
+    /// Returns the current or globally available cbrt value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T cbrt(T x) noexcept {
         return ::cbrt(x);
     }
+    /// Performs the cbrt operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 cbrt(f128 a) noexcept {
         if (a == f128(0.0) || !isfinite(a))
             return a;
@@ -473,6 +844,12 @@ namespace SFT::Foundation {
             y = (f128(2.0) * y + a / (y * y)) / f128(3.0);
         return y;
     }
+    /// Performs the cbrt operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 cbrt(const f256 &a) noexcept {
         if (a == f256(0.0) || !isfinite(a))
             return a;
@@ -482,36 +859,74 @@ namespace SFT::Foundation {
         return y;
     }
 
-    /// --- fma (full-precision a*b + c) ---------------------------------------------------------
-    /// Wide `fma` is implemented as `a * b + c` using the wide arithmetic path. That gives expanded
-    /// precision for the operation, but it is not a hardware fused instruction with single final rounding.
+
+    /// Computes or queries `fma` using the numeric semantics of `Foundation`.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T fma(T a, T b, T c) noexcept {
         return ::fma(a, b, c);
     }
+    /// Computes or queries `fma` using the numeric semantics of `Foundation`.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param c `c` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 fma(f128 a, f128 b, f128 c) noexcept { return a * b + c; }
+    /// Computes or queries `fma` using the numeric semantics of `Foundation`.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param c `c` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 fma(const f256 &a, const f256 &b, const f256 &c) noexcept { return a * b + c; }
 
-    /// --- floor / ceil / trunc / round ---------------------------------------------------------
-    /// Rounding helpers follow the standard function semantics. Wide `floor()` descends through lower limbs
-    /// only while higher limbs are already integer-exact, then renormalizes the expansion.
+
+    /// Returns the current or globally available floor value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T floor(T x) noexcept {
         return ::floor(x);
     }
+    /// Returns the current or globally available ceil value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T ceil(T x) noexcept {
         return ::ceil(x);
     }
+    /// Returns the current or globally available trunc value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T trunc(T x) noexcept {
         return ::trunc(x);
     }
+    /// Rounds the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T round(T x) noexcept {
         return ::round(x);
     }
 
+    /// Performs the floor operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 floor(f128 a) noexcept {
         const f64 hi = Detail::floor_f64(a.hi);
         if (hi != a.hi)
@@ -519,6 +934,12 @@ namespace SFT::Foundation {
         const Detail::TwoF64 s = Detail::quick_two_sum(hi, Detail::floor_f64(a.lo));
         return f128(s.hi, s.lo);
     }
+    /// Performs the floor operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 floor(const f256 &a) noexcept {
         f64 x0 = Detail::floor_f64(a.x[0]);
         f64 x1 = 0.0, x2 = 0.0, x3 = 0.0;
@@ -534,16 +955,56 @@ namespace SFT::Foundation {
         return f256(x0, x1, x2, x3);
     }
 
+    /// Performs the ceil operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 ceil(f128 a) noexcept { return -floor(-a); }
+    /// Performs the ceil operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 ceil(const f256 &a) noexcept { return -floor(-a); }
+    /// Performs the trunc operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 trunc(f128 a) noexcept { return a.hi < 0.0 ? ceil(a) : floor(a); }
+    /// Performs the trunc operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 trunc(const f256 &a) noexcept { return a.x[0] < 0.0 ? ceil(a) : floor(a); }
-    /// round half away from zero, matching ::round.
+
+    /// Rounds the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 round(f128 a) noexcept { return a.hi < 0.0 ? ceil(a - f128(0.5)) : floor(a + f128(0.5)); }
+    /// Rounds the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 round(const f256 &a) noexcept { return a.x[0] < 0.0 ? ceil(a - f256(0.5)) : floor(a + f256(0.5)); }
 
     namespace Detail {
 
+        /// Returns the current or globally available sin kernel value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <WideFloat T>
         [[nodiscard]] constexpr T sin_kernel(T x) noexcept {
             const T x2 = x * x;
@@ -560,6 +1021,10 @@ namespace SFT::Foundation {
             return sum;
         }
 
+        /// Returns the current or globally available cos kernel value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <WideFloat T>
         [[nodiscard]] constexpr T cos_kernel(T x) noexcept {
             const T x2 = x * x;
@@ -576,11 +1041,19 @@ namespace SFT::Foundation {
             return sum;
         }
 
+        /// Returns the current or globally available natural log two value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <WideFloat T>
         [[nodiscard]] constexpr T natural_log_two() noexcept {
             return constant<T>(0x1.62e42fefa39efp-1, 0x1.abc9e3b39803fp-56, 0x1.7b57a079a1934p-111, -0x1.ace93a4ebe5d1p-165);
         }
 
+        /// Returns the current or globally available exp kernel value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <WideFloat T>
         [[nodiscard]] constexpr T exp_kernel(T x) noexcept {
             T term(1.0);
@@ -595,6 +1068,10 @@ namespace SFT::Foundation {
             return sum;
         }
 
+        /// Returns the current or globally available reduce half pi value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <WideFloat T>
         [[nodiscard]] constexpr T reduce_half_pi(T x, int &quadrant) noexcept {
             const T kf = round(x * two_over_pi<T>());
@@ -613,6 +1090,10 @@ namespace SFT::Foundation {
             return x - T(static_cast<f64>(k)) * half_pi<T>();
         }
 
+        /// Returns the current or globally available powi value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <WideFloat T>
         [[nodiscard]] constexpr T powi(T base, i64 exponent) noexcept {
             if (exponent == 0)
@@ -629,6 +1110,10 @@ namespace SFT::Foundation {
             return invert ? T(1.0) / result : result;
         }
 
+        /// Returns the current or globally available integral exponent value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         template <WideFloat T>
         [[nodiscard]] constexpr bool integral_exponent(T x, i64 &out) noexcept {
             const T rounded = trunc(x);
@@ -644,22 +1129,38 @@ namespace SFT::Foundation {
 
     } // namespace Detail
 
-    /// --- trigonometry -------------------------------------------------------------------------
-    /// Wide sine/cosine reduce by multiples of π/2 using the high-precision constants, then evaluate a
-    /// Taylor kernel in the reduced range. Non-finite inputs return NaN.
+
+    /// Returns the current or globally available sin value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T sin(T x) noexcept {
         return ::sin(x);
     }
+    /// Returns the current or globally available cos value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T cos(T x) noexcept {
         return ::cos(x);
     }
+    /// Returns the current or globally available tan value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T tan(T x) noexcept {
         return ::tan(x);
     }
 
+    /// Performs the sin operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 sin(f128 x) noexcept {
         if (!isfinite(x))
             return Detail::quiet_nan<f128>();
@@ -676,6 +1177,12 @@ namespace SFT::Foundation {
                 return -Detail::cos_kernel(r);
         }
     }
+    /// Performs the cos operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 cos(f128 x) noexcept {
         if (!isfinite(x))
             return Detail::quiet_nan<f128>();
@@ -692,8 +1199,20 @@ namespace SFT::Foundation {
                 return Detail::sin_kernel(r);
         }
     }
+    /// Performs the tan operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 tan(f128 x) noexcept { return sin(x) / cos(x); }
 
+    /// Performs the sin operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 sin(const f256 &x) noexcept {
         if (!isfinite(x))
             return Detail::quiet_nan<f256>();
@@ -710,6 +1229,12 @@ namespace SFT::Foundation {
                 return -Detail::cos_kernel(r);
         }
     }
+    /// Performs the cos operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 cos(const f256 &x) noexcept {
         if (!isfinite(x))
             return Detail::quiet_nan<f256>();
@@ -726,16 +1251,35 @@ namespace SFT::Foundation {
                 return Detail::sin_kernel(r);
         }
     }
+    /// Performs the tan operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 tan(const f256 &x) noexcept { return sin(x) / cos(x); }
 
-    /// --- exponentials and logarithms ----------------------------------------------------------
-    /// Wide `exp()` reduces by powers of two and evaluates a series near zero; wide `log()` starts from an
-    /// `f64` approximation and refines with a symmetric Newton correction. `pow()` uses fast integer-power
-    /// exponentiation when the exponent is exactly representable as an `i64`.
+
+    /// Returns the current or globally available exp value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T exp(T x) noexcept {
         return ::exp(x);
     }
+    /// Performs the exp operation for `Foundation` using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
+    /// Performs the exp operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 exp(f128 x) noexcept {
         if (isnan(x))
             return x;
@@ -752,6 +1296,18 @@ namespace SFT::Foundation {
         const f128 r = x - f128(static_cast<f64>(k)) * Detail::natural_log_two<f128>();
         return ldexp(Detail::exp_kernel(r), k);
     }
+    /// Performs the exp operation for `Foundation` using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
+    /// Performs the exp operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 exp(const f256 &x) noexcept {
         if (isnan(x))
             return x;
@@ -769,10 +1325,20 @@ namespace SFT::Foundation {
         return ldexp(Detail::exp_kernel(r), k);
     }
 
+    /// Logs the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T log(T x) noexcept {
         return ::log(x);
     }
+    /// Logs the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 log(f128 x) noexcept {
         if (isnan(x))
             return x;
@@ -790,6 +1356,12 @@ namespace SFT::Foundation {
         }
         return y;
     }
+    /// Logs the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 log(const f256 &x) noexcept {
         if (isnan(x))
             return x;
@@ -808,24 +1380,67 @@ namespace SFT::Foundation {
         return y;
     }
 
+    /// Returns the current or globally available log2 value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T log2(T x) noexcept {
         return ::log2(x);
     }
+    /// Performs the log2 operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 log2(f128 x) noexcept { return log(x) * log2_e<f128>(); }
+    /// Performs the log2 operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 log2(const f256 &x) noexcept { return log(x) * log2_e<f256>(); }
 
+    /// Returns the current or globally available log10 value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T log10(T x) noexcept {
         return ::log10(x);
     }
+    /// Performs the log10 operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 log10(f128 x) noexcept { return log(x) * log10_e<f128>(); }
+    /// Performs the log10 operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 log10(const f256 &x) noexcept { return log(x) * log10_e<f256>(); }
 
+    /// Returns the current or globally available pow value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T pow(T base, T exponent) noexcept {
         return ::pow(base, exponent);
     }
+    /// Performs the pow operation using the supplied arguments.
+    ///
+    /// @param base `base` value used by the operation.
+    /// @param exponent `exponent` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 pow(f128 base, f128 exponent) noexcept {
         i64 integral = 0;
         if (Detail::integral_exponent(exponent, integral))
@@ -834,6 +1449,13 @@ namespace SFT::Foundation {
             return Detail::quiet_nan<f128>();
         return exp(exponent * log(base));
     }
+    /// Performs the pow operation using the supplied arguments.
+    ///
+    /// @param base `base` value used by the operation.
+    /// @param exponent `exponent` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 pow(const f256 &base, const f256 &exponent) noexcept {
         i64 integral = 0;
         if (Detail::integral_exponent(exponent, integral))
@@ -843,26 +1465,46 @@ namespace SFT::Foundation {
         return exp(exponent * log(base));
     }
 
-    /// --- inverse trigonometry -----------------------------------------------------------------
-    /// Inverse trig functions use an `f64` seed followed by Newton refinement in wide precision. Domain
-    /// errors produce NaN instead of throwing.
+
+    /// Returns the current or globally available asin value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T asin(T x) noexcept {
         return ::asin(x);
     }
+    /// Returns the current or globally available acos value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T acos(T x) noexcept {
         return ::acos(x);
     }
+    /// Returns the current or globally available atan value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T atan(T x) noexcept {
         return ::atan(x);
     }
+    /// Returns the current or globally available atan2 value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T atan2(T y, T x) noexcept {
         return ::atan2(y, x);
     }
 
+    /// Performs the asin operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 asin(f128 x) noexcept {
         if (x == f128(1.0))
             return half_pi<f128>();
@@ -875,6 +1517,12 @@ namespace SFT::Foundation {
             y = y - (sin(y) - x) / cos(y);
         return y;
     }
+    /// Performs the asin operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 asin(const f256 &x) noexcept {
         if (x == f256(1.0))
             return half_pi<f256>();
@@ -888,9 +1536,27 @@ namespace SFT::Foundation {
         return y;
     }
 
+    /// Performs the acos operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 acos(f128 x) noexcept { return half_pi<f128>() - asin(x); }
+    /// Performs the acos operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 acos(const f256 &x) noexcept { return half_pi<f256>() - asin(x); }
 
+    /// Performs the atan operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 atan(f128 x) noexcept {
         if (isnan(x))
             return x;
@@ -903,6 +1569,12 @@ namespace SFT::Foundation {
         }
         return y;
     }
+    /// Performs the atan operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 atan(const f256 &x) noexcept {
         if (isnan(x))
             return x;
@@ -916,6 +1588,13 @@ namespace SFT::Foundation {
         return y;
     }
 
+    /// Performs the atan2 operation using the supplied arguments.
+    ///
+    /// @param y `y` value used by the operation.
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 atan2(f128 y, f128 x) noexcept {
         if (isnan(y) || isnan(x))
             return Detail::quiet_nan<f128>();
@@ -929,6 +1608,13 @@ namespace SFT::Foundation {
             return -half_pi<f128>();
         return f128(0.0);
     }
+    /// Performs the atan2 operation using the supplied arguments.
+    ///
+    /// @param y `y` value used by the operation.
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 atan2(const f256 &y, const f256 &x) noexcept {
         if (isnan(y) || isnan(x))
             return Detail::quiet_nan<f256>();
@@ -943,126 +1629,273 @@ namespace SFT::Foundation {
         return f256(0.0);
     }
 
-    /// --- hyperbolic ---------------------------------------------------------------------------
-    /// Hyperbolic wide overloads are expressed in terms of the wide exponential functions.
+
+    /// Returns the current or globally available sinh value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T sinh(T x) noexcept {
         return ::sinh(x);
     }
+    /// Returns the current or globally available cosh value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T cosh(T x) noexcept {
         return ::cosh(x);
     }
+    /// Returns the current or globally available tanh value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T tanh(T x) noexcept {
         return ::tanh(x);
     }
+    /// Performs the sinh operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 sinh(f128 x) noexcept {
         const f128 ex = exp(x);
         const f128 enx = exp(-x);
         return (ex - enx) * f128(0.5);
     }
+    /// Performs the cosh operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 cosh(f128 x) noexcept {
         const f128 ex = exp(x);
         const f128 enx = exp(-x);
         return (ex + enx) * f128(0.5);
     }
+    /// Performs the tanh operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 tanh(f128 x) noexcept {
         const f128 ex2 = exp(f128(2.0) * x);
         return (ex2 - f128(1.0)) / (ex2 + f128(1.0));
     }
+    /// Performs the sinh operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 sinh(const f256 &x) noexcept {
         const f256 ex = exp(x);
         const f256 enx = exp(-x);
         return (ex - enx) * f256(0.5);
     }
+    /// Performs the cosh operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 cosh(const f256 &x) noexcept {
         const f256 ex = exp(x);
         const f256 enx = exp(-x);
         return (ex + enx) * f256(0.5);
     }
+    /// Performs the tanh operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 tanh(const f256 &x) noexcept {
         const f256 ex2 = exp(f256(2.0) * x);
         return (ex2 - f256(1.0)) / (ex2 + f256(1.0));
     }
 
-    /// --- common numeric helpers ---------------------------------------------------------------
-    /// Miscellaneous helpers shared by math-heavy engine code. These keep shader-style utilities such as
-    /// `fract()` and `saturate()` available on the same overload set as the standard math wrappers.
+
+    /// Returns the current or globally available fmod value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T fmod(T x, T y) noexcept {
         return ::fmod(x, y);
     }
+    /// Performs the fmod operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 fmod(f128 x, f128 y) noexcept {
         if (y == f128(0.0))
             return Detail::quiet_nan<f128>();
         return x - trunc(x / y) * y;
     }
+    /// Performs the fmod operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 fmod(const f256 &x, const f256 &y) noexcept {
         if (y == f256(0.0))
             return Detail::quiet_nan<f256>();
         return x - trunc(x / y) * y;
     }
 
+    /// Returns the current or globally available remainder value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T remainder(T x, T y) noexcept {
         return ::remainder(x, y);
     }
+    /// Performs the remainder operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 remainder(f128 x, f128 y) noexcept {
         if (y == f128(0.0))
             return Detail::quiet_nan<f128>();
         return x - round(x / y) * y;
     }
+    /// Performs the remainder operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 remainder(const f256 &x, const f256 &y) noexcept {
         if (y == f256(0.0))
             return Detail::quiet_nan<f256>();
         return x - round(x / y) * y;
     }
 
+    /// Returns the current or globally available hypot value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T hypot(T x, T y) noexcept {
         return ::hypot(x, y);
     }
+    /// Performs the hypot operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 hypot(f128 x, f128 y) noexcept { return sqrt(x * x + y * y); }
+    /// Performs the hypot operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 hypot(const f256 &x, const f256 &y) noexcept { return sqrt(x * x + y * y); }
 
+    /// Returns the current or globally available lerp value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T lerp(T a, T b, T t) noexcept {
         return ::lerp(a, b, t);
     }
+    /// Performs the lerp operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 lerp(f128 a, f128 b, f128 t) noexcept { return a + (b - a) * t; }
+    /// Performs the lerp operation using the supplied arguments.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 lerp(const f256 &a, const f256 &b, const f256 &t) noexcept { return a + (b - a) * t; }
 
+    /// Returns the current or globally available fract value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T fract(T x) noexcept {
         return x - floor(x);
     }
+    /// Performs the fract operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 fract(f128 x) noexcept { return x - floor(x); }
+    /// Performs the fract operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 fract(const f256 &x) noexcept { return x - floor(x); }
 
+    /// Returns the current or globally available saturate value.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     template <floating_point T>
     [[nodiscard]] inline T saturate(T x) noexcept {
         return x < T(0) ? T(0) : (x > T(1) ? T(1) : x);
     }
+    /// Performs the saturate operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f128 saturate(f128 x) noexcept { return x < f128(0.0) ? f128(0.0) : (x > f128(1.0) ? f128(1.0) : x); }
+    /// Performs the saturate operation using the supplied arguments.
+    ///
+    /// @param x `x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr f256 saturate(const f256 &x) noexcept { return x < f256(0.0) ? f256(0.0) : (x > f256(1.0) ? f256(1.0) : x); }
 
-    /// --- bulk array helpers --------------------------------------------------------------------
-    /// Elementwise array operations for callers processing many wide-precision values at once (e.g. an
-    /// array of f128 accumulators). These loop the same per-element `operator+`/`operator*` already
-    /// defined and verified above, rather than hand-rolled SIMD: correctly vectorizing double-double/
-    /// quad-double error-compensated arithmetic across SIMD lanes is real, well-trodden numerical work
-    /// (see the QD library's two-sum/two-prod-based algorithms), but re-deriving and verifying it here
-    /// without an extensive numerical regression suite would risk silently wrong low-order bits — exactly
-    /// the class of bug these wide types exist to avoid. If this loop becomes a measured hot path, that
-    /// is the place to invest in a verified SIMD-lane two-sum implementation, not here; see
-    /// `Cpu::SimdMath` (Foundation/src/Cpu/SimdMath.hpp) for what that already looks like for plain
-    /// `f32`/`f64`, where no such per-element error-compensation exists to get wrong.
+
+    /// Performs the array add operation using the supplied arguments.
+    ///
+    /// @note This function does not throw exceptions.
     template <Detail::WideNumber T>
     void array_add(T *dst, const T *a, const T *b, usize n) noexcept {
         for (usize i = 0; i < n; ++i)
             dst[i] = a[i] + b[i];
     }
+    /// Performs the array mul operation using the supplied arguments.
+    ///
+    /// @note This function does not throw exceptions.
     template <Detail::WideNumber T>
     void array_mul(T *dst, const T *a, const T *b, usize n) noexcept {
         for (usize i = 0; i < n; ++i)
@@ -1071,6 +1904,10 @@ namespace SFT::Foundation {
 
     namespace Detail {
 
+        /// Returns the current or globally available wide math constexpr smoke test value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] consteval bool wide_math_constexpr_smoke_test() noexcept {
             constexpr f128 root128 = SFT::Foundation::sqrt(f128(4.0));
             if (static_cast<f64>(root128) != 2.0)

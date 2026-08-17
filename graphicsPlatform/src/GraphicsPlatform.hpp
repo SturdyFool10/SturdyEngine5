@@ -94,8 +94,7 @@ namespace SFT::GraphicsPlatform {
         std::vector<HdrPresentationMode> supported_modes{};
         std::optional<HdrDisplayMetadata> display_metadata{};
 
-        /// EDR-style platforms expose headroom rather than HDR10 static metadata. Keep this in the
-        /// shared shape so Metal/macOS can report useful data without forcing it into HDR10 fields.
+
         float sdr_white_nits = 80.0f;
         float edr_headroom = 1.0f;
         float max_edr_headroom = 1.0f;
@@ -121,6 +120,10 @@ namespace SFT::GraphicsPlatform {
         QueryStatus status = QueryStatus::Ok;
         std::string message{};
 
+        /// Converts the `QueryMessage` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] explicit operator bool() const noexcept;
     };
 
@@ -129,11 +132,30 @@ namespace SFT::GraphicsPlatform {
         T value{};
         QueryMessage message{};
 
+        /// Converts the `QueryResult` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(message); }
     };
 
+    /// Queries displays from the active backend or runtime state.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `QueryStatus::NotAvailable`.
     [[nodiscard]] QueryResult<std::vector<DisplayInfo>> query_displays();
+    /// Queries HDR display capabilities from the active backend or runtime state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     [[nodiscard]] QueryResult<HdrDisplayCapabilities> query_hdr_display_capabilities(const NativeSurfaceHandle &surface);
+    /// Compiles the supplied source or pipeline state.
+    ///
+    /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] std::span<const char *const> compiled_backend_notes() noexcept;
 
 } // namespace SFT::GraphicsPlatform

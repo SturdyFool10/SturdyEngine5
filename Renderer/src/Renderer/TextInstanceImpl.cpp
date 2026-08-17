@@ -39,6 +39,12 @@ using std::vector;
 
 namespace SFT::Renderer {
 
+    /// Destroys the text frame resources identified by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void destroy_text_frame_resources(RHI::RhiDevice &device, TextFrameResources &resources) noexcept {
         for (TextFrameResources::BindingCacheEntry &entry : resources.binding_cache) {
             for (const TextDrawBatch::BoundGroup &group : entry.bind_groups) {
@@ -56,6 +62,13 @@ namespace SFT::Renderer {
     namespace {
         namespace slang = Core::Slang;
 
+        /// Binds group layout index for set for subsequent operations.
+        ///
+        /// @param sets `sets` value used by the operation.
+        /// @param set `set` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize bind_group_layout_index_for_set(span<const u32> sets, u32 set) noexcept {
             for (usize i = 0; i < sets.size(); ++i) {
                 if (sets[i] == set) {
@@ -65,10 +78,24 @@ namespace SFT::Renderer {
             return sets.size();
         }
 
+        /// Performs the same rect operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param lhs Left-hand operand.
+        /// @param rhs Right-hand operand.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool same_rect(const RHI::Rect2D &lhs, const RHI::Rect2D &rhs) noexcept {
             return lhs.x == rhs.x && lhs.y == rhs.y && lhs.width == rhs.width && lhs.height == rhs.height;
         }
 
+        /// Performs the same glyph instance operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param lhs Left-hand operand.
+        /// @param rhs Right-hand operand.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool same_glyph_instance(const GlyphInstance &lhs, const GlyphInstance &rhs) noexcept {
             return lhs.position.x == rhs.position.x && lhs.position.y == rhs.position.y &&
                    lhs.size.x == rhs.size.x && lhs.size.y == rhs.size.y &&
@@ -86,13 +113,21 @@ namespace SFT::Renderer {
             glm::vec2 viewport_size{0.0f};
 
 
-
             u32 instance_index_base = 0;
             u32 padding = 0;
         };
 
     } // namespace
 
+    /// Creates a `Renderer` resource or value from the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param enable_shader_disk_cache Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<TextPipeline> TextPipeline::create(
         RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
         ZoneScopedN("TextPipeline::create");
@@ -198,9 +233,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
         const vector<RHI::PushConstantRange> push_constant_ranges = generate_push_constant_ranges(reflection, RHI::ShaderStage::Vertex);
         if (push_constant_ranges.empty()) {
             pipeline.destroy(device);
@@ -266,6 +298,20 @@ namespace SFT::Renderer {
         return pipeline;
     }
 
+    /// Prepares the required state or resources for a later operation.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param atlas `atlas` value used by the operation.
+    /// @param instances Instance used or affected by the operation.
+    /// @param slots `slots` value used by the operation.
+    /// @param instance_scissors Instance used or affected by the operation.
+    /// @param instance_paint_groups Instance used or affected by the operation.
+    /// @param resources `resources` value used by the operation.
+    /// @param out_batches `out_batches` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult TextPipeline::prepare(RHI::RhiDevice &device, const TextAtlas &atlas,
                                                span<const GlyphInstance> instances, span<const GlyphSlot> slots,
                                                span<const RHI::Rect2D> instance_scissors,
@@ -282,8 +328,6 @@ namespace SFT::Renderer {
         if (instances.empty()) {
             return {};
         }
-
-
 
 
         usize i = 0;
@@ -423,6 +467,15 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Draws the requested content using the current rendering state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param batches `batches` value used by the operation.
+    /// @param viewport_size Requested or available size for the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult TextPipeline::draw(RHI::RenderPassEncoder &pass,
                                             span<const TextDrawBatch> batches, glm::vec2 viewport_size) {
         ZoneScopedN("TextPipeline::draw");
@@ -467,6 +520,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys or releases the `Renderer` resource represented by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextPipeline::destroy(RHI::RhiDevice &device) noexcept {
         ZoneScopedN("TextPipeline::destroy");
         if (pipeline_) {

@@ -2,6 +2,12 @@
 
 namespace SFT::Foundation::Cpu {
 
+    /// Returns a human-readable name for the supplied extension value.
+    ///
+    /// @param extension `extension` value used by the operation.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     std::string_view extension_name(Extension extension) noexcept {
         switch (extension) {
             case Extension::X86_FPU: return "FPU";

@@ -21,18 +21,12 @@ namespace SFT::Core::Slang {
     namespace {
 
 
-
-
-
-
         constexpr u32 shader_cache_format_version = 2;
         constexpr u32 shader_cache_magic = 0x53484341u;
 
 
-
         constexpr u32 shader_reflection_cache_format_version = 3;
         constexpr u32 shader_reflection_cache_magic = 0x53484352u;
-
 
 
         constexpr usize max_shader_cache_file_bytes = 128ull * 1024ull * 1024ull;
@@ -64,6 +58,12 @@ namespace SFT::Core::Slang {
 
         class ByteWriter {
           public:
+            /// Computes the write bytes required by the supplied values.
+            ///
+            /// @param data Data consumed or referenced by the operation.
+            /// @param size Requested or available size for the operation.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             void write_bytes(const void *data, usize size) {
                 if (size == 0) {
                     return;
@@ -72,17 +72,32 @@ namespace SFT::Core::Slang {
                 buffer_.insert(buffer_.end(), bytes, bytes + size);
             }
 
+            /// Writes the supplied data to the associated destination.
+            ///
+            /// @param value Value consumed by the operation.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <typename T>
                 requires std::is_trivially_copyable_v<T>
             void write(const T &value) {
                 write_bytes(&value, sizeof(T));
             }
 
+            /// Writes string to the associated destination.
+            ///
+            /// @param value Value consumed by the operation.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             void write_string(string_view value) {
                 write(static_cast<u32>(value.size()));
                 write_bytes(value.data(), value.size());
             }
 
+            /// Writes bytes vector to the associated destination.
+            ///
+            /// @param value Value consumed by the operation.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             void write_bytes_vector(const vector<byte> &value) {
                 write(static_cast<u32>(value.size()));
                 if (!value.empty()) {
@@ -90,6 +105,10 @@ namespace SFT::Core::Slang {
                 }
             }
 
+            /// Returns the current or globally available buffer value.
+            ///
+            /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] const vector<byte> &buffer() const noexcept { return buffer_; }
 
           private:
@@ -98,13 +117,36 @@ namespace SFT::Core::Slang {
 
         class ByteReader {
           public:
+            /// Constructs a `ByteReader` from the supplied initialization values.
+            ///
+            /// @param data Data consumed or referenced by the operation.
+            /// @param size Requested or available size for the operation.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             ByteReader(const byte *data, usize size) : data_(data), size_(size) {}
 
+            /// Returns the current or globally available ok value.
+            ///
+            /// @return Returns the boolean result of the operation.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] bool ok() const noexcept { return !failed_; }
+            /// Returns the current or globally available remaining value.
+            ///
+            /// @return Returns the current remaining value.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] usize remaining() const noexcept { return failed_ ? 0 : size_ - offset_; }
 
+            /// Performs the fail operation for `ByteReader` using the supplied arguments.
+            ///
+            /// @note This function does not throw exceptions.
             void fail() noexcept { failed_ = true; }
 
+            /// Computes the read bytes required by the supplied values.
+            ///
+            /// @param out `out` value used by the operation.
+            /// @param size Requested or available size for the operation.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             void read_bytes(void *out, usize size) {
                 if (failed_ || size > remaining()) {
                     failed_ = true;
@@ -114,6 +156,10 @@ namespace SFT::Core::Slang {
                 offset_ += size;
             }
 
+            /// Reads the requested data from the associated source.
+            ///
+            /// @return Returns the current read value.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             template <typename T>
                 requires std::is_trivially_copyable_v<T>
             [[nodiscard]] T read() {
@@ -122,6 +168,10 @@ namespace SFT::Core::Slang {
                 return value;
             }
 
+            /// Reads string from the associated source.
+            ///
+            /// @return Returns the current read string value.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] string read_string() {
                 const u32 len = read<u32>();
                 if (failed_ || len > remaining()) {
@@ -133,6 +183,10 @@ namespace SFT::Core::Slang {
                 return value;
             }
 
+            /// Reads bytes vector from the associated source.
+            ///
+            /// @return Returns the current read bytes vector value.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] vector<byte> read_bytes_vector() {
                 const u32 len = read<u32>();
                 if (failed_ || len > remaining()) {
@@ -155,13 +209,28 @@ namespace SFT::Core::Slang {
         };
 
 
-
-
-
-
+        /// Writes type reflection to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param type Type value to inspect, select, or convert.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_type_reflection(ByteWriter &w, const ShaderTypeReflection &type);
+        /// Reads type reflection from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        /// @param depth Depth of the target extent.
+        ///
+        /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] shared_ptr<ShaderTypeReflection> read_type_reflection(ByteReader &r, usize depth = 0);
 
+        /// Writes binding range to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param range Range of values to process.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_binding_range(ByteWriter &w, const ShaderBindingRangeReflection &range) {
             w.write(static_cast<u32>(range.type));
             w.write(static_cast<u32>(range.category));
@@ -174,6 +243,12 @@ namespace SFT::Core::Slang {
             w.write(static_cast<u8>(range.specializable ? 1 : 0));
         }
 
+        /// Reads binding range from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderBindingRangeReflection read_binding_range(ByteReader &r) {
             ShaderBindingRangeReflection range{};
             range.type = static_cast<ShaderBindingType>(r.read<u32>());
@@ -188,6 +263,13 @@ namespace SFT::Core::Slang {
             return range;
         }
 
+        /// Writes vector to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param items `items` value used by the operation.
+        /// @param write_one `write_one` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename T, typename WriteOne>
         void write_vector(ByteWriter &w, const vector<T> &items, WriteOne write_one) {
             w.write(static_cast<u32>(items.size()));
@@ -196,6 +278,14 @@ namespace SFT::Core::Slang {
             }
         }
 
+        /// Returns the valid collection count for this `Slang`.
+        ///
+        /// @param r `r` value used by the operation.
+        /// @param count Number of elements or operations to process.
+        /// @param minimum_item_bytes `minimum_item_bytes` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool valid_collection_count(ByteReader &r, u32 count, usize minimum_item_bytes) {
             if (!r.ok() || count > max_shader_cache_collection_items || minimum_item_bytes == 0 ||
                 static_cast<usize>(count) > r.remaining() / minimum_item_bytes) {
@@ -219,6 +309,12 @@ namespace SFT::Core::Slang {
             return items;
         }
 
+        /// Writes field to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param field `field` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_field(ByteWriter &w, const ShaderFieldReflection &field) {
             w.write_string(field.name);
             w.write(static_cast<u8>(field.type ? 1 : 0));
@@ -230,6 +326,13 @@ namespace SFT::Core::Slang {
             w.write(field.stride);
         }
 
+        /// Reads field from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        /// @param depth Depth of the target extent.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderFieldReflection read_field(ByteReader &r, usize depth) {
             ShaderFieldReflection field{};
             field.name = r.read_string();
@@ -242,6 +345,12 @@ namespace SFT::Core::Slang {
             return field;
         }
 
+        /// Writes type reflection to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param type Type value to inspect, select, or convert.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_type_reflection(ByteWriter &w, const ShaderTypeReflection &type) {
             w.write_string(type.name);
             w.write_string(type.full_name);
@@ -260,6 +369,13 @@ namespace SFT::Core::Slang {
             write_vector<ShaderBindingRangeReflection>(w, type.binding_ranges, write_binding_range);
         }
 
+        /// Reads type reflection from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        /// @param depth Depth of the target extent.
+        ///
+        /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] shared_ptr<ShaderTypeReflection> read_type_reflection(ByteReader &r, usize depth) {
             if (!r.ok() || depth >= max_shader_reflection_nesting_depth) {
                 r.fail();
@@ -288,6 +404,12 @@ namespace SFT::Core::Slang {
             return type;
         }
 
+        /// Writes parameter to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param param `param` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_parameter(ByteWriter &w, const ShaderParameterReflection &param) {
             w.write_string(param.name);
             w.write(static_cast<u8>(param.type ? 1 : 0));
@@ -310,6 +432,12 @@ namespace SFT::Core::Slang {
             write_vector<ShaderBindingRangeReflection>(w, param.binding_ranges, write_binding_range);
         }
 
+        /// Reads parameter from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderParameterReflection read_parameter(ByteReader &r) {
             ShaderParameterReflection param{};
             param.name = r.read_string();
@@ -338,6 +466,12 @@ namespace SFT::Core::Slang {
             return param;
         }
 
+        /// Writes descriptor range to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param range Range of values to process.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_descriptor_range(ByteWriter &w, const ShaderDescriptorRangeReflection &range) {
             w.write(static_cast<u32>(range.type));
             w.write(static_cast<u32>(range.category));
@@ -345,6 +479,12 @@ namespace SFT::Core::Slang {
             w.write(range.count);
         }
 
+        /// Reads descriptor range from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderDescriptorRangeReflection read_descriptor_range(ByteReader &r) {
             ShaderDescriptorRangeReflection range{};
             range.type = static_cast<ShaderBindingType>(r.read<u32>());
@@ -354,11 +494,23 @@ namespace SFT::Core::Slang {
             return range;
         }
 
+        /// Writes descriptor set to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param set `set` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_descriptor_set(ByteWriter &w, const ShaderDescriptorSetReflection &set) {
             w.write(set.space);
             write_vector<ShaderDescriptorRangeReflection>(w, set.ranges, write_descriptor_range);
         }
 
+        /// Reads descriptor set from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderDescriptorSetReflection read_descriptor_set(ByteReader &r) {
             ShaderDescriptorSetReflection set{};
             set.space = r.read<u32>();
@@ -366,6 +518,12 @@ namespace SFT::Core::Slang {
             return set;
         }
 
+        /// Writes entry point to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param entry_point `entry_point` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_entry_point(ByteWriter &w, const ShaderEntryPointReflection &entry_point) {
             w.write_string(entry_point.name);
             w.write_string(entry_point.name_override);
@@ -380,6 +538,12 @@ namespace SFT::Core::Slang {
             write_vector<ShaderParameterReflection>(w, entry_point.result_parameters, write_parameter);
         }
 
+        /// Reads entry point from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderEntryPointReflection read_entry_point(ByteReader &r) {
             ShaderEntryPointReflection entry_point{};
             entry_point.name = r.read_string();
@@ -397,6 +561,12 @@ namespace SFT::Core::Slang {
             return entry_point;
         }
 
+        /// Writes reflection to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param reflection `reflection` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_reflection(ByteWriter &w, const ShaderReflection &reflection) {
             write_vector<ShaderParameterReflection>(w, reflection.global_parameters, write_parameter);
             write_vector<ShaderEntryPointReflection>(w, reflection.entry_points, write_entry_point);
@@ -411,6 +581,12 @@ namespace SFT::Core::Slang {
             w.write(reflection.bindless_space_index);
         }
 
+        /// Reads reflection from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderReflection read_reflection(ByteReader &r) {
             ShaderReflection reflection{};
             constexpr usize minimum_parameter_bytes = sizeof(u32) * 9 + sizeof(u64) * 3 + sizeof(u8);
@@ -433,11 +609,23 @@ namespace SFT::Core::Slang {
             return reflection;
         }
 
+        /// Writes target to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param target `target` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_target(ByteWriter &w, const ShaderTarget &target) {
             w.write(static_cast<u32>(target.format));
             w.write_string(target.profile);
         }
 
+        /// Reads target from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderTarget read_target(ByteReader &r) {
             ShaderTarget target{};
             target.format = static_cast<ShaderTargetFormat>(r.read<u32>());
@@ -445,6 +633,12 @@ namespace SFT::Core::Slang {
             return target;
         }
 
+        /// Retrieves or produces the write bytecode selected by the supplied arguments.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param bytecode `bytecode` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_bytecode(ByteWriter &w, const ShaderBytecode &bytecode) {
             w.write(static_cast<u32>(bytecode.target));
             w.write_string(bytecode.profile);
@@ -452,6 +646,12 @@ namespace SFT::Core::Slang {
             w.write_bytes_vector(bytecode.bytes);
         }
 
+        /// Retrieves or produces the read bytecode selected by the supplied arguments.
+        ///
+        /// @param r `r` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderBytecode read_bytecode(ByteReader &r) {
             ShaderBytecode bytecode{};
             bytecode.target = static_cast<ShaderTargetFormat>(r.read<u32>());
@@ -461,12 +661,24 @@ namespace SFT::Core::Slang {
             return bytecode;
         }
 
+        /// Writes target artifact to the associated destination.
+        ///
+        /// @param w `w` value used by the operation.
+        /// @param artifact `artifact` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void write_target_artifact(ByteWriter &w, const ShaderCacheTargetArtifact &artifact) {
             write_target(w, artifact.target);
             write_reflection(w, artifact.reflection);
             write_vector<ShaderBytecode>(w, artifact.bytecode, write_bytecode);
         }
 
+        /// Reads target artifact from the associated source.
+        ///
+        /// @param r `r` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderCacheTargetArtifact read_target_artifact(ByteReader &r) {
             ShaderCacheTargetArtifact artifact{};
             artifact.target = read_target(r);
@@ -475,12 +687,26 @@ namespace SFT::Core::Slang {
             return artifact;
         }
 
+        /// Performs the cache file path operation for `Slang` using the supplied arguments.
+        ///
+        /// @param directory `directory` value used by the operation.
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] path cache_file_path(const path &directory, u64 key) {
             char hex[17];
             std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(key));
             return directory / (string{hex} + ".sc");
         }
 
+        /// Performs the reflection cache file path operation for `Slang` using the supplied arguments.
+        ///
+        /// @param directory `directory` value used by the operation.
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] path reflection_cache_file_path(const path &directory, u64 key) {
             char hex[17];
             std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(key));
@@ -489,6 +715,15 @@ namespace SFT::Core::Slang {
 
     } // namespace
 
+    /// Computes shader cache key using the supplied arguments and current state.
+    ///
+    /// @param module_name Name used to identify or label the target.
+    /// @param source_text `source_text` value used by the operation.
+    /// @param variant_canonical `variant_canonical` value used by the operation.
+    /// @param options Configuration values controlling the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] u64 compute_shader_cache_key(
         string_view module_name,
         string_view source_text,
@@ -514,7 +749,6 @@ namespace SFT::Core::Slang {
         mix_text(variant_canonical);
 
 
-
         mix_u32(static_cast<u32>(options.optimization));
         mix_byte(static_cast<u8>(options.allow_glsl_syntax ? 1 : 0));
         mix_byte(static_cast<u8>(options.skip_spirv_validation ? 1 : 0));
@@ -529,6 +763,14 @@ namespace SFT::Core::Slang {
         return value;
     }
 
+    /// Reports whether shader cache entry is fresh.
+    ///
+    /// @param directory `directory` value used by the operation.
+    /// @param key Key used to identify the requested entry.
+    /// @param shader_source_path Filesystem path identifying the target resource.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] bool shader_cache_entry_is_fresh(
         const path &directory, u64 key, const path &shader_source_path) noexcept {
         std::error_code error;
@@ -545,6 +787,13 @@ namespace SFT::Core::Slang {
         return cache_time >= source_time;
     }
 
+    /// Loads shader cache entry.
+    ///
+    /// @param directory `directory` value used by the operation.
+    /// @param key Key used to identify the requested entry.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     [[nodiscard]] optional<ShaderCacheEntry> load_shader_cache_entry(
         const path &directory, u64 key) {
         try {
@@ -571,6 +820,14 @@ namespace SFT::Core::Slang {
         }
     }
 
+    /// Performs the store shader cache entry operation for `Slang` using the supplied arguments.
+    ///
+    /// @param directory `directory` value used by the operation.
+    /// @param key Key used to identify the requested entry.
+    /// @param entry `entry` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool store_shader_cache_entry(
         const path &directory, u64 key, const ShaderCacheEntry &entry) {
         try {
@@ -588,7 +845,6 @@ namespace SFT::Core::Slang {
             if (w.buffer().size() > max_shader_cache_file_bytes) {
                 return false;
             }
-
 
 
             const path final_path = cache_file_path(directory, key);
@@ -614,6 +870,13 @@ namespace SFT::Core::Slang {
         }
     }
 
+    /// Loads shader reflection cache entry.
+    ///
+    /// @param directory `directory` value used by the operation.
+    /// @param key Key used to identify the requested entry.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     [[nodiscard]] optional<ShaderReflection> load_shader_reflection_cache_entry(
         const path &directory, u64 key) {
         try {
@@ -637,6 +900,14 @@ namespace SFT::Core::Slang {
         }
     }
 
+    /// Performs the store shader reflection cache entry operation for `Slang` using the supplied arguments.
+    ///
+    /// @param directory `directory` value used by the operation.
+    /// @param key Key used to identify the requested entry.
+    /// @param reflection `reflection` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool store_shader_reflection_cache_entry(
         const path &directory, u64 key, const ShaderReflection &reflection) {
         try {

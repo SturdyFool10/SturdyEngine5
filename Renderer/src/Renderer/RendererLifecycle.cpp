@@ -48,38 +48,34 @@ namespace SFT::Renderer {
         constexpr f64 renderer_stage_hitch_threshold_seconds = 0.050;
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
         constexpr usize retired_swapchain_flush_threshold = 6;
-
-
 
 
         constexpr u32 kPregraphGpuTimingQueryCount = 4u;
 
         class ScopedRendererStageTimer {
           public:
+            /// Constructs a `ScopedRendererStageTimer` from the supplied initialization values.
+            ///
+            /// @param stage `stage` value used by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             explicit ScopedRendererStageTimer(const char *stage) noexcept
                 : stage_(stage), start_(steady_clock::now()) {}
 
 
-
-
+            /// Constructs a `ScopedRendererStageTimer` from the supplied initialization values.
+            ///
+            /// @param stage `stage` value used by the operation.
+            /// @param accumulate_into `accumulate_into` value used by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             ScopedRendererStageTimer(const char *stage, vector<pair<string, f64>> *accumulate_into) noexcept
                 : stage_(stage), start_(steady_clock::now()), accumulate_into_(accumulate_into) {}
 
+            /// Destroys the `ScopedRendererStageTimer` and releases resources owned by it.
+            ///
+            /// @note This function does not throw exceptions.
             ~ScopedRendererStageTimer() noexcept {
                 const f64 seconds = duration<f64>(steady_clock::now() - start_).count();
                 if (seconds >= renderer_stage_hitch_threshold_seconds) {
@@ -97,8 +93,12 @@ namespace SFT::Renderer {
         };
 
 
-
-
+        /// Renders graph pass timing category using the current rendering state.
+        ///
+        /// @param label `label` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UString render_graph_pass_timing_category(const ustr &label) {
             UString category{label};
             const usize digit = category.find_first_of(UString{"0123456789"_ustr});
@@ -111,6 +111,12 @@ namespace SFT::Renderer {
             return category;
         }
 
+        /// Performs the snapshot timings operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param timings `timings` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] vector<pair<string, f64>> snapshot_timings(const vector<pair<UString, f64>> &timings) {
             vector<pair<string, f64>> snapshot;
             snapshot.reserve(timings.size());
@@ -120,6 +126,12 @@ namespace SFT::Renderer {
             return snapshot;
         }
 
+        /// Performs the framebuffer extent operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param window Window used or affected by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::Extent2D framebuffer_extent(Platform::Windowing::Window &window) {
             if (auto size = window.framebuffer_size()) {
                 return *size;
@@ -128,10 +140,12 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
+        /// Performs the HDR presentation format operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param presentation `presentation` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::Format hdr_presentation_format(const Core::PresentationSettings &presentation) noexcept {
             if (!static_cast<bool>(presentation.hdr_enabled)) {
                 return RHI::Format::BGRA8UnormSrgb;
@@ -141,7 +155,6 @@ namespace SFT::Renderer {
                 case Core::HdrColorSpaceMode::ScrgbLinear: return RHI::Format::RGBA16Float;
 
 
-
                 case Core::HdrColorSpaceMode::Hdr10St2084:
                 case Core::HdrColorSpaceMode::Hdr10Hlg:
                 case Core::HdrColorSpaceMode::DolbyVision:
@@ -149,6 +162,12 @@ namespace SFT::Renderer {
             }
         }
 
+        /// Performs the HDR presentation color space operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param presentation `presentation` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::ColorSpace hdr_presentation_color_space(const Core::PresentationSettings &presentation) noexcept {
             if (!static_cast<bool>(presentation.hdr_enabled)) {
                 return RHI::ColorSpace::SrgbNonlinear;
@@ -162,6 +181,12 @@ namespace SFT::Renderer {
             }
         }
 
+        /// Returns a human-readable name for the supplied HDR color space value.
+        ///
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const char *hdr_color_space_name(Core::HdrColorSpaceMode mode) noexcept {
             switch (mode) {
                 case Core::HdrColorSpaceMode::Hdr10St2084: return "HDR10 (ST2084/PQ)";
@@ -172,6 +197,13 @@ namespace SFT::Renderer {
             return "unknown";
         }
 
+        /// Performs the graphics error from shader operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param error Error value describing the failure.
+        /// @param operation `operation` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[maybe_unused]] [[nodiscard]] Core::GraphicsBackendError graphics_error_from_shader(const Core::Slang::ShaderError &error,
                                                                                             const char *operation) {
             string message = string(operation) + " failed: " + error.message;
@@ -184,14 +216,27 @@ namespace SFT::Renderer {
 
     } // namespace
 
+    /// Constructs a `Renderer` in its default state.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Renderer::Renderer() = default;
 
+    /// Destroys the `Renderer` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     Renderer::~Renderer() {
         ZoneScopedN("Renderer::~Renderer");
         wait_idle();
         destroy_all_resources();
     }
 
+    /// Initializes the `Renderer` for use.
+    ///
+    /// @param create_info Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::InitializationFailed`.
     Core::RendererExpected<Core::RenderSurfaceHandle> Renderer::initialize(
         const Core::RendererCreateInfo &create_info) {
         ZoneScopedN("Renderer::initialize");
@@ -244,6 +289,14 @@ namespace SFT::Renderer {
     }
 
 
+    /// Submits draw.
+    ///
+    /// @param mesh_handle Handle identifying the target object or resource.
+    /// @param material_handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::submit_draw(MeshHandle mesh_handle, MaterialInstanceHandle material_handle) {
         ZoneScopedN("Renderer::submit_draw");
         if (mesh(mesh_handle) == nullptr) {
@@ -258,9 +311,15 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Renders frame using the current rendering state.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::render_frame(const RenderFrameDesc &desc) {
         ZoneScopedN("Renderer::render_frame");
-
 
 
         poll_shader_hot_reload();
@@ -327,14 +386,19 @@ namespace SFT::Renderer {
         return render_frame_dispatch(desc.surface, desc.frame, submission);
     }
 
+    /// Renders frame using the current rendering state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param frame `frame` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::render_frame(Core::RenderSurfaceHandle surface,
                                                 const Core::FrameInput &frame) {
         ZoneScopedN("Renderer::render_frame");
 
 
-
         poll_shader_hot_reload();
-
 
 
         FrameSubmission submission{};
@@ -344,6 +408,15 @@ namespace SFT::Renderer {
         return render_frame_dispatch(surface, frame, submission);
     }
 
+    /// Renders frame dispatch using the current rendering state.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param frame `frame` value used by the operation.
+    /// @param submission `submission` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::DeviceLost`.
     Core::RendererResult Renderer::render_frame_dispatch(Core::RenderSurfaceHandle surface,
                                                           const Core::FrameInput &frame,
                                                           FrameSubmission &submission) {
@@ -355,8 +428,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
         {
             ScopedRendererStageTimer timer{"sort render items",
                                            submission.render_graph.debug_overlay ? &submission.pre_dispatch_stage_timings_ms : nullptr};
@@ -366,9 +437,6 @@ namespace SFT::Renderer {
                 }
                 return a.mesh.value < b.mesh.value;
             });
-
-
-
 
 
             auto transform_history = previous_world_transforms_.lock();
@@ -401,6 +469,13 @@ namespace SFT::Renderer {
     }
 
 
+    /// Finds or creates the RHI presentation resources required by the operation.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_rhi_presentation_resources(WindowSurfaceRecord &record) {
         ZoneScopedN("Renderer::ensure_rhi_presentation_resources");
         if (record.rhi_surface && record.rhi_swapchain) {
@@ -432,6 +507,13 @@ namespace SFT::Renderer {
         return recreate_rhi_swapchain(record);
     }
 
+    /// Renders item visible using the current rendering state.
+    ///
+    /// @param item `item` value used by the operation.
+    /// @param frustum `frustum` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool Renderer::render_item_visible(const RenderItem &item, const Frustum &frustum) noexcept {
         ZoneScopedN("Renderer::render_item_visible");
         const MeshResource *mesh_resource = mesh(item.mesh);
@@ -447,6 +529,27 @@ namespace SFT::Renderer {
         return frustum_intersects_sphere(frustum, world_center, mesh_resource->bounds_radius * max_scale);
     }
 
+    /// Records render item using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param item `item` value used by the operation.
+    /// @param color_formats Format used for the resource, render target, or conversion.
+    /// @param depth_format Format used for the resource, render target, or conversion.
+    /// @param frame_index Zero-based index of the target element or entry.
+    /// @param view_projection `view_projection` value used by the operation.
+    /// @param depth_only `depth_only` value used by the operation.
+    /// @param binding_state `binding_state` value used by the operation.
+    /// @param standard_depth_test `standard_depth_test` value used by the operation.
+    /// @param shadow_map `shadow_map` value used by the operation.
+    /// @param shadow_depth_bias `shadow_depth_bias` value used by the operation.
+    /// @param shadow_slope_bias `shadow_slope_bias` value used by the operation.
+    /// @param samples `samples` value used by the operation.
+    /// @param with_object_history `with_object_history` value used by the operation.
+    /// @param object_history_group `object_history_group` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     template <typename Encoder>
     Core::RendererResult Renderer::record_render_item(Encoder &pass,
                                                       const RenderItem &item,
@@ -495,14 +598,12 @@ namespace SFT::Renderer {
         }
 
 
-
         if (!(binding_state.pipeline == *pipeline)) {
             pass.set_pipeline(*pipeline);
             binding_state.pipeline = *pipeline;
         }
 
         if (use_object_history) {
-
 
 
             if (!(binding_state.bound_object_history_group == object_history_group)) {
@@ -538,9 +639,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
         if (!binding_state.arena_bound) {
             pass.set_vertex_buffer(0, vertex_arena_.buffer);
             if (index_arena_.buffer) {
@@ -566,12 +664,33 @@ namespace SFT::Renderer {
     namespace {
 
 
-
-
-
         constexpr usize kParallelRecordThreshold = 128;
     } // namespace
 
+    /// Records render items culled using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param items `items` value used by the operation.
+    /// @param frustum `frustum` value used by the operation.
+    /// @param color_formats Format used for the resource, render target, or conversion.
+    /// @param depth_format Format used for the resource, render target, or conversion.
+    /// @param frame_index Zero-based index of the target element or entry.
+    /// @param view_projection `view_projection` value used by the operation.
+    /// @param depth_only `depth_only` value used by the operation.
+    /// @param standard_depth_test `standard_depth_test` value used by the operation.
+    /// @param bundle_label `bundle_label` value used by the operation.
+    /// @param use_bundles `use_bundles` value used by the operation.
+    /// @param retired_bundles `retired_bundles` value used by the operation.
+    /// @param shadow_map `shadow_map` value used by the operation.
+    /// @param shadow_depth_bias `shadow_depth_bias` value used by the operation.
+    /// @param shadow_slope_bias `shadow_slope_bias` value used by the operation.
+    /// @param samples `samples` value used by the operation.
+    /// @param with_object_history `with_object_history` value used by the operation.
+    /// @param object_history_group `object_history_group` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::record_render_items_culled(RHI::RenderPassEncoder &pass,
                                                                span<const RenderItem> items,
                                                                const Frustum &frustum,
@@ -602,11 +721,6 @@ namespace SFT::Renderer {
         const u32 worker_count = Async::Scheduler::worker_count();
 
 
-
-
-
-
-
         if (shadow_map || !use_bundles) {
             RenderItemBindingState binding_state{};
             for (const RenderItem *item : visible) {
@@ -626,9 +740,6 @@ namespace SFT::Renderer {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Renderer RHI device is unavailable.");
         }
-
-
-
 
 
         {
@@ -665,11 +776,6 @@ namespace SFT::Renderer {
             unique_ptr<RHI::RenderBundleEncoder> encoder;
         };
         vector<ChunkResult> results(chunk_count);
-
-
-
-
-
 
 
         for (usize chunk = 0; chunk < chunk_count; ++chunk) {
@@ -740,8 +846,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
         retired_bundles.insert(retired_bundles.end(), bundles.begin(), bundles.end());
         if (has_error) {
             return first_error;
@@ -749,6 +853,18 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Records shadow view chunk using the supplied arguments and current state.
+    ///
+    /// @param encoder `encoder` value used by the operation.
+    /// @param views `views` value used by the operation.
+    /// @param draws Draw descriptions processed in submission order.
+    /// @param depth_format Format used for the resource, render target, or conversion.
+    /// @param frame_index Zero-based index of the target element or entry.
+    /// @param shadow_depth_bias `shadow_depth_bias` value used by the operation.
+    /// @param shadow_slope_bias `shadow_slope_bias` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     template <typename Encoder>
     Core::RendererResult Renderer::record_shadow_view_chunk(Encoder &encoder,
                                                              span<const ShadowRenderView> views,
@@ -786,6 +902,13 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Finds or creates the RHI depth resources required by the operation.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_rhi_depth_resources(WindowSurfaceRecord &record) {
         ZoneScopedN("Renderer::ensure_rhi_depth_resources");
         RHI::RhiDevice *device = rhi_device();
@@ -830,6 +953,14 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Drains pending present using the supplied arguments and current state.
+    ///
+    /// @param record `record` value used by the operation.
+    /// @param stage_timings_ms `stage_timings_ms` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::SurfaceLost`, `RhiErrorCode::FullScreenExclusiveLost`.
     Core::RendererResult Renderer::drain_pending_present(WindowSurfaceRecord &record,
                                                          vector<pair<string, f64>> *stage_timings_ms) {
         ZoneScopedN("Renderer::drain_pending_present");
@@ -857,13 +988,6 @@ namespace SFT::Renderer {
             }
 
 
-
-
-
-
-
-
-
             if (presented.error().code == RHI::RhiErrorCode::SurfaceLost ||
                 presented.error().code == RHI::RhiErrorCode::FullScreenExclusiveLost) {
                 record.rhi_swapchain_dirty = true;
@@ -881,6 +1005,15 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Recreates RHI swapchain using the supplied arguments and current state.
+    ///
+    /// @param record `record` value used by the operation.
+    /// @param frame_index Zero-based index of the target element or entry.
+    /// @param known_extent `known_extent` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::recreate_rhi_swapchain(WindowSurfaceRecord &record, u64 frame_index,
                                                           optional<Core::Extent2D> known_extent) {
         ZoneScopedN("Renderer::recreate_rhi_swapchain");
@@ -909,8 +1042,6 @@ namespace SFT::Renderer {
         const RHI::TextureViewHandle old_depth_view = record.depth_view;
 
 
-
-
         const RHI::PresentationResolution old_presentation =
             old_swapchain ? device->presentation_resolution(old_swapchain) : RHI::PresentationResolution{};
         const bool old_swapchain_supports_completion_fence = old_presentation.supports_completion_fence;
@@ -921,8 +1052,6 @@ namespace SFT::Renderer {
             .height = extent.y,
             .format = hdr_presentation_format(record.presentation),
             .color_space = hdr_presentation_color_space(record.presentation),
-
-
 
 
             .present_strategy = Core::resolve_present_strategy(record.presentation),
@@ -936,13 +1065,9 @@ namespace SFT::Renderer {
                                : record.desired_frames_in_flight + 1,
 
 
-
-
             .frames_in_flight = capabilities_.max_frames_in_flight,
             .old_swapchain = old_swapchain,
             .allow_present_from_compute = static_cast<bool>(record.presentation.allow_present_from_compute),
-
-
 
 
             .request_full_screen_exclusive =
@@ -962,15 +1087,9 @@ namespace SFT::Renderer {
         record.rhi_swapchain_dirty = false;
 
 
-
-
         const RHI::PresentationResolution new_presentation = device->presentation_resolution(record.rhi_swapchain);
         const bool must_retire_native_before_composition = old_swapchain &&
             !old_presentation.via_composition_present && new_presentation.via_composition_present;
-
-
-
-
 
 
         const bool can_retire_composition_immediately = old_swapchain &&
@@ -997,7 +1116,6 @@ namespace SFT::Renderer {
             } else if (can_retire_composition_immediately) {
                 destroy_old_presentation_resources();
             } else if (old_swapchain_supports_completion_fence) {
-
 
 
                 record.retired_presentation_resources.push_back(RetiredPresentationResources{
@@ -1032,6 +1150,15 @@ namespace SFT::Renderer {
         return ensure_rhi_depth_resources(record);
     }
 
+    /// Renders frame RHI using the current rendering state.
+    ///
+    /// @param record `record` value used by the operation.
+    /// @param frame `frame` value used by the operation.
+    /// @param submission `submission` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `RhiErrorCode::NotReady`, `RhiErrorCode::SurfaceLost`.
     Core::RendererResult Renderer::render_frame_rhi(WindowSurfaceRecord &record,
                                                     const Core::FrameInput &frame,
                                                     FrameSubmission &submission) {
@@ -1054,12 +1181,6 @@ namespace SFT::Renderer {
                 return acceleration_ready;
             }
         }
-
-
-
-
-
-
 
 
         const u32 frame_count = capabilities_.max_frames_in_flight;
@@ -1087,20 +1208,7 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
         vector<pair<string, f64>> current_frame_cpu_stage_timings_ms;
-
-
-
-
-
-
-
-
-
-
 
 
         if (slot.submitted) {
@@ -1111,7 +1219,6 @@ namespace SFT::Renderer {
                     return unexpected(graphics_error_from_rhi(waited.error(), "wait in-flight frame fence"));
                 }
                 if (!*waited) {
-
 
 
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -1126,10 +1233,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
         vector<pair<UString, f64>> gpu_pass_timings_ms;
         if (slot.gpu_timing.has_pending_results) {
             const f32 period_ns = device->limits().timestamp_period_ns;
@@ -1137,16 +1240,11 @@ namespace SFT::Renderer {
             bool any_read = false;
 
 
-
-
             const auto accumulate_query_set = [&](RHI::QuerySetHandle query_set,
                                                    const vector<RenderGraph::GpuPassTiming> &timings) {
                 if (!query_set || timings.empty()) {
                     return;
                 }
-
-
-
 
 
                 u32 used_query_count = 0;
@@ -1186,18 +1284,12 @@ namespace SFT::Renderer {
                          [](const auto &a, const auto &b) { return a.second > b.second; });
 
 
-
                 auto published_timings = record.last_frame_timings->lock();
                 published_timings->gpu_pass_timings_ms = snapshot_timings(gpu_pass_timings_ms);
                 published_timings->has_data = true;
             }
             slot.gpu_timing.has_pending_results = false;
         }
-
-
-
-
-
 
 
         vector<pair<UString, f64>> cpu_pass_timings_ms;
@@ -1244,15 +1336,6 @@ namespace SFT::Renderer {
             }
 
 
-
-
-
-
-
-
-
-
-
             if (frame.live_resize && record.pending_present && !record.pending_present->is_done()) {
                 return {};
             }
@@ -1261,7 +1344,6 @@ namespace SFT::Renderer {
                 return drained;
             }
             reclaim_completed_presentation_fences(record);
-
 
 
             const Core::Extent2D surface_extent{frame.framebuffer_width, frame.framebuffer_height};
@@ -1304,21 +1386,12 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
-
-
-
-
         const vector<InstancedBatch> instanced_batches =
             submission.render_graph.render_scene ? detect_instanced_batches(submission.draws) : vector<InstancedBatch>{};
 
 
         const u32 scene_frame_count = capabilities_.max_frames_in_flight;
         SceneFrameGpuResources &instance_cull_resources = record.scene_frame_resources[frame.frame_index % scene_frame_count];
-
 
 
         RHI::BindGroupHandle object_history_group{};
@@ -1336,7 +1409,6 @@ namespace SFT::Renderer {
                 return prepared;
             }
         }
-
 
 
         vector<RenderItem> gbuffer_individual_draws_storage;
@@ -1377,11 +1449,6 @@ namespace SFT::Renderer {
         u64 spectral_accumulation_signature = 1469598103934665603ull;
 
 
-
-
-
-
-
         u64 spectral_photon_signature = 1469598103934665603ull;
         bool spectral_accumulation_reset = false;
         if (full_path_tracing) {
@@ -1417,7 +1484,6 @@ namespace SFT::Renderer {
             };
 
 
-
             hash_matrix(submission.view_projection);
             hash_u64_both(render_extent.x);
             hash_u64_both(render_extent.y);
@@ -1451,9 +1517,6 @@ namespace SFT::Renderer {
                 history.state_signature != spectral_accumulation_signature ||
                 history.last_frame_index + 1u != frame.frame_index;
         }
-
-
-
 
 
         HiZCullInput hiz_cull_input{};
@@ -1576,7 +1639,6 @@ namespace SFT::Renderer {
                 properties && properties->hdr_enabled && properties->sdr_white_level > 0.0f) {
 
 
-
                 ui_reference_white_nits = properties->sdr_white_level * 80.0f;
                 platform_reference_white = true;
             }
@@ -1604,13 +1666,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
-
-
-
         struct AcquiredImageGuard {
             WindowSurfaceRecord *record = nullptr;
             bool resolved = false;
@@ -1622,16 +1677,10 @@ namespace SFT::Renderer {
         } acquired_image_guard;
 
 
-
-
-
-
-
         auto encoder = device->create_command_encoder(RHI::CommandEncoderDesc{.label = "renderer frame"});
         if (!encoder) {
             return unexpected(graphics_error_from_rhi(encoder.error(), "create RHI command encoder"));
         }
-
 
 
         const bool gpu_timing_enabled = submission.render_graph.debug_overlay;
@@ -1665,18 +1714,11 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
-
         const bool spectral_photon_mapping = full_path_tracing &&
             submission.render_graph.spectral_path_tracing.photon_count > 0u;
         const bool spectral_photon_emission_needed = spectral_photon_mapping &&
             (!slot.spectral_photon_targets.populated ||
              slot.spectral_photon_targets.state_signature != spectral_photon_signature);
-
-
 
 
         optional<RHI::SurfaceTexture> acquired_surface;
@@ -1739,7 +1781,6 @@ namespace SFT::Renderer {
             };
 
 
-
             if (!gpu_pass_timings_ms.empty()) {
                 f64 gpu_total_ms = 0.0;
                 for (const auto &[category, ms] : gpu_pass_timings_ms) {
@@ -1752,7 +1793,6 @@ namespace SFT::Renderer {
             }
 
 
-
             if (!cpu_stage_timings_ms.empty()) {
                 f64 cpu_stage_total_ms = 0.0;
                 for (const auto &[stage, ms] : cpu_stage_timings_ms) {
@@ -1763,10 +1803,6 @@ namespace SFT::Renderer {
                     overlay_lines.push_back(std::format("  {}: {:.2f} ms", stage, ms));
                 }
             }
-
-
-
-
 
 
             if (!cpu_pass_timings_ms.empty()) {
@@ -1804,9 +1840,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
         RenderGraph &graph = record.graph;
         graph.reset();
         RenderGraphBlackboard &graph_resources = record.graph_resources;
@@ -1821,18 +1854,8 @@ namespace SFT::Renderer {
             : acquired_surface->view;
 
 
-
         const bool output_uses_composition_present =
             !offscreen_output && acquired_surface->composition_present;
-
-
-
-
-
-
-
-
-
 
 
         if (spectral_photon_mapping) {
@@ -1853,10 +1876,6 @@ namespace SFT::Renderer {
                 });
             }
         }
-
-
-
-
 
 
         const steady_clock::time_point declare_graph_start = steady_clock::now();
@@ -2044,9 +2063,6 @@ namespace SFT::Renderer {
             });
 
 
-
-
-
             spectral_photon_count = graph.import_buffer(RenderGraphImportedBufferDesc{
                 .buffer = slot.spectral_photon_targets.valid_count,
                 .size = sizeof(u32),
@@ -2072,11 +2088,6 @@ namespace SFT::Renderer {
         const u32 hiz_pyramid_mip_levels = record.hiz_pyramid.mip_levels;
 
 
-
-
-
-
-
         const RenderGraphTextureHandle hiz_pyramid_texture = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = hiz_pyramid_gpu_texture,
             .default_view = hiz_pyramid_full_view,
@@ -2093,7 +2104,6 @@ namespace SFT::Renderer {
         });
 
         graph.mark_output(hiz_pyramid_texture);
-
 
 
         RenderGraphTextureHandle raster_depth = depth_texture;
@@ -2156,11 +2166,7 @@ namespace SFT::Renderer {
         }
 
 
-
-
         const Frustum camera_frustum = frustum_from_view_projection(submission.view_projection);
-
-
 
 
         RenderGraphTextureHandle transmittance_lut{};
@@ -2221,12 +2227,6 @@ namespace SFT::Renderer {
             if (shadow_frame.atlas_used) {
 
 
-
-
-
-
-
-
                 const bool shadow_atlas_uses_bundles =
                     device->is_enabled(RHI::Feature::RenderBundles) &&
                     shadow_frame.render_views.size() >= 2 && Async::Scheduler::worker_count() > 1;
@@ -2256,13 +2256,6 @@ namespace SFT::Renderer {
                         const u32 worker_count = Async::Scheduler::worker_count();
 
 
-
-
-
-
-
-
-
                         if (!shadow_atlas_uses_bundles) {
                             return record_shadow_view_chunk(pass, views, submission.draws, depth_format,
                                                             frame.frame_index, shadow_depth_bias, shadow_slope_bias);
@@ -2283,17 +2276,6 @@ namespace SFT::Renderer {
                             unique_ptr<RHI::RenderBundleEncoder> encoder;
                         };
                         vector<ShadowChunkResult> results(chunk_count);
-
-
-
-
-
-
-
-
-
-
-
 
 
                         for (usize chunk = 0; chunk < chunk_count; ++chunk) {
@@ -2367,7 +2349,6 @@ namespace SFT::Renderer {
                         }
 
 
-
                         submission.transient_render_bundles.insert(submission.transient_render_bundles.end(),
                                                                     bundles.begin(), bundles.end());
                         if (has_error) {
@@ -2376,19 +2357,6 @@ namespace SFT::Renderer {
                         return {};
                     });
             }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
             usize zprepass_visible_count = 0;
@@ -2426,8 +2394,6 @@ namespace SFT::Renderer {
                                                        zprepass_uses_bundles, submission.transient_render_bundles,
                                                                       false, 0.0f, 0.0f, framebuffer_samples);
                 });
-
-
 
 
             usize gbuffer_visible_count = 0;
@@ -2472,7 +2438,6 @@ namespace SFT::Renderer {
                 })
                 .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
                     .texture = depth_texture,
-
 
 
                     .depth_load_op = multisampled ? RHI::LoadOp::Clear : RHI::LoadOp::Load,
@@ -2534,9 +2499,6 @@ namespace SFT::Renderer {
                     }
                     return {};
                 });
-
-
-
 
 
             if (Core::RendererResult hiz_built = record_hiz_build(
@@ -2800,10 +2762,6 @@ namespace SFT::Renderer {
             graph_resources.texture<RenderGraphSemantics::SceneHdrColor>();
 
 
-
-
-
-
         if (!submission.gizmo_draws.empty()) {
             const array<RHI::Format, 1> gizmo_color_formats{submission.deferred_formats.scene_color};
             graph.add_render_pass("pre-bloom light indicators"_ustr)
@@ -2852,7 +2810,6 @@ namespace SFT::Renderer {
             graph_resources.texture<RenderGraphSemantics::SceneHdrColor>());
 
 
-
         if (Core::RendererResult effects = build_custom_graph_stage(
                 module_context, submission, PostProcessStage::BeforeBloom, logical_graph_textures);
             !effects.has_value()) {
@@ -2873,13 +2830,6 @@ namespace SFT::Renderer {
             !effects.has_value()) {
             return effects;
         }
-
-
-
-
-
-
-
 
 
         if (!direct_overlay_presentation) {
@@ -2914,7 +2864,6 @@ namespace SFT::Renderer {
                     const glm::vec2 viewport_size{presentation_extent};
 
 
-
                     return draw_text_overlay(pass, text_overlay_batches, viewport_size);
                 });
         }
@@ -2945,8 +2894,6 @@ namespace SFT::Renderer {
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
                     const glm::vec2 viewport_size{presentation_extent};
-
-
 
 
                     return submission.render_graph.ui_overlay.draw(pass, viewport_size, surface, frame_slot_index);
@@ -3015,8 +2962,6 @@ namespace SFT::Renderer {
         if (gpu_timing_enabled) {
 
 
-
-
             const RenderGraph::CompileResult precompiled = graph.compile();
             const u32 pass_count = precompiled.has_value() ? static_cast<u32>(precompiled->order.size()) : 0;
             if (Core::RendererResult timing_target = ensure_frame_gpu_timing_target(slot, pass_count);
@@ -3027,15 +2972,6 @@ namespace SFT::Renderer {
         vector<RHI::CommandBufferHandle> frame_command_buffers;
         {
             ScopedRendererStageTimer timer{"execute render graph", &current_frame_cpu_stage_timings_ms};
-
-
-
-
-
-
-
-
-
 
 
             Core::RendererResult graph_result = gpu_timing_enabled
@@ -3076,10 +3012,7 @@ namespace SFT::Renderer {
         }
 
 
-
         acquired_image_guard.resolved = true;
-
-
 
 
         slot.command_buffers = std::move(frame_command_buffers);
@@ -3110,20 +3043,7 @@ namespace SFT::Renderer {
         } else {
 
 
-
-
-
-
-
-
-
-
-
-
             ScopedRendererStageTimer timer{"issue present", &current_frame_cpu_stage_timings_ms};
-
-
-
 
 
             const RHI::PresentationResolution presentation = device->presentation_resolution(record.rhi_swapchain);
@@ -3165,12 +3085,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
-
-
         if (gpu_timing_enabled) {
             slot.cpu_timing.stage_timings = std::move(current_frame_cpu_stage_timings_ms);
             slot.cpu_timing.stage_timings.insert(slot.cpu_timing.stage_timings.end(),
@@ -3180,6 +3094,16 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Finds or creates the frame deferred targets required by the operation.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param extent `extent` value used by the operation.
+    /// @param formats Format used for the resource, render target, or conversion.
+    /// @param samples `samples` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_frame_deferred_targets(FrameInFlight &slot,
                                                                   Core::Extent2D extent,
                                                                   const DeferredTargetFormats &formats,
@@ -3349,6 +3273,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the frame deferred targets identified by the supplied parameters.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_frame_deferred_targets(FrameInFlight &slot) noexcept {
         ZoneScopedN("Renderer::destroy_frame_deferred_targets");
         RHI::RhiDevice *device = rhi_device();
@@ -3373,6 +3303,16 @@ namespace SFT::Renderer {
         slot.deferred_targets = {};
     }
 
+    /// Finds or creates the frame bloom targets required by the operation.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param extent `extent` value used by the operation.
+    /// @param requested_levels `requested_levels` value used by the operation.
+    /// @param downsample_ratio `downsample_ratio` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_frame_bloom_targets(FrameInFlight &slot,
                                                                Core::Extent2D extent,
                                                                u32 requested_levels,
@@ -3401,9 +3341,6 @@ namespace SFT::Renderer {
         slot.bloom_targets.source_extent = extent;
         slot.bloom_targets.requested_levels = requested_levels;
         slot.bloom_targets.downsample_ratio = downsample_ratio;
-
-
-
 
 
         constexpr u32 minimum_stable_bloom_axis = 4u;
@@ -3507,6 +3444,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the frame bloom targets identified by the supplied parameters.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_frame_bloom_targets(FrameInFlight &slot) noexcept {
         ZoneScopedN("Renderer::destroy_frame_bloom_targets");
         if (RHI::RhiDevice *device = rhi_device()) {
@@ -3526,6 +3469,15 @@ namespace SFT::Renderer {
         slot.bloom_targets = {};
     }
 
+    /// Finds or creates the frame composite target required by the operation.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param extent `extent` value used by the operation.
+    /// @param format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_frame_composite_target(FrameInFlight &slot,
                                                                   Core::Extent2D extent,
                                                                   RHI::Format format) {
@@ -3573,6 +3525,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the frame composite target identified by the supplied parameters.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_frame_composite_target(FrameInFlight &slot) noexcept {
         ZoneScopedN("Renderer::destroy_frame_composite_target");
         if (RHI::RhiDevice *device = rhi_device()) {
@@ -3586,6 +3544,14 @@ namespace SFT::Renderer {
         slot.composite_target = {};
     }
 
+    /// Finds or creates the frame GPU timing target required by the operation.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param required_pass_count Number of elements or operations to process.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_frame_gpu_timing_target(FrameInFlight &slot, u32 required_pass_count) {
         ZoneScopedN("Renderer::ensure_frame_gpu_timing_target");
         const u32 required_capacity = required_pass_count * 2;
@@ -3599,9 +3565,7 @@ namespace SFT::Renderer {
         }
 
 
-
         destroy_frame_gpu_timing_target(slot);
-
 
 
         const u32 capacity = required_capacity + 16;
@@ -3618,6 +3582,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the frame GPU timing target identified by the supplied parameters.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_frame_gpu_timing_target(FrameInFlight &slot) noexcept {
         ZoneScopedN("Renderer::destroy_frame_gpu_timing_target");
         if (RHI::RhiDevice *device = rhi_device(); device != nullptr && slot.gpu_timing.query_set) {
@@ -3626,6 +3596,13 @@ namespace SFT::Renderer {
         slot.gpu_timing = {};
     }
 
+    /// Finds or creates the frame pregraph GPU timing target required by the operation.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_frame_pregraph_gpu_timing_target(FrameInFlight &slot) {
         ZoneScopedN("Renderer::ensure_frame_pregraph_gpu_timing_target");
         if (slot.pregraph_gpu_timing_query_set) {
@@ -3648,6 +3625,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the frame pregraph GPU timing target identified by the supplied parameters.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_frame_pregraph_gpu_timing_target(FrameInFlight &slot) noexcept {
         ZoneScopedN("Renderer::destroy_frame_pregraph_gpu_timing_target");
         if (RHI::RhiDevice *device = rhi_device(); device != nullptr && slot.pregraph_gpu_timing_query_set) {
@@ -3657,6 +3640,13 @@ namespace SFT::Renderer {
         slot.pregraph_gpu_timing_pending.clear();
     }
 
+    /// Reclaims frame slot using the supplied arguments and current state.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param destroy_retired_presentation `destroy_retired_presentation` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::reclaim_frame_slot(FrameInFlight &slot, bool destroy_retired_presentation) noexcept {
         ZoneScopedN("Renderer::reclaim_frame_slot");
         RHI::RhiDevice *device = rhi_device();
@@ -3692,11 +3682,6 @@ namespace SFT::Renderer {
                     device->destroy_texture(texture);
                 }
             }
-
-
-
-
-
 
 
             if (destroy_retired_presentation) {
@@ -3743,6 +3728,12 @@ namespace SFT::Renderer {
         slot.spectral_scene_bounds = glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
     }
 
+    /// Drains frames in flight using the supplied arguments and current state.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::drain_frames_in_flight(WindowSurfaceRecord &record) noexcept {
         ZoneScopedN("Renderer::drain_frames_in_flight");
         RHI::RhiDevice *device = rhi_device();
@@ -3752,9 +3743,6 @@ namespace SFT::Renderer {
 
         device->wait_idle();
         for (FrameInFlight &slot : record.frames_in_flight) {
-
-
-
 
 
             reclaim_frame_slot(slot, true);
@@ -3769,6 +3757,12 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Reclaims completed presentation fences using the supplied arguments and current state.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::reclaim_completed_presentation_fences(WindowSurfaceRecord &record) noexcept {
         ZoneScopedN("Renderer::reclaim_completed_presentation_fences");
         RHI::RhiDevice *device = rhi_device();
@@ -3791,6 +3785,12 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Reclaims completed retired presentations using the supplied arguments and current state.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::reclaim_completed_retired_presentations(WindowSurfaceRecord &record) noexcept {
         ZoneScopedN("Renderer::reclaim_completed_retired_presentations");
         RHI::RhiDevice *device = rhi_device();
@@ -3833,6 +3833,12 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Destroys the retired presentations identified by the supplied parameters.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_retired_presentations(WindowSurfaceRecord &record) noexcept {
         ZoneScopedN("Renderer::destroy_retired_presentations");
         RHI::RhiDevice *device = rhi_device();
@@ -3855,12 +3861,17 @@ namespace SFT::Renderer {
         record.retired_presentation_resources.clear();
     }
 
+    /// Performs the maybe flush retired swapchains operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param record `record` value used by the operation.
+    /// @param opportunistic `opportunistic` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::maybe_flush_retired_swapchains(WindowSurfaceRecord &record, bool opportunistic) noexcept {
         ZoneScopedN("Renderer::maybe_flush_retired_swapchains");
         RHI::RhiDevice *device = rhi_device();
         if (device != nullptr && device->is_enabled(RHI::Feature::SwapchainMaintenance)) {
-
-
 
 
             reclaim_completed_retired_presentations(record);
@@ -3890,19 +3901,18 @@ namespace SFT::Renderer {
         drain_frames_in_flight(record);
     }
 
+    /// Destroys the RHI presentation resources identified by the supplied parameters.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_rhi_presentation_resources(WindowSurfaceRecord &record) noexcept {
         ZoneScopedN("Renderer::destroy_rhi_presentation_resources");
         if (RHI::RhiDevice *device = rhi_device()) {
 
 
-
-
-
-
             (void)drain_pending_present(record, nullptr);
-
-
-
 
 
             drain_frames_in_flight(record);
@@ -3954,6 +3964,10 @@ namespace SFT::Renderer {
         record.rhi_swapchain_dirty = true;
     }
 
+    /// Waits for idle to complete.
+    ///
+    /// @return Returns the current wait idle value.
+    /// @note This function does not throw exceptions.
     void Renderer::wait_idle() noexcept {
         ZoneScopedN("Renderer::wait_idle");
         if (graphics_backend_) {
@@ -3961,12 +3975,20 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Returns the current or globally available feature negotiation report value.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note This function does not throw exceptions.
     const RHI::FeatureNegotiationReport *Renderer::feature_negotiation_report() const noexcept {
         ZoneScopedN("Renderer::feature_negotiation_report");
         const RHI::RhiDevice *device = rhi_device();
         return device != nullptr ? &device->feature_negotiation_report() : nullptr;
     }
 
+    /// Returns the current GPU info.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<Core::GpuInfo> Renderer::gpu_info() const {
         ZoneScopedN("Renderer::gpu_info");
         if (!graphics_backend_) {
@@ -3975,11 +3997,19 @@ namespace SFT::Renderer {
         return graphics_backend_->gpu_info();
     }
 
+    /// Returns the current or globally available RHI device value.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note This function does not throw exceptions.
     RHI::RhiDevice *Renderer::rhi_device() noexcept {
         ZoneScopedN("Renderer::rhi_device");
         return graphics_backend_ ? graphics_backend_->rhi_device() : nullptr;
     }
 
+    /// Returns the current or globally available RHI device value.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note This function does not throw exceptions.
     const RHI::RhiDevice *Renderer::rhi_device() const noexcept {
         ZoneScopedN("Renderer::rhi_device");
         return graphics_backend_ ? graphics_backend_->rhi_device() : nullptr;

@@ -12,6 +12,12 @@ namespace {
 using namespace SFT;
 using namespace SFT::Text;
 
+/// Performs the coordinates and snapshots operation using the supplied arguments.
+///
+/// @pre `first.byte_size() == std::string{"alpha\n😀e\u0301\n"}.size()`; debug builds assert if this precondition is violated.
+/// @pre `first.offset_to_point(ByteOffset{6}) == TextPoint{1, 0}`; debug builds assert if this precondition is violated.
+/// @pre `first.offset_to_utf16(ByteOffset{10}) == Utf16Point{1, 2}`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void coordinates_and_snapshots() {
     Document document{"alpha\n😀e\u0301\n"};
     const DocumentSnapshot first = document.snapshot();
@@ -35,6 +41,12 @@ void coordinates_and_snapshots() {
     assert(applied->snapshot.resolve(*anchor) == ByteOffset{9});
 }
 
+/// Performs the bulk edits and ranges operation using the supplied arguments.
+///
+/// @pre `applied`; debug builds assert if this precondition is violated.
+/// @pre `applied->snapshot.flatten() == "1 two 3"`; debug builds assert if this precondition is violated.
+/// @pre `applied->changes.changes.size() == 2`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void bulk_edits_and_ranges() {
     Document document{"one two three"};
     const DocumentSnapshot before = document.snapshot();
@@ -55,6 +67,12 @@ void bulk_edits_and_ranges() {
     assert(!document.apply(invalid));
 }
 
+/// Performs the undo redo streaming and metrics operation using the supplied arguments.
+///
+/// @pre `applied && applied->snapshot.flatten() == "1st\nsecond"`; debug builds assert if this precondition is violated.
+/// @pre `streamed == "1st\nsecond"`; debug builds assert if this precondition is violated.
+/// @pre `stats.logical_bytes == streamed.size()`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void undo_redo_streaming_and_metrics() {
     Document document{"first\nsecond"};
     EditTransaction transaction{document.revision()};
@@ -76,6 +94,12 @@ void undo_redo_streaming_and_metrics() {
     assert(redone && redone->snapshot.flatten() == "1st\nsecond");
 }
 
+/// Performs the randomized transactions match reference operation using the supplied arguments.
+///
+/// @pre `applied`; debug builds assert if this precondition is violated.
+/// @pre `applied->snapshot.flatten() == reference`; debug builds assert if this precondition is violated.
+/// @pre `point && applied->snapshot.point_to_offset(*point) == ByteOffset{offset}`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void randomized_transactions_match_reference() {
     Document document{};
     std::string reference;
@@ -108,6 +132,11 @@ void randomized_transactions_match_reference() {
     }
 }
 
+/// Performs the rejects malformed or mid scalar edits operation using the supplied arguments.
+///
+/// @pre `!rejected && rejected.error() == DocumentError::InvalidRange`; debug builds assert if this precondition is violated.
+/// @pre `!invalid && invalid.error() == DocumentError::InvalidUtf8`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void rejects_malformed_or_mid_scalar_edits() {
     Document document{"😀"};
     const DocumentSnapshot snapshot = document.snapshot();
@@ -124,10 +153,12 @@ void rejects_malformed_or_mid_scalar_edits() {
 }
 
 
-
-
-
-
+/// Performs the anchor resolves across many edits operation using the supplied arguments.
+///
+/// @pre `anchor`; debug builds assert if this precondition is violated.
+/// @pre `applied`; debug builds assert if this precondition is violated.
+/// @pre `applied->snapshot.resolve(*anchor) == ByteOffset{expected}`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void anchor_resolves_across_many_edits() {
     Document document{"0123456789"};
     const auto anchor = document.snapshot().anchor_at({5}, AnchorBias::Before);
@@ -145,6 +176,12 @@ void anchor_resolves_across_many_edits() {
     }
 }
 
+/// Performs the clip offset and max point operation using the supplied arguments.
+///
+/// @pre `s.clip_offset({0}) == ByteOffset{0}`; debug builds assert if this precondition is violated.
+/// @pre `s.clip_offset({6}) == ByteOffset{6}`; debug builds assert if this precondition is violated.
+/// @pre `s.clip_offset({100}) == ByteOffset{6}`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void clip_offset_and_max_point() {
     Document document{"a😀b"};
     const DocumentSnapshot s = document.snapshot();
@@ -156,6 +193,12 @@ void clip_offset_and_max_point() {
     assert(s.max_point() == TextPoint{0, 3});
 }
 
+/// Performs the reference longest line operation using the supplied arguments.
+///
+/// @param text Text consumed by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 LongestLine reference_longest_line(const std::string &text) {
     usize line = 0, best_line = 0, best_len = 0, current_len = 0;
     for (char c : text) {
@@ -172,9 +215,12 @@ LongestLine reference_longest_line(const std::string &text) {
 }
 
 
-
-
-
+/// Performs the longest line tracks across leaf boundaries operation using the supplied arguments.
+///
+/// @pre `actual.line == expected.line`; debug builds assert if this precondition is violated.
+/// @pre `actual.scalars == expected.scalars`; debug builds assert if this precondition is violated.
+/// @pre `document.snapshot().max_point().line == document.snapshot().line_count() - 1`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void longest_line_tracks_across_leaf_boundaries() {
     std::string text;
     std::minstd_rand random{0x1234};
@@ -271,6 +317,12 @@ void word_boundaries_match_reference() {
     }
 }
 
+/// Performs the line indent and blank lines operation using the supplied arguments.
+///
+/// @pre `s.line_indent(0).whitespace_scalars == 0`; debug builds assert if this precondition is violated.
+/// @pre `!s.is_line_blank(0)`; debug builds assert if this precondition is violated.
+/// @pre `four.whitespace_scalars == 4 && four.has_spaces && !four.has_tabs`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void line_indent_and_blank_lines() {
     Document document{"no_indent\n    four_spaces\n\tone_tab\n  \n\t  mixed_indent\n"};
     const DocumentSnapshot s = document.snapshot();
@@ -285,6 +337,12 @@ void line_indent_and_blank_lines() {
     assert(mixed.whitespace_scalars == 3 && mixed.has_spaces && mixed.has_tabs);
 }
 
+/// Performs the matching bracket scans operation using the supplied arguments.
+///
+/// @pre `s.matching_bracket({3}) == ByteOffset{22}`; debug builds assert if this precondition is violated.
+/// @pre `s.matching_bracket({22}) == ByteOffset{3}`; debug builds assert if this precondition is violated.
+/// @pre `s.matching_bracket({7}) == ByteOffset{11}`; debug builds assert if this precondition is violated.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void matching_bracket_scans() {
     const std::string text = "foo(bar[baz]{qux(1,2)})";
     Document document{text};
@@ -339,9 +397,6 @@ void find_and_find_all_match_reference() {
 // Regression test for a real bug found during self-review: find_all()'s cross-chunk carry logic
 
 
-
-
-
 void find_all_never_overlaps_across_piece_boundaries() {
     const auto reference_find_all = [](const std::string &text, const std::string &pattern) {
         vector<std::pair<usize, usize>> matches;
@@ -389,8 +444,6 @@ void anchor_range_resolves_through_edits() {
     const DocumentSnapshot before = document.snapshot();
 
 
-
-
     const auto start_anchor = before.anchor_at({0}, AnchorBias::After);
     const auto end_anchor = before.anchor_at({5}, AnchorBias::After);
     assert(start_anchor && end_anchor);
@@ -405,12 +458,7 @@ void anchor_range_resolves_through_edits() {
 }
 
 
-
-
-
 void undo_redo_groups_typing_and_deletion_bursts() {
-
-
 
 
     Document document{};
@@ -480,8 +528,6 @@ void undo_redo_groups_typing_and_deletion_bursts() {
 }
 
 
-
-
 void anchors_resolve_correctly_across_coalesced_bursts() {
     Document document{"x"};
 
@@ -499,10 +545,6 @@ void anchors_resolve_correctly_across_coalesced_bursts() {
     const auto resolved = document.snapshot().resolve(*anchor);
     assert(resolved && *resolved == ByteOffset{3});
 }
-
-
-
-
 
 
 void randomized_large_document_transactions_match_reference() {
@@ -548,9 +590,6 @@ void randomized_large_document_transactions_match_reference() {
         assert(applied->snapshot.byte_size() == reference.size());
     }
 }
-
-
-
 
 
 void large_document_edits_stay_path_local() {

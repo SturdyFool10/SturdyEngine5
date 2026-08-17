@@ -18,18 +18,10 @@
 #pragma endregion
 
 
-
-
-
-
-
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wlanguage-extension-token"
 #endif
-
-
-
 
 
 namespace SFT::GraphicsPlatform {
@@ -37,21 +29,41 @@ namespace SFT::GraphicsPlatform {
     namespace {
 
 
-
-
         template <typename T>
         class ComPtr {
           public:
+            /// Constructs a `ComPtr` in its default state.
+            ///
+            /// @note This function does not throw exceptions.
             ComPtr() noexcept = default;
+            /// Destroys the `ComPtr` and releases resources owned by it.
+            ///
+            /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
             ~ComPtr() { reset(); }
 
+            /// Constructs a `ComPtr` from another instance.
+            ///
+            /// @param other Other object used by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             ComPtr(const ComPtr &other) noexcept : ptr_(other.ptr_) {
                 if (ptr_ != nullptr) {
                     ptr_->AddRef();
                 }
             }
+            /// Constructs a `ComPtr` from another instance.
+            ///
+            /// @param other Other object used by the operation.
+            ///
+            /// @note This function does not throw exceptions.
             ComPtr(ComPtr &&other) noexcept : ptr_(std::exchange(other.ptr_, nullptr)) {}
 
+            /// Assigns a new value to this `ComPtr`.
+            ///
+            /// @param other Other object used by the operation.
+            ///
+            /// @return Returns `*this` so the operation can be chained.
+            /// @note This function does not throw exceptions.
             ComPtr &operator=(const ComPtr &other) noexcept {
                 if (this != &other) {
                     if (other.ptr_ != nullptr) {
@@ -62,6 +74,12 @@ namespace SFT::GraphicsPlatform {
                 }
                 return *this;
             }
+            /// Assigns a new value to this `ComPtr`.
+            ///
+            /// @param other Other object used by the operation.
+            ///
+            /// @return Returns `*this` so the operation can be chained.
+            /// @note This function does not throw exceptions.
             ComPtr &operator=(ComPtr &&other) noexcept {
                 if (this != &other) {
                     reset();
@@ -70,6 +88,9 @@ namespace SFT::GraphicsPlatform {
                 return *this;
             }
 
+            /// Resets the object to its baseline state.
+            ///
+            /// @note This function does not throw exceptions.
             void reset() noexcept {
                 if (ptr_ != nullptr) {
                     ptr_->Release();
@@ -77,22 +98,48 @@ namespace SFT::GraphicsPlatform {
                 }
             }
 
+            /// Returns the value or resource currently represented by `ComPtr`.
+            ///
+            /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] T *get() const noexcept { return ptr_; }
+            /// Accesses the object referenced by this `ComPtr`.
+            ///
+            /// @return Returns a pointer through which the referenced object can be accessed.
+            /// @note This function does not throw exceptions.
             T *operator->() const noexcept { return ptr_; }
+            /// Converts the `ComPtr` to `bool`.
+            ///
+            /// @return Returns the boolean result of the operation.
+            /// @note This function does not throw exceptions.
             explicit operator bool() const noexcept { return ptr_ != nullptr; }
 
 
-
+            /// Returns the current or globally available put value.
+            ///
+            /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+            /// @note This function does not throw exceptions.
             T **put() noexcept {
                 reset();
                 return &ptr_;
             }
+            /// Returns the current or globally available put void value.
+            ///
+            /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+            /// @note This function does not throw exceptions.
             void **put_void() noexcept { return reinterpret_cast<void **>(put()); }
 
           private:
             T *ptr_ = nullptr;
         };
 
+        /// Performs the hresult text operation for `GraphicsPlatform` using the supplied arguments.
+        ///
+        /// @param what `what` value used by the operation.
+        /// @param hr `hr` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::string hresult_text(const char *what, HRESULT hr) {
             char buffer[256];
             std::snprintf(buffer, sizeof(buffer), "%s failed (hresult=0x%08lX).", what,
@@ -100,10 +147,24 @@ namespace SFT::GraphicsPlatform {
             return std::string(buffer);
         }
 
+        /// Performs the platform error operation for `GraphicsPlatform` using the supplied arguments.
+        ///
+        /// @param what `what` value used by the operation.
+        /// @param hr `hr` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Error/status alternatives explicitly produced by this implementation include `QueryStatus::PlatformError`.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] QueryMessage platform_error(const char *what, HRESULT hr) {
             return QueryMessage{QueryStatus::PlatformError, hresult_text(what, hr)};
         }
 
+        /// Converts the value to DXGI format representation.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns the value converted to DXGI format representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DXGI_FORMAT to_dxgi_format(CompositionFormat format) noexcept {
             switch (format) {
                 case CompositionFormat::Bgra8Unorm: return DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -114,6 +175,12 @@ namespace SFT::GraphicsPlatform {
             return DXGI_FORMAT_B8G8R8A8_UNORM;
         }
 
+        /// Formats bytes per pixel using the supplied arguments and current state.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::uint32_t format_bytes_per_pixel(CompositionFormat format) noexcept {
             switch (format) {
                 case CompositionFormat::Bgra8Unorm:
@@ -125,11 +192,12 @@ namespace SFT::GraphicsPlatform {
         }
 
 
-
-
-
-
-
+        /// Converts the value to DXGI alpha mode representation.
+        ///
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns the value converted to DXGI alpha mode representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DXGI_ALPHA_MODE to_dxgi_alpha_mode(CompositionAlphaMode mode) noexcept {
             switch (mode) {
                 case CompositionAlphaMode::Premultiplied: return DXGI_ALPHA_MODE_PREMULTIPLIED;
@@ -145,10 +213,15 @@ namespace SFT::GraphicsPlatform {
 
         class WindowsCompositionPresenter final : public CompositionPresenter {
           public:
+            /// Constructs a `WindowsCompositionPresenter` in its default state.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             WindowsCompositionPresenter() = default;
 
+            /// Destroys the `WindowsCompositionPresenter` and releases resources owned by it.
+            ///
+            /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
             ~WindowsCompositionPresenter() override {
-
 
 
                 wait_for_gpu_idle();
@@ -164,6 +237,12 @@ namespace SFT::GraphicsPlatform {
                 close_fence_handles();
             }
 
+            /// Initializes the `WindowsCompositionPresenter` for use.
+            ///
+            /// @param desc Description of the resource or operation to perform.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] QueryMessage initialize(const CompositionPresenterDesc &desc) {
                 hwnd_ = static_cast<HWND>(desc.surface.window);
                 width_ = desc.width;
@@ -189,10 +268,18 @@ namespace SFT::GraphicsPlatform {
                 return bind_composition_tree();
             }
 
+            /// Returns the current or globally available shared images value.
+            ///
+            /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] std::span<const CompositionSharedImage> shared_images() const noexcept override {
                 return images_;
             }
 
+            /// Returns the current or globally available shared fences value.
+            ///
+            /// @return Returns the current shared fences value.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] CompositionSharedFences shared_fences() const noexcept override {
                 return CompositionSharedFences{
                     .render_complete_nt_handle = render_complete_handle_,
@@ -200,6 +287,11 @@ namespace SFT::GraphicsPlatform {
                 };
             }
 
+            /// Acquires next image.
+            ///
+            /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+            /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+            /// @note Error/status alternatives explicitly produced by this implementation include `QueryStatus::NotAvailable`.
             [[nodiscard]] QueryResult<CompositionAcquisition> acquire_next_image() override {
                 if (images_.empty()) {
                     return QueryResult<CompositionAcquisition>{
@@ -218,6 +310,14 @@ namespace SFT::GraphicsPlatform {
                 };
             }
 
+            /// Presents the completed frame to the target surface or swapchain.
+            ///
+            /// @param image_index Zero-based index of the target element or entry.
+            /// @param render_complete_value Value consumed by the operation.
+            /// @param sync_interval `sync_interval` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] QueryMessage present(std::uint32_t image_index,
                                                std::uint64_t render_complete_value,
                                                std::uint32_t sync_interval) override {
@@ -225,7 +325,6 @@ namespace SFT::GraphicsPlatform {
                     return QueryMessage{QueryStatus::InvalidArgument,
                                         "Composition present: image_index is out of range."};
                 }
-
 
 
                 if (render_complete_value != 0) {
@@ -236,10 +335,6 @@ namespace SFT::GraphicsPlatform {
                 }
 
 
-
-
-
-
                 ComPtr<ID3D11Texture2D> back_buffer;
                 const UINT back_buffer_index = swapchain_->GetCurrentBackBufferIndex();
                 if (const HRESULT hr = swapchain_->GetBuffer(back_buffer_index, IID_PPV_ARGS(back_buffer.put()));
@@ -248,19 +343,12 @@ namespace SFT::GraphicsPlatform {
                 }
 
 
-
                 context_->CopyResource(back_buffer.get(), textures_[image_index].get());
-
-
-
-
 
 
                 if (const HRESULT hr = swapchain_->Present(sync_interval, 0); FAILED(hr)) {
                     return platform_error("IDXGISwapChain3::Present", hr);
                 }
-
-
 
 
                 const std::uint64_t next_present_fence_value = present_fence_value_ + 1;
@@ -273,6 +361,13 @@ namespace SFT::GraphicsPlatform {
                 return QueryMessage{};
             }
 
+            /// Changes the logical size to the requested value, creating or removing elements as needed.
+            ///
+            /// @param width Width of the target extent.
+            /// @param height Height of the target extent.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] QueryMessage resize(std::uint32_t width, std::uint32_t height) override {
                 if (width == 0 || height == 0) {
                     return QueryMessage{QueryStatus::InvalidArgument,
@@ -281,22 +376,8 @@ namespace SFT::GraphicsPlatform {
                 if (width == width_ && height == height_) {
 
 
-
-
                     return apply_visual_scale(1.0f, 1.0f);
                 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 
                 release_shared_images();
@@ -310,14 +391,19 @@ namespace SFT::GraphicsPlatform {
                 }
 
 
-
-
                 if (QueryMessage scaled = apply_visual_scale(1.0f, 1.0f); !scaled) {
                     return scaled;
                 }
                 return create_shared_images();
             }
 
+            /// Sets the live scale for this `WindowsCompositionPresenter`.
+            ///
+            /// @param width Width of the target extent.
+            /// @param height Height of the target extent.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] QueryMessage set_live_scale(std::uint32_t width, std::uint32_t height) override {
                 if (width == 0 || height == 0) {
                     return QueryMessage{QueryStatus::InvalidArgument,
@@ -333,15 +419,28 @@ namespace SFT::GraphicsPlatform {
                                           static_cast<float>(height) / static_cast<float>(height_));
             }
 
+            /// Returns the current or globally available width value.
+            ///
+            /// @return Returns the current width value.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] std::uint32_t width() const noexcept override { return width_; }
+            /// Returns the current or globally available height value.
+            ///
+            /// @return Returns the current height value.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] std::uint32_t height() const noexcept override { return height_; }
 
           private:
+            /// Creates a devices from the supplied parameters.
+            ///
+            /// @param desc Description of the resource or operation to perform.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] QueryMessage create_devices(const CompositionPresenterDesc &desc) {
                 if (const HRESULT hr = CreateDXGIFactory2(0, IID_PPV_ARGS(factory_.put())); FAILED(hr)) {
                     return platform_error("CreateDXGIFactory2", hr);
                 }
-
 
 
                 ComPtr<IDXGIAdapter1> adapter;
@@ -353,7 +452,6 @@ namespace SFT::GraphicsPlatform {
                         return platform_error("IDXGIFactory4::EnumAdapterByLuid", hr);
                     }
                 }
-
 
 
                 const D3D_FEATURE_LEVEL feature_levels[] = {
@@ -378,8 +476,6 @@ namespace SFT::GraphicsPlatform {
                 }
 
 
-
-
                 if (const HRESULT qi = device->QueryInterface(IID_PPV_ARGS(device_.put())); FAILED(qi)) {
                     return QueryMessage{QueryStatus::Unsupported,
                                         hresult_text("ID3D11Device5 query (Windows 10 1703+ required for "
@@ -392,6 +488,10 @@ namespace SFT::GraphicsPlatform {
                 return QueryMessage{};
             }
 
+            /// Creates a swapchain from the supplied parameters.
+            ///
+            /// @return Returns the current create swapchain value.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] QueryMessage create_swapchain() {
                 DXGI_SWAP_CHAIN_DESC1 description{};
                 description.Width = width_;
@@ -410,10 +510,6 @@ namespace SFT::GraphicsPlatform {
                 description.Flags = 0;
 
 
-
-
-
-
                 ComPtr<IDXGISwapChain1> swapchain;
                 if (const HRESULT hr = factory_->CreateSwapChainForComposition(
                         device_.get(), &description, nullptr, swapchain.put());
@@ -426,6 +522,10 @@ namespace SFT::GraphicsPlatform {
                 return QueryMessage{};
             }
 
+            /// Creates a fences from the supplied parameters.
+            ///
+            /// @return Returns the current create fences value.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] QueryMessage create_fences() {
                 if (const HRESULT hr = device_->CreateFence(0, D3D11_FENCE_FLAG_SHARED,
                                                            IID_PPV_ARGS(render_complete_fence_.put()));
@@ -450,6 +550,10 @@ namespace SFT::GraphicsPlatform {
                 return QueryMessage{};
             }
 
+            /// Creates a shared images from the supplied parameters.
+            ///
+            /// @return Returns the current create shared images value.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] QueryMessage create_shared_images() {
                 D3D11_TEXTURE2D_DESC description{};
                 description.Width = width_;
@@ -462,8 +566,6 @@ namespace SFT::GraphicsPlatform {
                 description.Usage = D3D11_USAGE_DEFAULT;
                 description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
                 description.CPUAccessFlags = 0;
-
-
 
 
                 description.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED;
@@ -509,8 +611,11 @@ namespace SFT::GraphicsPlatform {
                 return QueryMessage{};
             }
 
+            /// Binds composition tree for subsequent operations.
+            ///
+            /// @return Returns the current bind composition tree value.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] QueryMessage bind_composition_tree() {
-
 
 
                 ComPtr<IDXGIDevice> dxgi_device;
@@ -541,7 +646,6 @@ namespace SFT::GraphicsPlatform {
                 }
 
 
-
                 if (const HRESULT hr = composition_device_->Commit(); FAILED(hr)) {
                     return platform_error("IDCompositionDesktopDevice::Commit", hr);
                 }
@@ -549,13 +653,17 @@ namespace SFT::GraphicsPlatform {
             }
 
 
-
-
+            /// Applies visual scale using the supplied arguments and current state.
+            ///
+            /// @param scale_x `scale_x` value used by the operation.
+            /// @param scale_y `scale_y` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] QueryMessage apply_visual_scale(float scale_x, float scale_y) {
                 if (!composition_visual_ || !composition_device_) {
                     return QueryMessage{};
                 }
-
 
 
                 if (scale_x == applied_scale_x_ && scale_y == applied_scale_y_) {
@@ -580,6 +688,9 @@ namespace SFT::GraphicsPlatform {
                 return QueryMessage{};
             }
 
+            /// Releases shared images using the supplied arguments and current state.
+            ///
+            /// @note This function does not throw exceptions.
             void release_shared_images() noexcept {
                 for (CompositionSharedImage &image : images_) {
                     if (image.nt_handle != nullptr) {
@@ -592,6 +703,9 @@ namespace SFT::GraphicsPlatform {
                 next_image_index_ = 0;
             }
 
+            /// Closes fence handles using the supplied arguments and current state.
+            ///
+            /// @note This function does not throw exceptions.
             void close_fence_handles() noexcept {
                 if (render_complete_handle_ != nullptr) {
                     CloseHandle(render_complete_handle_);
@@ -604,11 +718,9 @@ namespace SFT::GraphicsPlatform {
             }
 
 
-
-
-
-
-
+            /// Waits for for GPU idle to complete.
+            ///
+            /// @note This function does not throw exceptions.
             void wait_for_gpu_idle() noexcept {
                 if (!present_complete_fence_ || !context_ || present_fence_value_ == 0) {
                     return;
@@ -645,7 +757,6 @@ namespace SFT::GraphicsPlatform {
             ComPtr<IDCompositionVisual2> composition_visual_;
 
 
-
             float applied_scale_x_ = 1.0f;
             float applied_scale_y_ = 1.0f;
 
@@ -665,13 +776,19 @@ namespace SFT::GraphicsPlatform {
 
     } // namespace
 
+    /// Returns the current or globally available composition present compiled value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool composition_present_compiled() noexcept {
         return true;
     }
 
+    /// Returns the current or globally available composition present available value.
+    ///
+    /// @return Returns the current composition present available value.
+    /// @note This function does not throw exceptions.
     QueryMessage composition_present_available() noexcept {
-
-
 
 
         BOOL composition_enabled = FALSE;
@@ -686,6 +803,13 @@ namespace SFT::GraphicsPlatform {
         return QueryMessage{};
     }
 
+    /// Creates a composition presenter from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `QueryStatus::InvalidArgument`, `QueryStatus::Unsupported`.
     QueryResult<std::unique_ptr<CompositionPresenter>> create_composition_presenter(
         const CompositionPresenterDesc &desc) {
         using Result = QueryResult<std::unique_ptr<CompositionPresenter>>;

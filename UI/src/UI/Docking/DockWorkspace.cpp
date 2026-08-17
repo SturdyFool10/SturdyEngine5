@@ -3,12 +3,30 @@
 
 namespace SFT::UI::Docking {
 
+    /// Sets the content background for this `Docking`.
+    ///
+    /// @param color `color` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void DockWorkspace::set_content_background(Color color) noexcept { style_.content_background = color; }
 
+    /// Adds panel using the supplied arguments and current state.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    /// @param placement `placement` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     bool DockWorkspace::add_panel(DockPanelDesc desc, optional<DockPlacement> placement) {
         return accept_panel(std::move(desc), placement);
     }
 
+    /// Performs the accept panel operation for `Docking` using the supplied arguments.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    /// @param placement `placement` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     bool DockWorkspace::accept_panel(DockPanelDesc desc, optional<DockPlacement> placement) {
         const DockPanelId id = desc.id;
         if (id.empty() || panels_.contains(id) || tree_.find_leaf_of(id)) {
@@ -29,6 +47,12 @@ namespace SFT::UI::Docking {
         return true;
     }
 
+    /// Removes the panel from its owning collection or system.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockWorkspace::remove_panel(const DockPanelId &id) {
         if (active_drag_ && active_drag_->kind == ActiveDrag::Kind::Tab &&
             active_drag_->panel == id) {
@@ -45,8 +69,6 @@ namespace SFT::UI::Docking {
         tab_drag_.erase(id);
 
 
-
-
         if (active_drag_ && active_drag_->kind == ActiveDrag::Kind::Divider &&
             tree_.node(active_drag_->resizing_node) == nullptr) {
             if (auto drag = divider_drag_.find(active_drag_->resizing_node);
@@ -60,6 +82,12 @@ namespace SFT::UI::Docking {
         }
     }
 
+    /// Performs the take panel operation for `Docking` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<DockPanelDesc> DockWorkspace::take_panel(const DockPanelId &id) {
         const auto found = panels_.find(id);
         if (found == panels_.end()) {
@@ -70,17 +98,41 @@ namespace SFT::UI::Docking {
         return desc;
     }
 
+    /// Reports whether this `Docking` has panel.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool DockWorkspace::has_panel(const DockPanelId &id) const noexcept { return panels_.contains(id); }
 
+    /// Performs the panel desc operation for `Docking` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note This function does not throw exceptions.
     const DockPanelDesc *DockWorkspace::panel_desc(const DockPanelId &id) const noexcept {
         const auto found = panels_.find(id);
         return found != panels_.end() ? &found->second : nullptr;
     }
 
+    /// Reports whether this `Docking` contains no elements or payload.
+    ///
+    /// @return Returns the current empty value.
+    /// @note This function does not throw exceptions.
     bool DockWorkspace::empty() const noexcept { return tree_.empty(); }
 
+    /// Returns the current or globally available focused leaf value.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note This function does not throw exceptions.
     optional<DockNodeId> DockWorkspace::focused_leaf() const noexcept { return focused_leaf_; }
 
+    /// Returns the current or globally available active tab drag value.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<DockActiveTabDragSnapshot> DockWorkspace::active_tab_drag() const {
         if (!active_drag_ || active_drag_->kind != ActiveDrag::Kind::Tab) {
             return std::nullopt;
@@ -92,6 +144,14 @@ namespace SFT::UI::Docking {
         };
     }
 
+    /// Performs the begin frame operation for `Docking` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param workspace_rect `workspace_rect` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockWorkspace::begin_frame(Context &ctx, DockRect workspace_rect, f32 delta_seconds) {
         last_delta_seconds_ = delta_seconds;
         workspace_rect_ = workspace_rect;
@@ -99,9 +159,6 @@ namespace SFT::UI::Docking {
                                            style_.divider_thickness);
 
         update_drag_state(ctx);
-
-
-
 
 
         last_layout_ = compute_dock_layout(tree_, workspace_local_rect(), style_.tab_strip_height,
@@ -117,6 +174,12 @@ namespace SFT::UI::Docking {
         }
     }
 
+    /// Performs the panel content region operation for `Docking` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<ElementDecl> DockWorkspace::panel_content_region(const DockPanelId &id) const {
         const optional<DockNodeId> leaf = tree_.find_leaf_of(id);
         if (!leaf) {
@@ -144,6 +207,12 @@ namespace SFT::UI::Docking {
         };
     }
 
+    /// Performs the end frame operation for `Docking` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     DockWorkspaceEvents DockWorkspace::end_frame(Context &ctx) {
         (void)ctx;
         DockWorkspaceEvents events = std::move(pending_events_);
@@ -154,6 +223,13 @@ namespace SFT::UI::Docking {
         return events;
     }
 
+    /// Performs the preview foreign drag operation for `Docking` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param local_pointer `local_pointer` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<DockPlacement> DockWorkspace::preview_foreign_drag(Context &ctx,
                                                                 glm::vec2 local_pointer) {
         (void)ctx;
@@ -175,6 +251,15 @@ namespace SFT::UI::Docking {
         return hit;
     }
 
+    /// Performs the preview foreign drag operation for `Docking` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param foreign_panel `foreign_panel` value used by the operation.
+    /// @param local_pointer `local_pointer` value used by the operation.
+    /// @param released `released` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool DockWorkspace::preview_foreign_drag(Context &ctx, const DockPanelId &foreign_panel,
                               glm::vec2 local_pointer, bool released) {
         (void)foreign_panel;
@@ -182,22 +267,47 @@ namespace SFT::UI::Docking {
         return preview_foreign_drag(ctx, local_pointer).has_value();
     }
 
+    /// Clears foreign drag preview.
+    ///
+    /// @return Returns the current clear foreign drag preview value.
+    /// @note This function does not throw exceptions.
     void DockWorkspace::clear_foreign_drag_preview() noexcept { foreign_drag_hover_.reset(); }
 
+    /// Returns the current or globally available workspace local rect value.
+    ///
+    /// @return Returns the current workspace local rect value.
+    /// @note This function does not throw exceptions.
     DockRect DockWorkspace::workspace_local_rect() const noexcept {
         return DockRect{.origin = glm::vec2{0.0f}, .size = workspace_rect_.size};
     }
 
+    /// Converts the value to context root representation.
+    ///
+    /// @param workspace_local `workspace_local` value used by the operation.
+    ///
+    /// @return Returns the value converted to context root representation.
+    /// @note This function does not throw exceptions.
     glm::vec2 DockWorkspace::to_context_root(glm::vec2 workspace_local) const noexcept {
         return workspace_rect_.origin + workspace_local;
     }
 
+    /// Converts the value to workspace local representation.
+    ///
+    /// @param result `result` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     DragGestureState::UpdateResult DockWorkspace::to_workspace_local(
         DragGestureState::UpdateResult result) const noexcept {
         result.position -= workspace_rect_.origin;
         return result;
     }
 
+    /// Returns the current or globally available default target leaf value.
+    ///
+    /// @return Returns the current default target leaf value.
+    /// @note This function does not throw exceptions.
     DockNodeId DockWorkspace::default_target_leaf() const noexcept {
         if (focused_leaf_) {
             const DockNode *focused = tree_.node(*focused_leaf_);
@@ -215,11 +325,25 @@ namespace SFT::UI::Docking {
         return invalid_dock_node_id;
     }
 
+    /// Reports whether valid placement holds for this `Docking`.
+    ///
+    /// @param placement `placement` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool DockWorkspace::is_valid_placement(const DockPlacement &placement) const noexcept {
         const DockNode *target = tree_.node(placement.target_node);
         return target != nullptr && target->kind == DockNode::Kind::Leaf;
     }
 
+    /// Applies placement using the supplied arguments and current state.
+    ///
+    /// @param target `target` value used by the operation.
+    /// @param zone `zone` value used by the operation.
+    /// @param panel `panel` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool DockWorkspace::apply_placement(DockNodeId target, DockDropZone zone, const DockPanelId &panel) {
         bool applied = false;
         switch (zone) {
@@ -247,6 +371,13 @@ namespace SFT::UI::Docking {
         return applied;
     }
 
+    /// Resolves the layout associated with the supplied key, handle, or resource.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const DockNodeLayout *DockWorkspace::layout_for(DockNodeId id) const noexcept {
         for (const DockNodeLayout &nl : last_layout_) {
             if (nl.node == id) {
@@ -256,18 +387,43 @@ namespace SFT::UI::Docking {
         return nullptr;
     }
 
+    /// Resolves the tab ID associated with the supplied key, handle, or resource.
+    ///
+    /// @param panel `panel` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString DockWorkspace::tab_id_for(const DockPanelId &panel) const {
         return UString{id_prefix_.cpp_string() + "##tab##" + panel.cpp_string()};
     }
 
+    /// Resolves the close button ID associated with the supplied key, handle, or resource.
+    ///
+    /// @param panel `panel` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString DockWorkspace::close_button_id_for(const DockPanelId &panel) const {
         return UString{tab_id_for(panel).cpp_string() + "##close"};
     }
 
+    /// Resolves the divider ID associated with the supplied key, handle, or resource.
+    ///
+    /// @param node `node` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString DockWorkspace::divider_id_for(DockNodeId node) const {
         return UString{id_prefix_.cpp_string() + "##divider##" + std::to_string(static_cast<u32>(node))};
     }
 
+    /// Performs the tab index under pointer operation for `Docking` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param leaf `leaf` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<usize> DockWorkspace::tab_index_under_pointer(Context &ctx, DockNodeId leaf) const {
         const DockNode *n = tree_.node(leaf);
         if (n == nullptr) {
@@ -281,6 +437,13 @@ namespace SFT::UI::Docking {
         return std::nullopt;
     }
 
+    /// Performs the classify drop zone operation for `Docking` using the supplied arguments.
+    ///
+    /// @param rect `rect` value used by the operation.
+    /// @param point `point` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     DockDropZone DockWorkspace::classify_drop_zone(const DockRect &rect, glm::vec2 point) noexcept {
         const f32 u = rect.size.x > 0.0f ? (point.x - rect.origin.x) / rect.size.x : 0.5f;
         const f32 v = rect.size.y > 0.0f ? (point.y - rect.origin.y) / rect.size.y : 0.5f;
@@ -301,6 +464,13 @@ namespace SFT::UI::Docking {
         return nearest == dist_top ? DockDropZone::Top : DockDropZone::Bottom;
     }
 
+    /// Performs the hit test drop target operation for `Docking` using the supplied arguments.
+    ///
+    /// @param point `point` value used by the operation.
+    /// @param exclude `exclude` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<DockPlacement> DockWorkspace::hit_test_drop_target(glm::vec2 point, optional<DockNodeId> exclude) const {
         for (const DockNodeLayout &nl : last_layout_) {
             if (exclude && nl.node == *exclude) {
@@ -320,6 +490,13 @@ namespace SFT::UI::Docking {
         return std::nullopt;
     }
 
+    /// Performs the reorder within leaf operation for `Docking` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param active `active` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockWorkspace::reorder_within_leaf(Context &ctx, const ActiveDrag &active) {
         const DockNode *n = tree_.node(active.source_leaf);
         if (n == nullptr) {
@@ -336,6 +513,14 @@ namespace SFT::UI::Docking {
         }
     }
 
+    /// Updates tab drag hover from the supplied values.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param active `active` value used by the operation.
+    /// @param r `r` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     void DockWorkspace::update_tab_drag_hover(Context &ctx, ActiveDrag &active, const DragGestureState::UpdateResult &r) {
         const DockNodeLayout *source_nl = layout_for(active.source_leaf);
         if (source_nl != nullptr && source_nl->tab_strip_rect.contains(r.position)) {
@@ -345,15 +530,19 @@ namespace SFT::UI::Docking {
         }
 
 
-
-
-
         const DockNode *source_node = tree_.node(active.source_leaf);
         const bool source_is_splittable = source_node != nullptr && source_node->tabs.size() > 1;
         active.hover_placement =
             hit_test_drop_target(r.position, source_is_splittable ? std::nullopt : optional<DockNodeId>{active.source_leaf});
     }
 
+    /// Resolves tab drag end into the concrete value used by the engine.
+    ///
+    /// @param active `active` value used by the operation.
+    /// @param r `r` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     void DockWorkspace::resolve_tab_drag_end(const ActiveDrag &active, const DragGestureState::UpdateResult &r) {
         if (r.cancelled) {
             return;
@@ -372,6 +561,13 @@ namespace SFT::UI::Docking {
 
     }
 
+    /// Applies divider delta using the supplied arguments and current state.
+    ///
+    /// @param active `active` value used by the operation.
+    /// @param r `r` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     void DockWorkspace::apply_divider_delta(const ActiveDrag &active, const DragGestureState::UpdateResult &r) {
         const DockNode *n = tree_.node(active.resizing_node);
         const DockNodeLayout *nl = layout_for(active.resizing_node);
@@ -386,6 +582,12 @@ namespace SFT::UI::Docking {
         tree_.set_split_ratio(active.resizing_node, std::clamp(active.anchor_ratio + delta_ratio, min_ratio, 1.0f - min_ratio));
     }
 
+    /// Updates drag state from the supplied values.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockWorkspace::update_drag_state(Context &ctx) {
         if (active_drag_) {
             continue_active_drag(ctx);
@@ -394,6 +596,12 @@ namespace SFT::UI::Docking {
         scan_for_new_drag(ctx);
     }
 
+    /// Performs the continue active drag operation for `Docking` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockWorkspace::continue_active_drag(Context &ctx) {
         ActiveDrag &active = *active_drag_;
         if (active.kind == ActiveDrag::Kind::Divider) {
@@ -421,6 +629,12 @@ namespace SFT::UI::Docking {
         }
     }
 
+    /// Performs the scan for new drag operation for `Docking` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockWorkspace::scan_for_new_drag(Context &ctx) {
         for (const DockNodeLayout &nl : last_layout_) {
             const DockNode *n = tree_.node(nl.node);
@@ -437,7 +651,6 @@ namespace SFT::UI::Docking {
                 continue;
             }
             for (const DockPanelId &tab : n->tabs) {
-
 
 
                 if (ctx.clicked(close_button_id_for(tab))) {
@@ -465,6 +678,14 @@ namespace SFT::UI::Docking {
         }
     }
 
+    /// Draws leaf chrome using the current rendering state.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param nl `nl` value used by the operation.
+    /// @param n `n` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockWorkspace::draw_leaf_chrome(Context &ctx, const DockNodeLayout &nl, const DockNode &n) {
         auto strip_scope = ctx.element(ElementDecl{
             .sizing = {SizingAxis::fixed(nl.tab_strip_rect.size.x), SizingAxis::fixed(nl.tab_strip_rect.size.y)},
@@ -520,6 +741,14 @@ namespace SFT::UI::Docking {
         }
     }
 
+    /// Draws divider using the current rendering state.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param nl `nl` value used by the operation.
+    /// @param axis `axis` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockWorkspace::draw_divider(Context &ctx, const DockNodeLayout &nl, DockSplitAxis axis) {
         const CursorIcon resize_cursor = axis == DockSplitAxis::Horizontal ? style_.horizontal_divider_cursor
                                                                            : style_.vertical_divider_cursor;
@@ -532,7 +761,6 @@ namespace SFT::UI::Docking {
                              .offset = to_context_root(nl.divider_rect.origin)},
 
 
-
                 .cursor = resize_cursor,
                 .debug_label = UString{"DockDivider"},
                 .id = divider_id_for(nl.node),
@@ -541,17 +769,17 @@ namespace SFT::UI::Docking {
         (void)result;
 
 
-
-
-
-
-
-
         if (divider_drag_[nl.node].is_capturing()) {
             ctx.force_cursor(resize_cursor);
         }
     }
 
+    /// Draws chrome using the current rendering state.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockWorkspace::draw_chrome(Context &ctx) {
         for (const DockNodeLayout &nl : last_layout_) {
             const DockNode *n = tree_.node(nl.node);
@@ -566,6 +794,13 @@ namespace SFT::UI::Docking {
         }
     }
 
+    /// Resolves the draw drop guide associated with the supplied key, handle, or resource.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param placement `placement` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DockWorkspace::draw_drop_guide_for(Context &ctx, const DockPlacement &placement) {
         const DockNodeLayout *nl = layout_for(placement.target_node);
         if (nl == nullptr) {
@@ -599,6 +834,12 @@ namespace SFT::UI::Docking {
 
 namespace SFT::UI::Docking {
 
+    /// Performs the dock workspace operation for `Docking` using the supplied arguments.
+    ///
+    /// @param id_prefix `id_prefix` value used by the operation.
+    /// @param style `style` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     DockWorkspace::DockWorkspace(UString id_prefix, DockWorkspaceStyle style)
     : id_prefix_(std::move(id_prefix)), style_(style) {}
 

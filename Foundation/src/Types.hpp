@@ -23,10 +23,7 @@ using std::uint8_t;
 
 namespace SFT::Foundation {
 
-    /// Fixed-width scalar aliases used everywhere in the engine — short, explicit, and size-guaranteed
-    /// (the `static_assert`s below enforce the sizes, and `f32`/`f64` are required to be IEEE-754).
-    /// Prefer these over `int`/`unsigned`/`float` so widths never drift across platforms. Also exported
-    /// unqualified into the `SFT` namespace at the bottom of this file for terse use engine-wide.
+
     using i8 = int8_t;
     using i16 = int16_t;
     using i32 = int32_t;
@@ -44,21 +41,34 @@ namespace SFT::Foundation {
     using usize = size_t;
     using isize = ptrdiff_t;
 
-    /// A **guaranteed 1-byte boolean**. `bool`'s size is implementation-defined, which makes it unsafe in
-    /// GPU-facing structs and serialized layouts; `b8` is exactly one byte (`static_assert`ed), trivially
-    /// copyable, and standard-layout, so it can sit in a struct shared with a shader. Converts to/from
-    /// `bool` implicitly enough to use like one: `b8 flag = true; if (flag) ...`.
+
     class b8 {
       public:
+        /// Constructs a `b8` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr b8() noexcept = default;
+        /// Constructs a `b8` from the supplied initialization values.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         constexpr b8(bool value) noexcept
             : value_(value ? u8{1} : u8{0}) {
         }
 
+        /// Converts the `b8` to `bool`.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr explicit operator bool() const noexcept {
             return value_ != 0;
         }
 
+        /// Returns the current or globally available value value.
+        ///
+        /// @return Returns the current value value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr u8 value() const noexcept {
             return value_;
         }
@@ -88,9 +98,13 @@ namespace SFT::Foundation {
     static_assert(is_trivially_copyable_v<b8>);
     static_assert(is_standard_layout_v<b8>);
 
-    /// Runtime re-check of every scalar-size / IEEE-754 / `b8`-layout invariant (the same ones the
-    /// `static_assert`s above enforce at compile time). Runs automatically once in debug builds via the
-    /// `Detail::type_assumptions_checked` initializer; also callable directly.
+
+    /// Performs the assert type assumptions operation using the supplied arguments.
+    ///
+    /// @pre `sizeof(i8) == 1`; debug builds assert if this precondition is violated.
+    /// @pre `sizeof(i16) == 2`; debug builds assert if this precondition is violated.
+    /// @pre `sizeof(i32) == 4`; debug builds assert if this precondition is violated.
+    /// @note This function does not throw exceptions.
     void assert_type_assumptions() noexcept;
 
     namespace Detail {
@@ -105,24 +119,105 @@ namespace SFT::Foundation {
     } // namespace Detail
 
 
-
-
-
 } // namespace SFT::Foundation
 
+/// Implements `operator""_i8` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::i8 operator""_i8(unsigned long long v) noexcept { return static_cast<SFT::Foundation::i8>(v); }
+/// Implements `operator""_i16` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::i16 operator""_i16(unsigned long long v) noexcept { return static_cast<SFT::Foundation::i16>(v); }
+/// Implements `operator""_i32` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::i32 operator""_i32(unsigned long long v) noexcept { return static_cast<SFT::Foundation::i32>(v); }
+/// Implements `operator""_i64` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::i64 operator""_i64(unsigned long long v) noexcept { return static_cast<SFT::Foundation::i64>(v); }
+/// Implements `operator""_u8` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::u8 operator""_u8(unsigned long long v) noexcept { return static_cast<SFT::Foundation::u8>(v); }
+/// Implements `operator""_u16` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::u16 operator""_u16(unsigned long long v) noexcept { return static_cast<SFT::Foundation::u16>(v); }
+/// Implements `operator""_u32` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::u32 operator""_u32(unsigned long long v) noexcept { return static_cast<SFT::Foundation::u32>(v); }
+/// Implements `operator""_u64` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::u64 operator""_u64(unsigned long long v) noexcept { return static_cast<SFT::Foundation::u64>(v); }
+/// Implements `operator""_usize` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::usize operator""_usize(unsigned long long v) noexcept { return static_cast<SFT::Foundation::usize>(v); }
+/// Implements `operator""_isize` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::isize operator""_isize(unsigned long long v) noexcept { return static_cast<SFT::Foundation::isize>(v); }
+/// Implements `operator""_f32` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::f32 operator""_f32(long double v) noexcept { return static_cast<SFT::Foundation::f32>(v); }
+/// Implements `operator""_f32` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::f32 operator""_f32(unsigned long long v) noexcept { return static_cast<SFT::Foundation::f32>(v); }
+/// Implements `operator""_f64` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::f64 operator""_f64(long double v) noexcept { return static_cast<SFT::Foundation::f64>(v); }
+/// Implements `operator""_f64` for `/mnt/data/SE_docpass/SturdyEngine5-Header-Cleaned/Foundation/src/Types.hpp`.
+///
+/// @param v `v` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] constexpr SFT::Foundation::f64 operator""_f64(unsigned long long v) noexcept { return static_cast<SFT::Foundation::f64>(v); }
 
 namespace SFT::Foundation {
@@ -143,6 +238,10 @@ namespace SFT::Foundation {
     } // namespace Literals
 
     namespace Detail {
+        /// Returns the current or globally available scalar literal smoke test value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] consteval bool scalar_literal_smoke_test() noexcept {
             using namespace SFT::Foundation::Literals;
             return 200_u8 == static_cast<u8>(200) && 5_i32 == 5 && 0xFF_u32 == 255u && 1'000_u64 == 1000u &&

@@ -18,19 +18,13 @@
 using std::optional;
 using std::span;
 
-/// Immediate-mode numeric range control with the interaction/value semantics expected from an HTML
-/// input[type=range]: bounded values, min-relative step snapping (or step="any"), track clicks,
-/// captured thumb dragging, disabled state, focus, repeated keyboard intents, Home/End/Page steps,
-/// arbitrary datalist-like tick marks, and separate live-change/gesture-commit signals. UI remains
-/// input-backend-agnostic: callers translate physical keys into SliderKey just as TextEditInput does.
+
 namespace SFT::UI {
 
     enum class SliderOrientation : u8 { Horizontal,
                                         Vertical };
 
-    /// Numeric intents rather than physical keys. Increment always raises the value and Decrement
-    /// always lowers it, regardless of orientation/reversal; the platform layer decides which arrow
-    /// key maps to which intent.
+
     enum class SliderKey : u8 { Decrement,
                                 Increment,
                                 PageDecrement,
@@ -51,20 +45,20 @@ namespace SFT::UI {
     struct SliderConfig {
         f64 min = 0.0;
         f64 max = 100.0;
-        /// A positive value snaps to min + N*step. std::nullopt is HTML's step="any". Invalid
-        /// numeric steps fall back to HTML's default of 1 rather than silently becoming continuous.
+
+
         optional<f64> step = 1.0;
-        /// Used only for keyboard intents. Omitted: numeric step, or 1% of the range for step="any".
+
         optional<f64> keyboard_step;
-        /// Omitted: max(10 * keyboard step, 10% of the range).
+
         optional<f64> page_step;
         SliderOrientation orientation = SliderOrientation::Horizontal;
-        /// Horizontal defaults to min-left/max-right. Vertical defaults to min-bottom/max-top;
-        /// reversed swaps those visual endpoints without changing numeric keyboard semantics.
+
+
         bool reversed = false;
         span<const SliderTick> ticks{};
-        /// Generates regular marks from min by step, capped by max_generated_ticks. Arbitrary ticks
-        /// above are visual suggestions only, matching datalist behavior; neither kind changes snap.
+
+
         bool show_step_ticks = false;
         usize max_generated_ticks = 128;
     };
@@ -97,8 +91,24 @@ namespace SFT::UI {
         Tooltip,
     };
 
+    /// Performs the slider part ID operation using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param part `part` value used by the operation.
+    /// @param occurrence `occurrence` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] UString slider_part_id(const ustr &id, SliderVisualPart part, usize occurrence = 0);
 
+    /// Performs the slider part ID operation using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param part `part` value used by the operation.
+    /// @param occurrence `occurrence` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] UString slider_part_id(const UString &id, SliderVisualPart part, usize occurrence = 0);
 
     struct SliderPartContext {
@@ -129,10 +139,13 @@ namespace SFT::UI {
         PartSlot<SliderPartContext> tooltip{.visible = false, .render_default = false};
     };
 
-    /// Persistent gesture state, one instance per logical slider. Value remains caller-owned and is
-    /// returned through SliderResult, consistent with dropdown()/toggle widgets in this package.
+
     class SliderState {
       public:
+        /// Returns the current or globally available dragging value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool dragging() const noexcept;
 
       private:
@@ -145,12 +158,12 @@ namespace SFT::UI {
 
     struct SliderResult {
         f64 value = 0.0;
-        /// True only when user interaction changed the value this frame.
+
         bool changed = false;
-        /// Pointer: true on release if that gesture changed the value. Keyboard: true with changed.
+
         bool committed = false;
-        /// True when an invalid/out-of-range/non-step-aligned caller value was normalized. This is
-        /// deliberately separate from changed so programmatic sanitization does not masquerade as UI.
+
+
         bool adjusted = false;
         bool cancelled = false;
         bool hovered = false;
@@ -159,9 +172,33 @@ namespace SFT::UI {
     };
 
     struct DetailSliderAccess {
+        /// Performs the dragging operation for `DetailSliderAccess` using the supplied arguments.
+        ///
+        /// @param state `state` value used by the operation.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         static bool &dragging(SliderState &state) noexcept;
+        /// Performs the gesture changed operation for `DetailSliderAccess` using the supplied arguments.
+        ///
+        /// @param state `state` value used by the operation.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         static bool &gesture_changed(SliderState &state) noexcept;
+        /// Performs the drag from thumb operation for `DetailSliderAccess` using the supplied arguments.
+        ///
+        /// @param state `state` value used by the operation.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         static bool &drag_from_thumb(SliderState &state) noexcept;
+        /// Computes the grab offset required by the supplied values.
+        ///
+        /// @param state `state` value used by the operation.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         static f32 &grab_offset(SliderState &state) noexcept;
     };
 
@@ -173,26 +210,102 @@ namespace SFT::UI {
             optional<f64> step = 1.0;
         };
 
+        /// Performs the slider range operation using the supplied arguments.
+        ///
+        /// @param config Configuration values controlling the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] SliderRange slider_range(const SliderConfig &config) noexcept;
 
+        /// Performs the sanitize slider value operation using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        /// @param range Range of values to process.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f64 sanitize_slider_value(f64 value, const SliderRange &range) noexcept;
 
+        /// Performs the slider values equal operation using the supplied arguments.
+        ///
+        /// @param lhs Left-hand operand.
+        /// @param rhs Right-hand operand.
+        /// @param range Range of values to process.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool slider_values_equal(f64 lhs, f64 rhs, const SliderRange &range) noexcept;
 
+        /// Performs the slider fraction operation using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        /// @param range Range of values to process.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f64 slider_fraction(f64 value, const SliderRange &range) noexcept;
 
+        /// Returns the requested declared axis size.
+        ///
+        /// @param decl `decl` value used by the operation.
+        /// @param orientation `orientation` value used by the operation.
+        ///
+        /// @return Returns the requested count or size.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 declared_axis_size(const ElementDecl &decl, SliderOrientation orientation) noexcept;
 
+        /// Performs the pointer slider value operation using the supplied arguments.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param bounds `bounds` value used by the operation.
+        /// @param config Configuration values controlling the operation.
+        /// @param range Range of values to process.
+        /// @param thumb_size Requested or available size for the operation.
+        /// @param grab_offset Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f64 pointer_slider_value(const Context &ctx, const ElementBounds &bounds, const SliderConfig &config, const SliderRange &range, f32 thumb_size, f32 grab_offset) noexcept;
 
+        /// Performs the keyboard step operation using the supplied arguments.
+        ///
+        /// @param config Configuration values controlling the operation.
+        /// @param range Range of values to process.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f64 keyboard_step(const SliderConfig &config, const SliderRange &range) noexcept;
 
+        /// Renders slider mark using the current rendering state.
+        ///
+        /// @param ctx `ctx` value used by the operation.
+        /// @param orientation `orientation` value used by the operation.
+        /// @param screen_fraction `screen_fraction` value used by the operation.
+        /// @param travel `travel` value used by the operation.
+        /// @param thumb_size Requested or available size for the operation.
+        /// @param style `style` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void render_slider_mark(Context &ctx, SliderOrientation orientation, f64 screen_fraction, f32 travel, f32 thumb_size, const SliderStyle &style);
 
     } // namespace Detail
 
-    /// `decl.id` must be non-empty and stable. The whole declared box is the hit target; its previous
-    /// frame bounds determine pointer mapping, so Grow/Percent sliders work as well as fixed ones.
+
+    /// Performs the slider operation using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param decl `decl` value used by the operation.
+    /// @param config Configuration values controlling the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param value Value consumed by the operation.
+    /// @param input `input` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    /// @param composition `composition` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     [[nodiscard]] SliderResult slider(Context &ctx, const ElementDecl &decl, const SliderConfig &config, const SliderStyle &style, SliderState &state, f64 value, const SliderInput &input, bool enabled, const SliderComposition &composition);
 
     [[nodiscard]] SliderResult slider(Context &ctx, const ElementDecl &decl, const SliderConfig &config, const SliderStyle &style, SliderState &state, f64 value, const SliderInput &input = {}, bool enabled = true);

@@ -36,6 +36,13 @@ namespace {
     using TestTypes::Doomed;
     using TestTypes::Position;
 
+    /// Checks the supplied condition and reports the accompanying diagnostic message when it is false.
+    ///
+    /// @param condition Condition controlling whether the operation proceeds.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool check(bool condition, const char *message) {
         if (!condition) {
             std::cerr << "FAILED: " << message << '\n';
@@ -44,9 +51,10 @@ namespace {
     }
 
 
-
-
-
+    /// Returns the current or globally available synchronous schedule starts no worker threads value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool synchronous_schedule_starts_no_worker_threads() {
         ComponentRegistry registry;
         World world{registry};
@@ -85,7 +93,10 @@ namespace {
     }
 
 
-
+    /// Returns the current or globally available async schedule still starts scheduler value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool async_schedule_still_starts_scheduler() {
         ComponentRegistry registry;
         World world{registry};
@@ -102,6 +113,10 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     bool passed = true;
     passed &= synchronous_schedule_starts_no_worker_threads();

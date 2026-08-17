@@ -36,9 +36,10 @@ namespace SFT::Async {
     namespace {
 
 
-
-
-
+        /// Finds or creates the winsock initialized required by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         bool ensure_winsock_initialized() noexcept {
             static const bool initialized = [] {
                 WSADATA data;
@@ -53,6 +54,11 @@ namespace SFT::Async {
     namespace Detail {
 
         struct TcpConnectionState {
+            /// Constructs a `TcpConnectionState` from the supplied initialization values.
+            ///
+            /// @param native_handle Handle identifying the target object or resource.
+            ///
+            /// @note This function does not throw exceptions.
             explicit TcpConnectionState(i64 native_handle) noexcept
                 : handle(native_handle) {}
 
@@ -65,9 +71,11 @@ namespace SFT::Async {
         namespace {
 
 
-
-
-
+            /// Closes native using the supplied arguments and current state.
+            ///
+            /// @param handle Handle identifying the target object or resource.
+            ///
+            /// @note This function does not throw exceptions.
             void close_native(i64 handle) noexcept {
 #if defined(_WIN32)
                 closesocket(static_cast<SOCKET>(handle));
@@ -77,8 +85,11 @@ namespace SFT::Async {
             }
 
 
-
-
+            /// Shuts down native and releases associated runtime state.
+            ///
+            /// @param handle Handle identifying the target object or resource.
+            ///
+            /// @note This function does not throw exceptions.
             void shutdown_native(i64 handle) noexcept {
 #if defined(_WIN32)
                 ::shutdown(static_cast<SOCKET>(handle), SD_BOTH);
@@ -89,6 +100,11 @@ namespace SFT::Async {
 
             class ConnectionOperation {
               public:
+                /// Constructs a `ConnectionOperation` from the supplied initialization values.
+                ///
+                /// @param state `state` value used by the operation.
+                ///
+                /// @note This function does not throw exceptions.
                 explicit ConnectionOperation(const std::shared_ptr<TcpConnectionState> &state) noexcept
                     : state_(state) {
                     if (!state_) {
@@ -105,9 +121,19 @@ namespace SFT::Async {
                     }
                 }
 
+                /// Disables this construction form for `ConnectionOperation`.
+                ///
+                /// @note This overload is deleted; attempting to call it is a compile-time error.
                 ConnectionOperation(const ConnectionOperation &) = delete;
+                /// Assigns a new value to this `ConnectionOperation`.
+                ///
+                /// @return Returns `*this` so the operation can be chained.
+                /// @note This overload is deleted; attempting to call it is a compile-time error.
                 ConnectionOperation &operator=(const ConnectionOperation &) = delete;
 
+                /// Destroys the `ConnectionOperation` and releases resources owned by it.
+                ///
+                /// @note This function does not throw exceptions.
                 ~ConnectionOperation() noexcept {
                     if (!state_ || handle_ < 0) {
                         return;
@@ -129,6 +155,10 @@ namespace SFT::Async {
                     }
                 }
 
+                /// Returns the current or globally available handle value.
+                ///
+                /// @return Returns the current handle value.
+                /// @note This function does not throw exceptions.
                 [[nodiscard]] i64 handle() const noexcept { return handle_; }
 
               private:
@@ -136,6 +166,12 @@ namespace SFT::Async {
                 i64 handle_ = -1;
             };
 
+            /// Performs the socket call size supported operation for `Detail` using the supplied arguments.
+            ///
+            /// @param size Requested or available size for the operation.
+            ///
+            /// @return Returns the boolean result of the operation.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] bool socket_call_size_supported(usize size) noexcept {
 #if defined(_WIN32)
                 return size <= static_cast<usize>((std::numeric_limits<int>::max)());
@@ -146,6 +182,14 @@ namespace SFT::Async {
 
         } // namespace
 
+        /// Performs the connect blocking operation for `Detail` using the supplied arguments.
+        ///
+        /// @param host `host` value used by the operation.
+        /// @param port `port` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `IoErrorCode::Unknown`, `IoErrorCode::NotFound`, `IoErrorCode::ConnectionRefused`.
         expected<TcpConnection, IoError> connect_blocking(const string &host, u16 port) {
 #if defined(_WIN32)
             if (!ensure_winsock_initialized()) {
@@ -209,6 +253,14 @@ namespace SFT::Async {
             }
         }
 
+        /// Performs the send blocking operation for `Detail` using the supplied arguments.
+        ///
+        /// @param state `state` value used by the operation.
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `IoErrorCode::InvalidArgument`, `IoErrorCode::ConnectionReset`.
         expected<usize, IoError> send_blocking(const std::shared_ptr<TcpConnectionState> &state,
                                                span<const std::byte> data) {
             if (!socket_call_size_supported(data.size())) {
@@ -234,6 +286,14 @@ namespace SFT::Async {
             return static_cast<usize>(sent);
         }
 
+        /// Performs the receive blocking operation for `Detail` using the supplied arguments.
+        ///
+        /// @param state `state` value used by the operation.
+        /// @param max_bytes `max_bytes` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `IoErrorCode::InvalidArgument`, `IoErrorCode::Unknown`, `IoErrorCode::ConnectionReset`.
         expected<vector<std::byte>, IoError> receive_blocking(const std::shared_ptr<TcpConnectionState> &state,
                                                                usize max_bytes) {
             if (!socket_call_size_supported(max_bytes)) {
@@ -267,6 +327,12 @@ namespace SFT::Async {
             return buffer;
         }
 
+        /// Reports whether connection is open.
+        ///
+        /// @param state `state` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         bool connection_is_open(const std::shared_ptr<TcpConnectionState> &state) noexcept {
             if (!state) {
                 return false;
@@ -279,6 +345,11 @@ namespace SFT::Async {
             }
         }
 
+        /// Closes blocking using the supplied arguments and current state.
+        ///
+        /// @param state `state` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void close_blocking(const std::shared_ptr<TcpConnectionState> &state) noexcept {
             if (!state) {
                 return;
@@ -313,16 +384,35 @@ namespace SFT::Async {
 
     } // namespace Detail
 
+    /// Performs the TCP connection operation for `Async` using the supplied arguments.
+    ///
+    /// @param native_handle Handle identifying the target object or resource.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     TcpConnection::TcpConnection(i64 native_handle)
         : state_(std::make_shared<Detail::TcpConnectionState>(native_handle)) {}
 
+    /// Destroys the `Async` and releases resources owned by it.
+    ///
+    /// @note This function does not throw exceptions.
     TcpConnection::~TcpConnection() noexcept {
         close();
     }
 
+    /// Performs the TCP connection operation for `Async` using the supplied arguments.
+    ///
+    /// @param other Other object used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     TcpConnection::TcpConnection(TcpConnection &&other) noexcept
         : state_(std::move(other.state_)) {}
 
+    /// Assigns a new value to this `Async`.
+    ///
+    /// @param other Other object used by the operation.
+    ///
+    /// @return Returns `*this` so the operation can be chained.
+    /// @note This function does not throw exceptions.
     TcpConnection &TcpConnection::operator=(TcpConnection &&other) noexcept {
         if (this != &other) {
             close();
@@ -331,10 +421,18 @@ namespace SFT::Async {
         return *this;
     }
 
+    /// Reports whether open holds for this `Async`.
+    ///
+    /// @return Returns the current is open value.
+    /// @note This function does not throw exceptions.
     bool TcpConnection::is_open() const noexcept {
         return Detail::connection_is_open(state_);
     }
 
+    /// Closes the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @return Returns the current close value.
+    /// @note This function does not throw exceptions.
     void TcpConnection::close() noexcept {
         Detail::close_blocking(state_);
     }

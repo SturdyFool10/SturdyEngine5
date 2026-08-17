@@ -6,6 +6,12 @@ using std::span;
 
 namespace SFT::Text::Detail {
 
+/// Converts the value to hb direction representation.
+///
+/// @param direction `direction` value used by the operation.
+///
+/// @return Returns the value converted to hb direction representation.
+/// @note This function does not throw exceptions.
 hb_direction_t to_hb_direction(TextDirection direction) noexcept {
     switch (direction) {
     case TextDirection::Auto:
@@ -28,6 +34,16 @@ namespace SFT::Text {
 
 namespace {
 
+/// Shapes resolved using the supplied arguments and current state.
+///
+/// @param font `font` value used by the operation.
+/// @param utf8 `utf8` value used by the operation.
+/// @param options Configuration values controlling the operation.
+/// @param settings Configuration values controlling the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `TextErrorCode::InvalidArgument`, `TextErrorCode::ShapingFailed`.
 TextExpected<vector<PositionedGlyph>> shape_resolved(const Font &font, const ustr &utf8,
                                                      const ShapeOptions &options,
                                                      span<const OpenTypeFeatureSetting> settings) {
@@ -100,12 +116,28 @@ TextExpected<vector<PositionedGlyph>> shape_resolved(const Font &font, const ust
 
 } // namespace
 
+/// Shapes the supplied or associated value/state using the supplied arguments and current state.
+///
+/// @param font `font` value used by the operation.
+/// @param utf8 `utf8` value used by the operation.
+/// @param options Configuration values controlling the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 TextExpected<vector<PositionedGlyph>> shape(const Font &font, const ustr &utf8,
                                             const ShapeOptions &options) {
     const vector<OpenTypeFeatureSetting> settings = feature_settings(options.features);
     return shape_resolved(font, utf8, options, settings);
 }
 
+/// Shapes the supplied or associated value/state using the supplied arguments and current state.
+///
+/// @param font `font` value used by the operation.
+/// @param utf8 `utf8` value used by the operation.
+/// @param features `features` value used by the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 TextExpected<vector<PositionedGlyph>> shape(const Font &font, const ustr &utf8,
                                             const OpenTypeFeatureOptions &features) {
     ShapeOptions options;
@@ -113,6 +145,15 @@ TextExpected<vector<PositionedGlyph>> shape(const Font &font, const ustr &utf8,
     return shape(font, utf8, options);
 }
 
+/// Shapes the supplied or associated value/state using the supplied arguments and current state.
+///
+/// @param font `font` value used by the operation.
+/// @param utf8 `utf8` value used by the operation.
+/// @param comma_separated_features `comma_separated_features` value used by the operation.
+/// @param options Configuration values controlling the operation.
+///
+/// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 TextExpected<vector<PositionedGlyph>> shape(const Font &font, const ustr &utf8,
                                             const ustr &comma_separated_features,
                                             const ShapeOptions &options) {

@@ -3,14 +3,25 @@
 
 namespace SFT::UI {
 
+    /// Performs the text area operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param decl `decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param input `input` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param scrollbar_style `scrollbar_style` value used by the operation.
+    /// @param scroll_state `scroll_state` value used by the operation.
+    /// @param placeholder `placeholder` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     TextAreaResult text_area(Context &ctx, const ElementDecl &decl, const TextEditStyle &style,
                                                    TextEditState &state, const TextEditInput &input, f32 delta_seconds,
                                                    const ScrollbarStyle &scrollbar_style, ScrollAreaState &scroll_state,
                                                    const UString &placeholder, bool enabled) {
-
-
-
-
 
 
         const vector<std::pair<usize, usize>> click_paragraphs = Detail::split_paragraphs(state.text());
@@ -21,14 +32,11 @@ namespace SFT::UI {
             usize caret_scalar = state.text().size();
 
 
-
-
             const std::optional<Detail::ParagraphHit> hit =
                 Detail::hit_test_paragraphs(ctx, style, state.text(), click_paragraphs, decl.id, ctx.pointer_position());
             if (hit) {
                 caret_scalar = hit->scalar;
             }
-
 
 
             if (style.features.pointer_selection && input.shift_held) {
@@ -52,8 +60,6 @@ namespace SFT::UI {
         } else if (ctx.clicked_outside(decl.id)) {
             state.set_focused(false);
         }
-
-
 
 
         if (enabled && style.features.pointer_selection && ctx.has_pointer_capture(decl.id)) {
@@ -82,9 +88,6 @@ namespace SFT::UI {
                 filtered_input.keys.push_back(key);
             }
         }
-
-
-
 
 
         vector<std::pair<usize, usize>> paragraphs = click_paragraphs;

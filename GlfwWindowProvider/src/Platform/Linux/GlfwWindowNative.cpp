@@ -51,6 +51,14 @@ using std::wstring;
 
 namespace SFT::Platform::Windowing::GLFW::Detail {
 
+    /// Returns the native window handle associated with this `Detail`.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`, `WindowErrorCode::Unsupported`.
+    /// @note This function does not throw exceptions.
     expected<NativeWindowHandle, WindowError> native_window_handle(void *window_handle) noexcept {
         ZoneScopedN("Windowing::GLFW::Detail::native_window_handle");
 #if defined(__linux__)
@@ -94,43 +102,41 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
     namespace {
 
 
-
-
-
-
-
-
-
-
-
-
-
-
         struct X11ImeState {
             XIC ic = nullptr;
             ImePreeditCallback callback = nullptr;
             void *userData = nullptr;
 
 
-
-
-
             wstring preeditBuffer;
         };
 
+        /// Returns the current or globally available x11 shared im value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] XIM &x11_shared_im() noexcept {
-
 
 
             static XIM im = nullptr;
             return im;
         }
 
+        /// Returns the current or globally available x11 ime states value.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] unordered_map<::Window, X11ImeState *> &x11_ime_states() noexcept {
             static unordered_map<::Window, X11ImeState *> states;
             return states;
         }
 
+        /// Appends the supplied value or range to the current contents.
+        ///
+        /// @param out `out` value used by the operation.
+        /// @param codepoint `codepoint` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void append_utf8(std::string &out, char32_t codepoint) noexcept {
             if (codepoint <= 0x7F) {
                 out.push_back(static_cast<char>(codepoint));
@@ -149,6 +155,12 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             }
         }
 
+        /// Performs the wstring to UTF-8 operation for `Detail` using the supplied arguments.
+        ///
+        /// @param text Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::string wstring_to_utf8(const wstring &text) noexcept {
             std::string result;
             result.reserve(text.size() * 2);
@@ -159,7 +171,12 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
         }
 
 
-
+        /// Handles the x11 preedit start callback callback and updates the associated platform state.
+        ///
+        /// @param clientData `clientData` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         int x11_preedit_start_callback(XIC       , XPointer clientData, XPointer             ) {
             if (auto *state = reinterpret_cast<X11ImeState *>(clientData)) {
                 state->preeditBuffer.clear();
@@ -168,8 +185,12 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
         }
 
 
-
-
+        /// Handles the x11 preedit draw callback callback and updates the associated platform state.
+        ///
+        /// @param clientData `clientData` value used by the operation.
+        /// @param callDataRaw `callDataRaw` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void x11_preedit_draw_callback(XIC       , XPointer clientData, XPointer callDataRaw) {
             auto *state = reinterpret_cast<X11ImeState *>(clientData);
             auto *callData = reinterpret_cast<XIMPreeditDrawCallbackStruct *>(callDataRaw);
@@ -192,9 +213,6 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
                             insertion.push_back(static_cast<wchar_t>(text->string.wide_char[i]));
                         }
                     } else if (text->string.multi_byte != nullptr) {
-
-
-
 
 
                         mbstate_t mbState{};
@@ -222,7 +240,11 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
         }
 
 
-
+        /// Handles the x11 preedit done callback callback and updates the associated platform state.
+        ///
+        /// @param clientData `clientData` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void x11_preedit_done_callback(XIC       , XPointer clientData, XPointer             ) {
             if (auto *state = reinterpret_cast<X11ImeState *>(clientData)) {
                 state->preeditBuffer.clear();
@@ -232,13 +254,20 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             }
         }
 
+        /// Performs the x11 install ime operation for `Detail` using the supplied arguments.
+        ///
+        /// @param xwindow Window used or affected by the operation.
+        /// @param callback Callable invoked by the operation.
+        /// @param userData `userData` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool x11_install_ime(::Window xwindow, ImePreeditCallback callback, void *userData) noexcept {
             Display *display = glfwGetX11Display();
             if (!display) [[unlikely]] {
                 return false;
             }
             if (!x11_shared_im()) {
-
 
 
                 x11_shared_im() = XOpenIM(display, nullptr, nullptr, nullptr);
@@ -285,6 +314,11 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             return true;
         }
 
+        /// Performs the x11 remove ime operation for `Detail` using the supplied arguments.
+        ///
+        /// @param xwindow Window used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void x11_remove_ime(::Window xwindow) noexcept {
             auto it = x11_ime_states().find(xwindow);
             if (it == x11_ime_states().end()) {
@@ -297,13 +331,18 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             x11_ime_states().erase(it);
         }
 
+        /// Performs the x11 set exclude rect operation for `Detail` using the supplied arguments.
+        ///
+        /// @param xwindow Window used or affected by the operation.
+        /// @param x `x` value used by the operation.
+        /// @param y `y` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void x11_set_exclude_rect(::Window xwindow, int x, int y) noexcept {
             auto it = x11_ime_states().find(xwindow);
             if (it == x11_ime_states().end() || !it->second->ic) {
                 return;
             }
-
-
 
 
             XPoint spot{static_cast<short>(x), static_cast<short>(y)};
@@ -313,6 +352,12 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             }
         }
 
+        /// Performs the x11 set enabled operation for `Detail` using the supplied arguments.
+        ///
+        /// @param xwindow Window used or affected by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @note This function does not throw exceptions.
         void x11_set_enabled(::Window xwindow, bool enabled) noexcept {
             auto it = x11_ime_states().find(xwindow);
             if (it == x11_ime_states().end() || !it->second->ic) {
@@ -332,37 +377,30 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
     namespace {
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
         struct WaylandGlobals {
             wl_registry *registry = nullptr;
             wl_seat *seat = nullptr;
             zwp_text_input_manager_v3 *textInputManager = nullptr;
         };
 
+        /// Returns the current or globally available wayland globals value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] WaylandGlobals &wayland_globals() noexcept {
             static WaylandGlobals globals;
             return globals;
         }
 
+        /// Handles the wayland registry global callback and updates the associated platform state.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param registry `registry` value used by the operation.
+        /// @param name Name used to identify or label the target.
+        /// @param interface `interface` value used by the operation.
+        /// @param version `version` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void wayland_registry_global(void *data, wl_registry *registry, uint32_t name,
                                      const char *interface, uint32_t version) {
             auto *globals = static_cast<WaylandGlobals *>(data);
@@ -375,6 +413,9 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             }
         }
 
+        /// Handles the wayland registry global remove callback and updates the associated platform state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void wayland_registry_global_remove(void *         , wl_registry *             , uint32_t         ) {}
 
         constexpr wl_registry_listener kRegistryListener{
@@ -382,6 +423,10 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             .global_remove = wayland_registry_global_remove,
         };
 
+        /// Returns the current or globally available wayland ensure globals value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool wayland_ensure_globals() noexcept {
             WaylandGlobals &globals = wayland_globals();
             if (globals.seat && globals.textInputManager) {
@@ -408,26 +453,38 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             void *userData = nullptr;
 
 
-
             std::string pendingPreedit;
             bool pendingPreeditSet = false;
         };
 
+        /// Returns the current or globally available wayland ime states value.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] unordered_map<wl_surface *, WaylandImeState *> &wayland_ime_states() noexcept {
             static unordered_map<wl_surface *, WaylandImeState *> states;
             return states;
         }
 
+        /// Handles the wayland text input enter callback and updates the associated platform state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void wayland_text_input_enter(void *, zwp_text_input_v3 *, wl_surface *) {
-
-
-
 
 
         }
 
+        /// Handles the wayland text input leave callback and updates the associated platform state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void wayland_text_input_leave(void *, zwp_text_input_v3 *, wl_surface *) {}
 
+        /// Handles the wayland text input preedit string callback and updates the associated platform state.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        /// @param text Text consumed by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void wayland_text_input_preedit_string(void *data, zwp_text_input_v3 *, const char *text,
                                                int32_t                , int32_t              ) {
             auto *state = static_cast<WaylandImeState *>(data);
@@ -438,21 +495,29 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             state->pendingPreeditSet = true;
         }
 
+        /// Handles the wayland text input commit string callback and updates the associated platform state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void wayland_text_input_commit_string(void *         , zwp_text_input_v3 *              , const char *         ) {
-
-
 
 
         }
 
+        /// Handles the wayland text input delete surrounding text callback and updates the associated platform state.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void wayland_text_input_delete_surrounding_text(void *, zwp_text_input_v3 *, uint32_t, uint32_t) {}
 
+        /// Handles the wayland text input done callback and updates the associated platform state.
+        ///
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void wayland_text_input_done(void *data, zwp_text_input_v3 *, uint32_t           ) {
             auto *state = static_cast<WaylandImeState *>(data);
             if (!state || !state->pendingPreeditSet || !state->callback) [[unlikely]] {
                 return;
             }
-
 
 
             state->callback(state->pendingPreedit.c_str(), state->pendingPreedit.empty() ? -1 : 0, state->userData);
@@ -468,6 +533,14 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             .done = wayland_text_input_done,
         };
 
+        /// Performs the wayland install ime operation for `Detail` using the supplied arguments.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        /// @param callback Callable invoked by the operation.
+        /// @param userData `userData` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool wayland_install_ime(wl_surface *surface, ImePreeditCallback callback, void *userData) noexcept {
             if (!wayland_ensure_globals()) {
                 return false;
@@ -489,6 +562,11 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             return true;
         }
 
+        /// Performs the wayland remove ime operation for `Detail` using the supplied arguments.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void wayland_remove_ime(wl_surface *surface) noexcept {
             auto it = wayland_ime_states().find(surface);
             if (it == wayland_ime_states().end()) {
@@ -501,6 +579,15 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             wayland_ime_states().erase(it);
         }
 
+        /// Performs the wayland set exclude rect operation for `Detail` using the supplied arguments.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        /// @param x `x` value used by the operation.
+        /// @param y `y` value used by the operation.
+        /// @param width Width of the target extent.
+        /// @param height Height of the target extent.
+        ///
+        /// @note This function does not throw exceptions.
         void wayland_set_exclude_rect(wl_surface *surface, int x, int y, int width, int height) noexcept {
             auto it = wayland_ime_states().find(surface);
             if (it == wayland_ime_states().end() || !it->second->textInput) {
@@ -512,6 +599,12 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             zwp_text_input_v3_commit(it->second->textInput);
         }
 
+        /// Performs the wayland set enabled operation for `Detail` using the supplied arguments.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @note This function does not throw exceptions.
         void wayland_set_enabled(wl_surface *surface, bool enabled) noexcept {
             auto it = wayland_ime_states().find(surface);
             if (it == wayland_ime_states().end() || !it->second->textInput) {
@@ -524,7 +617,6 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
             }
 
 
-
             zwp_text_input_v3_commit(it->second->textInput);
         }
 
@@ -532,6 +624,14 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
 
 #endif // defined(STURDY_GLFW_WAYLAND_TEXT_INPUT_V3)
 
+    /// Performs the install ime composition hook operation for `Detail` using the supplied arguments.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    /// @param callback Callable invoked by the operation.
+    /// @param user_data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool install_ime_composition_hook(void *window_handle, ImePreeditCallback callback, void *user_data) noexcept {
         auto *window = static_cast<GLFWwindow *>(window_handle);
         if (!window || !callback) [[unlikely]] {
@@ -549,6 +649,11 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
         return false;
     }
 
+    /// Removes the ime composition hook from its owning collection or system.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void remove_ime_composition_hook(void *window_handle) noexcept {
         auto *window = static_cast<GLFWwindow *>(window_handle);
         if (!window) [[unlikely]] {
@@ -566,6 +671,15 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
 #endif
     }
 
+    /// Sets the ime composition exclude rect for this `Detail`.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @note This function does not throw exceptions.
     void set_ime_composition_exclude_rect(void *window_handle, int x, int y, int width, int height) noexcept {
         auto *window = static_cast<GLFWwindow *>(window_handle);
         if (!window) [[unlikely]] {
@@ -586,6 +700,12 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
         (void)height;
     }
 
+    /// Sets the ime enabled for this `Detail`.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @note This function does not throw exceptions.
     void set_ime_enabled(void *window_handle, bool enabled) noexcept {
         auto *window = static_cast<GLFWwindow *>(window_handle);
         if (!window) [[unlikely]] {
@@ -605,6 +725,14 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
 
 #else
 
+    /// Performs the install ime composition hook operation for `Detail` using the supplied arguments.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    /// @param callback Callable invoked by the operation.
+    /// @param user_data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool install_ime_composition_hook(void *window_handle, ImePreeditCallback callback, void *user_data) noexcept {
         (void)window_handle;
         (void)callback;
@@ -612,8 +740,22 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
         return false;
     }
 
+    /// Removes the ime composition hook from its owning collection or system.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void remove_ime_composition_hook(void *window_handle) noexcept { (void)window_handle; }
 
+    /// Sets the ime composition exclude rect for this `Detail`.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    /// @param x `x` value used by the operation.
+    /// @param y `y` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @note This function does not throw exceptions.
     void set_ime_composition_exclude_rect(void *window_handle, int x, int y, int width, int height) noexcept {
         (void)window_handle;
         (void)x;
@@ -622,6 +764,12 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
         (void)height;
     }
 
+    /// Sets the ime enabled for this `Detail`.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @note This function does not throw exceptions.
     void set_ime_enabled(void *window_handle, bool enabled) noexcept {
         (void)window_handle;
         (void)enabled;

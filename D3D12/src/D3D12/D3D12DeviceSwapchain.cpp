@@ -1,21 +1,5 @@
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -36,12 +20,16 @@ namespace SFT::D3D12 {
     namespace {
 
 
-
         constexpr u32 minimum_flip_buffer_count = 2;
         constexpr u32 default_flip_buffer_count = 3;
 
 
-
+        /// Converts the value to flip model format representation.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns the value converted to flip model format representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DXGI_FORMAT to_flip_model_format(rhi::Format format) noexcept {
             switch (format) {
                 case rhi::Format::RGBA8Unorm:
@@ -59,6 +47,12 @@ namespace SFT::D3D12 {
             }
         }
 
+        /// Converts the value to DXGI alpha mode representation.
+        ///
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns the value converted to DXGI alpha mode representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DXGI_ALPHA_MODE to_dxgi_alpha_mode(rhi::CompositeAlphaMode mode) noexcept {
             switch (mode) {
                 case rhi::CompositeAlphaMode::Premultiplied:
@@ -74,7 +68,6 @@ namespace SFT::D3D12 {
         }
 
 
-
         struct ResolvedPresent {
             rhi::PresentMode mode = rhi::PresentMode::Fifo;
             u32 sync_interval = 1;
@@ -83,12 +76,18 @@ namespace SFT::D3D12 {
             u32 buffer_count = default_flip_buffer_count;
         };
 
+        /// Resolves present into the concrete value used by the engine.
+        ///
+        /// @param strategy `strategy` value used by the operation.
+        /// @param tearing_available `tearing_available` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ResolvedPresent resolve_present(rhi::PresentStrategy strategy, bool tearing_available) noexcept {
             ResolvedPresent resolved{};
             switch (strategy) {
                 case rhi::PresentStrategy::Unsynchronized:
                     if (tearing_available) {
-
 
 
                         resolved = {rhi::PresentMode::Immediate, 0, true, false, default_flip_buffer_count};
@@ -100,19 +99,15 @@ namespace SFT::D3D12 {
                 case rhi::PresentStrategy::VariableRefresh:
 
 
-
                     resolved = {rhi::PresentMode::Fifo, 1, false, false, default_flip_buffer_count};
                     break;
                 case rhi::PresentStrategy::TearFreeLatest:
                 case rhi::PresentStrategy::TearFreeLatestReady:
 
 
-
                     resolved = {rhi::PresentMode::Mailbox, 0, false, false, default_flip_buffer_count};
                     break;
                 case rhi::PresentStrategy::AdaptiveTearing:
-
-
 
 
                     resolved = {rhi::PresentMode::Fifo, 1, false, true, default_flip_buffer_count};
@@ -121,6 +116,10 @@ namespace SFT::D3D12 {
             return resolved;
         }
 
+        /// Returns the current or globally available default hdr10 display metadata value.
+        ///
+        /// @return Returns the current default hdr10 display metadata value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr rhi::HdrDisplayMetadata default_hdr10_display_metadata() noexcept {
             return rhi::HdrDisplayMetadata{
                 .red_primary = {.x = 0.680f, .y = 0.320f},
@@ -135,11 +134,24 @@ namespace SFT::D3D12 {
             };
         }
 
+        /// Reports whether valid chromaticity is valid for the current operation.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool valid_chromaticity(const rhi::Chromaticity &value) noexcept {
             return std::isfinite(value.x) && std::isfinite(value.y) && value.x > 0.0f && value.x <= 1.0f &&
                    value.y > 0.0f && value.y <= 1.0f;
         }
 
+        /// Encodes HDR metadata value into the target representation.
+        ///
+        /// @param value Value consumed by the operation.
+        /// @param scale `scale` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <typename Integer>
         [[nodiscard]] Integer encode_hdr_metadata_value(f32 value, f64 scale) noexcept {
             if (!std::isfinite(value) || value <= 0.0f) {
@@ -150,6 +162,12 @@ namespace SFT::D3D12 {
             return static_cast<Integer>(std::min(encoded + 0.5, maximum));
         }
 
+        /// Builds hdr10 metadata.
+        ///
+        /// @param hdr_query `hdr_query` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] DXGI_HDR_METADATA_HDR10 build_hdr10_metadata(
             const rhi::SurfaceHdrCapabilityQuery &hdr_query) noexcept {
             rhi::HdrDisplayMetadata display = default_hdr10_display_metadata();
@@ -199,7 +217,12 @@ namespace SFT::D3D12 {
     } // namespace
 
 
-
+    /// Creates a surface from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::SurfaceHandle> D3D12Device::create_surface(const rhi::SurfaceDesc &desc) {
         if (desc.system != rhi::WindowSystem::Win32) {
             return unsupported("create_surface: the D3D12 backend only presents to Win32 windows.");
@@ -220,8 +243,20 @@ namespace SFT::D3D12 {
         return surfaces_.insert(std::move(record));
     }
 
+    /// Destroys the surface identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_surface(rhi::SurfaceHandle handle) noexcept { surfaces_.erase(handle); }
 
+    /// Queries HDR capabilities from the active backend or runtime state.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::SurfaceHdrCapabilityQuery> D3D12Device::query_hdr_capabilities(
         rhi::SurfaceHandle handle) const {
         const SurfaceRecord *record = surfaces_.find(handle);
@@ -230,13 +265,16 @@ namespace SFT::D3D12 {
         }
 
 
-
-
         return rhi::query_platform_hdr_display_capabilities(record->desc);
     }
 
 
-
+    /// Creates a swapchain from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::SwapchainHandle> D3D12Device::create_swapchain(const rhi::SwapchainDesc &desc) {
         ZoneScopedN("D3D12Device::create_swapchain");
         const SurfaceRecord *surface = surfaces_.find(desc.surface);
@@ -257,10 +295,6 @@ namespace SFT::D3D12 {
         if (desc.image_count != 0) {
             resolved.buffer_count = std::clamp(desc.image_count, static_cast<u32>(minimum_flip_buffer_count), static_cast<u32>(DXGI_MAX_SWAP_CHAIN_BUFFERS));
         }
-
-
-
-
 
 
         if (desc.old_swapchain.is_valid()) {
@@ -305,8 +339,6 @@ namespace SFT::D3D12 {
         if (wants_transparency) {
 
 
-
-
             swapchain_desc.AlphaMode = to_dxgi_alpha_mode(desc.composite_alpha == rhi::CompositeAlphaMode::Inherit
                                                               ? rhi::CompositeAlphaMode::Premultiplied
                                                               : desc.composite_alpha);
@@ -348,7 +380,6 @@ namespace SFT::D3D12 {
             }
 
 
-
             (void)factory_->MakeWindowAssociation(surface->hwnd, DXGI_MWA_NO_ALT_ENTER);
         }
 
@@ -361,14 +392,11 @@ namespace SFT::D3D12 {
         record.present_flags = resolved.wants_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0u;
 
 
-
         const u32 frames_in_flight_count =
             desc.frames_in_flight != 0 ? desc.frames_in_flight : std::max<u32>(1, record.image_count);
         if (const HRESULT hr = record.swapchain->SetMaximumFrameLatency(frames_in_flight_count); FAILED(hr)) {
             return hresult_error(hr, "create_swapchain (SetMaximumFrameLatency)");
         }
-
-
 
 
         record.effective_color_space = rhi::ColorSpace::SrgbNonlinear;
@@ -415,16 +443,13 @@ namespace SFT::D3D12 {
             .degraded = resolved.degraded || color_space_degraded,
 
 
-
             .present_queue_is_compute = false,
             .effective_composite_alpha = effective_alpha,
             .composite_alpha_degraded = wants_transparency && effective_alpha == rhi::CompositeAlphaMode::Opaque,
             .via_composition_present = record.is_composition_present(),
 
 
-
             .supports_completion_fence = false,
-
 
 
             .full_screen_exclusive_active = false,
@@ -447,6 +472,16 @@ namespace SFT::D3D12 {
         return swapchains_.insert(std::move(record));
     }
 
+    /// Creates a swapchain textures from the supplied parameters.
+    ///
+    /// @param record `record` value used by the operation.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param usage Usage flags or category applied to the resource.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::create_swapchain_textures(SwapchainRecord &record, rhi::Format format, u32 width, u32 height, rhi::TextureUsage usage) {
         for (u32 index = 0; index < record.image_count; ++index) {
             ComPtr<ID3D12Resource> buffer;
@@ -456,7 +491,6 @@ namespace SFT::D3D12 {
 
             TextureRecord texture{};
             texture.resource = std::move(buffer);
-
 
 
             texture.format = format;
@@ -492,6 +526,12 @@ namespace SFT::D3D12 {
         return {};
     }
 
+    /// Destroys the swapchain textures identified by the supplied parameters.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_swapchain_textures(SwapchainRecord &record) noexcept {
         for (rhi::TextureViewHandle view : record.views) {
             destroy_texture_view(view);
@@ -503,18 +543,18 @@ namespace SFT::D3D12 {
         record.textures.clear();
     }
 
+    /// Destroys the swapchain identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_swapchain(rhi::SwapchainHandle handle) noexcept {
         ZoneScopedN("D3D12Device::destroy_swapchain");
         auto record = swapchains_.extract(handle);
         if (!record) {
             return;
         }
-
-
-
-
-
-
 
 
         if (record->composition_target != nullptr) {
@@ -525,7 +565,6 @@ namespace SFT::D3D12 {
         }
 
 
-
         wait_idle();
         destroy_swapchain_textures(*record);
         if (record->frame_latency_waitable != nullptr) {
@@ -533,11 +572,24 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     rhi::PresentationResolution D3D12Device::presentation_resolution(rhi::SwapchainHandle handle) const noexcept {
         const SwapchainRecord *record = swapchains_.find(handle);
         return record != nullptr ? record->presentation_resolution : rhi::PresentationResolution{};
     }
 
+    /// Updates HDR content light level from the supplied values.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param update `update` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::update_hdr_content_light_level(rhi::SwapchainHandle handle,
                                                                const rhi::HdrContentLightLevelUpdate &update) {
         SwapchainRecord *record = swapchains_.find(handle);
@@ -548,7 +600,6 @@ namespace SFT::D3D12 {
             return unsupported(
                 "update_hdr_content_light_level: only an HDR10 ST2084 swapchain has HDR10 metadata to update.");
         }
-
 
 
         DXGI_HDR_METADATA_HDR10 metadata = record->stored_hdr_metadata;
@@ -567,7 +618,14 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Acquires next texture.
+    ///
+    /// @param swapchain Swapchain used or affected by the operation.
+    /// @param frame_slot_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::NotReady`.
     rhi::RhiExpected<rhi::SurfaceTexture> D3D12Device::acquire_next_texture(rhi::SwapchainHandle swapchain,
                                                                             u32 frame_slot_index) {
         ZoneScopedN("D3D12Device::acquire_next_texture");
@@ -577,13 +635,9 @@ namespace SFT::D3D12 {
         }
 
 
-
-
-
         (void)frame_slot_index;
 
         if (record->frame_latency_waitable != nullptr) {
-
 
 
             if (WaitForSingleObjectEx(record->frame_latency_waitable, 1000, TRUE) == WAIT_TIMEOUT) {
@@ -606,12 +660,17 @@ namespace SFT::D3D12 {
             .suboptimal = false,
 
 
-
-
             .composition_present = false,
         };
     }
 
+    /// Presents the completed frame to the target surface or swapchain.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    /// @param queue_lock_wait_ms Queue used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::PresentOutcome> D3D12Device::present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms) {
         ZoneScopedN("D3D12Device::present");
         SwapchainRecord *record = swapchains_.find(desc.texture.swapchain);
@@ -634,7 +693,6 @@ namespace SFT::D3D12 {
         const HRESULT hr = record->swapchain->Present1(record->sync_interval, record->present_flags, &parameters);
 
         if (hr == DXGI_STATUS_OCCLUDED) {
-
 
 
             return rhi::PresentOutcome::Suboptimal;

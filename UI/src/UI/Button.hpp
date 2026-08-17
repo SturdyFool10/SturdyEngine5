@@ -10,26 +10,26 @@
 #include "Easing.hpp"
 #include "Style.hpp"
 
-/// A small opinionated widget built entirely on top of UI::Context's own public API (element()/
-/// hovered()/pointer_down()/clicked()) — not a Clay primitive, so it doesn't live as a Context method
-/// (see Style.hpp's own doc comment on why this wrapper stays a 1:1 Clay mirror). Anything here could
-/// equally be written by an app itself; it exists to avoid every button call site re-deriving the
-/// same hover/press color-blend boilerplate.
+
 namespace SFT::UI {
 
     namespace Detail {
-        /// The shared elapsed/duration progress every transition in this file (color blends,
-        /// ToggleState's progress scalar) is built from: how far through a `duration_seconds`-long
-        /// transition `elapsed_seconds` is, as a 0..1 fraction (clamped, so it holds at the target
-        /// once the transition finishes rather than overshooting past it), reshaped by `easing` if
-        /// set (see EasingFn's own doc comment in Style.hpp). Deliberately *not* a per-frame
-        /// exponential-decay fraction: feeding a curve like Easing::cubic_in_out — designed to shape
-        /// a full 0..1 sweep — a tiny per-frame increment instead crushes it far below its nominal
-        /// rate (cubic's t^3 near zero), making every transition many times slower than
-        /// `duration_seconds` actually says. Tracking real elapsed time against the target sidesteps
-        /// that entirely and makes `transition_seconds` an honest duration for any easing curve.
+
+
+        /// Performs the eased progress operation using the supplied arguments.
+        ///
+        /// @param elapsed_seconds `elapsed_seconds` value used by the operation.
+        /// @param duration_seconds `duration_seconds` value used by the operation.
+        /// @param easing `easing` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 eased_progress(f32 elapsed_seconds, f32 duration_seconds, EasingFn easing) noexcept;
 
+        /// Returns the current or globally available blend in space value.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         template <Foundation::Color::ColorSpace Space>
         [[nodiscard]] inline Color blend_in_space(const Color &current, const Color &target, f64 t) noexcept {
             const auto current_space = Foundation::Color::convert_to<Space>(current);
@@ -38,29 +38,38 @@ namespace SFT::UI {
         }
     } // namespace Detail
 
-    /// Interpolates `current` toward `target` by fraction `t` (0..1, extrapolates past that range
-    /// untouched — see EasingFn's doc comment) through whichever Foundation::Color space `space`
-    /// selects, converting back to UI::Color (Srgb) for the result. See ColorBlendSpace's own doc
-    /// comment (Style.hpp) for why Oklab is the default and when you'd reach for another space.
+
+    /// Performs the blend color operation using the supplied arguments.
+    ///
+    /// @param current `current` value used by the operation.
+    /// @param target `target` value used by the operation.
+    /// @param t `t` value used by the operation.
+    /// @param space `space` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] Color blend_color(const Color &current, const Color &target, f64 t,
                                            ColorBlendSpace space) noexcept;
 
-    /// A single animated color: eases from wherever it currently is to a new target over
-    /// `transition_seconds`, through `color_space`, reshaped by `easing` — the engine ButtonState/
-    /// ToggleState/TextEditState's own color blending is built from. Factored out so any other
-    /// stateful/animated color (a masonry tile's hover glow, a tab's selected-underline color, ...)
-    /// can reuse it without needing a Button.
-    ///
-    /// Retargeting (update() called with a different `target` than last time, e.g. the pointer
-    /// enters or leaves mid-transition) restarts the transition from current()'s own live value, not
-    /// from scratch or from the old target — the same behavior CSS transitions and every other UI
-    /// toolkit's tweening has, and it's what keeps rapid hover flicker looking continuous instead of
-    /// snapping or reversing through a discontinuity.
+
     class ColorTransition {
       public:
+        /// Updates the `ColorTransition` state from the supplied values.
+        ///
+        /// @param target `target` value used by the operation.
+        /// @param delta_seconds `delta_seconds` value used by the operation.
+        /// @param transition_seconds `transition_seconds` value used by the operation.
+        /// @param space `space` value used by the operation.
+        /// @param easing `easing` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void update(const Color &target, f32 delta_seconds, f32 transition_seconds,
                     ColorBlendSpace space = ColorBlendSpace::Oklab, EasingFn easing = nullptr) noexcept;
 
+        /// Returns the current or globally available current value.
+        ///
+        /// @return Returns the current current value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Color current() const noexcept;
 
       private:
@@ -71,11 +80,7 @@ namespace SFT::UI {
         bool initialized_ = false;
     };
 
-    /// Visual state colors a button transitions between as the pointer hovers/presses it, plus the
-    /// static border/corner-radius it's drawn with (unaffected by state). Colors are UI::Color
-    /// (Foundation::Color::Srgb) — author however's convenient; the hover/press blend itself happens
-    /// in `color_space` (see ColorBlendSpace's own doc comment in Style.hpp for why Oklab is the
-    /// default), reshaped by `easing` if set (see EasingFn's own doc comment).
+
     struct ButtonStyle {
         Color idle{0.25, 0.27, 0.32, 1.0};
         Color hovered{0.32, 0.35, 0.42, 1.0};
@@ -83,40 +88,42 @@ namespace SFT::UI {
         Color disabled{0.2, 0.2, 0.2, 0.5};
         CornerRadius corner_radius{};
         BorderStyle border{};
-        /// Seconds for a state change (idle->hovered, hovered->pressed, ...) to finish blending —
-        /// an honest duration regardless of `easing` (see ColorTransition's own doc comment).
+
+
         f32 transition_seconds = 0.25f;
         ColorBlendSpace color_space = ColorBlendSpace::Oklab;
-        /// Defaults to Easing::cubic_in_out (Easing.hpp) — a gentle accelerate-then-decelerate feel
-        /// for hover/press transitions. Pass nullptr for the raw exponential-decay curve unreshaped,
-        /// or any other Easing::* function (or your own EasingFn).
+
+
         EasingFn easing = Easing::cubic_in_out;
     };
 
-    /// Persistent per-button animation state — one instance per logical button, kept alive across
-    /// frames by the caller. Immediate-mode UI has no per-widget storage of its own (Context rebuilds
-    /// its whole tree every frame), so this is the caller's job, just like any other cross-frame
-    /// application state that lives outside Context.
+
     class ButtonState {
       public:
-        /// Advances the blend toward whichever of style's four colors `hovered`/`pressed`/`enabled`
-        /// select, by `delta_seconds`. button() below calls this for you; call it directly only if
-        /// building a custom interactive element that wants the same hover/press color blend without
-        /// going through button()'s own element()/layout conventions.
+
+
+        /// Updates the `ButtonState` state from the supplied values.
+        ///
+        /// @param hovered `hovered` value used by the operation.
+        /// @param pressed `pressed` value used by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        /// @param style `style` value used by the operation.
+        /// @param delta_seconds `delta_seconds` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void update(bool hovered, bool pressed, bool enabled, const ButtonStyle &style, f32 delta_seconds) noexcept;
 
+        /// Returns the current or globally available current color value.
+        ///
+        /// @return Returns the current current color value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Color current_color() const noexcept;
 
       private:
         ColorTransition color_{};
     };
 
-    /// button()'s result: hover/press/click state for this frame (queried the same one-frame-stale
-    /// way hovered()/clicked() themselves are), plus the open ElementScope for the button's own
-    /// element — fill it with whatever the button's label is (Context::text(), an image(), several
-    /// elements laid out with their own child_alignment, anything). `decl`'s own sizing/padding/
-    /// child_alignment/direction control both the button's size and where that content sits inside
-    /// it, exactly like any other container — button() doesn't invent a separate placement API.
+
     struct ButtonResult {
         bool hovered = false;
         bool pressed = false;
@@ -124,12 +131,18 @@ namespace SFT::UI {
         ElementScope scope;
     };
 
-    /// `decl.id` must be set (see ElementDecl::id's own doc comment) — it's how this frame's hover/
-    /// press/click state is queried, the same id a caller would otherwise pass to
-    /// Context::hovered()/clicked() by hand. `decl.background_color`/`corner_radius`/`border` are
-    /// overwritten from `style`/the current blended state; set every other ElementDecl field (sizing,
-    /// padding, child_gap, child_alignment, direction) as normal to control the button's size and
-    /// label placement.
+
+    /// Performs the button operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param decl `decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     [[nodiscard]] ButtonResult button(Context &ctx, const ElementDecl &decl, const ButtonStyle &style,
                                              ButtonState &state, f32 delta_seconds, bool enabled = true);
 

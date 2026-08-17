@@ -1,6 +1,5 @@
 
 
-
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -26,6 +25,13 @@ namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
+    /// Creates a render pipeline from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`, `RhiErrorCode::Unsupported`.
     rhi::RhiExpected<rhi::RenderPipelineHandle> VulkanRhiDeviceBridge::create_render_pipeline(const rhi::RenderPipelineDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_render_pipeline");
         if (logical_device_ == nullptr) {
@@ -203,6 +209,12 @@ namespace SFT::Core::Vulkan {
         return render_pipelines_.insert(PipelineRecord{std::move(*pipeline), desc.layout});
     }
 
+    /// Destroys the render pipeline identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_render_pipeline(rhi::RenderPipelineHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_render_pipeline");
         render_pipelines_.erase(handle);

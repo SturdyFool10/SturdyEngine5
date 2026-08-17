@@ -10,16 +10,35 @@
 
 namespace {
 
+    /// Performs the near operation using the supplied arguments.
+    ///
+    /// @param lhs Left-hand operand.
+    /// @param rhs Right-hand operand.
+    /// @param tolerance `tolerance` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] bool near(f64 lhs, f64 rhs, f64 tolerance = 1.0e-6) {
         return std::abs(lhs - rhs) <= tolerance;
     }
 
+    /// Creates a context value from the supplied arguments.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @pre `created.has_value()`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     SFT::UI::Context make_context() {
         auto created = SFT::UI::Context::create(SFT::UI::Context::Config{});
         assert(created.has_value());
         return std::move(*created);
     }
 
+    /// Performs the slider drag and keyboard operation using the supplied arguments.
+    ///
+    /// @pre `near(result.value, 0.0)`; debug builds assert if this precondition is violated.
+    /// @pre `result.changed`; debug builds assert if this precondition is violated.
+    /// @pre `result.dragging`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void slider_drag_and_keyboard() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -75,6 +94,12 @@ namespace {
         (void)context.finish_frame();
     }
 
+    /// Performs the color picker preserves achromatic hue operation using the supplied arguments.
+    ///
+    /// @pre `result.color.b > result.color.r`; debug builds assert if this precondition is violated.
+    /// @pre `result.changed`; debug builds assert if this precondition is violated.
+    /// @pre `result.committed`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void color_picker_preserves_achromatic_hue() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -114,6 +139,12 @@ namespace {
         (void)context.finish_frame();
     }
 
+    /// Performs the color picker selects foundation color space operation using the supplied arguments.
+    ///
+    /// @pre `result.color_space == ColorPickerColorSpace::Srgb`; debug builds assert if this precondition is violated.
+    /// @pre `std::holds_alternative<SFT::Foundation::Color::Srgb>(result.value)`; debug builds assert if this precondition is violated.
+    /// @pre `trigger_bounds.has_value()`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void color_picker_selects_foundation_color_space() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -182,10 +213,12 @@ namespace {
     }
 
 
-
-
-
-
+    /// Performs the color picker component sliders follow selected space operation using the supplied arguments.
+    ///
+    /// @pre `!context.element_bounds(UString{"test-picker-components#hue"}).has_value()`; debug builds assert if this precondition is violated.
+    /// @pre `r_bounds.has_value()`; debug builds assert if this precondition is violated.
+    /// @pre `context.element_bounds(UString{"test-picker-components#component:2"}).has_value()`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void color_picker_component_sliders_follow_selected_space() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -225,9 +258,12 @@ namespace {
     }
 
 
-
-
-
+    /// Reports whether text caret has no layout footprint.
+    ///
+    /// @pre `state.focused()`; debug builds assert if this precondition is violated.
+    /// @pre `caret_anchor.has_value()`; debug builds assert if this precondition is violated.
+    /// @pre `caret_anchor->size.x == 0.0f`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void text_caret_has_no_layout_footprint() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -263,9 +299,12 @@ namespace {
     }
 
 
-
-
-
+    /// Performs the text area line heights ignore caret operation using the supplied arguments.
+    ///
+    /// @pre `unfocused_height > 0.0f`; debug builds assert if this precondition is violated.
+    /// @pre `state.focused()`; debug builds assert if this precondition is violated.
+    /// @pre `near(on_last, unfocused_height, 0.01)`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void text_area_line_heights_ignore_caret() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -306,9 +345,12 @@ namespace {
     }
 
 
-
-
-
+    /// Performs the text edit state click streak and word select operation using the supplied arguments.
+    ///
+    /// @pre `state.register_click(pos, true) == 1`; debug builds assert if this precondition is violated.
+    /// @pre `state.register_click(pos, true) == 2`; debug builds assert if this precondition is violated.
+    /// @pre `state.register_click(pos, true) == 3`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void text_edit_state_click_streak_and_word_select() {
         using namespace SFT::UI;
         TextEditState state;
@@ -326,7 +368,6 @@ namespace {
         assert(state.register_click(far,                       true) == 2);
 
 
-
         assert(state.register_click(far,                       false) == 1);
 
         state.select_word_at(2);
@@ -339,6 +380,12 @@ namespace {
         assert(state.selected_text().cpp_string() == "world");
     }
 
+    /// Performs the document text area virtualizes large documents operation using the supplied arguments.
+    ///
+    /// @pre `result.first_rendered_line == 0`; debug builds assert if this precondition is violated.
+    /// @pre `result.rendered_line_count < 32`; debug builds assert if this precondition is violated.
+    /// @pre `state.document().snapshot().line_count() == 10'001`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void document_text_area_virtualizes_large_documents() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -367,6 +414,12 @@ namespace {
         assert(state.document().snapshot().line_count() == 10'001);
     }
 
+    /// Performs the text edit features and rebinding operation using the supplied arguments.
+    ///
+    /// @pre `!typing_result.changed`; debug builds assert if this precondition is violated.
+    /// @pre `state.text().cpp_string() == "alpha"`; debug builds assert if this precondition is violated.
+    /// @pre `!delete_result.changed`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void text_edit_features_and_rebinding() {
         using namespace SFT::UI;
         TextEditState state;
@@ -401,12 +454,12 @@ namespace {
     }
 
 
-
-
-
-
-
-
+    /// Performs the outline cache key distinguishes font faces with shared low bits operation using the supplied arguments.
+    ///
+    /// @pre `!(primary_key == fallback_key)`; debug builds assert if this precondition is violated.
+    /// @pre `map.size() == 2`; debug builds assert if this precondition is violated.
+    /// @pre `map[primary_key] == 100`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void outline_cache_key_distinguishes_font_faces_with_shared_low_bits() {
         using namespace SFT::UI;
         constexpr u64 slot = 1;
@@ -423,9 +476,12 @@ namespace {
     }
 
 
-
-
-
+    /// Registers font stores fallback fonts with stable addresses using the supplied arguments and current state.
+    ///
+    /// @pre `stack != nullptr`; debug builds assert if this precondition is violated.
+    /// @pre `stack->primary == &primary`; debug builds assert if this precondition is violated.
+    /// @pre `stack->fallbacks.size() == 2`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void register_font_stores_fallback_fonts_with_stable_addresses() {
         using namespace SFT::UI;
         using namespace SFT::Text;
@@ -451,8 +507,6 @@ namespace {
         assert(!stack->fallbacks[0].is_color && !stack->fallbacks[1].is_color);
 
 
-
-
         for (FontId other = 100; other < 164; ++other) {
             bridge.register_font(other, primary);
         }
@@ -472,9 +526,12 @@ namespace {
     }
 
 
-
-
-
+    /// Performs the ime composition swallows enter and escape operation using the supplied arguments.
+    ///
+    /// @pre `!swallowed_enter.submitted`; debug builds assert if this precondition is violated.
+    /// @pre `single_line.focused()`; debug builds assert if this precondition is violated.
+    /// @pre `!swallowed_escape.submitted`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void ime_composition_swallows_enter_and_escape() {
         using namespace SFT::UI;
         TextEditState single_line;
@@ -490,7 +547,6 @@ namespace {
             single_line.apply_input(TextEditInput{.keys = {EditKey::Escape}, .composing = true},               false);
         assert(!swallowed_escape.submitted);
         assert(single_line.focused());
-
 
 
         const TextEditState::ApplyResult normal_enter =
@@ -519,9 +575,12 @@ namespace {
     }
 
 
-
-
-
+    /// Reports whether ime composition text is visible but not inserted.
+    ///
+    /// @pre `state.composition_text() == "konnichiwa"`; debug builds assert if this precondition is violated.
+    /// @pre `state.text().cpp_string() == "ab"`; debug builds assert if this precondition is violated.
+    /// @pre `committed.changed`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void ime_composition_text_is_visible_but_not_inserted() {
         using namespace SFT::UI;
         TextEditState state;
@@ -550,10 +609,12 @@ namespace {
     }
 
 
-
-
-
-
+    /// Performs the text input shift click extends selection operation using the supplied arguments.
+    ///
+    /// @pre `!state.has_selection()`; debug builds assert if this precondition is violated.
+    /// @pre `state.has_selection()`; debug builds assert if this precondition is violated.
+    /// @pre `state.selection_max() == 5`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void text_input_shift_click_extends_selection() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -589,8 +650,11 @@ namespace {
     }
 
 
-
-
+    /// Performs the text input drag acquires and releases pointer capture operation using the supplied arguments.
+    ///
+    /// @pre `context.has_pointer_capture(decl.id)`; debug builds assert if this precondition is violated.
+    /// @pre `!context.has_pointer_capture(decl.id)`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void text_input_drag_acquires_and_releases_pointer_capture() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -629,6 +693,12 @@ namespace {
         assert(!context.has_pointer_capture(decl.id));
     }
 
+    /// Computes the scroll container moves child offset required by the supplied values.
+    ///
+    /// @pre `before.has_value()`; debug builds assert if this precondition is violated.
+    /// @pre `after.has_value()`; debug builds assert if this precondition is violated.
+    /// @pre `after->position.y < before->position.y - 1.0f`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void scroll_container_moves_child_offset() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -668,8 +738,6 @@ namespace {
         assert(before.has_value());
 
 
-
-
         const PointerState hovering_and_scrolling{.position = {50.0f, 50.0f}, .scroll_delta = {0.0f, -60.0f}};
         build(hovering_and_scrolling);
         build(hovering_and_scrolling);
@@ -678,17 +746,16 @@ namespace {
         assert(after.has_value());
 
 
-
         assert(after->position.y < before->position.y - 1.0f);
     }
 
 
-
-
-
-
-
-
+    /// Performs the floating attached parent clips to ancestor operation using the supplied arguments.
+    ///
+    /// @pre `floater_quad != nullptr`; debug builds assert if this precondition is violated.
+    /// @pre `floater_quad->scissor.x == 0`; debug builds assert if this precondition is violated.
+    /// @pre `floater_quad->scissor.y == 0`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void floating_attached_parent_clips_to_ancestor() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -727,7 +794,6 @@ namespace {
         for (const QuadDraw &quad : snapshot.quads()) {
 
 
-
             if (near(quad.instance.size.x, 20.0) && near(quad.instance.size.y, 20.0)) {
                 floater_quad = &quad;
             }
@@ -742,13 +808,11 @@ namespace {
     }
 
 
-
-
-
-
-
-
-
+    /// Performs the clicked respects ancestor clip operation using the supplied arguments.
+    ///
+    /// @pre `context.clicked(visible_floater_id)`; debug builds assert if this precondition is violated.
+    /// @pre `!context.clicked(hidden_floater_id)`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void clicked_respects_ancestor_clip() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -782,7 +846,6 @@ namespace {
                 (void)visible;
 
 
-
                 auto hidden = context.element(ElementDecl{
                     .sizing = {SizingAxis::fixed(20.0f), SizingAxis::fixed(20.0f)},
                     .floating = FloatingConfig{
@@ -813,11 +876,12 @@ namespace {
     }
 
 
-
-
-
-
-
+    /// Scrolls metrics and set scroll offset work using the supplied arguments and current state.
+    ///
+    /// @pre `before.found`; debug builds assert if this precondition is violated.
+    /// @pre `before.vertical`; debug builds assert if this precondition is violated.
+    /// @pre `!before.horizontal`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void scroll_metrics_and_set_scroll_offset_work() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -850,8 +914,6 @@ namespace {
         assert(near(before.offset.y, 0.0));
 
 
-
-
         assert(context.set_scroll_offset(box_id, glm::vec2{0.0f, -1000.0f}));
         const Context::ScrollMetrics clamped = context.scroll_metrics(box_id);
         assert(near(clamped.offset.y, -60.0));
@@ -866,9 +928,12 @@ namespace {
     }
 
 
-
-
-
+    /// Scrolls area shows thumb only when hovering overflowing content using the supplied arguments and current state.
+    ///
+    /// @pre `!context.element_bounds(overflow_thumb_id).has_value()`; debug builds assert if this precondition is violated.
+    /// @pre `!context.element_bounds(fit_thumb_id).has_value()`; debug builds assert if this precondition is violated.
+    /// @pre `context.element_bounds(overflow_thumb_id).has_value()`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void scroll_area_shows_thumb_only_when_hovering_overflowing_content() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -889,9 +954,6 @@ namespace {
                     .clip = {.vertical = true},
                 },
                 ScrollbarStyle{}, overflowing_state, dt, [](Context &ctx) {
-
-
-
 
 
                     { auto a = ctx.element(ElementDecl{.sizing = {SizingAxis::fixed(80.0f), SizingAxis::fixed(80.0f)}, .id = UString{"sa-overflow-a"}}); (void)a; }
@@ -927,13 +989,11 @@ namespace {
         assert(context.element_bounds(overflow_thumb_id).has_value());
 
 
-
         const PointerState hovering_fit{.position = {200.0f, 50.0f}};
         for (int i = 0; i < 10; ++i) {
             build(hovering_fit, 0.05f);
         }
         assert(!context.element_bounds(fit_thumb_id).has_value());
-
 
 
         for (int i = 0; i < 20; ++i) {
@@ -943,8 +1003,12 @@ namespace {
     }
 
 
-
-
+    /// Scrolls area thumb drag scrolls content using the supplied arguments and current state.
+    ///
+    /// @pre `thumb_before.has_value()`; debug builds assert if this precondition is violated.
+    /// @pre `child_b_bounds.has_value()`; debug builds assert if this precondition is violated.
+    /// @pre `near(child_b_bounds->position.y, 20.0)`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void scroll_area_thumb_drag_scrolls_content() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -970,7 +1034,6 @@ namespace {
         };
 
 
-
         const PointerState hovering{.position = {50.0f, 50.0f}};
         for (int i = 0; i < 10; ++i) {
             build(hovering, 0.05f);
@@ -978,11 +1041,6 @@ namespace {
         const std::optional<ElementBounds> thumb_before = context.element_bounds(thumb_id);
         assert(thumb_before.has_value());
         const glm::vec2 thumb_center = thumb_before->position + thumb_before->size * 0.5f;
-
-
-
-
-
 
 
         build(PointerState{.position = thumb_center, .down = true, .pressed = true, .press_position = thumb_center}, 0.05f);
@@ -996,12 +1054,12 @@ namespace {
     }
 
 
-
-
-
-
-
-
+    /// Performs the text input cursor defaults and overrides operation using the supplied arguments.
+    ///
+    /// @pre `context.desired_cursor() == CursorIcon::Text`; debug builds assert if this precondition is violated.
+    /// @pre `context.desired_cursor() == CursorIcon::NotAllowed`; debug builds assert if this precondition is violated.
+    /// @pre `context.desired_cursor() == CursorIcon::Default`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void text_input_cursor_defaults_and_overrides() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -1036,6 +1094,12 @@ namespace {
         assert(context.desired_cursor() == CursorIcon::ResizeHorizontal);
     }
 
+    /// Performs the desired cursor resolves hover and specificity operation using the supplied arguments.
+    ///
+    /// @pre `context.desired_cursor() == CursorIcon::Default`; debug builds assert if this precondition is violated.
+    /// @pre `context.desired_cursor() == CursorIcon::ResizeHorizontal`; debug builds assert if this precondition is violated.
+    /// @pre `context.desired_cursor() == CursorIcon::Pointer`; debug builds assert if this precondition is violated.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void desired_cursor_resolves_hover_and_specificity() {
         using namespace SFT::UI;
         Context context = make_context();
@@ -1098,7 +1162,6 @@ namespace {
         assert(context.desired_cursor() == CursorIcon::Text);
 
 
-
         context.set_cursor_management_enabled(false);
         assert(!context.cursor_management_enabled());
         build(PointerState{.position = {10.0f, 10.0f}});
@@ -1107,6 +1170,10 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     slider_drag_and_keyboard();
     color_picker_preserves_achromatic_hue();
@@ -1131,8 +1198,6 @@ int main() {
     scroll_area_thumb_drag_scrolls_content();
     text_input_cursor_defaults_and_overrides();
     desired_cursor_resolves_hover_and_specificity();
-
-
 
 
     std::printf("UIWidgetTest: all checks passed.\n");

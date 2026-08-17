@@ -20,17 +20,20 @@ namespace SFT::Core {
         InitializationFailed,
         DeviceLost,
         SurfaceLost,
-        /// The presentation engine revoked exclusive-fullscreen ownership it had previously granted
-        /// (VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) — a normal, recoverable state transition
-        /// (another app took focus, the user alt-tabbed, ...), not a device/surface failure. The
-        /// swapchain itself is still valid; callers should fall back to windowed/borderless
-        /// presentation and mark the swapchain dirty for rebuild rather than hard-failing.
+
+
         FullScreenExclusiveLost,
         OutOfMemory,
         Unsupported,
         OperationFailed,
     };
 
+    /// Returns a human-readable name for the supplied graphics backend error code value.
+    ///
+    /// @param code `code` value used by the operation.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr string_view graphics_backend_error_code_name(
         GraphicsBackendErrorCode code) noexcept {
         switch (code) {
@@ -55,13 +58,16 @@ namespace SFT::Core {
     template <typename Value>
     using RendererExpected = expected<Value, GraphicsBackendError>;
 
+    /// Creates an error result describing the supplied graphics backend failure.
+    ///
+    /// @param code `code` value used by the operation.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     [[nodiscard]] unexpected<GraphicsBackendError> graphics_backend_error(GraphicsBackendErrorCode code, string message);
 
-    /// Distinguishes the non-error outcomes a successful vkQueuePresentKHR call can still report.
-    /// Suboptimal and OutOfDate both presented (the driver honored the call) but differ in urgency:
-    /// Suboptimal means the swapchain still works and can keep presenting, OutOfDate means it should
-    /// stop being used for new acquisitions until rebuilt. Real errors (device/surface/fullscreen-
-    /// exclusive loss) are reported through GraphicsBackendError, not this enum.
+
     enum class PresentOutcome {
         Success,
         Suboptimal,

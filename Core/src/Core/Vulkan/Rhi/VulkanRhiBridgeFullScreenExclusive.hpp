@@ -18,58 +18,65 @@ using SFT::Core::RendererResult;
 namespace SFT::Core::Vulkan {
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    /// Owns the pNext chain a swapchain create needs to request exclusive mode. Must stay alive for
-    /// the duration of the vkCreateSwapchainKHR call it's used in (the chain is pointers into this
-    /// object), and can be discarded immediately afterward — nothing about acquiring or holding
-    /// exclusive mode itself depends on this object surviving past that one call.
     class FullScreenExclusiveRequest {
       public:
+        /// Destroys the `FullScreenExclusiveRequest` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         virtual ~FullScreenExclusiveRequest() = default;
+        /// Disables this construction form for `FullScreenExclusiveRequest`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         FullScreenExclusiveRequest(const FullScreenExclusiveRequest &) = delete;
+        /// Assigns a new value to this `FullScreenExclusiveRequest`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         FullScreenExclusiveRequest &operator=(const FullScreenExclusiveRequest &) = delete;
 
+        /// Returns the current or globally available pnext value.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] virtual const void *pnext() const noexcept = 0;
 
       protected:
+        /// Constructs a `FullScreenExclusiveRequest` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         FullScreenExclusiveRequest() = default;
     };
 
-    /// Builds the pNext chain for VkSwapchainCreateInfoKHR requesting VK_EXT_full_screen_exclusive's
-    /// application-controlled mode for `surface`'s window. Returns nullptr — never a partial or
-    /// best-effort chain — on any platform/configuration that can't do this (non-Windows, or an
-    /// invalid/non-Win32 surface), so the caller's fallback is simply "don't attach anything and
-    /// create an ordinary swapchain," exactly as if exclusive mode had never been requested.
+
+    /// Builds full screen exclusive request.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] std::unique_ptr<FullScreenExclusiveRequest> build_full_screen_exclusive_request(
         const GraphicsPlatform::NativeSurfaceHandle &surface) noexcept;
 
-    /// Acquires exclusive mode on an already-created swapchain (VkSwapchainCreateInfoKHR::pNext must
-    /// have carried a FullScreenExclusiveRequest's chain for this to have any effect — acquiring
-    /// without having requested it at creation time is invalid per spec). Failure here is an ordinary,
-    /// expected outcome (the window doesn't currently have focus, another app holds exclusive access,
-    /// ...) — return it to the caller to log/ignore, never treat it as fatal: the swapchain remains
-    /// perfectly usable non-exclusively either way.
+
+    /// Acquires full screen exclusive mode.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param swapchain Swapchain used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::Unsupported`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] RendererResult acquire_full_screen_exclusive_mode(VkDevice device, VkSwapchainKHR swapchain) noexcept;
 
-    /// Releases exclusive mode before a swapchain that actually holds it is destroyed or rebuilt
-    /// without it. Callers must only call this for a swapchain whose matching
-    /// acquire_full_screen_exclusive_mode() call actually returned success — releasing on one that
-    /// never acquired (or was never created with the extension's pNext chain at all) is undefined per
-    /// spec, not a safe no-op, so this is not a "call unconditionally, just in case" helper.
+
+    /// Releases full screen exclusive mode using the supplied arguments and current state.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param swapchain Swapchain used or affected by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void release_full_screen_exclusive_mode(VkDevice device, VkSwapchainKHR swapchain) noexcept;
 
 } // namespace SFT::Core::Vulkan

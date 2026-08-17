@@ -26,6 +26,14 @@ namespace SFT::Renderer {
         const UString render_graph_blit_label{"render graph blit"_ustr};
         const UString render_graph_copy_label{"render graph copy"_ustr};
 
+        /// Renders graph labelled error using the current rendering state.
+        ///
+        /// @param operation `operation` value used by the operation.
+        /// @param label `label` value used by the operation.
+        /// @param error Error value describing the failure.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] string render_graph_labelled_error(
             const ustr &operation, const UString &label, const string &error) {
             UString message{operation};
@@ -37,6 +45,12 @@ namespace SFT::Renderer {
         }
     } // namespace
 
+/// Performs the pass usage of operation for `Renderer` using the supplied arguments.
+///
+/// @param pass Render-pass encoder that receives the draw commands.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphRenderPassBuilder &pass) {
             ZoneScopedN("RenderGraph::pass_usage_of");
             PassUsage usage;
@@ -50,8 +64,6 @@ namespace SFT::Renderer {
                 }
             }
             if (pass.has_depth_stencil_attachment_) {
-
-
 
 
                 usage.writes.push_back(pass.depth_stencil_attachment_.texture);
@@ -76,6 +88,12 @@ namespace SFT::Renderer {
             return usage;
         }
 
+/// Performs the pass usage of operation for `Renderer` using the supplied arguments.
+///
+/// @param pass Render-pass encoder that receives the draw commands.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphBlitDesc &pass) {
             ZoneScopedN("RenderGraph::pass_usage_of");
             PassUsage usage;
@@ -84,6 +102,12 @@ namespace SFT::Renderer {
             return usage;
         }
 
+/// Performs the pass usage of operation for `Renderer` using the supplied arguments.
+///
+/// @param pass Render-pass encoder that receives the draw commands.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphComputePassBuilder &pass) {
             ZoneScopedN("RenderGraph::pass_usage_of");
             PassUsage usage;
@@ -113,6 +137,12 @@ namespace SFT::Renderer {
             return usage;
         }
 
+/// Performs the pass usage of operation for `Renderer` using the supplied arguments.
+///
+/// @param pass Render-pass encoder that receives the draw commands.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::pass_usage_of(const RenderGraphCopyDesc &pass) {
             ZoneScopedN("RenderGraph::pass_usage_of");
             PassUsage usage;
@@ -121,6 +151,12 @@ namespace SFT::Renderer {
             return usage;
         }
 
+/// Performs the usage of ordered operation for `Renderer` using the supplied arguments.
+///
+/// @param ordered `ordered` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] RenderGraph::PassUsage RenderGraph::usage_of_ordered(const OrderedPass &ordered) const {
             ZoneScopedN("RenderGraph::usage_of_ordered");
             switch (ordered.kind) {
@@ -132,14 +168,31 @@ namespace SFT::Renderer {
             return {};
         }
 
+/// Renders the requested content using the current rendering state.
+///
+/// @param label `label` value used by the operation.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderGraphRenderPassBuilder::RenderGraphRenderPassBuilder(const ustr &label) : label_(label) {}
 
+/// Adds color attachment using the supplied arguments and current state.
+///
+/// @param attachment `attachment` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::add_color_attachment(const RenderGraphColorAttachmentDesc &attachment) {
             ZoneScopedN("RenderGraphRenderPassBuilder::add_color_attachment");
             color_attachments_.push_back(attachment);
             return *this;
         }
 
+/// Sets the depth stencil attachment for this `Renderer`.
+///
+/// @param attachment `attachment` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_depth_stencil_attachment(const RenderGraphDepthStencilAttachmentDesc &attachment) {
             ZoneScopedN("RenderGraphRenderPassBuilder::set_depth_stencil_attachment");
             depth_stencil_attachment_ = attachment;
@@ -147,80 +200,163 @@ RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_depth_stencil_at
             return *this;
         }
 
+/// Adds sampled texture using the supplied arguments and current state.
+///
+/// @param read `read` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::add_sampled_texture(const RenderGraphSampledTextureReadDesc &read) {
             ZoneScopedN("RenderGraphRenderPassBuilder::add_sampled_texture");
             sampled_texture_reads_.push_back(read);
             return *this;
         }
 
+/// Adds buffer using the supplied arguments and current state.
+///
+/// @param access `access` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::add_buffer(const RenderGraphBufferAccessDesc &access) {
             ZoneScopedN("RenderGraphRenderPassBuilder::add_buffer");
             buffers_.push_back(access);
             return *this;
         }
 
+/// Sets the render area for this `Renderer`.
+///
+/// @param render_area `render_area` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_render_area(const RHI::Rect2D &render_area) noexcept {
             ZoneScopedN("RenderGraphRenderPassBuilder::set_render_area");
             render_area_ = render_area;
             return *this;
         }
 
+/// Sets the view mask for this `Renderer`.
+///
+/// @param view_mask `view_mask` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_view_mask(u32 view_mask) noexcept {
             ZoneScopedN("RenderGraphRenderPassBuilder::set_view_mask");
             view_mask_ = view_mask;
             return *this;
         }
 
+/// Sets the allow bundles for this `Renderer`.
+///
+/// @param allow_bundles `allow_bundles` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_allow_bundles(bool allow_bundles) noexcept {
             ZoneScopedN("RenderGraphRenderPassBuilder::set_allow_bundles");
             allow_bundles_ = allow_bundles;
             return *this;
         }
 
+/// Sets the side effect for this `Renderer`.
+///
+/// @param side_effect `side_effect` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_side_effect(bool side_effect) noexcept {
             ZoneScopedN("RenderGraphRenderPassBuilder::set_side_effect");
             side_effect_ = side_effect;
             return *this;
         }
 
+/// Sets the execute for this `Renderer`.
+///
+/// @param execute `execute` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 RenderGraphRenderPassBuilder &RenderGraphRenderPassBuilder::set_execute(RenderGraphExecuteFn execute) noexcept {
             ZoneScopedN("RenderGraphRenderPassBuilder::set_execute");
             execute_ = std::move(execute);
             return *this;
         }
 
+/// Renders the requested content using the current rendering state.
+///
+/// @param label `label` value used by the operation.
+///
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderGraphComputePassBuilder::RenderGraphComputePassBuilder(const ustr &label) : label_(label) {}
 
+/// Adds sampled texture using the supplied arguments and current state.
+///
+/// @param texture Texture used or affected by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_sampled_texture(RenderGraphTextureHandle texture) {
             ZoneScopedN("RenderGraphComputePassBuilder::add_sampled_texture");
             sampled_texture_reads_.push_back(texture);
             return *this;
         }
 
+/// Adds storage texture using the supplied arguments and current state.
+///
+/// @param access `access` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_storage_texture(const RenderGraphStorageTextureAccessDesc &access) {
             ZoneScopedN("RenderGraphComputePassBuilder::add_storage_texture");
             storage_textures_.push_back(access);
             return *this;
         }
 
+/// Adds buffer using the supplied arguments and current state.
+///
+/// @param access `access` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::add_buffer(const RenderGraphBufferAccessDesc &access) {
             ZoneScopedN("RenderGraphComputePassBuilder::add_buffer");
             buffers_.push_back(access);
             return *this;
         }
 
+/// Sets the side effect for this `Renderer`.
+///
+/// @param side_effect `side_effect` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_side_effect(bool side_effect) noexcept {
             ZoneScopedN("RenderGraphComputePassBuilder::set_side_effect");
             side_effect_ = side_effect;
             return *this;
         }
 
+/// Sets the execute for this `Renderer`.
+///
+/// @param execute `execute` value used by the operation.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
 RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(RenderGraphComputeExecuteFn execute) noexcept {
             ZoneScopedN("RenderGraphComputePassBuilder::set_execute");
             execute_ = std::move(execute);
             return *this;
         }
 
+/// Imports texture using the supplied arguments and current state.
+///
+/// @param desc Description of the resource or operation to perform.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] RenderGraphTextureHandle RenderGraph::import_texture(const RenderGraphImportedTextureDesc &desc) {
             ZoneScopedN("RenderGraph::import_texture");
             const u32 slot_index = static_cast<u32>(physical_slots_.size());
@@ -253,6 +389,12 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
             return handle;
         }
 
+/// Imports buffer using the supplied arguments and current state.
+///
+/// @param desc Description of the resource or operation to perform.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] RenderGraphBufferHandle RenderGraph::import_buffer(const RenderGraphImportedBufferDesc &desc) {
             ZoneScopedN("RenderGraph::import_buffer");
             const RenderGraphBufferHandle handle{static_cast<u32>(buffers_.size())};
@@ -265,6 +407,12 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
             return handle;
         }
 
+/// Creates a texture from the supplied parameters.
+///
+/// @param desc Description of the resource or operation to perform.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] RenderGraphTextureHandle RenderGraph::create_texture(const RenderGraphTextureDesc &desc) {
             ZoneScopedN("RenderGraph::create_texture");
 
@@ -287,6 +435,12 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
             return handle;
         }
 
+/// Adds render pass using the supplied arguments and current state.
+///
+/// @param label `label` value used by the operation.
+///
+/// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] RenderGraphRenderPassBuilder &RenderGraph::add_render_pass(const ustr &label) {
             ZoneScopedN("RenderGraph::add_render_pass");
             const u32 index = static_cast<u32>(render_passes_.size());
@@ -295,6 +449,12 @@ RenderGraphComputePassBuilder &RenderGraphComputePassBuilder::set_execute(Render
             return render_passes_.back();
         }
 
+/// Adds blit pass using the supplied arguments and current state.
+///
+/// @param desc Description of the resource or operation to perform.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
             ZoneScopedN("RenderGraph::add_blit_pass");
             const u32 index = static_cast<u32>(blit_passes_.size());
@@ -302,6 +462,12 @@ void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Blit, .index = index});
         }
 
+/// Adds compute pass using the supplied arguments and current state.
+///
+/// @param label `label` value used by the operation.
+///
+/// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] RenderGraphComputePassBuilder &RenderGraph::add_compute_pass(const ustr &label) {
             ZoneScopedN("RenderGraph::add_compute_pass");
             const u32 index = static_cast<u32>(compute_passes_.size());
@@ -310,6 +476,12 @@ void RenderGraph::add_blit_pass(const RenderGraphBlitDesc &desc) {
             return compute_passes_.back();
         }
 
+/// Adds copy pass using the supplied arguments and current state.
+///
+/// @param desc Description of the resource or operation to perform.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
             ZoneScopedN("RenderGraph::add_copy_pass");
             const u32 index = static_cast<u32>(copy_passes_.size());
@@ -317,6 +489,12 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
             ordered_passes_.push_back(OrderedPass{.kind = PassKind::Copy, .index = index});
         }
 
+/// Marks output using the supplied arguments and current state.
+///
+/// @param texture Texture used or affected by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             ZoneScopedN("RenderGraph::mark_output");
             if (std::find(outputs_.begin(), outputs_.end(), texture) == outputs_.end()) {
@@ -324,6 +502,12 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             }
         }
 
+/// Performs the texture access operation for `Renderer` using the supplied arguments.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RenderGraphTextureAccess RenderGraph::texture_access(RenderGraphTextureHandle handle) const noexcept {
             ZoneScopedN("RenderGraph::texture_access");
             const TextureRecord *record = texture_record(handle);
@@ -340,6 +524,12 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             };
         }
 
+/// Performs the buffer access operation for `Renderer` using the supplied arguments.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RenderGraphBufferAccess RenderGraph::buffer_access(RenderGraphBufferHandle handle) const noexcept {
             ZoneScopedN("RenderGraph::buffer_access");
             const BufferRecord *record = buffer_record(handle);
@@ -349,34 +539,11 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
         }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/// Compiles the supplied source or pipeline state.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `RenderGraphCompileErrorCode::UnknownTextureHandle`, `RenderGraphCompileErrorCode::UnknownBufferHandle`, `RenderGraphCompileErrorCode::InvalidBufferAccess`, `RenderGraphCompileErrorCode::IncompatibleTextureCopy`, `RenderGraphCompileErrorCode::MissingProducer`.
 [[nodiscard]] RenderGraph::CompileResult RenderGraph::compile() const {
             ZoneScopedN("RenderGraph::compile");
             const usize pass_count = ordered_passes_.size();
@@ -579,10 +746,6 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             }
 
 
-
-
-
-
             vector<u32> ready;
             const auto push_ready = [&ready](u32 index) {
                 ready.push_back(index);
@@ -596,8 +759,6 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
 
             vector<bool> scheduled(pass_count, false);
             vector<OrderedPass> order;
-
-
 
 
             vector<u32> order_original_index;
@@ -618,7 +779,6 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             }
 
 
-
             for (usize i = 0; i < pass_count; ++i) {
                 if (live[i] && !scheduled[i]) {
                     order.push_back(ordered_passes_[i]);
@@ -634,12 +794,22 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             return CompiledPlan{.order = std::move(order), .levels = std::move(levels)};
         }
 
+/// Executes the requested work.
+///
+/// @param device Device used or affected by the operation.
+/// @param encoder `encoder` value used by the operation.
+/// @param timestamp_query_set `timestamp_query_set` value used by the operation.
+/// @param out_pass_timings `out_pass_timings` value used by the operation.
+/// @param out_cpu_pass_timings `out_cpu_pass_timings` value used by the operation.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
 [[nodiscard]] Core::RendererResult RenderGraph::execute(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
                                                          RHI::QuerySetHandle timestamp_query_set,
                                                          vector<GpuPassTiming> *out_pass_timings,
                                                          vector<CpuPassTiming> *out_cpu_pass_timings) {
             ZoneScopedN("RenderGraph::execute");
-
 
 
             CompileResult compiled = compile();
@@ -691,6 +861,19 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             return final_transitions;
         }
 
+/// Executes one pass.
+///
+/// @param encoder `encoder` value used by the operation.
+/// @param ordered `ordered` value used by the operation.
+/// @param begin_query_index Zero-based index of the target element or entry.
+/// @param timestamp_query_set `timestamp_query_set` value used by the operation.
+/// @param timing_enabled `timing_enabled` value used by the operation.
+/// @param cpu_timing_enabled `cpu_timing_enabled` value used by the operation.
+/// @param out_gpu_timing `out_gpu_timing` value used by the operation.
+/// @param out_cpu_timing `out_cpu_timing` value used by the operation.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 [[nodiscard]] Core::RendererResult RenderGraph::execute_one_pass(RHI::CommandEncoder &encoder, const OrderedPass &ordered,
                                                                    u32 begin_query_index, RHI::QuerySetHandle timestamp_query_set,
                                                                    bool timing_enabled, bool cpu_timing_enabled,
@@ -760,6 +943,12 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             return {};
         }
 
+/// Computes execution levels using the supplied arguments and current state.
+///
+/// @param execution_order `execution_order` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] vector<u32> RenderGraph::compute_execution_levels(const vector<OrderedPass> &execution_order) const {
             ZoneScopedN("RenderGraph::compute_execution_levels");
             vector<PassUsage> usage(execution_order.size());
@@ -770,20 +959,12 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
         }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/// Computes levels from usage using the supplied arguments and current state.
+///
+/// @param usage_by_position `usage_by_position` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] vector<u32> RenderGraph::compute_levels_from_usage(const vector<PassUsage> &usage_by_position) const {
             ZoneScopedN("RenderGraph::compute_levels_from_usage");
             const usize count = usage_by_position.size();
@@ -847,6 +1028,19 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             return level;
         }
 
+/// Executes parallel.
+///
+/// @param device Device used or affected by the operation.
+/// @param primary_encoder `primary_encoder` value used by the operation.
+/// @param queue Queue used or affected by the operation.
+/// @param out_command_buffers Buffer used or affected by the operation.
+/// @param timestamp_query_set `timestamp_query_set` value used by the operation.
+/// @param out_pass_timings `out_pass_timings` value used by the operation.
+/// @param out_cpu_pass_timings `out_cpu_pass_timings` value used by the operation.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
 [[nodiscard]] Core::RendererResult RenderGraph::execute_parallel(RHI::RhiDevice &device,
                                                                    unique_ptr<RHI::CommandEncoder> primary_encoder,
                                                                    RHI::QueueLane queue,
@@ -855,9 +1049,6 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                                                                    vector<GpuPassTiming> *out_pass_timings,
                                                                    vector<CpuPassTiming> *out_cpu_pass_timings) {
             ZoneScopedN("RenderGraph::execute_parallel");
-
-
-
 
 
             auto fail = [&](Core::RendererResult result) {
@@ -896,17 +1087,9 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             }
 
 
-
-
-
-
-
             if (timing_enabled) {
                 primary_encoder->reset_query_set(timestamp_query_set, 0, static_cast<u32>(execution_order.size() * 2));
             }
-
-
-
 
 
             if (execution_order.size() < 2 || Async::Scheduler::worker_count() <= 1) {
@@ -943,8 +1126,6 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 }
                 out_command_buffers.push_back(*finished_primary);
             }
-
-
 
 
             const vector<u32> levels = compute_execution_levels(execution_order);
@@ -993,15 +1174,6 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                 };
 
 
-
-
-
-
-
-
-
-
-
                 const usize worker_count = std::max<usize>(1, Async::Scheduler::worker_count());
                 const usize group_count = std::min(positions.size(), worker_count);
                 vector<LevelPassGroup> groups(group_count);
@@ -1016,18 +1188,6 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                         cursor += count;
                     }
                 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 
                 {
@@ -1116,6 +1276,12 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             return {};
         }
 
+/// Destroys the transient resources identified by the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 void RenderGraph::destroy_transient_resources(RHI::RhiDevice &device) noexcept {
             ZoneScopedN("RenderGraph::destroy_transient_resources");
 
@@ -1135,6 +1301,13 @@ void RenderGraph::destroy_transient_resources(RHI::RhiDevice &device) noexcept {
             }
         }
 
+/// Performs the take transient resources operation for `Renderer` using the supplied arguments.
+///
+/// @param textures Texture used or affected by the operation.
+/// @param views `views` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void RenderGraph::take_transient_resources(vector<RHI::TextureHandle> &textures,
                                       vector<RHI::TextureViewHandle> &views) {
             ZoneScopedN("RenderGraph::take_transient_resources");
@@ -1153,6 +1326,10 @@ void RenderGraph::take_transient_resources(vector<RHI::TextureHandle> &textures,
             }
         }
 
+/// Resets the object to its baseline state.
+///
+/// @return Returns the current reset value.
+/// @note This function does not throw exceptions.
 void RenderGraph::reset() noexcept {
             ZoneScopedN("RenderGraph::reset");
             ordered_passes_.clear();
@@ -1166,6 +1343,13 @@ void RenderGraph::reset() noexcept {
             buffers_.clear();
         }
 
+/// Performs the texture record operation for `Renderer` using the supplied arguments.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+/// @note Absence is represented by a null pointer rather than an exception.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RenderGraph::TextureRecord *RenderGraph::texture_record(RenderGraphTextureHandle handle) noexcept {
             ZoneScopedN("RenderGraph::texture_record");
             if (!handle || handle.index >= textures_.size()) {
@@ -1174,6 +1358,13 @@ void RenderGraph::reset() noexcept {
             return &textures_[handle.index];
         }
 
+/// Performs the texture record operation for `Renderer` using the supplied arguments.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+/// @note Absence is represented by a null pointer rather than an exception.
+/// @note This function does not throw exceptions.
 [[nodiscard]] const RenderGraph::TextureRecord *RenderGraph::texture_record(RenderGraphTextureHandle handle) const noexcept {
             ZoneScopedN("RenderGraph::texture_record");
             if (!handle || handle.index >= textures_.size()) {
@@ -1182,6 +1373,13 @@ void RenderGraph::reset() noexcept {
             return &textures_[handle.index];
         }
 
+/// Performs the buffer record operation for `Renderer` using the supplied arguments.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+/// @note Absence is represented by a null pointer rather than an exception.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RenderGraph::BufferRecord *RenderGraph::buffer_record(RenderGraphBufferHandle handle) noexcept {
             ZoneScopedN("RenderGraph::buffer_record");
             if (!handle || handle.index >= buffers_.size()) {
@@ -1190,6 +1388,13 @@ void RenderGraph::reset() noexcept {
             return &buffers_[handle.index];
         }
 
+/// Performs the buffer record operation for `Renderer` using the supplied arguments.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+/// @note Absence is represented by a null pointer rather than an exception.
+/// @note This function does not throw exceptions.
 [[nodiscard]] const RenderGraph::BufferRecord *RenderGraph::buffer_record(RenderGraphBufferHandle handle) const noexcept {
             ZoneScopedN("RenderGraph::buffer_record");
             if (!handle || handle.index >= buffers_.size()) {
@@ -1198,6 +1403,13 @@ void RenderGraph::reset() noexcept {
             return &buffers_[handle.index];
         }
 
+/// Resolves the physical slot associated with the supplied key, handle, or resource.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+/// @note Absence is represented by a null pointer rather than an exception.
+/// @note This function does not throw exceptions.
 [[nodiscard]] RenderGraph::PhysicalSlot *RenderGraph::physical_slot_for(RenderGraphTextureHandle handle) noexcept {
             ZoneScopedN("RenderGraph::physical_slot_for");
             TextureRecord *record = texture_record(handle);
@@ -1207,6 +1419,13 @@ void RenderGraph::reset() noexcept {
             return &physical_slots_[record->physical_slot];
         }
 
+/// Resolves the physical slot associated with the supplied key, handle, or resource.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+/// @note Absence is represented by a null pointer rather than an exception.
+/// @note This function does not throw exceptions.
 [[nodiscard]] const RenderGraph::PhysicalSlot *RenderGraph::physical_slot_for(RenderGraphTextureHandle handle) const noexcept {
             ZoneScopedN("RenderGraph::physical_slot_for");
             const TextureRecord *record = texture_record(handle);
@@ -1216,6 +1435,14 @@ void RenderGraph::reset() noexcept {
             return &physical_slots_[record->physical_slot];
         }
 
+/// Performs the transition buffer operation for `Renderer` using the supplied arguments.
+///
+/// @param encoder `encoder` value used by the operation.
+/// @param access `access` value used by the operation.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
 [[nodiscard]] Core::RendererResult RenderGraph::transition_buffer(
             RHI::CommandEncoder &encoder, const RenderGraphBufferAccessDesc &access) {
             ZoneScopedN("RenderGraph::transition_buffer");
@@ -1233,7 +1460,6 @@ void RenderGraph::reset() noexcept {
                     .dst_access = access.access,
 
 
-
                     .offset = 0,
                     .size = 0,
                 };
@@ -1244,6 +1470,18 @@ void RenderGraph::reset() noexcept {
             return {};
         }
 
+/// Performs the transition texture operation for `Renderer` using the supplied arguments.
+///
+/// @param encoder `encoder` value used by the operation.
+/// @param handle Handle identifying the target object or resource.
+/// @param next_layout `next_layout` value used by the operation.
+/// @param next_stage `next_stage` value used by the operation.
+/// @param next_access `next_access` value used by the operation.
+/// @param subresources `subresources` value used by the operation.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
 [[nodiscard]] Core::RendererResult RenderGraph::transition_texture(RHI::CommandEncoder &encoder,
                                                               RenderGraphTextureHandle handle,
                                                               RHI::TextureLayout next_layout,
@@ -1251,7 +1489,6 @@ void RenderGraph::reset() noexcept {
                                                               RHI::AccessFlags next_access,
                                                               RHI::TextureSubresourceRange subresources) {
             ZoneScopedN("RenderGraph::transition_texture");
-
 
 
             PhysicalSlot *slot = physical_slot_for(handle);
@@ -1297,6 +1534,14 @@ void RenderGraph::reset() noexcept {
             return {};
         }
 
+/// Executes render pass.
+///
+/// @param encoder `encoder` value used by the operation.
+/// @param pass Render-pass encoder that receives the draw commands.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
 [[nodiscard]] Core::RendererResult RenderGraph::execute_render_pass(RHI::CommandEncoder &encoder,
                                                                RenderGraphRenderPassBuilder &pass) {
             ZoneScopedN("RenderGraph::execute_render_pass");
@@ -1444,6 +1689,14 @@ void RenderGraph::reset() noexcept {
             return {};
         }
 
+/// Executes blit pass.
+///
+/// @param encoder `encoder` value used by the operation.
+/// @param pass Render-pass encoder that receives the draw commands.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
 [[nodiscard]] Core::RendererResult RenderGraph::execute_blit_pass(RHI::CommandEncoder &encoder, const RenderGraphBlitDesc &pass) {
             ZoneScopedN("RenderGraph::execute_blit_pass");
             const TextureRecord *source_record = texture_record(pass.source);
@@ -1488,6 +1741,14 @@ void RenderGraph::reset() noexcept {
             return {};
         }
 
+/// Executes compute pass.
+///
+/// @param encoder `encoder` value used by the operation.
+/// @param pass Render-pass encoder that receives the draw commands.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
 [[nodiscard]] Core::RendererResult RenderGraph::execute_compute_pass(RHI::CommandEncoder &encoder,
                                                                  RenderGraphComputePassBuilder &pass) {
             ZoneScopedN("RenderGraph::execute_compute_pass");
@@ -1546,6 +1807,14 @@ void RenderGraph::reset() noexcept {
             return {};
         }
 
+/// Executes copy pass.
+///
+/// @param encoder `encoder` value used by the operation.
+/// @param pass Render-pass encoder that receives the draw commands.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
 [[nodiscard]] Core::RendererResult RenderGraph::execute_copy_pass(RHI::CommandEncoder &encoder, const RenderGraphCopyDesc &pass) {
             ZoneScopedN("RenderGraph::execute_copy_pass");
             const TextureRecord *source_record = texture_record(pass.source);
@@ -1584,6 +1853,12 @@ void RenderGraph::reset() noexcept {
             return {};
         }
 
+/// Computes transient lifetimes using the supplied arguments and current state.
+///
+/// @param execution_order `execution_order` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 [[nodiscard]] vector<RenderGraph::TextureLifetime> RenderGraph::compute_transient_lifetimes(const vector<OrderedPass> &execution_order) const {
             ZoneScopedN("RenderGraph::compute_transient_lifetimes");
             vector<TextureLifetime> lifetimes(textures_.size());
@@ -1610,17 +1885,14 @@ void RenderGraph::reset() noexcept {
         }
 
 
-
-
-
-
-
-
-
-
-
-
-
+/// Creates a transient resources from the supplied parameters.
+///
+/// @param device Device used or affected by the operation.
+/// @param execution_order `execution_order` value used by the operation.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+/// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
 [[nodiscard]] Core::RendererResult RenderGraph::create_transient_resources(RHI::RhiDevice &device,
                                                                       const vector<OrderedPass> &execution_order) {
             ZoneScopedN("RenderGraph::create_transient_resources");
@@ -1649,9 +1921,6 @@ void RenderGraph::reset() noexcept {
                     continue;
                 }
                 if (lifetimes[i].first_use < 0) {
-
-
-
 
 
                     continue;
@@ -1742,6 +2011,12 @@ void RenderGraph::reset() noexcept {
             return {};
         }
 
+/// Performs the transition to final states operation for `Renderer` using the supplied arguments.
+///
+/// @param encoder `encoder` value used by the operation.
+///
+/// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+/// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 [[nodiscard]] Core::RendererResult RenderGraph::transition_to_final_states(RHI::CommandEncoder &encoder) {
             ZoneScopedN("RenderGraph::transition_to_final_states");
             for (usize i = 0; i < buffers_.size(); ++i) {
@@ -1785,51 +2060,105 @@ void RenderGraph::reset() noexcept {
             return {};
         }
 
+/// Renders the requested content using the current rendering state.
+///
+/// @param graph `graph` value used by the operation.
+/// @param command_encoder `command_encoder` value used by the operation.
+/// @param render_pass Render-pass encoder that receives the draw commands.
+///
+/// @note This function does not throw exceptions.
 RenderGraphContext::RenderGraphContext(RenderGraph &graph,
                                                   RHI::CommandEncoder &command_encoder,
                                                   RHI::RenderPassEncoder &render_pass) noexcept
         : graph_(&graph), command_encoder_(&command_encoder), render_pass_(&render_pass) {}
 
+/// Returns the current or globally available command encoder value.
+///
+/// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function does not throw exceptions.
 RHI::CommandEncoder &RenderGraphContext::command_encoder() const noexcept {
         ZoneScopedN("RenderGraphContext::RenderGraphContext");
         return *command_encoder_;
     }
 
+/// Renders pass using the current rendering state.
+///
+/// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function does not throw exceptions.
 RHI::RenderPassEncoder &RenderGraphContext::render_pass() const noexcept {
         ZoneScopedN("RenderGraphContext::render_pass");
         return *render_pass_;
     }
 
+/// Performs the texture operation for `Renderer` using the supplied arguments.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 RenderGraphTextureAccess RenderGraphContext::texture(RenderGraphTextureHandle handle) const noexcept {
         ZoneScopedN("RenderGraphContext::texture");
         return graph_ != nullptr ? graph_->texture_access(handle) : RenderGraphTextureAccess{};
     }
 
+/// Performs the buffer operation for `Renderer` using the supplied arguments.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 RenderGraphBufferAccess RenderGraphContext::buffer(RenderGraphBufferHandle handle) const noexcept {
         ZoneScopedN("RenderGraphContext::buffer");
         return graph_ != nullptr ? graph_->buffer_access(handle) : RenderGraphBufferAccess{};
     }
 
+/// Renders the requested content using the current rendering state.
+///
+/// @param graph `graph` value used by the operation.
+/// @param command_encoder `command_encoder` value used by the operation.
+/// @param compute_pass `compute_pass` value used by the operation.
+///
+/// @note This function does not throw exceptions.
 RenderGraphComputeContext::RenderGraphComputeContext(RenderGraph &graph,
                                                   RHI::CommandEncoder &command_encoder,
                                                   RHI::ComputePassEncoder &compute_pass) noexcept
         : graph_(&graph), command_encoder_(&command_encoder), compute_pass_(&compute_pass) {}
 
+/// Returns the current or globally available command encoder value.
+///
+/// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function does not throw exceptions.
 RHI::CommandEncoder &RenderGraphComputeContext::command_encoder() const noexcept {
         ZoneScopedN("RenderGraphComputeContext::RenderGraphComputeContext");
         return *command_encoder_;
     }
 
+/// Computes pass using the supplied arguments and current state.
+///
+/// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+/// @note This function does not throw exceptions.
 RHI::ComputePassEncoder &RenderGraphComputeContext::compute_pass() const noexcept {
         ZoneScopedN("RenderGraphComputeContext::compute_pass");
         return *compute_pass_;
     }
 
+/// Performs the texture operation for `Renderer` using the supplied arguments.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 RenderGraphTextureAccess RenderGraphComputeContext::texture(RenderGraphTextureHandle handle) const noexcept {
         ZoneScopedN("RenderGraphComputeContext::texture");
         return graph_ != nullptr ? graph_->texture_access(handle) : RenderGraphTextureAccess{};
     }
 
+/// Performs the buffer operation for `Renderer` using the supplied arguments.
+///
+/// @param handle Handle identifying the target object or resource.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
 RenderGraphBufferAccess RenderGraphComputeContext::buffer(RenderGraphBufferHandle handle) const noexcept {
         ZoneScopedN("RenderGraphComputeContext::buffer");
         return graph_ != nullptr ? graph_->buffer_access(handle) : RenderGraphBufferAccess{};

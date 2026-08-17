@@ -15,10 +15,6 @@
 #elif defined(STURDY_CPU_RISCV64) && defined(__linux__)
 
 
-
-
-
-
     #include <sys/auxv.h>
     #ifndef AT_HWCAP
         #define AT_HWCAP 16
@@ -31,10 +27,24 @@ namespace SFT::Foundation::Cpu {
 
     namespace {
 
+        /// Reads leaf from the associated source.
+        ///
+        /// @param leaf `leaf` value used by the operation.
+        /// @param subleaf `subleaf` value used by the operation.
+        /// @param eax `eax` value used by the operation.
+        /// @param ebx `ebx` value used by the operation.
+        /// @param ecx `ecx` value used by the operation.
+        /// @param edx `edx` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void read_leaf(unsigned int leaf, unsigned int subleaf, unsigned int &eax, unsigned int &ebx, unsigned int &ecx, unsigned int &edx) noexcept {
             __get_cpuid_count(leaf, subleaf, &eax, &ebx, &ecx, &edx);
         }
 
+        /// Detects the CPU instruction-set and execution features available to the current process.
+        ///
+        /// @return Returns the current detect features value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] CpuFeatures detect_features() noexcept {
             CpuFeatures result{};
 
@@ -100,11 +110,19 @@ namespace SFT::Foundation::Cpu {
 
     } // namespace
 
+    /// Returns the current or globally available features value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const CpuFeatures &features() noexcept {
         static const CpuFeatures instance = detect_features();
         return instance;
     }
 
+    /// Returns the current or globally available best simd level value.
+    ///
+    /// @return Returns the current best simd level value.
+    /// @note This function does not throw exceptions.
     SimdLevel best_simd_level() noexcept {
         const CpuFeatures &f = features();
         if (f.avx512f && f.os_supports_avx512) {
@@ -121,6 +139,10 @@ namespace SFT::Foundation::Cpu {
 
 #elif defined(STURDY_CPU_ARM64)
 
+    /// Returns the current or globally available features value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const CpuFeatures &features() noexcept {
 
 
@@ -132,12 +154,20 @@ namespace SFT::Foundation::Cpu {
         return instance;
     }
 
+    /// Returns the current or globally available best simd level value.
+    ///
+    /// @return Returns the current best simd level value.
+    /// @note This function does not throw exceptions.
     SimdLevel best_simd_level() noexcept { return SimdLevel::NEON; }
 
 #elif defined(STURDY_CPU_RISCV64)
 
     namespace {
 
+        /// Detects the CPU instruction-set and execution features available to the current process.
+        ///
+        /// @return Returns the current detect features value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] CpuFeatures detect_features() noexcept {
             CpuFeatures result{};
 #if defined(__linux__)
@@ -151,20 +181,36 @@ namespace SFT::Foundation::Cpu {
 
     } // namespace
 
+    /// Returns the current or globally available features value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const CpuFeatures &features() noexcept {
         static const CpuFeatures instance = detect_features();
         return instance;
     }
 
+    /// Returns the current or globally available best simd level value.
+    ///
+    /// @return Returns the current best simd level value.
+    /// @note This function does not throw exceptions.
     SimdLevel best_simd_level() noexcept { return features().rvv ? SimdLevel::RVV : SimdLevel::Scalar; }
 
 #else
 
+    /// Returns the current or globally available features value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const CpuFeatures &features() noexcept {
         static const CpuFeatures instance{};
         return instance;
     }
 
+    /// Returns the current or globally available best simd level value.
+    ///
+    /// @return Returns the current best simd level value.
+    /// @note This function does not throw exceptions.
     SimdLevel best_simd_level() noexcept { return SimdLevel::Scalar; }
 
 #endif
@@ -173,8 +219,16 @@ namespace SFT::Foundation::Cpu {
 
 namespace SFT::Foundation::Cpu {
 
+    /// Returns the current or globally available vendor view value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     std::string_view CpuFeatures::vendor_view() const noexcept { return vendor; }
 
+    /// Returns the current or globally available brand view value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     std::string_view CpuFeatures::brand_view() const noexcept { return brand; }
 
 } // namespace SFT::Foundation::Cpu

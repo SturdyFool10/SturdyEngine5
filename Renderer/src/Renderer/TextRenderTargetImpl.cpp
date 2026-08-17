@@ -27,6 +27,14 @@ using std::vector;
 
 namespace SFT::Renderer {
 
+    /// Creates a `Renderer` resource or value from the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param config Configuration values controlling the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<TextRenderTarget> TextRenderTarget::create(RHI::RhiDevice &device, const Config &config) {
         ZoneScopedN("TextRenderTarget::create");
         if (config.width == 0 || config.height == 0) {
@@ -81,10 +89,19 @@ namespace SFT::Renderer {
         return target;
     }
 
+    /// Renders the requested content using the current rendering state.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param atlas `atlas` value used by the operation.
+    /// @param pipeline Pipeline used or affected by the operation.
+    /// @param glyphs `glyphs` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult TextRenderTarget::render(RHI::RhiDevice &device, TextAtlas &atlas, TextPipeline &pipeline,
                                                   span<const GlyphPlacement> glyphs) {
         ZoneScopedN("TextRenderTarget::render");
-
 
 
         auto encoder = device.create_command_encoder(RHI::CommandEncoderDesc{.label = "text render target render"});
@@ -126,8 +143,6 @@ namespace SFT::Renderer {
                 instances.push_back(make_glyph_instance(glyphs[i].position, glyphs[i], slots[i], atlas.pixel_range()));
             }
         }
-
-
 
 
         const vector<RHI::Rect2D> scissors(
@@ -220,7 +235,6 @@ namespace SFT::Renderer {
         if (!*waited) {
 
 
-
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "wait text render target fence: vkWaitForFences timed out."});
         }
@@ -240,6 +254,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys or releases the `Renderer` resource represented by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextRenderTarget::destroy(RHI::RhiDevice &device) noexcept {
         ZoneScopedN("TextRenderTarget::destroy");
         destroy_text_frame_resources(device, text_resources_);

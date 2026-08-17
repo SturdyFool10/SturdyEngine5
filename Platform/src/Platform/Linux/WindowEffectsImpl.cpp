@@ -29,6 +29,14 @@ namespace SFT::Platform::Windowing {
     namespace {
 
 #if defined(__linux__)
+        /// Attempts to ext background effect blur without requiring normal failure to be exceptional.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        /// @param effect `effect` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         WindowEffectResult try_ext_background_effect_blur(NativeWindowHandle handle, WindowEffect effect) noexcept {
             ZoneScopedN("Windowing::try_ext_background_effect_blur");
             Detail::window_debug(
@@ -42,6 +50,14 @@ namespace SFT::Platform::Windowing {
             return Detail::set_wayland_background_blur(handle, effect);
         }
 
+        /// Attempts to kde blur without requiring normal failure to be exceptional.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        /// @param effect `effect` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         WindowEffectResult try_kde_blur(NativeWindowHandle handle, WindowEffect effect) noexcept {
             ZoneScopedN("Windowing::try_kde_blur");
             Detail::window_debug(
@@ -55,6 +71,14 @@ namespace SFT::Platform::Windowing {
             return Detail::set_wayland_background_blur(handle, effect);
         }
 
+        /// Attempts to linux blur without requiring normal failure to be exceptional.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        /// @param effect `effect` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         WindowEffectResult try_linux_blur(NativeWindowHandle handle, WindowEffect effect) noexcept {
             ZoneScopedN("Windowing::try_linux_blur");
             switch (effect.linux_blur_protocol) {
@@ -67,14 +91,16 @@ namespace SFT::Platform::Windowing {
             }
 
 
-
-
             return Detail::set_wayland_background_blur(handle, effect);
         }
 #endif
 
     } // namespace
 
+    /// Returns the current or globally available current operating system value.
+    ///
+    /// @return Returns the current current operating system value.
+    /// @note This function does not throw exceptions.
     OperatingSystem current_operating_system() noexcept {
 #if defined(__linux__)
         return OperatingSystem::Linux;
@@ -83,6 +109,12 @@ namespace SFT::Platform::Windowing {
 #endif
     }
 
+    /// Performs the operating system may support window effect operation for `Windowing` using the supplied arguments.
+    ///
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool operating_system_may_support_window_effect(WindowEffectKind effect) noexcept {
 #if defined(__linux__)
         return effect == WindowEffectKind::Blur;
@@ -92,6 +124,12 @@ namespace SFT::Platform::Windowing {
 #endif
     }
 
+    /// Releases native window effects using the supplied arguments and current state.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param release_display `release_display` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void release_native_window_effects(NativeWindowHandle handle, bool release_display) noexcept {
 #if defined(__linux__)
         Detail::release_wayland_background_effects(handle, release_display);
@@ -101,6 +139,14 @@ namespace SFT::Platform::Windowing {
 #endif
     }
 
+    /// Enables native window effect using the supplied arguments and current state.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
         ZoneScopedN("Windowing::enable_native_window_effect");
 #if defined(__linux__)
@@ -135,6 +181,14 @@ namespace SFT::Platform::Windowing {
 namespace SFT::Platform::Windowing::Detail {
 
 
+    /// Performs the native window handle from SDL operation for `Detail` using the supplied arguments.
+    ///
+    /// @param window_handle Window used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`, `WindowErrorCode::Unsupported`.
+    /// @note This function does not throw exceptions.
     expected<NativeWindowHandle, WindowError> native_window_handle_from_sdl(void *window_handle) noexcept {
         ZoneScopedN("Windowing::Detail::native_window_handle_from_sdl");
 #if defined(__linux__)

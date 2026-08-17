@@ -3,6 +3,14 @@
 
 namespace SFT::UI {
 
+    /// Performs the slider part ID operation for `UI` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param part `part` value used by the operation.
+    /// @param occurrence `occurrence` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString slider_part_id(const ustr &id, SliderVisualPart part, usize occurrence) {
         if (part == SliderVisualPart::Root)
             return UString{id};
@@ -23,20 +31,70 @@ namespace SFT::UI {
         return result;
     }
 
+    /// Performs the slider part ID operation for `UI` using the supplied arguments.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param part `part` value used by the operation.
+    /// @param occurrence `occurrence` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString slider_part_id(const UString &id, SliderVisualPart part, usize occurrence) {
         return slider_part_id(id.as_ustr(), part, occurrence);
     }
 
+    /// Returns the current or globally available dragging value.
+    ///
+    /// @return Returns the current dragging value.
+    /// @note This function does not throw exceptions.
     bool SliderState::dragging() const noexcept { return dragging_; }
 
+    /// Performs the dragging operation for `UI` using the supplied arguments.
+    ///
+    /// @param state `state` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     bool &DetailSliderAccess::dragging(SliderState &state) noexcept { return state.dragging_; }
 
+    /// Performs the gesture changed operation for `UI` using the supplied arguments.
+    ///
+    /// @param state `state` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     bool &DetailSliderAccess::gesture_changed(SliderState &state) noexcept { return state.changed_during_gesture_; }
 
+    /// Performs the drag from thumb operation for `UI` using the supplied arguments.
+    ///
+    /// @param state `state` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     bool &DetailSliderAccess::drag_from_thumb(SliderState &state) noexcept { return state.drag_from_thumb_; }
 
+    /// Computes the grab offset required by the supplied values.
+    ///
+    /// @param state `state` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     f32 &DetailSliderAccess::grab_offset(SliderState &state) noexcept { return state.grab_offset_; }
 
+    /// Performs the slider operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param decl `decl` value used by the operation.
+    /// @param config Configuration values controlling the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param value Value consumed by the operation.
+    /// @param input `input` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    /// @param composition `composition` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     SliderResult slider(Context &ctx, const ElementDecl &decl, const SliderConfig &config, const SliderStyle &style, SliderState &state, f64 value, const SliderInput &input, bool enabled, const SliderComposition &composition) {
         const Detail::SliderRange range = Detail::slider_range(config);
         SliderResult result{.value = Detail::sanitize_slider_value(value, range)};
@@ -283,7 +341,6 @@ namespace SFT::UI {
                                 .capture_pointer = false,
 
 
-
                                 .clip_to = FloatingClipTo::AttachedParent,
                             },
                         },
@@ -471,7 +528,6 @@ namespace SFT::UI {
                                               : glm::vec2{0.0f, thumb_size * 0.5f + static_cast<f32>(screen_fraction) * travel},
 
 
-
                                 .clip_to = FloatingClipTo::AttachedParent,
                             },
 
@@ -510,7 +566,6 @@ namespace SFT::UI {
                                 .capture_pointer = false,
 
 
-
                             },
                         },
                         tooltip_context);
@@ -521,6 +576,19 @@ namespace SFT::UI {
         return result;
     }
 
+    /// Performs the slider operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param decl `decl` value used by the operation.
+    /// @param config Configuration values controlling the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param value Value consumed by the operation.
+    /// @param input `input` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     SliderResult slider(Context &ctx, const ElementDecl &decl, const SliderConfig &config, const SliderStyle &style, SliderState &state, f64 value, const SliderInput &input, bool enabled) {
         return slider(ctx, decl, config, style, state, value, input, enabled, SliderComposition{});
     }
@@ -529,6 +597,12 @@ namespace SFT::UI {
 
 namespace SFT::UI::Detail {
 
+    /// Performs the slider range operation for `Detail` using the supplied arguments.
+    ///
+    /// @param config Configuration values controlling the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     SliderRange slider_range(const SliderConfig &config) noexcept {
         SliderRange result;
         result.min = std::isfinite(config.min) ? config.min : 0.0;
@@ -545,6 +619,13 @@ namespace SFT::UI::Detail {
         return result;
     }
 
+    /// Performs the sanitize slider value operation for `Detail` using the supplied arguments.
+    ///
+    /// @param value Value consumed by the operation.
+    /// @param range Range of values to process.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     f64 sanitize_slider_value(f64 value, const SliderRange &range) noexcept {
         if (!std::isfinite(value)) {
             value = range.min + (range.max - range.min) * 0.5;
@@ -555,13 +636,20 @@ namespace SFT::UI::Detail {
             const f64 max_steps = std::floor((range.max - range.min) / *range.step);
 
 
-
             const f64 snapped_steps = std::clamp(std::floor(steps + 0.5), 0.0, max_steps);
             value = range.min + snapped_steps * *range.step;
         }
         return value;
     }
 
+    /// Performs the slider values equal operation for `Detail` using the supplied arguments.
+    ///
+    /// @param lhs Left-hand operand.
+    /// @param rhs Right-hand operand.
+    /// @param range Range of values to process.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     bool slider_values_equal(f64 lhs, f64 rhs, const SliderRange &range) noexcept {
         if (lhs == rhs) {
             return true;
@@ -570,15 +658,40 @@ namespace SFT::UI::Detail {
         return std::abs(lhs - rhs) <= std::numeric_limits<f64>::epsilon() * scale * 8.0;
     }
 
+    /// Performs the slider fraction operation for `Detail` using the supplied arguments.
+    ///
+    /// @param value Value consumed by the operation.
+    /// @param range Range of values to process.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     f64 slider_fraction(f64 value, const SliderRange &range) noexcept {
         return range.max > range.min ? std::clamp((value - range.min) / (range.max - range.min), 0.0, 1.0) : 0.0;
     }
 
+    /// Returns the declared axis size for this `Detail`.
+    ///
+    /// @param decl `decl` value used by the operation.
+    /// @param orientation `orientation` value used by the operation.
+    ///
+    /// @return Returns the requested count or size.
+    /// @note This function does not throw exceptions.
     f32 declared_axis_size(const ElementDecl &decl, SliderOrientation orientation) noexcept {
         const SizingAxis &axis = orientation == SliderOrientation::Horizontal ? decl.sizing.width : decl.sizing.height;
         return axis.kind == SizingKind::Fixed ? std::max(axis.value, 0.0f) : 0.0f;
     }
 
+    /// Performs the pointer slider value operation for `Detail` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param bounds `bounds` value used by the operation.
+    /// @param config Configuration values controlling the operation.
+    /// @param range Range of values to process.
+    /// @param thumb_size Requested or available size for the operation.
+    /// @param grab_offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     f64 pointer_slider_value(const Context &ctx, const ElementBounds &bounds, const SliderConfig &config, const SliderRange &range, f32 thumb_size, f32 grab_offset) noexcept {
         const bool horizontal = config.orientation == SliderOrientation::Horizontal;
         const f32 length = horizontal ? bounds.size.x : bounds.size.y;
@@ -599,6 +712,13 @@ namespace SFT::UI::Detail {
         return sanitize_slider_value(range.min + value_fraction * (range.max - range.min), range);
     }
 
+    /// Performs the keyboard step operation for `Detail` using the supplied arguments.
+    ///
+    /// @param config Configuration values controlling the operation.
+    /// @param range Range of values to process.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     f64 keyboard_step(const SliderConfig &config, const SliderRange &range) noexcept {
         if (config.keyboard_step.has_value() && std::isfinite(*config.keyboard_step) && *config.keyboard_step > 0.0) {
             return *config.keyboard_step;
@@ -609,6 +729,16 @@ namespace SFT::UI::Detail {
         return std::max((range.max - range.min) / 100.0, std::numeric_limits<f64>::epsilon());
     }
 
+    /// Renders slider mark using the current rendering state.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param orientation `orientation` value used by the operation.
+    /// @param screen_fraction `screen_fraction` value used by the operation.
+    /// @param travel `travel` value used by the operation.
+    /// @param thumb_size Requested or available size for the operation.
+    /// @param style `style` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void render_slider_mark(Context &ctx, SliderOrientation orientation, f64 screen_fraction, f32 travel, f32 thumb_size, const SliderStyle &style) {
         ElementDecl mark{
             .sizing = orientation == SliderOrientation::Horizontal

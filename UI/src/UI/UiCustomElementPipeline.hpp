@@ -20,32 +20,47 @@ using std::vector;
 
 namespace SFT::UI {
 
-    /// GPU-side cache + draw path for Context::custom_element() (Clay's CUSTOM render command,
-    /// plans/clay-ui-renderer.md's Phase 3) — one compiled pipeline per distinct
-    /// (shader_path, module_name, fragment_entry_point, color_format), built the first time
-    /// UiRenderer::prepare() sees it and reused every frame after (same cache shape as
-    /// Renderer::Renderer::ensure_custom_post_process()). Unlike UiQuadPipeline, there is no
-    /// batching: an arbitrary user fragment shader can't share the generic rect/image pipeline's
-    /// fixed fragment stage, and custom elements are expected to be rare (a handful of animated
-    /// panels), not per-widget, so a draw call each is an acceptable cost.
+
     class UiCustomElementPipeline {
       public:
+        /// Constructs a `UiCustomElementPipeline` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         UiCustomElementPipeline() noexcept = default;
 
-        /// Compiles/caches every distinct shader referenced by `draws` (a no-op for ones already
-        /// cached this pipeline's lifetime). Fails on the first compile/reflection/authoring error it
-        /// hits — a bad shader_path or a shader that doesn't follow CustomShaderRef's documented
-        /// contract (UiElementConstants-prefixed single push-constant struct, no resource bindings)
-        /// is an app bug, not something to draw around silently.
+
+        /// Prepares the required state or resources for a later operation.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param color_format Format used for the resource, render target, or conversion.
+        /// @param draws Draw descriptions processed in submission order.
+        /// @param enable_shader_disk_cache Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult prepare(RHI::RhiDevice &device, RHI::Format color_format,
                                                     span<const CustomDraw> draws, bool enable_shader_disk_cache = true);
 
-        /// Issues one draw call per entry of `draws`, in order — see class doc comment for why this
-        /// doesn't batch. Every shader referenced must have already been prepared this frame via
-        /// prepare() above (same `color_format`, which is what the shader cache is keyed by).
+
+        /// Draws the requested content using the current rendering state.
+        ///
+        /// @param pass Render-pass encoder that receives the draw commands.
+        /// @param color_format Format used for the resource, render target, or conversion.
+        /// @param draws Draw descriptions processed in submission order.
+        /// @param viewport_size Requested or available size for the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass, RHI::Format color_format,
                                                  span<const CustomDraw> draws, glm::vec2 viewport_size);
 
+        /// Destroys or releases the `UiCustomElementPipeline` resource represented by the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy(RHI::RhiDevice &device) noexcept;
 
       private:
@@ -58,16 +73,31 @@ namespace SFT::UI {
             RHI::ShaderModuleHandle fragment_module{};
             RHI::PipelineLayoutHandle pipeline_layout{};
             RHI::RenderPipelineHandle pipeline{};
-            /// The shader's own reflected push-constant range — draw() validates
-            /// UiElementConstants + CustomShaderRef::push_constants adds up to exactly this before
-            /// uploading, rather than overrunning into whatever follows.
+
+
             u32 push_constant_size = 0;
         };
 
+        /// Finds or creates the shader required by the operation.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param color_format Format used for the resource, render target, or conversion.
+        /// @param shader Shader used or affected by the operation.
+        /// @param enable_shader_disk_cache Whether the associated behavior is enabled.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<CachedShader *> ensure_shader(RHI::RhiDevice &device,
                                                                             RHI::Format color_format,
                                                                             const CustomShaderRef &shader,
                                                                             bool enable_shader_disk_cache);
+        /// Finds shader in the available state.
+        ///
+        /// @param shader Shader used or affected by the operation.
+        /// @param color_format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] CachedShader *find_shader(const CustomShaderRef &shader, RHI::Format color_format) noexcept;
 
         vector<CachedShader> shaders_;

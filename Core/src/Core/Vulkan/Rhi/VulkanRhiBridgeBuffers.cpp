@@ -43,6 +43,12 @@ namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
+    /// Creates a buffer from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::BufferHandle> VulkanRhiDeviceBridge::create_buffer(const rhi::BufferDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_buffer");
         if (allocator_ == nullptr || logical_device_ == nullptr) {
@@ -69,11 +75,26 @@ namespace SFT::Core::Vulkan {
         return buffers_.insert(BufferRecord{std::move(*buffer), desc.memory});
     }
 
+    /// Destroys the buffer identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_buffer(rhi::BufferHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_buffer");
         buffers_.erase(handle);
     }
 
+    /// Writes buffer to the associated destination.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiResult VulkanRhiDeviceBridge::write_buffer(rhi::BufferHandle buffer, u64 offset, span<const std::byte> data) {
         ZoneScopedN("VulkanRhiDeviceBridge::write_buffer");
         BufferRecord *record = buffers_.find(buffer);
@@ -91,6 +112,13 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
+    /// Maps buffer for access.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<span<std::byte>> VulkanRhiDeviceBridge::map_buffer(rhi::BufferHandle buffer) {
         ZoneScopedN("VulkanRhiDeviceBridge::map_buffer");
         BufferRecord *record = buffers_.find(buffer);
@@ -109,6 +137,12 @@ namespace SFT::Core::Vulkan {
         return span<std::byte>(static_cast<std::byte *>(*mapped), static_cast<usize>(record->buffer.size()));
     }
 
+    /// Unmaps buffer.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::unmap_buffer(rhi::BufferHandle buffer) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::unmap_buffer");
         if (BufferRecord *record = buffers_.find(buffer)) {
@@ -116,6 +150,10 @@ namespace SFT::Core::Vulkan {
         }
     }
 
+    /// Acquires upload resources.
+    ///
+    /// @return Returns the current acquire upload resources value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     VulkanRhiDeviceBridge::UploadResources VulkanRhiDeviceBridge::acquire_upload_resources() {
         ZoneScopedN("VulkanRhiDeviceBridge::acquire_upload_resources");
         {
@@ -137,6 +175,12 @@ namespace SFT::Core::Vulkan {
         return resources;
     }
 
+    /// Releases upload resources using the supplied arguments and current state.
+    ///
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::release_upload_resources(UploadResources resources) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::release_upload_resources");
         if (!resources.command_pool.is_valid() || !resources.fence.is_valid()) {
@@ -145,6 +189,15 @@ namespace SFT::Core::Vulkan {
         upload_pool_.lock()->push_back(std::move(resources));
     }
 
+    /// Uploads via staging using the supplied arguments and current state.
+    ///
+    /// @param destination Destination value or resource.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::OperationFailed`.
     rhi::RhiResult VulkanRhiDeviceBridge::upload_via_staging(VulkanBuffer &destination, u64 offset, span<const std::byte> data) {
         ZoneScopedN("VulkanRhiDeviceBridge::upload_via_staging");
         if (allocator_ == nullptr || logical_device_ == nullptr || graphics_queue_ == nullptr) {

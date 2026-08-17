@@ -25,6 +25,12 @@ using std::unexpected;
 
 namespace SFT::UI {
 
+    /// Destroys the UI quad frame resources identified by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void destroy_ui_quad_frame_resources(RHI::RhiDevice &device, UiQuadFrameResources &resources) noexcept {
         for (UiQuadFrameResources::BindingCacheEntry &entry : resources.binding_cache) {
             for (const UiQuadDrawBatch::BoundGroup &group : entry.bind_groups) {
@@ -42,6 +48,13 @@ namespace SFT::UI {
     namespace {
         namespace slang = Core::Slang;
 
+        /// Binds group layout index for set for subsequent operations.
+        ///
+        /// @param sets `sets` value used by the operation.
+        /// @param set `set` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize bind_group_layout_index_for_set(span<const u32> sets, u32 set) noexcept {
             for (usize i = 0; i < sets.size(); ++i) {
                 if (sets[i] == set) {
@@ -51,10 +64,24 @@ namespace SFT::UI {
             return sets.size();
         }
 
+        /// Performs the same instance operation for `UI` using the supplied arguments.
+        ///
+        /// @param lhs Left-hand operand.
+        /// @param rhs Right-hand operand.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool same_instance(const UiQuadInstance &lhs, const UiQuadInstance &rhs) noexcept {
             return std::memcmp(&lhs, &rhs, sizeof(UiQuadInstance)) == 0;
         }
 
+        /// Performs the same rect operation for `UI` using the supplied arguments.
+        ///
+        /// @param lhs Left-hand operand.
+        /// @param rhs Right-hand operand.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool same_rect(const RHI::Rect2D &lhs, const RHI::Rect2D &rhs) noexcept {
             return lhs.x == rhs.x && lhs.y == rhs.y && lhs.width == rhs.width && lhs.height == rhs.height;
         }
@@ -66,12 +93,26 @@ namespace SFT::UI {
             u32 padding = 0;
         };
 
+        /// Creates an error result describing the supplied UI quad failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError ui_quad_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
     } // namespace
 
+    /// Creates a `UI` resource or value from the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param enable_shader_disk_cache Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<UiQuadPipeline> UiQuadPipeline::create(
         RHI::RhiDevice &device, RHI::Format color_format, bool enable_shader_disk_cache) {
         const auto shader_target = Renderer::shader_target_for_device(device);
@@ -228,6 +269,19 @@ namespace SFT::UI {
         return pipeline;
     }
 
+    /// Prepares the required state or resources for a later operation.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param instances Instance used or affected by the operation.
+    /// @param instance_texture_views Texture used or affected by the operation.
+    /// @param instance_scissors Instance used or affected by the operation.
+    /// @param instance_paint_groups Instance used or affected by the operation.
+    /// @param resources `resources` value used by the operation.
+    /// @param out_batches `out_batches` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult UiQuadPipeline::prepare(RHI::RhiDevice &device, span<const UiQuadInstance> instances,
                                                  span<const RHI::TextureViewHandle> instance_texture_views,
                                                  span<const RHI::Rect2D> instance_scissors,
@@ -355,6 +409,15 @@ namespace SFT::UI {
         return {};
     }
 
+    /// Draws the requested content using the current rendering state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param batches `batches` value used by the operation.
+    /// @param viewport_size Requested or available size for the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult UiQuadPipeline::draw(RHI::RenderPassEncoder &pass, span<const UiQuadDrawBatch> batches,
                                               glm::vec2 viewport_size) {
         if (batches.empty()) {
@@ -397,6 +460,12 @@ namespace SFT::UI {
         return {};
     }
 
+    /// Destroys or releases the `UI` resource represented by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiQuadPipeline::destroy(RHI::RhiDevice &device) noexcept {
         if (pipeline_) {
             device.destroy_render_pipeline(pipeline_);

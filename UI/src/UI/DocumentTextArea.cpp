@@ -3,21 +3,64 @@
 
 namespace SFT::UI {
 
+    /// Returns the current or globally available document value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     Text::Document &DocumentTextAreaState::document() noexcept { return document_; }
 
+    /// Returns the current or globally available document value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const Text::Document &DocumentTextAreaState::document() const noexcept { return document_; }
 
+    /// Returns the current or globally available caret value.
+    ///
+    /// @return Returns the current caret value.
+    /// @note This function does not throw exceptions.
     Text::ByteOffset DocumentTextAreaState::caret() const noexcept { return caret_; }
 
+    /// Returns the current or globally available focused value.
+    ///
+    /// @return Returns the current focused value.
+    /// @note This function does not throw exceptions.
     bool DocumentTextAreaState::focused() const noexcept { return focused_; }
 
+    /// Sets the focused for this `UI`.
+    ///
+    /// @param focused `focused` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void DocumentTextAreaState::set_focused(bool focused) noexcept { focused_ = focused; }
 
+    /// Sets the text for this `UI`.
+    ///
+    /// @param utf8 `utf8` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void DocumentTextAreaState::set_text(string_view utf8) {
         document_ = Text::Document{utf8};
         caret_ = Text::ByteOffset{document_.snapshot().byte_size()};
     }
 
+    /// Performs the text area operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param decl `decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param input `input` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param scrollbar_style `scrollbar_style` value used by the operation.
+    /// @param scroll_state `scroll_state` value used by the operation.
+    /// @param line_height `line_height` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     DocumentTextAreaResult text_area(Context &ctx, const ElementDecl &decl,
                                                            const TextEditStyle &style, DocumentTextAreaState &state,
                                                            const TextEditInput &input, f32 delta_seconds,
@@ -148,6 +191,13 @@ namespace SFT::UI {
 
 namespace SFT::UI::Detail {
 
+    /// Performs the previous scalar operation for `Detail` using the supplied arguments.
+    ///
+    /// @param snapshot `snapshot` value used by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Text::ByteOffset previous_scalar(const Text::DocumentSnapshot &snapshot,
                                                            Text::ByteOffset offset) {
         if (offset.value == 0) return offset;
@@ -158,6 +208,13 @@ namespace SFT::UI::Detail {
         return Text::ByteOffset{begin + local};
     }
 
+    /// Performs the next scalar operation for `Detail` using the supplied arguments.
+    ///
+    /// @param snapshot `snapshot` value used by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Text::ByteOffset next_scalar(const Text::DocumentSnapshot &snapshot,
                                                        Text::ByteOffset offset) {
         if (offset.value >= snapshot.byte_size()) return offset;
@@ -167,6 +224,14 @@ namespace SFT::UI::Detail {
         return Text::ByteOffset{std::min(offset.value + width, snapshot.byte_size())};
     }
 
+    /// Replaces document range using the supplied arguments and current state.
+    ///
+    /// @param state `state` value used by the operation.
+    /// @param range Range of values to process.
+    /// @param replacement `replacement` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool replace_document_range(DocumentTextAreaState &state, Text::TextRange range,
                                        string_view replacement) {
         Text::EditTransaction transaction{state.document_.revision()};

@@ -13,7 +13,6 @@
 #include <string>
 
 
-
 using SFT::Foundation::f64;
 using std::chrono::duration;
 using std::chrono::nanoseconds;
@@ -30,18 +29,20 @@ namespace fs = std::filesystem;
 
 namespace SFT::Foundation {
 
+    /// Performs the human readable time operation using the supplied arguments.
+    ///
+    /// @param seconds `seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] string human_readable_time(f64 seconds);
 
-    /// Read an entire file into a `string`, **binary** (no newline translation, so it round-trips shader
-    /// source and other exact bytes). Returns `nullopt` if the file can't be opened or a read error
-    /// occurs — never throws.
+
+    /// Reads file to string from the associated source.
     ///
-    /// ```cpp
-    /// if (auto text = read_file_to_string("Shaders/triangle.slang"))
-    ///     compile(*text);
-    /// else
-    ///     log_error("could not read shader");
-    /// ```
+    /// @param path Filesystem path identifying the target resource.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     [[nodiscard]] optional<string> read_file_to_string(const fs::path &path);
 
 } // namespace SFT::Foundation

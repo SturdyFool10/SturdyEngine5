@@ -3,6 +3,12 @@
 
 namespace SFT::Foundation {
 
+    /// Performs the assert type assumptions operation for `Foundation` using the supplied arguments.
+    ///
+    /// @pre `sizeof(i8) == 1`; debug builds assert if this precondition is violated.
+    /// @pre `sizeof(i16) == 2`; debug builds assert if this precondition is violated.
+    /// @pre `sizeof(i32) == 4`; debug builds assert if this precondition is violated.
+    /// @note This function does not throw exceptions.
     void assert_type_assumptions() noexcept {
         assert(sizeof(i8) == 1);
         assert(sizeof(i16) == 2);

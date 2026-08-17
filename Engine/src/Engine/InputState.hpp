@@ -13,89 +13,178 @@
 
 namespace SFT::Engine {
 
-    /// Ordinary World resource: accumulated per-tick input state — the read side of "is this key or
-    /// mouse button currently down," which nothing in the engine could answer before this
-    /// (plans/ecs-engine-subsystem-access.md's Phase 2, "InputState"). `Engine` owns the persistent
-    /// instance (`EngineModule.hpp`), folded in place every tick by a built-in system
-    /// (`EngineImpl.cpp`) that reads the same typed `KeyboardEvent`/`TextInputEvent`/`MouseMoveEvent`/
-    /// `MouseButtonEvent`/`MouseWheelEvent` streams any other consumer already can (`EcsEvents.hpp`) —
-    /// never rebound, so a `Ecs::ReadResource<InputState>` a system holds mid-tick is never invalidated
-    /// by the update itself (same contract `WindowState`/`RenderFrameRequests` already rely on).
-    /// `Ecs::ReadResource<InputState>` only — input flows one direction (OS -> Application -> ECS).
-    ///
-    /// Two distinct paths, pick deliberately:
-    ///   - `key_down()`/`key_just_pressed()`/`key_just_released()` — raw scancode-driven, fires on the
-    ///     physical key regardless of layout/IME, with no OS key-repeat applied (repeat is still
-    ///     available directly off the raw `KeyboardEvent` stream via `.repeat`, for a system that wants
-    ///     it). Lowest latency; for game actions and rebindable controls, including modifier keys —
-    ///     `LeftShift`/`RightShift`/etc. are ordinary `KeyboardKey` values here, not special-cased.
-    ///   - `text_this_tick()` — OS-composed UTF-8 text (`WindowTextInputEvent`), already IME/layout-
-    ///     aware and already repeat-consistent with the OS's own key-repeat rate/delay for free, since
-    ///     the OS is what generates the repeated `TextInput` events in the first place. For actual
-    ///     typing — text fields, chat, console input.
-    ///   - `modifiers()` is a coarse, derived-on-demand convenience (any-side Shift/Control/Alt/Super,
-    ///     plus Caps/Num lock) for the common "is Shift held" check — it reads the same per-key state
-    ///     `key_down()` does, not a second, driftable source of truth.
+
     class InputState {
       public:
-        /// Clears just_pressed/just_released/text_this_tick/this-tick deltas — called once per tick,
-        /// before this tick's events are folded in via apply().
+
+
+        /// Performs the begin tick operation for `InputState` using the supplied arguments.
+        ///
+        /// @note This function does not throw exceptions.
         void begin_tick() noexcept;
 
+        /// Applies the supplied operation or state to `InputState`.
+        ///
+        /// @param event Event used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void apply(const KeyboardEvent &event) noexcept;
 
+        /// Applies the supplied operation or state to `InputState`.
+        ///
+        /// @param event Event used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void apply(const TextInputEvent &event) noexcept;
 
+        /// Applies the supplied operation or state to `InputState`.
+        ///
+        /// @param event Event used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void apply(const TextEditingEvent &event) noexcept;
 
+        /// Applies the supplied operation or state to `InputState`.
+        ///
+        /// @param event Event used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void apply(const MouseMoveEvent &event) noexcept;
 
+        /// Applies the supplied operation or state to `InputState`.
+        ///
+        /// @param event Event used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void apply(const MouseButtonEvent &event) noexcept;
 
+        /// Applies the supplied operation or state to `InputState`.
+        ///
+        /// @param event Event used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void apply(const MouseWheelEvent &event) noexcept;
 
+        /// Performs the key down operation for `InputState` using the supplied arguments.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool key_down(KeyboardKey key) const noexcept;
+        /// Performs the key just pressed operation for `InputState` using the supplied arguments.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool key_just_pressed(KeyboardKey key) const noexcept;
+        /// Performs the key just released operation for `InputState` using the supplied arguments.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool key_just_released(KeyboardKey key) const noexcept;
 
+        /// Returns the current or globally available modifiers value.
+        ///
+        /// @return Returns the current modifiers value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] Platform::Windowing::KeyModifiers modifiers() const noexcept;
 
+        /// Returns the current or globally available text this tick value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::string_view text_this_tick() const noexcept;
 
-        /// Unlike text_this_tick() (a per-tick delta, cleared every begin_tick()), these describe
-        /// ongoing IME state and persist across ticks where nothing changed — a composition can sit
-        /// idle for many frames while the user thinks, and a text field showing it must keep doing so
-        /// without a new TextEditingEvent arriving every frame. Per SDL3's documented TextEditing
-        /// contract (empty composition text == composition finished, see apply(const
-        /// TextEditingEvent&)'s own comment), `composing()` is always exactly `!composition_text().
-        /// empty()` — kept as its own named query only for readability at call sites that just want
-        /// to know "is an IME mid-edit right now," e.g. to swallow Enter/Escape instead of treating
-        /// them as widget commands.
+
+        /// Returns the current or globally available composition text value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::string_view composition_text() const noexcept;
+        /// Returns the current or globally available composing value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool composing() const noexcept;
 
+        /// Performs the mouse down operation for `InputState` using the supplied arguments.
+        ///
+        /// @param button `button` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool mouse_down(Platform::Windowing::MouseButton button) const noexcept;
+        /// Performs the mouse just pressed operation for `InputState` using the supplied arguments.
+        ///
+        /// @param button `button` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool mouse_just_pressed(Platform::Windowing::MouseButton button) const noexcept;
+        /// Performs the mouse just released operation for `InputState` using the supplied arguments.
+        ///
+        /// @param button `button` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool mouse_just_released(Platform::Windowing::MouseButton button) const noexcept;
 
+        /// Returns the current or globally available mouse x value.
+        ///
+        /// @return Returns the current mouse x value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 mouse_x() const noexcept;
+        /// Returns the current or globally available mouse y value.
+        ///
+        /// @return Returns the current mouse y value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 mouse_y() const noexcept;
-        /// Raw/unaccelerated once Window::set_relative_mouse_mode(true) is engaged (SDL3's relative
-        /// mode is unscaled by default; GLFW additionally gets GLFW_RAW_MOUSE_MOTION — see
-        /// SDL3Impl.cpp/GLFWImpl.cpp) — this is the low-latency path for a game's look/aim input.
+
+
+        /// Returns the current or globally available mouse delta x value.
+        ///
+        /// @return Returns the current mouse delta x value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 mouse_delta_x() const noexcept;
+        /// Returns the current or globally available mouse delta y value.
+        ///
+        /// @return Returns the current mouse delta y value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 mouse_delta_y() const noexcept;
+        /// Returns the current or globally available wheel delta x value.
+        ///
+        /// @return Returns the current wheel delta x value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 wheel_delta_x() const noexcept;
+        /// Returns the current or globally available wheel delta y value.
+        ///
+        /// @return Returns the current wheel delta y value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 wheel_delta_y() const noexcept;
 
       private:
+        /// Returns the value or resource currently represented by `InputState`.
+        ///
+        /// @param bits `bits` value used by the operation.
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static bool get(const std::vector<bool> &bits, KeyboardKey key) noexcept;
+        /// Returns the value or resource currently represented by `InputState`.
+        ///
+        /// @param bits `bits` value used by the operation.
+        /// @param button `button` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static bool get(const std::vector<bool> &bits, Platform::Windowing::MouseButton button) noexcept;
 
-        /// Sized to KeyboardKey's highest enumerator (MediaStop, in the 0x400 block) + 1 — a
-        /// vector<bool> indexed directly by key value, same explicit-storage-mechanism convention
-        /// Foundation::Cpu::Extensions already uses for its own per-flag state, chosen over
-        /// unordered_set<KeyboardKey> for O(1) lookup with no hashing on this per-tick-hot path.
+
         static constexpr usize key_count = 0x407;
         std::vector<bool> key_pressed_ = std::vector<bool>(key_count, false);
         std::vector<bool> key_just_pressed_ = std::vector<bool>(key_count, false);

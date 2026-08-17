@@ -48,6 +48,12 @@ namespace SFT::Core::Slang {
 
     namespace {
 
+        /// Performs the blob string operation for `Slang` using the supplied arguments.
+        ///
+        /// @param blob `blob` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] string blob_string(slang::IBlob *blob) {
             if (!blob || !blob->getBufferPointer() || blob->getBufferSize() == 0) {
                 return {};
@@ -61,6 +67,12 @@ namespace SFT::Core::Slang {
             return string{data, size};
         }
 
+        /// Returns a human-readable name for the supplied path stem or module value.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] string path_stem_or_module_name(const string &path) {
             filesystem_path file_path{path};
             string stem = file_path.stem().string();
@@ -72,11 +84,13 @@ namespace SFT::Core::Slang {
         }
 
 
-
-
-
-
-
+        /// Reads text file from the associated source.
+        ///
+        /// @param path Filesystem path identifying the target resource.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::FileReadFailed`.
         [[nodiscard]] ShaderExpected<string> read_text_file(const string &path) {
             ifstream file(path, ios::binary);
             bool disk_ok = static_cast<bool>(file);
@@ -103,26 +117,25 @@ namespace SFT::Core::Slang {
         }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
         class EmbeddedFallbackFileSystem final : public ISlangFileSystem {
           public:
+            /// Returns the current or globally available instance value.
+            ///
+            /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] static EmbeddedFallbackFileSystem &instance() noexcept {
                 static EmbeddedFallbackFileSystem *singleton = new EmbeddedFallbackFileSystem();
                 return *singleton;
             }
 
+            /// Performs the query interface operation for `EmbeddedFallbackFileSystem` using the supplied arguments.
+            ///
+            /// @param uuid `uuid` value used by the operation.
+            /// @param outObject `outObject` value used by the operation.
+            ///
+            /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+            /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+            /// @note This function does not throw exceptions.
             SLANG_NO_THROW SlangResult SLANG_MCALL queryInterface(SlangUUID const &uuid, void **outObject) override {
                 ISlangUnknown *found = get_interface(uuid);
                 if (found == nullptr) {
@@ -131,11 +144,33 @@ namespace SFT::Core::Slang {
                 *outObject = found;
                 return SLANG_OK;
             }
+            /// Returns the current or globally available add ref value.
+            ///
+            /// @return Returns the current add ref value.
+            /// @note This function does not throw exceptions.
             SLANG_NO_THROW uint32_t SLANG_MCALL addRef() override { return 1; }
+            /// Releases the supplied or associated value/state using the supplied arguments and current state.
+            ///
+            /// @return Returns the current release value.
+            /// @note This function does not throw exceptions.
             SLANG_NO_THROW uint32_t SLANG_MCALL release() override { return 1; }
 
+            /// Performs the cast as operation for `EmbeddedFallbackFileSystem` using the supplied arguments.
+            ///
+            /// @param guid `guid` value used by the operation.
+            ///
+            /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+            /// @note This function does not throw exceptions.
             SLANG_NO_THROW void *SLANG_MCALL castAs(const SlangUUID &guid) override { return get_interface(guid); }
 
+            /// Loads the requested data or resource.
+            ///
+            /// @param path Filesystem path identifying the target resource.
+            /// @param outBlob `outBlob` value used by the operation.
+            ///
+            /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+            /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+            /// @note This function does not throw exceptions.
             SLANG_NO_THROW SlangResult SLANG_MCALL loadFile(char const *path, ISlangBlob **outBlob) override {
                 if (path == nullptr || outBlob == nullptr) {
                     return SLANG_E_INVALID_ARG;
@@ -167,8 +202,18 @@ namespace SFT::Core::Slang {
             }
 
           private:
+            /// Constructs a `EmbeddedFallbackFileSystem` in its default state.
+            ///
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             EmbeddedFallbackFileSystem() = default;
 
+            /// Returns the interface associated with this `EmbeddedFallbackFileSystem`.
+            ///
+            /// @param uuid `uuid` value used by the operation.
+            ///
+            /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+            /// @note Absence is represented by a null pointer rather than an exception.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] ISlangUnknown *get_interface(const SlangUUID &uuid) noexcept {
                 if (uuid == ISlangUnknown::getTypeGuid() || uuid == ISlangCastable::getTypeGuid() ||
                     uuid == ISlangFileSystem::getTypeGuid()) {
@@ -178,13 +223,23 @@ namespace SFT::Core::Slang {
             }
 
 
-
-
-
             class OwnedTextBlob final : public ISlangBlob {
               public:
+                /// Constructs a `OwnedTextBlob` from the supplied initialization values.
+                ///
+                /// @param text Text consumed by the operation.
+                ///
+                /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
                 explicit OwnedTextBlob(string text) : text_(std::move(text)) {}
 
+                /// Performs the query interface operation for `OwnedTextBlob` using the supplied arguments.
+                ///
+                /// @param uuid `uuid` value used by the operation.
+                /// @param outObject `outObject` value used by the operation.
+                ///
+                /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+                /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+                /// @note This function does not throw exceptions.
                 SLANG_NO_THROW SlangResult SLANG_MCALL queryInterface(SlangUUID const &uuid, void **outObject) override {
                     if (uuid == ISlangUnknown::getTypeGuid() || uuid == ISlangBlob::getTypeGuid()) {
                         addRef();
@@ -193,7 +248,15 @@ namespace SFT::Core::Slang {
                     }
                     return SLANG_E_NO_INTERFACE;
                 }
+                /// Returns the current or globally available add ref value.
+                ///
+                /// @return Returns the current add ref value.
+                /// @note This function does not throw exceptions.
                 SLANG_NO_THROW uint32_t SLANG_MCALL addRef() override { return ++ref_count_; }
+                /// Releases the supplied or associated value/state using the supplied arguments and current state.
+                ///
+                /// @return Returns the current release value.
+                /// @note This function does not throw exceptions.
                 SLANG_NO_THROW uint32_t SLANG_MCALL release() override {
                     const uint32_t remaining = --ref_count_;
                     if (remaining == 0) {
@@ -202,7 +265,15 @@ namespace SFT::Core::Slang {
                     return remaining;
                 }
 
+                /// Returns the current or globally available get buffer pointer value.
+                ///
+                /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+                /// @note This function does not throw exceptions.
                 SLANG_NO_THROW void const *SLANG_MCALL getBufferPointer() override { return text_.data(); }
+                /// Returns the current or globally available get buffer size value.
+                ///
+                /// @return Returns the current get buffer size value.
+                /// @note This function does not throw exceptions.
                 SLANG_NO_THROW size_t SLANG_MCALL getBufferSize() override { return text_.size(); }
 
               private:
@@ -210,6 +281,12 @@ namespace SFT::Core::Slang {
                 uint32_t ref_count_ = 0;
             };
 
+            /// Creates an owned blob value from the supplied arguments.
+            ///
+            /// @param text Text consumed by the operation.
+            ///
+            /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
             [[nodiscard]] static ISlangBlob *make_owned_blob(string text) {
                 auto *blob = new OwnedTextBlob(std::move(text));
                 blob->addRef();
@@ -217,6 +294,12 @@ namespace SFT::Core::Slang {
             }
         };
 
+        /// Converts the value to slang target representation.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns the value converted to slang target representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] SlangCompileTarget to_slang_target(ShaderTargetFormat format) noexcept {
             switch (format) {
                 case ShaderTargetFormat::Spirv:
@@ -236,6 +319,12 @@ namespace SFT::Core::Slang {
             return SLANG_TARGET_UNKNOWN;
         }
 
+        /// Performs the default profile operation for `Slang` using the supplied arguments.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const char *default_profile(ShaderTargetFormat format) noexcept {
             switch (format) {
                 case ShaderTargetFormat::Spirv:
@@ -254,6 +343,12 @@ namespace SFT::Core::Slang {
             return "";
         }
 
+        /// Converts the value to slang optimization level representation.
+        ///
+        /// @param level `level` value used by the operation.
+        ///
+        /// @return Returns the value converted to slang optimization level representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] SlangOptimizationLevel to_slang_optimization_level(ShaderOptimizationLevel level) noexcept {
             switch (level) {
                 case ShaderOptimizationLevel::None:
@@ -269,6 +364,12 @@ namespace SFT::Core::Slang {
             return SLANG_OPTIMIZATION_LEVEL_DEFAULT;
         }
 
+        /// Converts the value to slang stage representation.
+        ///
+        /// @param stage `stage` value used by the operation.
+        ///
+        /// @return Returns the value converted to slang stage representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] SlangStage to_slang_stage(ShaderStage stage) noexcept {
             switch (stage) {
                 case ShaderStage::Vertex:
@@ -308,6 +409,12 @@ namespace SFT::Core::Slang {
             return SLANG_STAGE_NONE;
         }
 
+        /// Creates or converts a value from slang stage representation.
+        ///
+        /// @param stage `stage` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ShaderStage from_slang_stage(SlangStage stage) noexcept {
             switch (stage) {
                 case SLANG_STAGE_VERTEX:
@@ -345,6 +452,12 @@ namespace SFT::Core::Slang {
             }
         }
 
+        /// Creates or converts a value from slang type kind representation.
+        ///
+        /// @param kind `kind` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ShaderTypeKind from_slang_type_kind(slang::TypeReflection::Kind kind) noexcept {
             using Kind = slang::TypeReflection::Kind;
             switch (kind) {
@@ -395,6 +508,12 @@ namespace SFT::Core::Slang {
             return ShaderTypeKind::Unknown;
         }
 
+        /// Creates or converts a value from slang scalar type representation.
+        ///
+        /// @param scalar `scalar` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ShaderScalarType from_slang_scalar_type(slang::TypeReflection::ScalarType scalar) noexcept {
             switch (scalar) {
                 case slang::TypeReflection::Void:
@@ -440,6 +559,12 @@ namespace SFT::Core::Slang {
             return ShaderScalarType::None;
         }
 
+        /// Creates or converts a value from slang category representation.
+        ///
+        /// @param category `category` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ShaderParameterCategory from_slang_category(slang::ParameterCategory category) noexcept {
             switch (category) {
                 case slang::ParameterCategory::Mixed:
@@ -497,6 +622,12 @@ namespace SFT::Core::Slang {
             return ShaderParameterCategory::None;
         }
 
+        /// Creates or converts a value from slang binding type representation.
+        ///
+        /// @param type Type value to inspect, select, or convert.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ShaderBindingType from_slang_binding_type(slang::BindingType type) noexcept {
             switch (type) {
                 case slang::BindingType::Sampler:
@@ -543,6 +674,12 @@ namespace SFT::Core::Slang {
             return ShaderBindingType::Unknown;
         }
 
+        /// Creates or converts a value from slang resource shape representation.
+        ///
+        /// @param shape `shape` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ShaderResourceShape from_slang_resource_shape(SlangResourceShape shape) noexcept {
             switch (shape & SLANG_RESOURCE_BASE_SHAPE_MASK) {
                 case SLANG_TEXTURE_1D:
@@ -568,6 +705,12 @@ namespace SFT::Core::Slang {
             }
         }
 
+        /// Creates or converts a value from slang resource access representation.
+        ///
+        /// @param access `access` value used by the operation.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ShaderResourceAccess from_slang_resource_access(SlangResourceAccess access) noexcept {
             switch (access) {
                 case SLANG_RESOURCE_ACCESS_NONE:
@@ -591,6 +734,12 @@ namespace SFT::Core::Slang {
             }
         }
 
+        /// Creates or converts a value from slang matrix layout representation.
+        ///
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns the newly constructed or converted value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] ShaderMatrixLayout from_slang_matrix_layout(SlangMatrixLayoutMode mode) noexcept {
             switch (mode) {
                 case SLANG_MATRIX_LAYOUT_ROW_MAJOR:
@@ -602,6 +751,12 @@ namespace SFT::Core::Slang {
             }
         }
 
+        /// Returns the normalize size for this `Slang`.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the requested count or size.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 normalize_size(size_t value) noexcept {
             if (value == SLANG_UNKNOWN_SIZE) {
                 return shader_unknown_size;
@@ -613,6 +768,12 @@ namespace SFT::Core::Slang {
             return static_cast<u64>(value);
         }
 
+        /// Normalizes u32 using the supplied arguments and current state.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 normalize_u32(size_t value) noexcept {
             if (value == SLANG_UNKNOWN_SIZE || value == SLANG_UNBOUNDED_SIZE || value > numeric_limits<u32>::max()) {
                 return numeric_limits<u32>::max();
@@ -621,6 +782,12 @@ namespace SFT::Core::Slang {
             return static_cast<u32>(value);
         }
 
+        /// Normalizes slang unsigned using the supplied arguments and current state.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 normalize_slang_unsigned(unsigned value) noexcept {
             if (value == static_cast<unsigned>(SLANG_UNKNOWN_SIZE) || value == static_cast<unsigned>(SLANG_UNBOUNDED_SIZE)) {
                 return numeric_limits<u32>::max();
@@ -629,6 +796,12 @@ namespace SFT::Core::Slang {
             return value;
         }
 
+        /// Normalizes slang int using the supplied arguments and current state.
+        ///
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 normalize_slang_int(SlangInt value) noexcept {
             if (value < 0 || static_cast<unsigned long long>(value) > numeric_limits<u32>::max()) {
                 return numeric_limits<u32>::max();
@@ -637,6 +810,12 @@ namespace SFT::Core::Slang {
             return static_cast<u32>(value);
         }
 
+        /// Returns a human-readable name for the supplied type full value.
+        ///
+        /// @param type Type value to inspect, select, or convert.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] string type_full_name(slang::TypeReflection *type) {
             if (!type) {
                 return {};
@@ -654,6 +833,13 @@ namespace SFT::Core::Slang {
             return name ? string{name} : string{};
         }
 
+        /// Parses binding range into structured state.
+        ///
+        /// @param type_layout `type_layout` value used by the operation.
+        /// @param range_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderBindingRangeReflection parse_binding_range(slang::TypeLayoutReflection *type_layout, SlangInt range_index) {
             ShaderBindingRangeReflection range{};
             if (!type_layout) {
@@ -665,13 +851,6 @@ namespace SFT::Core::Slang {
             range.descriptor_range_index = normalize_slang_int(type_layout->getBindingRangeFirstDescriptorRangeIndex(range_index));
             range.descriptor_range_count = normalize_slang_int(type_layout->getBindingRangeDescriptorRangeCount(range_index));
             range.count = normalize_slang_int(type_layout->getBindingRangeBindingCount(range_index));
-
-
-
-
-
-
-
 
 
             range.specializable = type_layout->isBindingRangeSpecializable(range_index);
@@ -691,6 +870,13 @@ namespace SFT::Core::Slang {
             return range;
         }
 
+        /// Parses type layout into structured state.
+        ///
+        /// @param type_layout `type_layout` value used by the operation.
+        /// @param depth Depth of the target extent.
+        ///
+        /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] shared_ptr<ShaderTypeReflection> parse_type_layout(slang::TypeLayoutReflection *type_layout, u32 depth = 0) {
             auto type = make_shared<ShaderTypeReflection>();
             if (!type_layout) {
@@ -716,7 +902,6 @@ namespace SFT::Core::Slang {
             for (SlangInt index = 0; index < binding_range_count; ++index) {
                 type->binding_ranges.push_back(parse_binding_range(type_layout, index));
             }
-
 
 
             if (depth >= 16) {
@@ -745,19 +930,17 @@ namespace SFT::Core::Slang {
             return type;
         }
 
+        /// Parses parameter layout into structured state.
+        ///
+        /// @param layout `layout` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderParameterReflection parse_parameter_layout(slang::VariableLayoutReflection *layout) {
             ShaderParameterReflection parameter{};
             if (!layout) {
                 return parameter;
             }
-
-
-
-
-
-
-
-
 
 
             const slang::ParameterCategory native_category = layout->getCategory();
@@ -777,17 +960,11 @@ namespace SFT::Core::Slang {
             }
 
 
-
-
-
             const slang::ParameterCategory effective_category =
                 has_push_constant_component ? slang::ParameterCategory::PushConstantBuffer : native_category;
             if (has_push_constant_component) {
                 parameter.category = ShaderParameterCategory::PushConstantBuffer;
             }
-
-
-
 
 
             parameter.binding = normalize_slang_unsigned(layout->getBindingIndex());
@@ -798,14 +975,6 @@ namespace SFT::Core::Slang {
 
             if (parameter.type) {
                 slang::TypeLayoutReflection *type_layout = layout->getTypeLayout();
-
-
-
-
-
-
-
-
 
 
                 if (has_push_constant_component && type_layout != nullptr) {
@@ -821,6 +990,12 @@ namespace SFT::Core::Slang {
             return parameter;
         }
 
+        /// Appends the supplied value or range to the current contents.
+        ///
+        /// @param out `out` value used by the operation.
+        /// @param layout `layout` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void append_fields_as_parameters(vector<ShaderParameterReflection> &out, slang::VariableLayoutReflection *layout) {
             if (!layout || !layout->getTypeLayout()) {
                 return;
@@ -841,6 +1016,13 @@ namespace SFT::Core::Slang {
             }
         }
 
+        /// Parses descriptor set into structured state.
+        ///
+        /// @param layout `layout` value used by the operation.
+        /// @param set_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ShaderDescriptorSetReflection parse_descriptor_set(slang::TypeLayoutReflection *layout, SlangInt set_index) {
             ShaderDescriptorSetReflection set{};
             if (!layout) {
@@ -863,6 +1045,14 @@ namespace SFT::Core::Slang {
             return set;
         }
 
+        /// Parses reflection into structured state.
+        ///
+        /// @param linked_program `linked_program` value used by the operation.
+        /// @param target_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::ReflectionFailed`.
         [[nodiscard]] ShaderExpected<ShaderReflection> parse_reflection(slang::IComponentType *linked_program, usize target_index) {
             ::Slang::ComPtr<slang::IBlob> diagnostics;
             slang::ProgramLayout *layout = linked_program->getLayout(static_cast<SlangInt>(target_index), diagnostics.writeRef());
@@ -944,6 +1134,14 @@ namespace SFT::Core::Slang {
             return reflection;
         }
 
+        /// Resolves entry points into the concrete value used by the engine.
+        ///
+        /// @param module `module` value used by the operation.
+        /// @param options Configuration values controlling the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::EntryPointNotFound`, `ShaderErrorCode::InvalidArgument`.
         [[nodiscard]] ShaderExpected<vector<::Slang::ComPtr<slang::IEntryPoint>>> resolve_entry_points(
             slang::IModule *module,
             const ShaderCompileOptions &options) {
@@ -992,6 +1190,15 @@ namespace SFT::Core::Slang {
             return entry_points;
         }
 
+        /// Builds target descs.
+        ///
+        /// @param global_session `global_session` value used by the operation.
+        /// @param targets `targets` value used by the operation.
+        /// @param options Configuration values controlling the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::InvalidArgument`.
         [[nodiscard]] ShaderExpected<vector<slang::TargetDesc>> build_target_descs(
             slang::IGlobalSession *global_session,
             const vector<ShaderTarget> &targets,
@@ -999,9 +1206,6 @@ namespace SFT::Core::Slang {
             if (targets.empty()) {
                 return shader_error(ShaderErrorCode::InvalidArgument, "At least one Slang shader target is required.");
             }
-
-
-
 
 
             vector<slang::TargetDesc> target_descs;
@@ -1032,7 +1236,6 @@ namespace SFT::Core::Slang {
     struct ShaderCompilerState {
 
 
-
         Async::Mutex<::Slang::ComPtr<slang::IGlobalSession>> global_session;
     };
 
@@ -1045,17 +1248,21 @@ namespace SFT::Core::Slang {
         ::Slang::ComPtr<slang::IComponentType> linked_program;
 
 
-
-
         vector<ShaderBytecode> baked_bytecode;
     };
 
     namespace {
 
 
-
-
-
+        /// Loads shader module.
+        ///
+        /// @param global_session `global_session` value used by the operation.
+        /// @param source Source value or resource.
+        /// @param options Configuration values controlling the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::InvalidArgument`, `ShaderErrorCode::InitializationFailed`, `ShaderErrorCode::CompilationFailed`.
         [[nodiscard]] ShaderExpected<shared_ptr<ShaderState>> load_shader_module(
             slang::IGlobalSession *global_session,
             const ShaderSource &source,
@@ -1115,7 +1322,6 @@ namespace SFT::Core::Slang {
             }
 
 
-
             const slang::CompilerOptionEntry compiler_options[] = {
                 slang::CompilerOptionEntry{
                     slang::CompilerOptionName::Optimization,
@@ -1127,7 +1333,6 @@ namespace SFT::Core::Slang {
                         nullptr,
                     },
                 },
-
 
 
                 slang::CompilerOptionEntry{
@@ -1154,7 +1359,6 @@ namespace SFT::Core::Slang {
             session_desc.allowGLSLSyntax = static_cast<bool>(options.allow_glsl_syntax);
             session_desc.skipSPIRVValidation = static_cast<bool>(options.skip_spirv_validation);
             session_desc.enableEffectAnnotations = static_cast<bool>(options.enable_effect_annotations);
-
 
 
             session_desc.fileSystem = &EmbeddedFallbackFileSystem::instance();
@@ -1188,6 +1392,14 @@ namespace SFT::Core::Slang {
 
     } // namespace
 
+    /// Creates or converts a value from source representation.
+    ///
+    /// @param module_name Name used to identify or label the target.
+    /// @param source Source value or resource.
+    /// @param path Filesystem path identifying the target resource.
+    ///
+    /// @return Returns the newly constructed or converted value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     ShaderSource ShaderSource::from_source(string module_name, string source, string path) {
         ShaderSource shader_source{};
         shader_source.kind = ShaderSourceKind::SourceString;
@@ -1197,6 +1409,13 @@ namespace SFT::Core::Slang {
         return shader_source;
     }
 
+    /// Creates or converts a value from file representation.
+    ///
+    /// @param path Filesystem path identifying the target resource.
+    /// @param module_name Name used to identify or label the target.
+    ///
+    /// @return Returns the newly constructed or converted value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     ShaderSource ShaderSource::from_file(string path, string module_name) {
         ShaderSource shader_source{};
         shader_source.kind = ShaderSourceKind::File;
@@ -1205,25 +1424,53 @@ namespace SFT::Core::Slang {
         return shader_source;
     }
 
+    /// Performs the shader operation for `Slang` using the supplied arguments.
+    ///
+    /// @param state `state` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     Shader::Shader(shared_ptr<ShaderState> state) noexcept
         : state_(std::move(state)) {
     }
 
+    /// Destroys the `Slang` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     Shader::~Shader() = default;
 
+    /// Converts the `Slang` to `bool`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     Shader::operator bool() const noexcept {
         return static_cast<bool>(state_);
     }
 
+    /// Returns the current or globally available reflection value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const ShaderReflection &Shader::reflection() const noexcept {
         static const ShaderReflection empty{};
         return state_ ? state_->reflection : empty;
     }
 
+    /// Returns a human-readable name for the supplied module value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     string_view Shader::module_name() const noexcept {
         return state_ ? string_view{state_->module_name} : string_view{};
     }
 
+    /// Retrieves or produces the entry point code selected by the supplied arguments.
+    ///
+    /// @param entry_point_index Zero-based index of the target element or entry.
+    /// @param target_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::OperationFailed`, `ShaderErrorCode::InvalidArgument`, `ShaderErrorCode::CodeGenerationFailed`.
     ShaderExpected<ShaderBytecode> Shader::entry_point_code(usize entry_point_index, usize target_index) const {
         if (!state_) {
             return shader_error(ShaderErrorCode::OperationFailed, "Cannot get bytecode from an empty Slang shader.");
@@ -1234,7 +1481,6 @@ namespace SFT::Core::Slang {
         if (target_index >= state_->targets.size()) {
             return shader_error(ShaderErrorCode::InvalidArgument, "Slang shader target index is out of range.");
         }
-
 
 
         if (!state_->baked_bytecode.empty()) {
@@ -1276,6 +1522,14 @@ namespace SFT::Core::Slang {
         return bytecode;
     }
 
+    /// Retrieves or produces the entry point code selected by the supplied arguments.
+    ///
+    /// @param entry_point_index Zero-based index of the target element or entry.
+    /// @param target `target` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::OperationFailed`, `ShaderErrorCode::InvalidArgument`.
     ShaderExpected<ShaderBytecode> Shader::entry_point_code(usize entry_point_index, ShaderTargetFormat target) const {
         if (!state_) {
             return shader_error(ShaderErrorCode::OperationFailed, "Cannot get bytecode from an empty Slang shader.");
@@ -1291,6 +1545,10 @@ namespace SFT::Core::Slang {
         return entry_point_code(entry_point_index, static_cast<usize>(found - state_->targets.begin()));
     }
 
+    /// Releases compiler state using the supplied arguments and current state.
+    ///
+    /// @return Returns the current release compiler state value.
+    /// @note This function does not throw exceptions.
     void Shader::release_compiler_state() noexcept {
         if (!state_) {
             return;
@@ -1300,6 +1558,14 @@ namespace SFT::Core::Slang {
         state_->session.setNull();
     }
 
+    /// Retrieves or produces the entry point code selected by the supplied arguments.
+    ///
+    /// @param entry_point_name Name used to identify or label the target.
+    /// @param target_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::OperationFailed`, `ShaderErrorCode::EntryPointNotFound`.
     ShaderExpected<ShaderBytecode> Shader::entry_point_code(string_view entry_point_name, usize target_index) const {
         if (!state_) {
             return shader_error(ShaderErrorCode::OperationFailed, "Cannot get bytecode from an empty Slang shader.");
@@ -1319,6 +1585,14 @@ namespace SFT::Core::Slang {
         return entry_point_code(static_cast<usize>(found - state_->reflection.entry_points.begin()), target_index);
     }
 
+    /// Retrieves or produces the entry point code selected by the supplied arguments.
+    ///
+    /// @param entry_point_name Name used to identify or label the target.
+    /// @param target `target` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::OperationFailed`, `ShaderErrorCode::EntryPointNotFound`.
     ShaderExpected<ShaderBytecode> Shader::entry_point_code(string_view entry_point_name, ShaderTargetFormat target) const {
         if (!state_) {
             return shader_error(ShaderErrorCode::OperationFailed, "Cannot get bytecode from an empty Slang shader.");
@@ -1337,12 +1611,22 @@ namespace SFT::Core::Slang {
         return entry_point_code(static_cast<usize>(found - state_->reflection.entry_points.begin()), target);
     }
 
+    /// Performs the shader compiler operation for `Slang` using the supplied arguments.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     ShaderCompiler::ShaderCompiler()
         : state_(make_shared<ShaderCompilerState>()) {
     }
 
+    /// Destroys the `Slang` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     ShaderCompiler::~ShaderCompiler() = default;
 
+    /// Releases session using the supplied arguments and current state.
+    ///
+    /// @return Returns the current release session value.
+    /// @note This function does not throw exceptions.
     void ShaderCompiler::release_session() noexcept {
         if (!state_) {
             return;
@@ -1351,6 +1635,15 @@ namespace SFT::Core::Slang {
         global_session->setNull();
     }
 
+    /// Performs the reflect operation for `Slang` using the supplied arguments.
+    ///
+    /// @param source Source value or resource.
+    /// @param options Configuration values controlling the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::InitializationFailed`, `ShaderErrorCode::OutOfMemory`, `ShaderErrorCode::OperationFailed`.
+    /// @note Allocation failure is converted to the implementation's out-of-memory error/status rather than escaping as `std::bad_alloc`.
     ShaderExpected<ShaderReflection> ShaderCompiler::reflect(const ShaderSource &source, const ShaderCompileOptions &options) {
         if (!state_) {
             return shader_error(ShaderErrorCode::InitializationFailed, "Slang shader compiler state is unavailable.");
@@ -1366,7 +1659,6 @@ namespace SFT::Core::Slang {
                     return shader_error(ShaderErrorCode::InitializationFailed, "Failed to create Slang global session.");
                 }
             }
-
 
 
             auto shader_state = load_shader_module(global_session->get(), source, options);
@@ -1388,6 +1680,15 @@ namespace SFT::Core::Slang {
         }
     }
 
+    /// Retrieves or produces the from cached bytecode selected by the supplied arguments.
+    ///
+    /// @param module_name Name used to identify or label the target.
+    /// @param targets `targets` value used by the operation.
+    /// @param reflection `reflection` value used by the operation.
+    /// @param bytecode `bytecode` value used by the operation.
+    ///
+    /// @return Returns the newly constructed or converted value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Shader ShaderCompiler::from_cached_bytecode(
         string module_name,
         vector<ShaderTarget> targets,
@@ -1403,6 +1704,15 @@ namespace SFT::Core::Slang {
         return Shader{std::move(shader_state)};
     }
 
+    /// Compiles the supplied source or pipeline state.
+    ///
+    /// @param source Source value or resource.
+    /// @param options Configuration values controlling the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::InitializationFailed`, `ShaderErrorCode::CompilationFailed`, `ShaderErrorCode::OutOfMemory`, `ShaderErrorCode::OperationFailed`.
+    /// @note Allocation failure is converted to the implementation's out-of-memory error/status rather than escaping as `std::bad_alloc`.
     ShaderExpected<Shader> ShaderCompiler::compile(const ShaderSource &source, const ShaderCompileOptions &options) {
         if (!state_) {
             return shader_error(ShaderErrorCode::InitializationFailed, "Slang shader compiler state is unavailable.");
@@ -1463,11 +1773,6 @@ namespace SFT::Core::Slang {
             }
 
 
-
-
-
-
-
             const auto spirv_target = std::ranges::find_if(
                 options.targets,
                 [](const ShaderTarget &target) { return target.format == ShaderTargetFormat::Spirv; });
@@ -1490,10 +1795,6 @@ namespace SFT::Core::Slang {
                         dxil_reflection->global_parameters.push_back(parameter);
                         continue;
                     }
-
-
-
-
 
 
                     const u32 dxil_binding = existing->binding;

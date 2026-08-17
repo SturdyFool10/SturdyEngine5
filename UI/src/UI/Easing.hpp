@@ -9,67 +9,247 @@
 
 #include "Style.hpp"
 
-/// A bundle of standard named curves (the usual "Penner easing" set) matching UI::EasingFn's
-/// signature (Style.hpp) — assign one to any style's `.easing` field, or call one directly. Every
-/// function here maps [0,1] -> roughly [0,1] (back/elastic intentionally overshoot outside that
-/// range on the way to 1.0 — see EasingFn's own doc comment for why that's allowed on purpose).
-///
-/// These are plain functions specifically so `EasingFn` can stay a raw function pointer (no capture,
-/// no allocation, trivially copyable into a style struct's default member initializer) rather than
-/// std::function — every curve here is a pure, stateless expression of `t`, so nothing is lost by
-/// that restriction. A caller that needs a parameterized curve (e.g. a custom overshoot amount) just
-/// writes their own free function with the same signature.
+
 namespace SFT::UI::Easing {
 
+    /// Performs the linear operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 linear(f32 t) noexcept;
 
+    /// Performs the quad in operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 quad_in(f32 t) noexcept;
+    /// Performs the quad out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 quad_out(f32 t) noexcept;
+    /// Performs the quad in out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 quad_in_out(f32 t) noexcept;
 
+    /// Performs the cubic in operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 cubic_in(f32 t) noexcept;
+    /// Performs the cubic out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 cubic_out(f32 t) noexcept;
+    /// Performs the cubic in out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 cubic_in_out(f32 t) noexcept;
 
+    /// Performs the quart in operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 quart_in(f32 t) noexcept;
+    /// Performs the quart out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 quart_out(f32 t) noexcept;
+    /// Performs the quart in out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 quart_in_out(f32 t) noexcept;
 
+    /// Performs the quint in operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 quint_in(f32 t) noexcept;
+    /// Performs the quint out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 quint_out(f32 t) noexcept;
+    /// Performs the quint in out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 quint_in_out(f32 t) noexcept;
 
+    /// Performs the sine in operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 sine_in(f32 t) noexcept;
+    /// Performs the sine out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 sine_out(f32 t) noexcept;
+    /// Performs the sine in out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 sine_in_out(f32 t) noexcept;
 
+    /// Performs the expo in operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 expo_in(f32 t) noexcept;
+    /// Performs the expo out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 expo_out(f32 t) noexcept;
+    /// Performs the expo in out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 expo_in_out(f32 t) noexcept;
 
+    /// Performs the circ in operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 circ_in(f32 t) noexcept;
+    /// Performs the circ out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 circ_out(f32 t) noexcept;
+    /// Performs the circ in out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 circ_in_out(f32 t) noexcept;
 
-    /// Overshoots past 1.0 before settling (a slight "wind-up" past the target) — see the file doc
-    /// comment on why EasingFn deliberately doesn't clamp its output.
+
+    /// Performs the back in operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 back_in(f32 t) noexcept;
+    /// Performs the back out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 back_out(f32 t) noexcept;
+    /// Performs the back in out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 back_in_out(f32 t) noexcept;
 
-    /// Springy overshoot/oscillation — the most dramatic curves here, good for playful pop-in
-    /// effects, not recommended for frequent state churn (hover/press) since the oscillation reads
-    /// as jitter at high transition frequency.
+
+    /// Performs the elastic in operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 elastic_in(f32 t) noexcept;
+    /// Performs the elastic out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 elastic_out(f32 t) noexcept;
+    /// Performs the elastic in out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 elastic_in_out(f32 t) noexcept;
 
     namespace Detail {
+        /// Performs the bounce out operation using the supplied arguments.
+        ///
+        /// @param t `t` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 bounce_out(f32 t) noexcept;
     } // namespace Detail
 
+    /// Performs the bounce out operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 bounce_out(f32 t) noexcept;
+    /// Performs the bounce in operation using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 bounce_in(f32 t) noexcept;
+    /// Performs the bounce in out operation for `Easing` using the supplied arguments.
+    ///
+    /// @param t `t` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f32 bounce_in_out(f32 t) noexcept;
 
 } // namespace SFT::UI::Easing

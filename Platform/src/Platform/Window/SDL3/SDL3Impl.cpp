@@ -50,6 +50,12 @@ using std::vector;
 namespace SFT::Platform::Windowing::SDL3 {
     namespace {
 
+        /// Performs the keyboard key operation for `SDL3` using the supplied arguments.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] KeyboardKey keyboard_key(SDL_Keycode key) noexcept {
             const KeyboardKey ascii_key = keyboard_key_from_ascii(static_cast<i32>(key));
             if (ascii_key != KeyboardKey::Unknown) {
@@ -88,11 +94,22 @@ namespace SFT::Platform::Windowing::SDL3 {
             }
         }
 
+        /// Creates an error result describing the supplied SDL failure.
+        ///
+        /// @param code `code` value used by the operation.
+        /// @param fallback Fallback value used when the primary value is unavailable.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         WindowError sdl_error(WindowErrorCode code, const char *fallback) noexcept {
             const char *message = SDL_GetError();
             return WindowError{code, message && message[0] != '\0' ? message : fallback};
         }
 
+        /// Returns the current or globally available steady now ns value.
+        ///
+        /// @return Returns the current steady now ns value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 steady_now_ns() noexcept {
             return static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                          std::chrono::steady_clock::now().time_since_epoch())
@@ -100,16 +117,31 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
 
-
-
+        /// Performs the SDL event timestamp ns operation for `SDL3` using the supplied arguments.
+        ///
+        /// @param sdl_timestamp `sdl_timestamp` value used by the operation.
+        /// @param offset_ns Offset from the beginning of the relevant range or buffer.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u64 sdl_event_timestamp_ns(Uint64 sdl_timestamp, i64 offset_ns) noexcept {
             return static_cast<u64>(static_cast<i64>(sdl_timestamp) + offset_ns);
         }
 
+        /// Returns the current or globally available SDL to steady offset ns value.
+        ///
+        /// @return Returns the current SDL to steady offset ns value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] i64 sdl_to_steady_offset_ns() noexcept {
             return static_cast<i64>(steady_now_ns()) - static_cast<i64>(SDL_GetTicksNS());
         }
 
+        /// Returns a human-readable name for the supplied graphics API value.
+        ///
+        /// @param api `api` value used by the operation.
+        ///
+        /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const char *graphics_api_name(WindowGraphicsApi api) noexcept {
             switch (api) {
                 case WindowGraphicsApi::Vulkan:
@@ -125,10 +157,22 @@ namespace SFT::Platform::Windowing::SDL3 {
             }
         }
 
+        /// Reports whether valid extent is valid for the current operation.
+        ///
+        /// @param extent `extent` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool valid_extent(WindowExtent extent) noexcept {
             return extent.x > 0 && extent.y > 0 && extent.x <= static_cast<u32>(numeric_limits<i32>::max()) && extent.y <= static_cast<u32>(numeric_limits<i32>::max());
         }
 
+        /// Performs the window flags operation for `SDL3` using the supplied arguments.
+        ///
+        /// @param config Configuration values controlling the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] SDL_WindowFlags window_flags(const WindowConfig &config) noexcept {
             SDL_WindowFlags flags = 0;
 
@@ -164,27 +208,23 @@ namespace SFT::Platform::Windowing::SDL3 {
 #if defined(_WIN32)
 
 
-
-
-
-
+        /// Performs the wants composition window style operation for `SDL3` using the supplied arguments.
+        ///
+        /// @param config Configuration values controlling the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool wants_composition_window_style(const WindowConfig &config) noexcept {
             return config.graphics_api == WindowGraphicsApi::Vulkan ||
                    config.graphics_api == WindowGraphicsApi::Direct3D;
         }
 
 
-
-
-
-
-
-
-
-
-
-
-
+        /// Applies composition window style using the supplied arguments and current state.
+        ///
+        /// @param window Window used or affected by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void apply_composition_window_style(SDL_Window *window) noexcept {
             const SDL_PropertiesID properties = SDL_GetWindowProperties(window);
             void *hwnd_ptr = SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
@@ -199,6 +239,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 #endif
 
+        /// Converts the value to SDL system cursor representation.
+        ///
+        /// @param icon `icon` value used by the operation.
+        ///
+        /// @return Returns the value converted to SDL system cursor representation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] SDL_SystemCursor to_sdl_system_cursor(CursorIcon icon) noexcept {
             switch (icon) {
                 case CursorIcon::Default: return SDL_SYSTEM_CURSOR_DEFAULT;
@@ -217,6 +263,15 @@ namespace SFT::Platform::Windowing::SDL3 {
             return SDL_SYSTEM_CURSOR_DEFAULT;
         }
 
+        /// Performs the SDL bool result operation for `SDL3` using the supplied arguments.
+        ///
+        /// @param result `result` value used by the operation.
+        /// @param code `code` value used by the operation.
+        /// @param fallback Fallback value used when the primary value is unavailable.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> sdl_bool_result(bool result, WindowErrorCode code, const char *fallback) noexcept {
             if (result) [[likely]] {
                 return {};
@@ -228,17 +283,19 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
 
-
-
-
-
-
-
+        /// Returns the current or globally available SDL window mutex value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         Async::Mutex<std::monostate> &sdl_window_mutex() noexcept {
             static Async::Mutex<std::monostate> mutex;
             return mutex;
         }
 
+        /// Returns the current or globally available SDL window registry value.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         unordered_map<SDL_WindowID, SDL3Window *> &sdl_window_registry() noexcept {
             static unordered_map<SDL_WindowID, SDL3Window *> registry;
             return registry;
@@ -247,22 +304,41 @@ namespace SFT::Platform::Windowing::SDL3 {
 #if defined(_WIN32)
 
 
-
+        /// Returns the current or globally available SDL win32 window registry value.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
         unordered_map<HWND, SDL3Window *> &sdl_win32_window_registry() noexcept {
             static unordered_map<HWND, SDL3Window *> registry;
             return registry;
         }
 #endif
 
+        /// Returns the SDL window count for this `SDL3`.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
         i32 &sdl_window_count() noexcept {
             static i32 count = 0;
             return count;
         }
 
+        /// Creates an error result describing the supplied destroyed window failure.
+        ///
+        /// @return Returns the current destroyed window error value.
+        /// @note This function does not throw exceptions.
         WindowError destroyed_window_error() noexcept {
             return WindowError{WindowErrorCode::OperationFailed, "SDL3 window has already been destroyed."};
         }
 
+        /// Performs the require live window operation for `SDL3` using the supplied arguments.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param operation `operation` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> require_live_window(SDL_Window *window, const char *operation) noexcept {
             if (window) [[likely]] {
                 return {};
@@ -272,6 +348,14 @@ namespace SFT::Platform::Windowing::SDL3 {
             return unexpected(destroyed_window_error());
         }
 
+        /// Performs the live window ID operation for `SDL3` using the supplied arguments.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param operation `operation` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<SDL_WindowID, WindowError> live_window_id(SDL_Window *window, const char *operation) noexcept {
             if (!window) [[unlikely]] {
                 Foundation::log_error("SDL3 operation rejected destroyed window id query: operation='{}'", operation);
@@ -283,6 +367,12 @@ namespace SFT::Platform::Windowing::SDL3 {
 
     } // namespace
 
+    /// Performs the sdl3 window operation for `SDL3` using the supplied arguments.
+    ///
+    /// @param key Key used to identify the requested entry.
+    /// @param window Window used or affected by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     SDL3Window::SDL3Window(ConstructorKey key, SDL_Window *window) noexcept
         : Window(key), window_(window) {
         ZoneScopedN("SDL3Window::SDL3Window");
@@ -302,10 +392,13 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 
 
-
-
-
-
+    /// Performs the SDL live resize watch operation for `SDL3` using the supplied arguments.
+    ///
+    /// @param userdata `userdata` value used by the operation.
+    /// @param event Event used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool SDLCALL SDL3Window::sdl_live_resize_watch(void *userdata, SDL_Event *event) noexcept {
         ZoneScopedN("SDL3Window::sdl_live_resize_watch");
 #if defined(_WIN32)
@@ -318,7 +411,6 @@ namespace SFT::Platform::Windowing::SDL3 {
         auto *self = static_cast<SDL3Window *>(userdata);
 
 
-
         auto lock = sdl_window_mutex().try_lock();
         if (!lock || self->window_ == nullptr ||
             SDL_GetWindowID(self->window_) != event->window.windowID ||
@@ -326,7 +418,6 @@ namespace SFT::Platform::Windowing::SDL3 {
             return true;
         }
         if (self->use_windows_sizing_hook_) {
-
 
 
             return true;
@@ -358,8 +449,6 @@ namespace SFT::Platform::Windowing::SDL3 {
         self->last_live_resize_extent_ = extent;
 
 
-
-
         self->live_resize_callback_(extent);
 #else
         (void)userdata;
@@ -371,7 +460,13 @@ namespace SFT::Platform::Windowing::SDL3 {
 #if defined(_WIN32)
 
 
-
+    /// Performs the SDL windows message hook operation for `SDL3` using the supplied arguments.
+    ///
+    /// @param userdata `userdata` value used by the operation.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool SDLCALL SDL3Window::sdl_windows_message_hook(void *userdata, MSG *message) noexcept {
         ZoneScopedN("SDL3Window::sdl_windows_message_hook");
         (void)userdata;
@@ -425,6 +520,9 @@ namespace SFT::Platform::Windowing::SDL3 {
     }
 #endif
 
+    /// Destroys the `SDL3` and releases resources owned by it.
+    ///
+    /// @note This function does not throw exceptions.
     SDL3Window::~SDL3Window() noexcept {
         ZoneScopedN("SDL3Window::~SDL3Window");
 
@@ -476,6 +574,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
+    /// Handles the set live resize callback callback and updates the associated platform state.
+    ///
+    /// @param callback Callable invoked by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void SDL3Window::set_live_resize_callback(std::function<void(WindowExtent)> callback) noexcept {
         ZoneScopedN("SDL3Window::set_live_resize_callback");
         auto lock = sdl_window_mutex().lock();
@@ -508,6 +612,10 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
+    /// Returns the current or globally available clipboard text value.
+    ///
+    /// @return Returns the current clipboard text value.
+    /// @note This function does not throw exceptions.
     std::string SDL3Window::clipboard_text() const noexcept {
         ZoneScopedN("SDL3Window::clipboard_text");
         if (!SDL_HasClipboardText()) {
@@ -522,6 +630,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return result;
     }
 
+    /// Sets the clipboard text for this `SDL3`.
+    ///
+    /// @param text Text consumed by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_clipboard_text(std::string_view text) noexcept {
         ZoneScopedN("SDL3Window::set_clipboard_text");
 
@@ -533,6 +649,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return {};
     }
 
+    /// Starts text input using the supplied arguments and current state.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::start_text_input() noexcept {
         ZoneScopedN("SDL3Window::start_text_input");
         if (!SDL_StartTextInput(window_)) [[unlikely]] {
@@ -541,6 +663,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return {};
     }
 
+    /// Stops text input using the supplied arguments and current state.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::stop_text_input() noexcept {
         ZoneScopedN("SDL3Window::stop_text_input");
         if (!SDL_StopTextInput(window_)) [[unlikely]] {
@@ -549,6 +677,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return {};
     }
 
+    /// Sets the text input area for this `SDL3`.
+    ///
+    /// @param area `area` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_text_input_area(TextInputArea area) noexcept {
         ZoneScopedN("SDL3Window::set_text_input_area");
         const SDL_Rect rect{
@@ -563,6 +699,16 @@ namespace SFT::Platform::Windowing::SDL3 {
         return {};
     }
 
+    /// Constructs the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param key Key used to identify the requested entry.
+    /// @param config Configuration values controlling the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`, `WindowErrorCode::BackendUnavailable`, `WindowErrorCode::CreationFailed`, `WindowErrorCode::OperationFailed`, `WindowErrorCode::OutOfMemory`.
+    /// @note Allocation failure is converted to the implementation's out-of-memory error/status rather than escaping as `std::bad_alloc`.
+    /// @note This function does not throw exceptions.
     expected<unique_ptr<SDL3Window>, WindowError> SDL3Window::construct(ConstructorKey key, const WindowConfig &config) noexcept {
         ZoneScopedN("SDL3Window::construct");
         auto lock = sdl_window_mutex().lock();
@@ -583,21 +729,8 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
 
-
-
-
-
         SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, "0");
         SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_WARP_MOTION, "0");
-
-
-
-
-
-
-
-
-
 
 
         SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
@@ -610,7 +743,6 @@ namespace SFT::Platform::Windowing::SDL3 {
 
         SDL_WindowFlags flags = window_flags(config);
 #if defined(_WIN32)
-
 
 
         const bool needs_composition_style = wants_composition_window_style(config);
@@ -662,14 +794,6 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
 
-
-
-
-
-
-
-
-
         if (!SDL_StartTextInput(window)) [[unlikely]] {
             Foundation::log_error("SDL3 SDL_StartTextInput failed for window '{}': {}", config.title, SDL_GetError());
         }
@@ -677,8 +801,6 @@ namespace SFT::Platform::Windowing::SDL3 {
         SDL3Window *raw_wrapper = nullptr;
         try {
             raw_wrapper = new SDL3Window(key, window);
-
-
 
 
             raw_wrapper->fullscreen_mode_ = config.mode;
@@ -698,16 +820,29 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
+    /// Returns the current or globally available backend kind value.
+    ///
+    /// @return Returns the current backend kind value.
+    /// @note This function does not throw exceptions.
     WindowBackendKind SDL3Window::backend_kind() const noexcept {
         ZoneScopedN("SDL3Window::backend_kind");
         return WindowBackendKind::SDL3;
     }
 
+    /// Returns the runtime or backend type represented by `SDL3`.
+    ///
+    /// @return Returns the current type value.
+    /// @note This function does not throw exceptions.
     WindowingSystem SDL3Window::type() const noexcept {
         ZoneScopedN("SDL3Window::type");
         return WindowingSystem::SDL3;
     }
 
+    /// Returns the native backend handle associated with this `SDL3`.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void *, WindowError> SDL3Window::native_backend_handle() const noexcept {
         ZoneScopedN("SDL3Window::native_backend_handle");
         auto lock = sdl_window_mutex().lock();
@@ -719,12 +854,22 @@ namespace SFT::Platform::Windowing::SDL3 {
         return window_;
     }
 
+    /// Returns the native window handle associated with this `SDL3`.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<NativeWindowHandle, WindowError> SDL3Window::native_window_handle() const noexcept {
         ZoneScopedN("SDL3Window::native_window_handle");
         auto lock = sdl_window_mutex().lock();
         return native_window_handle_locked();
     }
 
+    /// Returns the current or globally available HDR properties value.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note This function does not throw exceptions.
     optional<WindowHdrProperties> SDL3Window::hdr_properties() const noexcept {
         ZoneScopedN("SDL3Window::hdr_properties");
         auto lock = sdl_window_mutex().lock();
@@ -820,10 +965,6 @@ namespace SFT::Platform::Windowing::SDL3 {
 
 
         const i64 timestamp_offset_ns = sdl_to_steady_offset_ns();
-
-
-
-
 
 
         while (event_count < max_events_per_pump && SDL_PollEvent(&event)) {
@@ -940,8 +1081,6 @@ namespace SFT::Platform::Windowing::SDL3 {
             } else if (event.type == SDL_EVENT_TEXT_EDITING) {
 
 
-
-
                 if (auto found = sdl_window_registry().find(event.edit.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
                     WindowEvent window_event{WindowEventKind::TextEditing};
                     window_event.timestamp_ns = event_timestamp_ns;
@@ -1007,6 +1146,11 @@ namespace SFT::Platform::Windowing::SDL3 {
         return {};
     }
 
+    /// Polls event for available work or state changes.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note This function does not throw exceptions.
     optional<WindowEvent> SDL3Window::poll_event() noexcept {
         ZoneScopedN("SDL3Window::poll_event");
         auto lock = sdl_window_mutex().lock();
@@ -1019,11 +1163,19 @@ namespace SFT::Platform::Windowing::SDL3 {
         return event;
     }
 
+    /// Closes requested using the supplied arguments and current state.
+    ///
+    /// @return Returns the current close requested value.
+    /// @note This function does not throw exceptions.
     bool SDL3Window::close_requested() const noexcept {
         ZoneScopedN("SDL3Window::close_requested");
         return close_requested_.load();
     }
 
+    /// Requests close using the supplied arguments and current state.
+    ///
+    /// @return Returns the current request close value.
+    /// @note This function does not throw exceptions.
     void SDL3Window::request_close() noexcept {
         ZoneScopedN("SDL3Window::request_close");
         auto lock = sdl_window_mutex().lock();
@@ -1035,12 +1187,20 @@ namespace SFT::Platform::Windowing::SDL3 {
         Foundation::log_warn("SDL3 close requested by engine: wrapper={} native_ptr={} id={}", static_cast<void *>(this), static_cast<void *>(window_), id);
     }
 
+    /// Changes the logical size to the requested value, creating or removing elements as needed.
+    ///
+    /// @return Returns the current resized value.
+    /// @note This function does not throw exceptions.
     bool SDL3Window::resized() const noexcept {
         ZoneScopedN("SDL3Window::resized");
         auto lock = sdl_window_mutex().lock();
         return pending_resize_.has_value();
     }
 
+    /// Returns the current or globally available consume resize value.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note This function does not throw exceptions.
     optional<WindowResize> SDL3Window::consume_resize() noexcept {
         ZoneScopedN("SDL3Window::consume_resize");
         auto lock = sdl_window_mutex().lock();
@@ -1049,6 +1209,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return resize;
     }
 
+    /// Returns the current or globally available show value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::show() noexcept {
         ZoneScopedN("SDL3Window::show");
         auto lock = sdl_window_mutex().lock();
@@ -1075,6 +1241,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return {};
     }
 
+    /// Returns the current or globally available hide value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::hide() noexcept {
         ZoneScopedN("SDL3Window::hide");
         auto lock = sdl_window_mutex().lock();
@@ -1097,6 +1269,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return hidden;
     }
 
+    /// Returns the current or globally available focus value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::focus() noexcept {
         ZoneScopedN("SDL3Window::focus");
         auto lock = sdl_window_mutex().lock();
@@ -1107,6 +1285,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_RaiseWindow(window_), WindowErrorCode::OperationFailed, "SDL3 focus window failed.");
     }
 
+    /// Returns the current or globally available raise value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::raise() noexcept {
         ZoneScopedN("SDL3Window::raise");
         auto lock = sdl_window_mutex().lock();
@@ -1117,6 +1301,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_RaiseWindow(window_), WindowErrorCode::OperationFailed, "SDL3 raise window failed.");
     }
 
+    /// Returns the current or globally available maximize value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::maximize() noexcept {
         ZoneScopedN("SDL3Window::maximize");
         auto lock = sdl_window_mutex().lock();
@@ -1127,6 +1317,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_MaximizeWindow(window_), WindowErrorCode::OperationFailed, "SDL3 maximize window failed.");
     }
 
+    /// Returns the current or globally available minimize value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::minimize() noexcept {
         ZoneScopedN("SDL3Window::minimize");
         auto lock = sdl_window_mutex().lock();
@@ -1137,6 +1333,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_MinimizeWindow(window_), WindowErrorCode::OperationFailed, "SDL3 minimize window failed.");
     }
 
+    /// Returns the current or globally available restore value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::restore() noexcept {
         ZoneScopedN("SDL3Window::restore");
         auto lock = sdl_window_mutex().lock();
@@ -1147,6 +1349,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_RestoreWindow(window_), WindowErrorCode::OperationFailed, "SDL3 restore window failed.");
     }
 
+    /// Sets the title for this `SDL3`.
+    ///
+    /// @param title `title` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`, `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_title(const char *title) noexcept {
         ZoneScopedN("SDL3Window::set_title");
         auto lock = sdl_window_mutex().lock();
@@ -1161,6 +1371,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_SetWindowTitle(window_, title), WindowErrorCode::OperationFailed, "SDL3 set title failed.");
     }
 
+    /// Returns the current or globally available position value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<WindowPosition, WindowError> SDL3Window::position() const noexcept {
         ZoneScopedN("SDL3Window::position");
         auto lock = sdl_window_mutex().lock();
@@ -1180,6 +1396,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return WindowPosition{x, y};
     }
 
+    /// Sets the position for this `SDL3`.
+    ///
+    /// @param position `position` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_position(WindowPosition position) noexcept {
         ZoneScopedN("SDL3Window::set_position");
         auto lock = sdl_window_mutex().lock();
@@ -1190,6 +1414,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_SetWindowPosition(window_, position.x, position.y), WindowErrorCode::OperationFailed, "SDL3 set position failed.");
     }
 
+    /// Returns the current or globally available global cursor position value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::Unsupported`.
+    /// @note This function does not throw exceptions.
     expected<WindowPosition, WindowError> SDL3Window::global_cursor_position() const noexcept {
         ZoneScopedN("SDL3Window::global_cursor_position");
         auto lock = sdl_window_mutex().lock();
@@ -1206,13 +1436,18 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
 
 
-
         f32 x = 0.0f;
         f32 y = 0.0f;
         SDL_GetGlobalMouseState(&x, &y);
         return WindowPosition{static_cast<i32>(x), static_cast<i32>(y)};
     }
 
+    /// Returns the size for this `SDL3`.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<WindowExtent, WindowError> SDL3Window::size() const noexcept {
         ZoneScopedN("SDL3Window::size");
         auto lock = sdl_window_mutex().lock();
@@ -1232,6 +1467,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return WindowExtent{static_cast<u32>(width), static_cast<u32>(height)};
     }
 
+    /// Sets the size for this `SDL3`.
+    ///
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`, `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_size(WindowExtent extent) noexcept {
         ZoneScopedN("SDL3Window::set_size");
         auto lock = sdl_window_mutex().lock();
@@ -1250,6 +1493,12 @@ namespace SFT::Platform::Windowing::SDL3 {
             "SDL3 set window size failed.");
     }
 
+    /// Returns the framebuffer size for this `SDL3`.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<WindowExtent, WindowError> SDL3Window::framebuffer_size() const noexcept {
         ZoneScopedN("SDL3Window::framebuffer_size");
         auto lock = sdl_window_mutex().lock();
@@ -1269,6 +1518,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return WindowExtent{static_cast<u32>(width), static_cast<u32>(height)};
     }
 
+    /// Sets the minimum size for this `SDL3`.
+    ///
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`, `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_minimum_size(WindowExtent extent) noexcept {
         ZoneScopedN("SDL3Window::set_minimum_size");
         auto lock = sdl_window_mutex().lock();
@@ -1287,6 +1544,14 @@ namespace SFT::Platform::Windowing::SDL3 {
             "SDL3 set minimum size failed.");
     }
 
+    /// Sets the maximum size for this `SDL3`.
+    ///
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`, `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_maximum_size(WindowExtent extent) noexcept {
         ZoneScopedN("SDL3Window::set_maximum_size");
         auto lock = sdl_window_mutex().lock();
@@ -1305,6 +1570,14 @@ namespace SFT::Platform::Windowing::SDL3 {
             "SDL3 set maximum size failed.");
     }
 
+    /// Sets the resizable for this `SDL3`.
+    ///
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_resizable(bool enabled) noexcept {
         ZoneScopedN("SDL3Window::set_resizable");
         auto lock = sdl_window_mutex().lock();
@@ -1315,6 +1588,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_SetWindowResizable(window_, enabled), WindowErrorCode::OperationFailed, "SDL3 set resizable failed.");
     }
 
+    /// Sets the decorated for this `SDL3`.
+    ///
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_decorated(bool enabled) noexcept {
         ZoneScopedN("SDL3Window::set_decorated");
         auto lock = sdl_window_mutex().lock();
@@ -1325,6 +1606,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_SetWindowBordered(window_, enabled), WindowErrorCode::OperationFailed, "SDL3 set decorations failed.");
     }
 
+    /// Sets the fullscreen for this `SDL3`.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_fullscreen(WindowMode mode) noexcept {
         ZoneScopedN("SDL3Window::set_fullscreen");
         auto lock = sdl_window_mutex().lock();
@@ -1332,12 +1621,6 @@ namespace SFT::Platform::Windowing::SDL3 {
             return live;
         }
         Foundation::log_info("SDL3 set fullscreen: wrapper={} native_ptr={} id={} mode={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), static_cast<i32>(mode));
-
-
-
-
-
-
 
 
         auto result = sdl_bool_result(SDL_SetWindowFullscreen(window_, mode != WindowMode::Windowed),
@@ -1348,10 +1631,22 @@ namespace SFT::Platform::Windowing::SDL3 {
         return result;
     }
 
+    /// Returns the current or globally available fullscreen mode value.
+    ///
+    /// @return Returns the current fullscreen mode value.
+    /// @note This function does not throw exceptions.
     WindowMode SDL3Window::fullscreen_mode() const noexcept {
         return fullscreen_mode_;
     }
 
+    /// Sets the opacity for this `SDL3`.
+    ///
+    /// @param opacity `opacity` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`, `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_opacity(f32 opacity) noexcept {
         ZoneScopedN("SDL3Window::set_opacity");
         auto lock = sdl_window_mutex().lock();
@@ -1366,6 +1661,12 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_SetWindowOpacity(window_, opacity), WindowErrorCode::OperationFailed, "SDL3 set opacity failed.");
     }
 
+    /// Returns the current or globally available opacity value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<f32, WindowError> SDL3Window::opacity() const noexcept {
         ZoneScopedN("SDL3Window::opacity");
         auto lock = sdl_window_mutex().lock();
@@ -1383,6 +1684,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return result;
     }
 
+    /// Sets the cursor visible for this `SDL3`.
+    ///
+    /// @param visible `visible` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_cursor_visible(bool visible) noexcept {
         ZoneScopedN("SDL3Window::set_cursor_visible");
         auto lock = sdl_window_mutex().lock();
@@ -1393,13 +1702,20 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(visible ? SDL_ShowCursor() : SDL_HideCursor(), WindowErrorCode::OperationFailed, "SDL3 set cursor visibility failed.");
     }
 
+    /// Sets the cursor icon for this `SDL3`.
+    ///
+    /// @param icon `icon` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_cursor_icon(CursorIcon icon) noexcept {
         ZoneScopedN("SDL3Window::set_cursor_icon");
         auto lock = sdl_window_mutex().lock();
         if (auto live = require_live_window(window_, "set_cursor_icon"); !live) [[unlikely]] {
             return live;
         }
-
 
 
         if (current_cursor_icon_.has_value() && *current_cursor_icon_ == icon) {
@@ -1426,6 +1742,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return {};
     }
 
+    /// Sets the cursor grabbed for this `SDL3`.
+    ///
+    /// @param grabbed `grabbed` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_cursor_grabbed(bool grabbed) noexcept {
         ZoneScopedN("SDL3Window::set_cursor_grabbed");
         auto lock = sdl_window_mutex().lock();
@@ -1436,6 +1760,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_SetWindowMouseGrab(window_, grabbed), WindowErrorCode::OperationFailed, "SDL3 set cursor grab failed.");
     }
 
+    /// Sets the relative mouse mode for this `SDL3`.
+    ///
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_relative_mouse_mode(bool enabled) noexcept {
         ZoneScopedN("SDL3Window::set_relative_mouse_mode");
         auto lock = sdl_window_mutex().lock();
@@ -1446,6 +1778,14 @@ namespace SFT::Platform::Windowing::SDL3 {
         return sdl_bool_result(SDL_SetWindowRelativeMouseMode(window_, enabled), WindowErrorCode::OperationFailed, "SDL3 set relative mouse mode failed.");
     }
 
+    /// Sets the mouse locked for this `SDL3`.
+    ///
+    /// @param locked `locked` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_mouse_locked(bool locked) noexcept {
         ZoneScopedN("SDL3Window::set_mouse_locked");
         auto lock = sdl_window_mutex().lock();
@@ -1471,12 +1811,23 @@ namespace SFT::Platform::Windowing::SDL3 {
         return {};
     }
 
+    /// Returns the current or globally available mouse locked value.
+    ///
+    /// @return Returns the current mouse locked value.
+    /// @note This function does not throw exceptions.
     bool SDL3Window::mouse_locked() const noexcept {
         ZoneScopedN("SDL3Window::mouse_locked");
         auto lock = sdl_window_mutex().lock();
         return mouse_locked_;
     }
 
+    /// Enables window effect using the supplied arguments and current state.
+    ///
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     WindowEffectResult SDL3Window::enable_window_effect(WindowEffect effect) noexcept {
         ZoneScopedN("SDL3Window::enable_window_effect");
         auto lock = sdl_window_mutex().lock();
@@ -1528,21 +1879,48 @@ namespace SFT::Platform::Windowing::SDL3 {
         return result;
     }
 
+    /// Sets the effect for this `SDL3`.
+    ///
+    /// @param effect `effect` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_effect(WindowEffect effect) noexcept {
         ZoneScopedN("SDL3Window::set_effect");
         return window_result_from_effect_result(enable_window_effect(effect));
     }
 
+    /// Sets the blur enabled for this `SDL3`.
+    ///
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_blur_enabled(bool enabled) noexcept {
         ZoneScopedN("SDL3Window::set_blur_enabled");
         return set_effect(WindowEffect::blur(enabled));
     }
 
+    /// Sets the transparent for this `SDL3`.
+    ///
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_transparent(bool enabled) noexcept {
         ZoneScopedN("SDL3Window::set_transparent");
         return set_effect(WindowEffect::transparent(enabled));
     }
 
+    /// Returns the current or globally available required vulkan instance extensions value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`, `WindowErrorCode::OutOfMemory`.
+    /// @note This function does not throw exceptions.
     expected<vector<const char *>, WindowError>
     SDL3Window::required_vulkan_instance_extensions() const noexcept {
         ZoneScopedN("SDL3Window::required_vulkan_instance_extensions");
@@ -1560,6 +1938,16 @@ namespace SFT::Platform::Windowing::SDL3 {
         }
     }
 
+    /// Creates a vulkan surface from the supplied parameters.
+    ///
+    /// @param instance Instance used or affected by the operation.
+    /// @param allocation_callbacks Callable invoked by the operation.
+    /// @param surface_out Surface used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::InvalidArgument`, `WindowErrorCode::CreationFailed`.
+    /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::create_vulkan_surface(
         void *instance,
         const void *allocation_callbacks,

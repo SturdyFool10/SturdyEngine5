@@ -9,9 +9,17 @@
 
 namespace SFT::UI {
 
+    /// Registers font using the supplied arguments and current state.
+    ///
+    /// @param font_id Identifier of the target object or resource.
+    /// @param font `font` value used by the operation.
+    /// @param emoji_fallback Fallback value used when the primary value is unavailable.
+    /// @param fallbacks Fallback value used when the primary value is unavailable.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void TextBridge::register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback,
                                    span<const Text::Font *const> fallbacks) {
-
 
 
         vector<Text::FallbackFont> owned_fallbacks;
@@ -51,6 +59,13 @@ namespace SFT::UI {
         fonts_.push_back(std::move(new_entry));
     }
 
+    /// Finds font in the available state.
+    ///
+    /// @param id Identifier of the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const TextBridge::FontEntry *TextBridge::find_font(FontId id) const noexcept {
         for (const FontEntry &entry : fonts_) {
             if (entry.id == id) {
@@ -60,13 +75,31 @@ namespace SFT::UI {
         return nullptr;
     }
 
+    /// Performs the font stack operation for `UI` using the supplied arguments.
+    ///
+    /// @param font_id Identifier of the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note This function does not throw exceptions.
     const Text::FontStack *TextBridge::font_stack(FontId font_id) const noexcept {
         const FontEntry *entry = find_font(font_id);
         return entry ? &entry->stack : nullptr;
     }
 
+    /// Returns the current or globally available begin frame value.
+    ///
+    /// @return Returns the current begin frame value.
+    /// @note This function does not throw exceptions.
     void TextBridge::begin_frame() noexcept { cache_.clear(); }
 
+    /// Shapes and cache using the supplied arguments and current state.
+    ///
+    /// @param style `style` value used by the operation.
+    /// @param utf8_content `utf8_content` value used by the operation.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     const CachedShape *TextBridge::shape_and_cache(const TextStyle &style, string_view utf8_content) {
         const FontEntry *entry = find_font(style.font_id);
         if (entry == nullptr || entry->stack.primary == nullptr) {
@@ -107,6 +140,13 @@ namespace SFT::UI {
         return &inserted->second;
     }
 
+    /// Performs the measure operation for `UI` using the supplied arguments.
+    ///
+    /// @param text Text consumed by the operation.
+    /// @param config Configuration values controlling the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Clay_Dimensions TextBridge::measure(Clay_StringSlice text, const Clay_TextElementConfig &config) {
         TextStyle style{
             .font_id = config.fontId,
@@ -121,6 +161,14 @@ namespace SFT::UI {
         return Clay_Dimensions{.width = shape->width_px, .height = shape->height_px};
     }
 
+    /// Handles the measure callback callback and updates the associated platform state.
+    ///
+    /// @param text Text consumed by the operation.
+    /// @param config Configuration values controlling the operation.
+    /// @param user_data Data consumed or referenced by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Clay_Dimensions TextBridge::measure_callback(Clay_StringSlice text, Clay_TextElementConfig *config, void *user_data) {
         if (config == nullptr || user_data == nullptr) {
             return Clay_Dimensions{};

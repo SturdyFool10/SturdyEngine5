@@ -3,6 +3,13 @@
 
 namespace SFT::UI {
 
+    /// Scrolls area part ID using the supplied arguments and current state.
+    ///
+    /// @param id Identifier of the target object or resource.
+    /// @param part `part` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString scroll_area_part_id(const UString &id, ScrollAreaVisualPart part) {
         if (part == ScrollAreaVisualPart::Viewport)
             return id;
@@ -13,10 +20,36 @@ namespace SFT::UI {
         return UString{id.cpp_string() + suffix};
     }
 
+    /// Performs the vertical operation for `UI` using the supplied arguments.
+    ///
+    /// @param state `state` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     ScrollAreaState::Axis &DetailScrollAreaAccess::vertical(ScrollAreaState &state) noexcept { return state.vertical_; }
 
+    /// Performs the horizontal operation for `UI` using the supplied arguments.
+    ///
+    /// @param state `state` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     ScrollAreaState::Axis &DetailScrollAreaAccess::horizontal(ScrollAreaState &state) noexcept { return state.horizontal_; }
 
+    /// Scrolls area using the supplied arguments and current state.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param id Identifier of the target object or resource.
+    /// @param decl `decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param build_content `build_content` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    /// @param composition `composition` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     ScrollAreaResult scroll_area(Context &ctx, const UString &id, const ElementDecl &decl,
                                         const ScrollbarStyle &style, ScrollAreaState &state, f32 delta_seconds,
                                         const ScrollAreaBuilder &build_content, bool enabled,
@@ -61,6 +94,19 @@ namespace SFT::UI {
         return result;
     }
 
+    /// Scrolls area using the supplied arguments and current state.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param id Identifier of the target object or resource.
+    /// @param decl `decl` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param build_content `build_content` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     ScrollAreaResult scroll_area(Context &ctx, const UString &id, const ElementDecl &decl,
                                         const ScrollbarStyle &style, ScrollAreaState &state, f32 delta_seconds,
                                         const ScrollAreaBuilder &build_content, bool enabled) {
@@ -71,6 +117,21 @@ namespace SFT::UI {
 
 namespace SFT::UI::Detail {
 
+    /// Updates scrollbar axis from the supplied values.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param container_id Identifier of the target object or resource.
+    /// @param vertical `vertical` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param axis `axis` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    /// @param metrics `metrics` value used by the operation.
+    /// @param track_slot Binding or storage slot addressed by the operation.
+    /// @param thumb_slot Binding or storage slot addressed by the operation.
+    /// @param dragging_out `dragging_out` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void update_scrollbar_axis(Context &ctx, const UString &container_id, bool vertical,
                                       const ScrollbarStyle &style, ScrollAreaState::Axis &axis,
                                       f32 delta_seconds, bool enabled, const Context::ScrollMetrics &metrics,
@@ -106,8 +167,6 @@ namespace SFT::UI::Detail {
         const bool track_hovered = enabled && ctx.hovered(track_id);
         const bool thumb_hovered = enabled && ctx.hovered(thumb_id);
         const bool container_hovered = enabled && ctx.hovered(container_id);
-
-
 
 
         const bool offset_changed = axis.last_offset_valid && std::abs(offset - axis.last_offset) > 0.01f;

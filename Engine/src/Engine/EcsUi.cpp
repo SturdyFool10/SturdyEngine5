@@ -3,8 +3,20 @@
 
 namespace SFT::Engine {
 
+    /// Sets the position for this `Engine`.
+    ///
+    /// @param position `position` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiPointerState::set_position(glm::vec2 position) noexcept { state_.position = position; }
 
+    /// Sets the down for this `Engine`.
+    ///
+    /// @param down `down` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiPointerState::set_down(bool down) noexcept {
         if (down != state_.down) {
             state_.pressed = state_.pressed || down;
@@ -16,11 +28,19 @@ namespace SFT::Engine {
         state_.down = down;
     }
 
+    /// Cancels the outstanding operation when cancellation is still possible.
+    ///
+    /// @return Returns the current cancel value.
+    /// @note This function does not throw exceptions.
     void UiPointerState::cancel() noexcept {
         state_.cancelled = true;
         state_.down = false;
     }
 
+    /// Clears transitions.
+    ///
+    /// @return Returns the current clear transitions value.
+    /// @note This function does not throw exceptions.
     void UiPointerState::clear_transitions() noexcept {
         state_.pressed = false;
         state_.press_position.reset();
@@ -28,16 +48,47 @@ namespace SFT::Engine {
         state_.cancelled = false;
     }
 
+    /// Adds scroll delta using the supplied arguments and current state.
+    ///
+    /// @param delta `delta` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiPointerState::add_scroll_delta(glm::vec2 delta) noexcept { state_.scroll_delta += delta; }
 
+    /// Clears scroll delta.
+    ///
+    /// @return Returns the current clear scroll delta value.
+    /// @note This function does not throw exceptions.
     void UiPointerState::clear_scroll_delta() noexcept { state_.scroll_delta = glm::vec2{0.0f}; }
 
+    /// Returns the current or globally available state value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const UI::PointerState &UiPointerState::state() const noexcept { return state_; }
 
+    /// Sets the consumed for this `Engine`.
+    ///
+    /// @param consumed `consumed` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiPointerState::set_consumed(bool consumed) noexcept { consumed_ = consumed; }
 
+    /// Returns the current or globally available consumed value.
+    ///
+    /// @return Returns the current consumed value.
+    /// @note This function does not throw exceptions.
     bool UiPointerState::consumed() const noexcept { return consumed_; }
 
+    /// Finds or creates the ready required by the operation.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool UiContext::ensure_ready(RHI::RhiDevice &device, RHI::Format color_format) {
         {
             auto guard = renderer_state_->renderer.lock();
@@ -70,13 +121,29 @@ namespace SFT::Engine {
         return true;
     }
 
+    /// Reads the requested data from the associated source.
+    ///
+    /// @return Returns the current ready value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool UiContext::ready() const {
         auto guard = renderer_state_->renderer.lock();
         return guard->has_value();
     }
 
+    /// Returns the current or globally available context value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     UI::Context &UiContext::context() noexcept { return context_; }
 
+    /// Performs the begin layout operation for `Engine` using the supplied arguments.
+    ///
+    /// @param viewport_size Requested or available size for the operation.
+    /// @param pointer_state `pointer_state` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void UiContext::begin_layout(glm::vec2 viewport_size, UiPointerState &pointer_state, f32 delta_seconds) {
         context_.begin_layout(viewport_size, pointer_state.state(), delta_seconds);
         pointer_state.set_consumed(context_.pointer_over_any() || context_.pointer_captured());
@@ -84,6 +151,13 @@ namespace SFT::Engine {
         pointer_state.clear_transitions();
     }
 
+    /// Builds overlay hooks.
+    ///
+    /// @param snapshot `snapshot` value used by the operation.
+    /// @param texture_resolver Texture used or affected by the operation.
+    ///
+    /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Renderer::UiOverlayHooks UiContext::build_overlay_hooks(std::shared_ptr<UI::FrameSnapshot> snapshot,
                                                                 Renderer::Renderer *texture_resolver) {
         Renderer::UiOverlayHooks hooks;
@@ -130,6 +204,12 @@ namespace SFT::Engine {
         return hooks;
     }
 
+    /// Destroys or releases the `Engine` resource represented by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiContext::destroy(RHI::RhiDevice &device) noexcept {
         {
             auto guard = renderer_state_->renderer.lock();
@@ -142,6 +222,14 @@ namespace SFT::Engine {
         create_attempted_ = false;
     }
 
+    /// Resolves the requested value into the concrete value used by the engine.
+    ///
+    /// @param assets `assets` value used by the operation.
+    /// @param path Filesystem path identifying the target resource.
+    /// @param color_space `color_space` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     AssetExpected<Renderer::TextureHandle> UiImageCache::resolve(
         AssetManager &assets, const std::filesystem::path &path,
         TextureColorSpace color_space) {
@@ -161,8 +249,21 @@ namespace SFT::Engine {
         return *handle;
     }
 
+    /// Clears the stored state or contents.
+    ///
+    /// @return Returns the current clear value.
+    /// @note This function does not throw exceptions.
     void UiImageCache::clear() noexcept { by_key_.clear(); }
 
+    /// Resolves the requested value into the concrete value used by the engine.
+    ///
+    /// @param assets `assets` value used by the operation.
+    /// @param path Filesystem path identifying the target resource.
+    /// @param target_px `target_px` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::DecodeFailure`.
     AssetExpected<Renderer::TextureHandle> UiSvgCache::resolve(
         AssetManager &assets, const std::filesystem::path &path, f32 target_px) {
         const std::string key = path.string() + "|" + std::to_string(target_px);
@@ -199,6 +300,10 @@ namespace SFT::Engine {
         return *handle;
     }
 
+    /// Clears the stored state or contents.
+    ///
+    /// @return Returns the current clear value.
+    /// @note This function does not throw exceptions.
     void UiSvgCache::clear() noexcept { by_key_.clear(); }
 
 } // namespace SFT::Engine

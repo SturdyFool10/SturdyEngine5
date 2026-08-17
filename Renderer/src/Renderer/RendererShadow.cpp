@@ -51,13 +51,25 @@ namespace SFT::Renderer {
         constexpr f32 kMinimumLightRange = 0.05f;
 
 
-
         constexpr f32 kPointShadowFaceFovRadians = 1.6057029f;
 
+        /// Creates an error result describing the supplied shadow failure.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError shadow_error(string message) {
             return Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed, std::move(message)};
         }
 
+        /// Performs the safe normalize operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param value Value consumed by the operation.
+        /// @param fallback Fallback value used when the primary value is unavailable.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] glm::vec3 safe_normalize(glm::vec3 value, glm::vec3 fallback) noexcept {
             const f32 length_squared = glm::dot(value, value);
             return std::isfinite(length_squared) && length_squared > 1.0e-12f
@@ -65,19 +77,47 @@ namespace SFT::Renderer {
                        : fallback;
         }
 
+        /// Returns finite when available, otherwise uses the supplied fallback.
+        ///
+        /// @param value Value consumed by the operation.
+        /// @param fallback Fallback value used when the primary value is unavailable.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 finite_or(f32 value, f32 fallback) noexcept {
             return std::isfinite(value) ? value : fallback;
         }
 
+        /// Performs the light up operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param direction `direction` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] glm::vec3 light_up(glm::vec3 direction) noexcept {
             return std::abs(direction.y) < 0.98f ? glm::vec3{0.0f, 1.0f, 0.0f}
                                                  : glm::vec3{0.0f, 0.0f, 1.0f};
         }
 
+        /// Performs the luminance operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param radiance `radiance` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 luminance(glm::vec3 radiance) noexcept {
             return glm::dot(glm::max(radiance, glm::vec3{0.0f}), glm::vec3{0.2126f, 0.7152f, 0.0722f});
         }
 
+        /// Performs the punctual importance operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param position `position` value used by the operation.
+        /// @param radiance `radiance` value used by the operation.
+        /// @param range Range of values to process.
+        /// @param camera_position `camera_position` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] f32 punctual_importance(glm::vec3 position, glm::vec3 radiance, f32 range, glm::vec3 camera_position) noexcept {
             const glm::vec3 offset = position - camera_position;
             const f32 distance_squared = glm::dot(offset, offset);
@@ -90,11 +130,21 @@ namespace SFT::Renderer {
             u32 x = 0;
             u32 y = 0;
             u32 cells = 0;
+            /// Converts the `AtlasTile` to `bool`.
+            ///
+            /// @return Returns the boolean result of the operation.
+            /// @note This function does not throw exceptions.
             explicit operator bool() const noexcept { return cells != 0; }
         };
 
         class AtlasAllocator {
           public:
+            /// Allocates storage or a resource.
+            ///
+            /// @param cells `cells` value used by the operation.
+            ///
+            /// @return Returns the value produced by the operation.
+            /// @note This function does not throw exceptions.
             [[nodiscard]] AtlasTile allocate(u32 cells) noexcept {
                 if (cells == 0 || cells > kAtlasGridSize) {
                     return {};
@@ -125,6 +175,13 @@ namespace SFT::Renderer {
             array<bool, kAtlasGridSize * kAtlasGridSize> used_{};
         };
 
+        /// Performs the tile viewport operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param tile `tile` value used by the operation.
+        /// @param atlas_size Requested or available size for the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::Rect2D tile_viewport(AtlasTile tile, u32 atlas_size) noexcept {
             const u32 cell_size = atlas_size / kAtlasGridSize;
             return RHI::Rect2D{
@@ -135,6 +192,12 @@ namespace SFT::Renderer {
             };
         }
 
+        /// Performs the tile scale bias operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param tile `tile` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] glm::vec4 tile_scale_bias(AtlasTile tile) noexcept {
             const f32 inv_grid = 1.0f / static_cast<f32>(kAtlasGridSize);
             return glm::vec4{
@@ -145,6 +208,14 @@ namespace SFT::Renderer {
             };
         }
 
+        /// Performs the stabilize directional projection operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param projection `projection` value used by the operation.
+        /// @param view `view` value used by the operation.
+        /// @param resolution `resolution` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] glm::mat4 stabilize_directional_projection(glm::mat4 projection,
                                                                  const glm::mat4 &view,
                                                                  u32 resolution) noexcept {
@@ -160,6 +231,13 @@ namespace SFT::Renderer {
             return projection;
         }
 
+        /// Binds group layout index for set for subsequent operations.
+        ///
+        /// @param sets `sets` value used by the operation.
+        /// @param set `set` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize bind_group_layout_index_for_set(span<const u32> sets, u32 set) noexcept {
             for (usize i = 0; i < sets.size(); ++i) {
                 if (sets[i] == set) {
@@ -170,6 +248,13 @@ namespace SFT::Renderer {
         }
     } // namespace
 
+    /// Finds or creates the frame shadow targets required by the operation.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param requested_atlas_size Requested or available size for the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_frame_shadow_targets(FrameInFlight &slot, u32 requested_atlas_size) {
         ZoneScopedN("Renderer::ensure_frame_shadow_targets");
         RHI::RhiDevice *device = rhi_device();
@@ -247,6 +332,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the frame shadow targets identified by the supplied parameters.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_frame_shadow_targets(FrameInFlight &slot) noexcept {
         ZoneScopedN("Renderer::destroy_frame_shadow_targets");
         RHI::RhiDevice *device = rhi_device();
@@ -264,6 +355,15 @@ namespace SFT::Renderer {
         slot.shadow_targets = {};
     }
 
+    /// Prepares shadow frame for a later operation.
+    ///
+    /// @param submission `submission` value used by the operation.
+    /// @param targets `targets` value used by the operation.
+    /// @param prepared `prepared` value used by the operation.
+    /// @param render_extent `render_extent` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::prepare_shadow_frame(const FrameSubmission &submission,
                                                         FrameShadowTargets &targets,
                                                         PreparedShadowFrame &prepared,
@@ -364,8 +464,6 @@ namespace SFT::Renderer {
         };
 
 
-
-
         if (shadows_enabled && sun.casts_shadows && luminance(sun.radiance) > 0.0f) {
             const u32 cascade_count = std::clamp(submission.render_graph.shadow_cascade_count,
                                                  1u,
@@ -435,8 +533,6 @@ namespace SFT::Renderer {
                     radius = std::max(radius, glm::distance(center, corner));
                 }
                 radius = std::ceil(std::max(radius, 0.25f) * 16.0f) / 16.0f;
-
-
 
 
                 const glm::mat4 orientation_view =
@@ -595,7 +691,6 @@ namespace SFT::Renderer {
             }
 
 
-
             AtlasAllocator candidate_allocator = allocator;
             array<AtlasTile, 6> tiles{};
             bool allocated = true;
@@ -632,6 +727,10 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Finds or creates the shadow lighting resources required by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::ensure_shadow_lighting_resources() {
         ZoneScopedN("Renderer::ensure_shadow_lighting_resources");
         auto guard = shadow_lighting_.lock();
@@ -769,6 +868,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Resolves the shadow lighting pipeline associated with the supplied key, handle, or resource.
+    ///
+    /// @param color_format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::shadow_lighting_pipeline_for(
         RHI::Format color_format) {
         ZoneScopedN("Renderer::shadow_lighting_pipeline_for");
@@ -815,6 +920,26 @@ namespace SFT::Renderer {
         return *pipeline;
     }
 
+    /// Records shadow lighting using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param albedo_view `albedo_view` value used by the operation.
+    /// @param normal_view `normal_view` value used by the operation.
+    /// @param material_view `material_view` value used by the operation.
+    /// @param emissive_view `emissive_view` value used by the operation.
+    /// @param depth_view `depth_view` value used by the operation.
+    /// @param spectral_effect_view `spectral_effect_view` value used by the operation.
+    /// @param shadow_atlas_view `shadow_atlas_view` value used by the operation.
+    /// @param lighting_buffer Buffer used or affected by the operation.
+    /// @param transmittance_lut_view `transmittance_lut_view` value used by the operation.
+    /// @param multi_scattering_lut_view `multi_scattering_lut_view` value used by the operation.
+    /// @param sky_view_lut_view `sky_view_lut_view` value used by the operation.
+    /// @param atmosphere_buffer Buffer used or affected by the operation.
+    /// @param color_format Format used for the resource, render target, or conversion.
+    /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_shadow_lighting(
         RHI::RenderPassEncoder &pass,
         RHI::TextureViewHandle albedo_view,
@@ -927,12 +1052,22 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the shadow lighting resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy shadow lighting resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_shadow_lighting_resources() noexcept {
         ZoneScopedN("Renderer::destroy_shadow_lighting_resources");
         auto guard = shadow_lighting_.lock();
         destroy_shadow_lighting_resources_locked(*guard);
     }
 
+    /// Destroys the shadow lighting resources locked identified by the supplied parameters.
+    ///
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_shadow_lighting_resources_locked(ShadowLightingResources &resources) noexcept {
         ZoneScopedN("Renderer::destroy_shadow_lighting_resources_locked");
         RHI::RhiDevice *device = rhi_device();

@@ -4,6 +4,12 @@ namespace SFT::RHI {
 
     namespace {
 
+        /// Performs the snapshot adapter operation for `RHI` using the supplied arguments.
+        ///
+        /// @param adapter `adapter` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] GpuApiSupport snapshot_adapter(const RhiAdapter &adapter) {
             GpuApiSupport support{};
             support.adapter = adapter.info();
@@ -15,6 +21,14 @@ namespace SFT::RHI {
             return support;
         }
 
+        /// Finds physical GPU in the available state.
+        ///
+        /// @param inventory `inventory` value used by the operation.
+        /// @param adapter `adapter` value used by the operation.
+        ///
+        /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+        /// @note Absence is represented by a null pointer rather than an exception.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] PhysicalGpu *find_physical_gpu(GpuInventory &inventory, const AdapterInfo &adapter) {
             if (adapter.physical_device_id.empty()) {
                 return nullptr;
@@ -27,6 +41,12 @@ namespace SFT::RHI {
             return nullptr;
         }
 
+        /// Adds adapter using the supplied arguments and current state.
+        ///
+        /// @param inventory `inventory` value used by the operation.
+        /// @param adapter `adapter` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void add_adapter(GpuInventory &inventory, const RhiAdapter &adapter) {
             GpuApiSupport support = snapshot_adapter(adapter);
             PhysicalGpu *gpu = find_physical_gpu(inventory, support.adapter);
@@ -46,6 +66,13 @@ namespace SFT::RHI {
 
     } // namespace
 
+    /// Enumerates GPU inventory using the supplied arguments and current state.
+    ///
+    /// @param registry `registry` value used by the operation.
+    /// @param instance_desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     GpuInventory enumerate_gpu_inventory(const BackendRegistry &registry, const InstanceDesc &instance_desc) {
         GpuInventory inventory{};
         for (const BackendRegistration &registration : registry.backends()) {

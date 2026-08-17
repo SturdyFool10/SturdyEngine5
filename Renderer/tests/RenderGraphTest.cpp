@@ -5,6 +5,13 @@
 
 namespace {
 
+    /// Checks the supplied condition and reports the accompanying diagnostic message when it is false.
+    ///
+    /// @param condition Condition controlling whether the operation proceeds.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool check(bool condition, const char *message) {
         if (!condition) {
             std::cerr << "FAILED: " << message << '\n';
@@ -24,6 +31,10 @@ namespace {
         [[maybe_unused]] static constexpr std::string_view name = "test.scene-color";
     };
 
+    /// Reports whether semantic blackboard is typed and reusable.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool semantic_blackboard_is_typed_and_reusable() {
         using namespace SFT::Renderer;
 
@@ -51,6 +62,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available explicit outputs control liveness value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool explicit_outputs_control_liveness() {
         using namespace SFT::Renderer;
 
@@ -92,6 +107,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available invalid buffer ranges and access intent are rejected value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool invalid_buffer_ranges_and_access_intent_are_rejected() {
         using namespace SFT::Renderer;
 
@@ -132,6 +151,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available imported buffers drive dependencies and liveness value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool imported_buffers_drive_dependencies_and_liveness() {
         using namespace SFT::Renderer;
 
@@ -183,6 +206,10 @@ namespace {
         return passed;
     }
 
+    /// Computes copy branches and copy compatibility are validated using the supplied arguments and current state.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool compute_copy_branches_and_copy_compatibility_are_validated() {
         using namespace SFT::Renderer;
 
@@ -255,6 +282,10 @@ namespace {
         return passed;
     }
 
+    /// Returns the current or globally available transient chain contributes to compile levels value.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool transient_chain_contributes_to_compile_levels() {
         using namespace SFT::Renderer;
 
@@ -299,6 +330,10 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     const bool passed = semantic_blackboard_is_typed_and_reusable() &&
                         explicit_outputs_control_liveness() &&

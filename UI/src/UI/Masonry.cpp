@@ -3,6 +3,14 @@
 
 namespace SFT::UI {
 
+    /// Performs the masonry layout operation for `UI` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param outer_decl `outer_decl` value used by the operation.
+    /// @param config Configuration values controlling the operation.
+    /// @param items `items` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void masonry_layout(Context &ctx, const ElementDecl &outer_decl, const MasonryConfig &config,
                                span<const MasonryItem> items) {
         const u32 track_count = std::max<u32>(config.track_count, 1);

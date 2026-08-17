@@ -9,9 +9,6 @@
 #include <Renderer/Renderer.hpp>
 
 
-
-
-
 #if defined(_WIN32)
     #include <Core/src/Core/Vulkan/DirectStorage/DirectStorageBackend.hpp>
 #elif defined(__linux__)
@@ -37,16 +34,14 @@ namespace SFT::Engine {
     namespace {
 
 
-
-
+        /// Reads binary file streamed from the associated source.
+        ///
+        /// @param source Source value or resource.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::IoFailure`, `AssetErrorCode::NotFound`.
         [[nodiscard]] AssetExpected<vector<std::byte>> read_binary_file_streamed(const std::filesystem::path &source) {
-
-
-
-
-
-
-
 
 
 #if defined(_WIN32)
@@ -83,13 +78,6 @@ namespace SFT::Engine {
     struct TextureStreamer::Impl {
 
 
-
-
-
-
-
-
-
         struct Entry {
             StreamingState state = StreamingState::Pending;
             SFT::Renderer::TextureHandle texture{};
@@ -105,8 +93,6 @@ namespace SFT::Engine {
         };
 
 
-
-
         struct StagingChunk {
             RHI::BufferHandle buffer{};
             u64 last_user_id = 0;
@@ -115,14 +101,21 @@ namespace SFT::Engine {
         static constexpr usize kRingSize = 4;
         static constexpr u64 kChunkBytes = 16ull * 1024 * 1024;
 
+        /// Performs the impl operation for `TextureStreamer` using the supplied arguments.
+        ///
+        /// @param renderer_ref Renderer used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         explicit Impl(SFT::Renderer::Renderer &renderer_ref) : renderer(renderer_ref), thread("TextureStreamer") {}
 
 
-
-
-
-
-
+        /// Acquires chunk.
+        ///
+        /// @param bytes Size of the relevant data in bytes.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::OperationFailed`, `RhiErrorCode::InvalidArgument`.
         [[nodiscard]] RHI::RhiExpected<StagingChunk *> acquire_chunk(u64 bytes) {
             ZoneScopedN("TextureStreamer::acquire_chunk");
             RHI::RhiDevice *device = renderer.rhi_device();
@@ -179,10 +172,8 @@ namespace SFT::Engine {
         Async::Mutex<vector<u64>> submitted;
 
 
-
         std::atomic<i64> queue_depth{0};
         std::atomic<i64> in_flight_bytes{0};
-
 
 
         array<StagingChunk, kRingSize> ring{};
@@ -190,10 +181,28 @@ namespace SFT::Engine {
         bool ring_initialized = false;
     };
 
+    /// Performs the texture streamer operation for `Engine` using the supplied arguments.
+    ///
+    /// @param renderer Renderer used or affected by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     TextureStreamer::TextureStreamer(SFT::Renderer::Renderer &renderer) : impl_(std::make_unique<Impl>(renderer)) {}
 
+    /// Destroys the `Engine` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     TextureStreamer::~TextureStreamer() = default;
 
+    /// Requests texture load using the supplied arguments and current state.
+    ///
+    /// @param source Source value or resource.
+    /// @param color_space `color_space` value used by the operation.
+    /// @param kind `kind` value used by the operation.
+    /// @param placeholder `placeholder` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     StreamedTextureHandle TextureStreamer::request_texture_load(
         std::filesystem::path source, TextureColorSpace color_space, TextureKind kind,
         RHI::ClearColor placeholder, UString label) {
@@ -223,8 +232,6 @@ namespace SFT::Engine {
         span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
 
 
-
-
         vector<std::byte> compressed_storage;
         RHI::RhiDevice *device = impl_->renderer.rhi_device();
         if (decoded->width >= 4 && decoded->height >= 4 && device != nullptr &&
@@ -241,7 +248,6 @@ namespace SFT::Engine {
                     break;
                 case TextureKind::NormalMap:
                 case TextureKind::MetallicRoughness:
-
 
 
                     compressed = Detail::compress_bc5_mip_chain(upload_bytes, decoded->width, decoded->height,
@@ -264,8 +270,6 @@ namespace SFT::Engine {
         const string label_c = label.empty() ? std::string{"streamed texture"} : label.cpp_string();
 
 
-
-
         static constexpr array<RHI::QueueClass, 2> streamed_queue_classes{RHI::QueueClass::Graphics, RHI::QueueClass::Transfer};
         auto texture = impl_->renderer.create_texture(decoded->width, decoded->height, format, {}, label_c.c_str(),
                                                        span<const RHI::QueueClass>{streamed_queue_classes}, mip_levels);
@@ -278,7 +282,6 @@ namespace SFT::Engine {
             impl_->renderer.destroy_texture(*texture);
             return {};
         }
-
 
 
         replay_resource->pixel_data.assign(upload_bytes.begin(), upload_bytes.end());
@@ -408,6 +411,12 @@ namespace SFT::Engine {
         return StreamedTextureHandle{id};
     }
 
+    /// Performs the state operation for `Engine` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     StreamingState TextureStreamer::state(StreamedTextureHandle handle) const noexcept {
         if (!handle) {
             return StreamingState::Failed;
@@ -417,6 +426,12 @@ namespace SFT::Engine {
         return it != guard->end() ? it->second.state : StreamingState::Failed;
     }
 
+    /// Returns the texture handle associated with this `Engine`.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     SFT::Renderer::TextureHandle TextureStreamer::texture_handle(StreamedTextureHandle handle) const noexcept {
         if (!handle) {
             return {};
@@ -426,6 +441,12 @@ namespace SFT::Engine {
         return it != guard->end() ? it->second.texture : SFT::Renderer::TextureHandle{};
     }
 
+    /// Performs the dimensions operation for `Engine` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     std::pair<u32, u32> TextureStreamer::dimensions(StreamedTextureHandle handle) const noexcept {
         if (!handle) {
             return {0, 0};
@@ -435,6 +456,12 @@ namespace SFT::Engine {
         return it != guard->end() ? std::pair{it->second.width, it->second.height} : std::pair<u32, u32>{0, 0};
     }
 
+    /// Waits for the associated operation or synchronization primitive to complete.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextureStreamer::wait(StreamedTextureHandle handle) noexcept {
         ZoneScopedN("TextureStreamer::wait");
         while (state(handle) == StreamingState::Pending || state(handle) == StreamingState::Uploading) {
@@ -442,6 +469,13 @@ namespace SFT::Engine {
         }
     }
 
+    /// Handles the on resident callback and updates the associated platform state.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    /// @param callback Callable invoked by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void TextureStreamer::on_resident(StreamedTextureHandle handle, std::function<void(SFT::Renderer::TextureHandle)> callback) {
         if (!handle || !callback) {
             return;
@@ -460,6 +494,10 @@ namespace SFT::Engine {
         }
     }
 
+    /// Pumps the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @return Returns the current pump value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void TextureStreamer::pump() {
         ZoneScopedN("TextureStreamer::pump");
         vector<u64> ready;
@@ -489,8 +527,6 @@ namespace SFT::Engine {
                     retired = true;
                 } else {
                     auto waited = device->wait_fences(span<const RHI::FenceHandle>{&*entry.upload_fence, 1}, true);
-
-
 
 
                     device->destroy_fence(*entry.upload_fence);
@@ -529,6 +565,12 @@ namespace SFT::Engine {
 
 namespace SFT::Engine {
 
+    /// Reports whether resident holds for this `Engine`.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool TextureStreamer::is_resident(StreamedTextureHandle handle) const noexcept {
         return state(handle) == StreamingState::Resident;
     }
@@ -538,6 +580,10 @@ namespace SFT::Engine {
 
 namespace SFT::Engine {
 
+    /// Converts the `Engine` to `bool`.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function does not throw exceptions.
     StreamedTextureHandle::operator bool() const noexcept { return id != 0; }
 
 } // namespace SFT::Engine

@@ -1,26 +1,5 @@
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #pragma once
 
 #include "volk.h"
@@ -110,7 +89,7 @@ namespace SFT::Core::Vulkan {
         Portability,
     };
 
-    /// A composed graphics technique (superfeature) — a bundle of VulkanAppFeatures.
+
     enum class VulkanTechnique : u8 {
         RayTracedRendering,
         GpuDrivenRendering,
@@ -127,7 +106,7 @@ namespace SFT::Core::Vulkan {
         GpuParticleSimulation,
     };
 
-    /// One extension a feature depends on, tagged with where and how badly it is wanted.
+
     struct VulkanExtensionRequirement {
         const char *name;
         VulkanInitStage stage;
@@ -135,20 +114,32 @@ namespace SFT::Core::Vulkan {
         u32 promoted_to_core;
         string_view purpose;
 
-        /// Whether this name still has to be requested at the negotiated API version: once promoted to
-        /// core the name is redundant (and some drivers stop advertising it), so it must not be pushed.
+
+        /// Performs the needs request operation for `VulkanExtensionRequirement` using the supplied arguments.
+        ///
+        /// @param api_version `api_version` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr bool needs_request(u32 api_version) const noexcept {
             return promoted_to_core == 0 || api_version < promoted_to_core;
         }
     };
 
-    /// The extensions backing a single capability; stage/necessity segmentation lives per entry.
+
     struct FeatureVulkanExtensionList {
         VulkanAppFeature feature;
         string_view display_name;
         bool base;
         span<const VulkanExtensionRequirement> extensions;
 
+        /// Returns the count for this `FeatureVulkanExtensionList`.
+        ///
+        /// @param stage `stage` value used by the operation.
+        /// @param necessity `necessity` value used by the operation.
+        ///
+        /// @return Returns the requested count or size.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr u32 count(VulkanInitStage stage, VulkanExtensionNecessity necessity) const noexcept {
             u32 n = 0;
             for (const auto &ext : extensions) {
@@ -156,6 +147,10 @@ namespace SFT::Core::Vulkan {
             }
             return n;
         }
+        /// Reports whether this `FeatureVulkanExtensionList` has must have.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr bool has_must_have() const noexcept {
             for (const auto &ext : extensions) {
                 if (ext.necessity == VulkanExtensionNecessity::MustHave) { return true; }
@@ -164,13 +159,13 @@ namespace SFT::Core::Vulkan {
         }
     };
 
-    /// One feature within a technique, tagged with how badly the technique wants it.
+
     struct TechniqueFeature {
         VulkanAppFeature feature;
         VulkanExtensionNecessity necessity;
     };
 
-    /// A technique (superfeature) and the features it comprises.
+
     struct VulkanTechniqueGroup {
         VulkanTechnique technique;
         string_view display_name;
@@ -394,9 +389,7 @@ namespace SFT::Core::Vulkan {
         VulkanExtensionRequirement{"VK_KHR_pipeline_executable_properties", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, 0, "pipeline executable properties"},
         };
 
-        /// Vulkan's maintenance extensions are backend revision bundles, not renderer-facing RHI
-        /// capabilities. Keep their registry names here for Vulkan device-extension selection, and only
-        /// promote individual behavior into RHI::Feature once the RHI exposes vocabulary that uses it.
+
         inline constexpr array device_maintenance_exts{
         VulkanExtensionRequirement{"VK_KHR_maintenance1", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_1, "Vulkan maintenance1 bundle"},
         VulkanExtensionRequirement{"VK_KHR_maintenance2", VulkanInitStage::Device, VulkanExtensionNecessity::NiceToHave, VK_API_VERSION_1_1, "Vulkan maintenance2 bundle"},
@@ -803,10 +796,20 @@ namespace SFT::Core::Vulkan {
 
     } // namespace Detail
 
+    /// Returns the current or globally available feature catalog value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr span<const FeatureVulkanExtensionList> feature_catalog() noexcept {
         return Detail::feature_catalog;
     }
 
+    /// Resolves the extension list associated with the supplied key, handle, or resource.
+    ///
+    /// @param feature `feature` value used by the operation.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr const FeatureVulkanExtensionList &extension_list_for(VulkanAppFeature feature) noexcept {
         for (const auto &entry : Detail::feature_catalog) {
             if (entry.feature == feature) { return entry; }
@@ -814,12 +817,22 @@ namespace SFT::Core::Vulkan {
         return Detail::feature_catalog.front();
     }
 
-    /// Techniques the engine knows how to compose from features.
+
+    /// Returns the current or globally available technique catalog value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr span<const VulkanTechniqueGroup> technique_catalog() noexcept {
         return Detail::technique_catalog;
     }
 
-    /// The feature bundle for a technique. Never null: every VulkanTechnique has a catalog entry.
+
+    /// Resolves the technique group associated with the supplied key, handle, or resource.
+    ///
+    /// @param technique `technique` value used by the operation.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr const VulkanTechniqueGroup &technique_group_for(VulkanTechnique technique) noexcept {
         for (const auto &entry : Detail::technique_catalog) {
             if (entry.technique == technique) { return entry; }
@@ -827,6 +840,12 @@ namespace SFT::Core::Vulkan {
         return Detail::technique_catalog.front();
     }
 
+    /// Converts the value to string representation.
+    ///
+    /// @param stage `stage` value used by the operation.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr string_view to_string(VulkanInitStage stage) noexcept {
         switch (stage) {
             case VulkanInitStage::Instance: return "instance";
@@ -834,6 +853,12 @@ namespace SFT::Core::Vulkan {
         }
         return "unknown";
     }
+    /// Converts the value to string representation.
+    ///
+    /// @param necessity `necessity` value used by the operation.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr string_view to_string(VulkanExtensionNecessity necessity) noexcept {
         switch (necessity) {
             case VulkanExtensionNecessity::MustHave: return "must-have";

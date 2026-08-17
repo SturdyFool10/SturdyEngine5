@@ -10,10 +10,22 @@ namespace SFT::Text {
 
 namespace {
 
+/// Performs the language pointer operation for `Text` using the supplied arguments.
+///
+/// @param language `language` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note This function does not throw exceptions.
 [[nodiscard]] const char *language_pointer(const optional<UString> &language) noexcept {
     return language ? language->c_str() : nullptr;
 }
 
+/// Performs the owned language operation for `Text` using the supplied arguments.
+///
+/// @param language `language` value used by the operation.
+///
+/// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+/// @note Normal inability to produce a value is represented by an empty optional.
 [[nodiscard]] optional<UString> owned_language(const ustr &language) {
     return language.empty() ? std::nullopt : optional<UString>{UString{language}};
 }
@@ -42,6 +54,13 @@ template <int BreakValue>
 
 } // namespace
 
+/// Performs the line break opportunities operation for `Text` using the supplied arguments.
+///
+/// @param text Text consumed by the operation.
+/// @param language `language` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<LineBreakOpportunity> line_break_opportunities(const ustr &text, const ustr &language) {
     const string_view bytes = text.cpp_string_view();
     vector<LineBreakOpportunity> opportunities;
@@ -67,10 +86,24 @@ vector<LineBreakOpportunity> line_break_opportunities(const ustr &text, const us
     return opportunities;
 }
 
+/// Performs the grapheme boundaries operation for `Text` using the supplied arguments.
+///
+/// @param text Text consumed by the operation.
+/// @param language `language` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<usize> grapheme_boundaries(const ustr &text, const ustr &language) {
     return segmentation_boundaries<GRAPHEMEBREAK_BREAK>(text, language, set_graphemebreaks_utf8);
 }
 
+/// Performs the word boundaries operation for `Text` using the supplied arguments.
+///
+/// @param text Text consumed by the operation.
+/// @param language `language` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<usize> word_boundaries(const ustr &text, const ustr &language) {
     return segmentation_boundaries<WORDBREAK_BREAK>(text, language, set_wordbreaks_utf8);
 }

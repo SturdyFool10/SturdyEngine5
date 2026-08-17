@@ -7,6 +7,12 @@ namespace {
 
     using namespace SFT::Foundation::Cpu;
 
+    /// Returns a human-readable name for the supplied core type value.
+    ///
+    /// @param type Type value to inspect, select, or convert.
+    ///
+    /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] const char *core_type_name(CoreType type) noexcept {
         switch (type) {
             case CoreType::Performance: return "Performance";
@@ -18,6 +24,10 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     const CoreMap &map = CoreMap::instance();
 

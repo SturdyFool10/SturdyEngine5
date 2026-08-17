@@ -9,6 +9,10 @@ using std::unordered_set;
 
 namespace SFT::Core::Slang {
 
+/// Returns a human-readable name for the supplied module value.
+///
+/// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+/// @note This function does not throw exceptions.
 [[nodiscard]] string_view UnCompiledShader::module_name() const noexcept {
             return source.module_name;
         }
@@ -16,9 +20,19 @@ namespace SFT::Core::Slang {
 namespace {
 
 
-
-
-
+    /// Performs the reflect and append operation for `Slang` using the supplied arguments.
+    ///
+    /// @param shaders Shader used or affected by the operation.
+    /// @param source Source value or resource.
+    /// @param compiler `compiler` value used by the operation.
+    /// @param options Configuration values controlling the operation.
+    /// @param enable_disk_cache Whether the associated behavior is enabled.
+    /// @param cache_directory `cache_directory` value used by the operation.
+    /// @param context Context that supplies state required by the operation.
+    /// @param failed `failed` value used by the operation.
+    /// @param cache_hits `cache_hits` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void reflect_and_append(vector<UnCompiledShader> &shaders, ShaderSource source, ShaderCompiler &compiler,
                              const ShaderCompileOptions &options, bool enable_disk_cache,
                              const std::filesystem::path &cache_directory, const string &context,
@@ -59,6 +73,15 @@ namespace {
 
 } // namespace
 
+/// Performs the discover shaders operation for `Slang` using the supplied arguments.
+///
+/// @param directory `directory` value used by the operation.
+/// @param compiler `compiler` value used by the operation.
+/// @param options Configuration values controlling the operation.
+/// @param enable_disk_cache Whether the associated behavior is enabled.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                                                                    ShaderCompiler &compiler,
                                                                    const ShaderCompileOptions &options,
@@ -71,7 +94,6 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
         usize failed = 0;
         usize cache_hits = 0;
         usize embedded_fallbacks = 0;
-
 
 
         unordered_set<string> discovered_module_names;
@@ -102,7 +124,6 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                 const string path_string = entry.path().string();
 
 
-
                 const string module_name = entry.path().stem().string();
 
                 auto text = Foundation::read_file_to_string(entry.path());
@@ -126,9 +147,6 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
                                     cache_directory, path_string, failed, cache_hits);
             }
         }
-
-
-
 
 
         for (const EmbeddedShaderSource &embedded : embedded_shaders()) {

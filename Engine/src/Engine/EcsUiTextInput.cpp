@@ -5,6 +5,12 @@
 
 namespace SFT::Engine {
 
+    /// Applies the supplied operation or state to `Engine`.
+    ///
+    /// @param event Event used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiTextInputState::apply(const TextInputEvent &event) noexcept {
         typed_text_ += event.text.utf8;
 
@@ -13,11 +19,23 @@ namespace SFT::Engine {
         composition_text_.clear();
     }
 
+    /// Applies the supplied operation or state to `Engine`.
+    ///
+    /// @param event Event used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiTextInputState::apply(const TextEditingEvent &event) noexcept {
         composition_text_ = event.text.utf8;
         composing_ = !composition_text_.empty();
     }
 
+    /// Applies key using the supplied arguments and current state.
+    ///
+    /// @param event Event used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void UiTextInputState::apply_key(const KeyboardEvent &event) noexcept {
 
         if (event.key_code == KeyboardKey::LeftShift || event.key_code == KeyboardKey::RightShift) {
@@ -55,6 +73,13 @@ namespace SFT::Engine {
         }
     }
 
+    /// Performs the frame input operation for `Engine` using the supplied arguments.
+    ///
+    /// @param get_clipboard_text `get_clipboard_text` value used by the operation.
+    /// @param set_clipboard_text `set_clipboard_text` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     UI::TextEditInput UiTextInputState::frame_input(
         std::function<UString()> get_clipboard_text, std::function<void(const UString &)> set_clipboard_text) const noexcept {
         return UI::TextEditInput{
@@ -69,11 +94,22 @@ namespace SFT::Engine {
         };
     }
 
+    /// Clears transitions.
+    ///
+    /// @return Returns the current clear transitions value.
+    /// @note This function does not throw exceptions.
     void UiTextInputState::clear_transitions() noexcept {
         typed_text_.clear();
         keys_.clear();
     }
 
+    /// Performs the forward text input state operation for `Engine` using the supplied arguments.
+    ///
+    /// @param requests `requests` value used by the operation.
+    /// @param window Window used or affected by the operation.
+    /// @param focus `focus` value used by the operation.
+    ///
+    /// @note This function does not throw exceptions.
     void forward_text_input_state(WindowRequests &requests, Platform::Windowing::WindowId window,
                                    std::optional<TextInputFocusInfo> focus) noexcept {
         if (!focus || !focus->ime_enabled) {
@@ -87,7 +123,6 @@ namespace SFT::Engine {
             Platform::Windowing::TextInputArea{
                 .x = field.position.x,
                 .y = field.position.y,
-
 
 
                 .width = std::max(field.size.x, 1.0f),

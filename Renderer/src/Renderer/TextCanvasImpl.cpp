@@ -42,6 +42,13 @@ namespace SFT::Renderer {
             f32 bottom = 0.0f;
         };
 
+        /// Performs the placement bounds operation for `Renderer` using the supplied arguments.
+        ///
+        /// @param glyph `glyph` value used by the operation.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<PlacementBounds> placement_bounds(const GlyphPlacement &glyph) noexcept {
             const f32 inverse_em = 1.0f / static_cast<f32>(std::max(glyph.units_per_em, 1u));
             const glm::vec2 scale = glyph.size * inverse_em;
@@ -103,6 +110,16 @@ namespace SFT::Renderer {
 
     } // namespace
 
+    /// Creates a `Renderer` resource or value from the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param config Configuration values controlling the operation.
+    /// @param atlas `atlas` value used by the operation.
+    /// @param pipeline Pipeline used or affected by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<TextCanvas> TextCanvas::create(RHI::RhiDevice &device, const Config &config, TextAtlas &atlas,
                                                            TextPipeline &pipeline) {
         ZoneScopedN("TextCanvas::create");
@@ -118,6 +135,12 @@ namespace SFT::Renderer {
         return canvas;
     }
 
+    /// Draws run using the current rendering state.
+    ///
+    /// @param glyphs `glyphs` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void TextCanvas::draw_run(span<const GlyphPlacement> glyphs) {
         ZoneScopedN("TextCanvas::draw_run");
         for (const GlyphPlacement &glyph : glyphs) {
@@ -125,7 +148,6 @@ namespace SFT::Renderer {
             if (!bounds) {
                 continue;
             }
-
 
 
             constexpr f32 fringe = 1.0f;
@@ -151,6 +173,15 @@ namespace SFT::Renderer {
         }
     }
 
+    /// Renders tile using the current rendering state.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param coord `coord` value used by the operation.
+    /// @param tile `tile` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult TextCanvas::render_tile(RHI::RhiDevice &device, TileCoord coord, TileRecord &tile) {
         ZoneScopedN("TextCanvas::render_tile");
         const glm::vec2 tile_origin{static_cast<f32>(coord.x) * static_cast<f32>(tile_size_),
@@ -161,9 +192,6 @@ namespace SFT::Renderer {
             auto it = tile_glyphs_.find(coord);
             return it != tile_glyphs_.end() ? it->second : empty_glyphs;
         }();
-
-
-
 
 
         auto encoder = device.create_command_encoder(RHI::CommandEncoderDesc{.label = "text canvas tile render"});
@@ -200,8 +228,6 @@ namespace SFT::Renderer {
                 instances.push_back(make_glyph_instance(glyphs[i].position - tile_origin, glyphs[i], slots[i], atlas_->pixel_range()));
             }
         }
-
-
 
 
         const vector<RHI::Rect2D> scissors(
@@ -297,7 +323,6 @@ namespace SFT::Renderer {
         if (!*waited) {
 
 
-
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "wait text canvas tile fence: vkWaitForFences timed out."});
         }
@@ -318,6 +343,13 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Performs the evict if over budget operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param keep `keep` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult TextCanvas::evict_if_over_budget(RHI::RhiDevice &device, span<const TileCoord> keep) {
         ZoneScopedN("TextCanvas::evict_if_over_budget");
         while (resident_tiles_.size() > config_.max_resident_tiles) {
@@ -346,6 +378,13 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Finds or creates the viewport resident required by the operation.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param viewport `viewport` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<vector<ResidentCanvasTile>> TextCanvas::ensure_viewport_resident(RHI::RhiDevice &device,
                                                                                             RHI::Rect2D viewport) {
         ZoneScopedN("TextCanvas::ensure_viewport_resident");
@@ -406,6 +445,12 @@ namespace SFT::Renderer {
         return result;
     }
 
+    /// Destroys or releases the `Renderer` resource represented by the supplied parameters.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextCanvas::destroy(RHI::RhiDevice &device) noexcept {
         ZoneScopedN("TextCanvas::destroy");
         for (auto &[coord, tile] : resident_tiles_) {

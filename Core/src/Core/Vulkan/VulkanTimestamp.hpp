@@ -19,8 +19,7 @@ using std::vector;
 
 namespace SFT::Core::Vulkan {
 
-    /// Result of a calibrated clock query — correlates GPU ticks with a CPU clock sample.
-    /// max_deviation_ns is an upper bound on the synchronisation error between the two domains.
+
     struct CalibratedClocks {
         u64 gpu_ticks = 0;
         u64 cpu_ticks = 0;
@@ -29,68 +28,142 @@ namespace SFT::Core::Vulkan {
     };
 
 
-
-    /// Returns the time domains supported for calibrated timestamps on this device.
-    /// Call before logical device creation to pick the best cpu_domain for your OS:
-    ///   Linux   → VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_KHR (preferred) or CLOCK_MONOTONIC
-    ///   Windows → VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR
+    /// Returns the requested calibrateable time domains.
+    ///
+    /// @param physical `physical` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] RendererExpected<vector<VkTimeDomainKHR>> get_calibrateable_time_domains(
         VkPhysicalDevice physical) noexcept;
 
-    /// Samples the GPU clock and a CPU clock simultaneously.
-    /// cpu_domain must have been confirmed present via get_calibrateable_time_domains().
+
+    /// Returns the requested calibrated clocks.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param cpu_domain `cpu_domain` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] RendererExpected<CalibratedClocks> get_calibrated_clocks(
         VkDevice device,
         VkTimeDomainKHR cpu_domain = VK_TIME_DOMAIN_CLOCK_MONOTONIC_RAW_KHR) noexcept;
 
-    /// Converts raw GPU timestamp ticks to nanoseconds using the device's timestampPeriod
-    /// (nanoseconds per tick, from VkPhysicalDeviceLimits::timestampPeriod).
+
+    /// Performs the GPU ticks to ns operation using the supplied arguments.
+    ///
+    /// @param ticks `ticks` value used by the operation.
+    /// @param timestamp_period `timestamp_period` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f64 gpu_ticks_to_ns(u64 ticks, f32 timestamp_period) noexcept;
 
-    /// Converts a GPU tick delta to milliseconds.
+
+    /// Performs the GPU ticks to ms operation using the supplied arguments.
+    ///
+    /// @param ticks `ticks` value used by the operation.
+    /// @param timestamp_period `timestamp_period` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] f64 gpu_ticks_to_ms(u64 ticks, f32 timestamp_period) noexcept;
 
 
-
-    /// Wraps a VK_QUERY_TYPE_TIMESTAMP query pool.
-    ///
-    /// Usage per frame:
-    ///   1. Call reset() (host-side via vkResetQueryPool, Vulkan 1.2+).
-    ///   2. Insert vkCmdWriteTimestamp2 calls at desired points in the command buffer.
-    ///   3. After the GPU has finished, call resolve() to read back raw ticks.
-    ///   4. Subtract pairs of ticks and pass to gpu_ticks_to_ms() for durations.
-    ///
-    /// Pair with get_calibrated_clocks() once per frame to anchor GPU time to wall clock.
     class VulkanTimestampPool {
       public:
+        /// Constructs a `VulkanTimestampPool` in its default state.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanTimestampPool() = default;
+        /// Destroys the `VulkanTimestampPool` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~VulkanTimestampPool();
 
+        /// Disables this construction form for `VulkanTimestampPool`.
+        ///
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanTimestampPool(const VulkanTimestampPool &) = delete;
+        /// Assigns a new value to this `VulkanTimestampPool`.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This overload is deleted; attempting to call it is a compile-time error.
         VulkanTimestampPool &operator=(const VulkanTimestampPool &) = delete;
 
+        /// Constructs a `VulkanTimestampPool` from the supplied initialization values.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         VulkanTimestampPool(VulkanTimestampPool &&o) noexcept;
+        /// Assigns a new value to this `VulkanTimestampPool`.
+        ///
+        /// @param o `o` value used by the operation.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
         VulkanTimestampPool &operator=(VulkanTimestampPool &&o) noexcept;
 
+        /// Creates a `VulkanTimestampPool` resource or value from the supplied parameters.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param query_count Number of elements or operations to process.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static RendererExpected<VulkanTimestampPool> create(
             VkDevice device,
             u32 query_count) noexcept;
 
+        /// Returns the Vulkan handle associated with this `VulkanTimestampPool`.
+        ///
+        /// @return Returns the current Vulkan handle value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] VkQueryPool vk_handle() const noexcept;
+        /// Reports whether valid holds for this `VulkanTimestampPool`.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid() const noexcept;
+        /// Queries count from the active backend or runtime state.
+        ///
+        /// @return Returns the current query count value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] u32 query_count() const noexcept;
 
-        /// Read back raw GPU ticks for [first_query, first_query + count).
-        /// Results are available once the recording command buffer has finished executing.
-        /// Use VK_QUERY_RESULT_WAIT_BIT to block until results are ready.
+
+        /// Resolves the requested value into the concrete value used by the engine.
+        ///
+        /// @param first_query `first_query` value used by the operation.
+        /// @param count Number of elements or operations to process.
+        /// @param flags Flags controlling optional behavior.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] RendererExpected<vector<u64>> resolve(
             u32 first_query = 0,
             u32 count = 0,
             VkQueryResultFlags flags = VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) const;
 
-        /// Host-side reset — must be called before reusing queries in a new frame.
+
+        /// Resets the object to its baseline state.
+        ///
+        /// @param first_query `first_query` value used by the operation.
+        /// @param count Number of elements or operations to process.
+        ///
+        /// @note This function does not throw exceptions.
         void reset(u32 first_query = 0, u32 count = 0) noexcept;
 
+        /// Destroys or releases the `VulkanTimestampPool` resource represented by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
         void destroy() noexcept;
 
       private:

@@ -125,14 +125,14 @@ namespace SFT::Renderer {
         };
 
 
-
-
-
-
-
-
         constexpr u8 kForceNoOpaqueInstanceFlag = 0x08u;
 
+        /// Computes the spectral pipeline index required by the supplied values.
+        ///
+        /// @param mode Mode controlling how the operation is performed.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] usize spectral_pipeline_index(SpectralRenderMode mode) noexcept {
             switch (mode) {
                 case SpectralRenderMode::ShadowOnly: return 0;
@@ -145,11 +145,27 @@ namespace SFT::Renderer {
             return 0;
         }
 
+        /// Creates an error result describing the supplied spectral failure.
+        ///
+        /// @param code `code` value used by the operation.
+        /// @param message Text consumed by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Core::GraphicsBackendError spectral_error(
             Core::GraphicsBackendErrorCode code, string message) {
             return Core::GraphicsBackendError{code, std::move(message)};
         }
 
+        /// Reads material parameter from the associated source.
+        ///
+        /// @param material_template `material_template` value used by the operation.
+        /// @param instance Instance used or affected by the operation.
+        /// @param name Name used to identify or label the target.
+        /// @param value Value consumed by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         template <typename T>
         [[nodiscard]] bool read_material_parameter(const MaterialTemplateResource &material_template,
                                                    const MaterialInstanceResource &instance,
@@ -166,6 +182,13 @@ namespace SFT::Renderer {
         }
     } // namespace
 
+    /// Finds or creates the spectral path tracing resources required by the operation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::Unsupported`.
     Core::RendererResult Renderer::ensure_spectral_path_tracing_resources(SpectralRenderMode mode) {
         ZoneScopedN("Renderer::ensure_spectral_path_tracing_resources");
         if (mode == SpectralRenderMode::RasterDeferred) {
@@ -223,7 +246,6 @@ namespace SFT::Renderer {
             .targets = shader_compile_targets_for_device(device),
             .entry_points = std::move(entry_requests),
         };
-
 
 
         slang::ShaderCompiler compiler;
@@ -583,6 +605,13 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Finds or creates the spectral mesh acceleration structures required by the operation.
+    ///
+    /// @param draws Draw descriptions processed in submission order.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_spectral_mesh_acceleration_structures(span<const RenderItem> draws) {
         ZoneScopedN("Renderer::ensure_spectral_mesh_acceleration_structures");
         RHI::RhiDevice *device = rhi_device();
@@ -706,7 +735,6 @@ namespace SFT::Renderer {
             if (!*waited) {
 
 
-
                 return unexpected(spectral_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                  "wait mesh BLAS build: vkWaitForFences timed out."));
             }
@@ -718,6 +746,15 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Prepares spectral scene acceleration structure for a later operation.
+    ///
+    /// @param encoder `encoder` value used by the operation.
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param submission `submission` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::Unsupported`.
     Core::RendererResult Renderer::prepare_spectral_scene_acceleration_structure(
         RHI::CommandEncoder &encoder, FrameInFlight &slot, const FrameSubmission &submission) {
         ZoneScopedN("Renderer::prepare_spectral_scene_acceleration_structure");
@@ -987,6 +1024,14 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Finds or creates the spectral accumulation target required by the operation.
+    ///
+    /// @param record `record` value used by the operation.
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_spectral_accumulation_target(
         WindowSurfaceRecord &record, Core::Extent2D extent) {
         ZoneScopedN("Renderer::ensure_spectral_accumulation_target");
@@ -1037,6 +1082,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the spectral accumulation target identified by the supplied parameters.
+    ///
+    /// @param record `record` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_spectral_accumulation_target(WindowSurfaceRecord &record) noexcept {
         ZoneScopedN("Renderer::destroy_spectral_accumulation_target");
         if (RHI::RhiDevice *device = rhi_device()) {
@@ -1050,6 +1101,14 @@ namespace SFT::Renderer {
         record.spectral_accumulation = {};
     }
 
+    /// Finds or creates the frame spectral photon targets required by the operation.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param requested_photon_capacity `requested_photon_capacity` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::ensure_frame_spectral_photon_targets(
         FrameInFlight &slot, u32 requested_photon_capacity) {
         ZoneScopedN("Renderer::ensure_frame_spectral_photon_targets");
@@ -1116,6 +1175,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the frame spectral photon targets identified by the supplied parameters.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_frame_spectral_photon_targets(FrameInFlight &slot) noexcept {
         ZoneScopedN("Renderer::destroy_frame_spectral_photon_targets");
         if (RHI::RhiDevice *device = rhi_device()) {
@@ -1132,6 +1197,17 @@ namespace SFT::Renderer {
         slot.spectral_photon_targets = {};
     }
 
+    /// Prepares spectral photon mapping for a later operation.
+    ///
+    /// @param encoder `encoder` value used by the operation.
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param submission `submission` value used by the operation.
+    /// @param emission_needed `emission_needed` value used by the operation.
+    /// @param photon_signature `photon_signature` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::prepare_spectral_photon_mapping(
         RHI::CommandEncoder &encoder, FrameInFlight &slot, const FrameSubmission &submission,
         bool emission_needed, u64 photon_signature) {
@@ -1147,7 +1223,6 @@ namespace SFT::Renderer {
             !targets.has_value()) {
             return targets;
         }
-
 
 
         emission_needed = emission_needed || !slot.spectral_photon_targets.populated;
@@ -1213,6 +1288,17 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Records spectral photon pass using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param submission `submission` value used by the operation.
+    /// @param pipeline_index Zero-based index of the target element or entry.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::record_spectral_photon_pass(
         RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission,
         usize pipeline_index, const char *label) {
@@ -1293,18 +1379,46 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Records spectral photon emission using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param submission `submission` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_spectral_photon_emission(
         RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission) {
         ZoneScopedN("Renderer::record_spectral_photon_emission");
         return record_spectral_photon_pass(pass, slot, submission, 0u, "spectral photon emission bind group");
     }
 
+    /// Records spectral photon hash using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param submission `submission` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::record_spectral_photon_hash(
         RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission) {
         ZoneScopedN("Renderer::record_spectral_photon_hash");
         return record_spectral_photon_pass(pass, slot, submission, 1u, "spectral photon hash bind group");
     }
 
+    /// Records spectral integrator using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param submission `submission` value used by the operation.
+    /// @param extent `extent` value used by the operation.
+    /// @param views `views` value used by the operation.
+    /// @param accumulation_reset `accumulation_reset` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::record_spectral_integrator(
         RHI::ComputePassEncoder &pass, FrameInFlight &slot, const FrameSubmission &submission,
         Core::Extent2D extent, const SpectralIntegratorViews &views, bool accumulation_reset) {
@@ -1461,6 +1575,16 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Records spectral depth commit using the supplied arguments and current state.
+    ///
+    /// @param pass Render-pass encoder that receives the draw commands.
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param primary_depth_view `primary_depth_view` value used by the operation.
+    /// @param extent `extent` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::record_spectral_depth_commit(
         RHI::RenderPassEncoder &pass, FrameInFlight &slot, RHI::TextureViewHandle primary_depth_view,
         Core::Extent2D extent) {
@@ -1497,6 +1621,12 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Destroys the spectral path tracing resources locked identified by the supplied parameters.
+    ///
+    /// @param resources `resources` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_spectral_path_tracing_resources_locked(
         SpectralPathTracingResources &resources) noexcept {
         ZoneScopedN("Renderer::destroy_spectral_path_tracing_resources_locked");
@@ -1529,6 +1659,10 @@ namespace SFT::Renderer {
         resources = {};
     }
 
+    /// Destroys the spectral path tracing resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy spectral path tracing resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_spectral_path_tracing_resources() noexcept {
         ZoneScopedN("Renderer::destroy_spectral_path_tracing_resources");
         auto resources = spectral_path_tracing_.lock();

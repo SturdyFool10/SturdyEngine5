@@ -1,6 +1,5 @@
 
 
-
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -37,22 +36,31 @@ using std::unique_ptr;
 
 namespace SFT::Core::Vulkan {
 
+    /// Performs the vulkan backend operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param key Key used to identify the requested entry.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     VulkanBackend::VulkanBackend(ConstructorKey key)
         : EngineBackend(key) {}
 
+    /// Returns the current or globally available capabilities value.
+    ///
+    /// @return Returns the current capabilities value.
+    /// @note This function does not throw exceptions.
     RendererCapabilities VulkanBackend::capabilities() const noexcept {
         ZoneScopedN("VulkanBackend::VulkanBackend");
         return capabilities_;
     }
 
+    /// Returns the current render threading capabilities.
+    ///
+    /// @return Returns the current render threading capabilities value.
+    /// @note This function does not throw exceptions.
     RHI::RenderThreadingCapabilities VulkanBackend::render_threading_capabilities() const noexcept {
         ZoneScopedN("VulkanBackend::render_threading_capabilities");
         return RHI::RenderThreadingCapabilities{
             .backend_allows_dedicated_render_thread = true,
-
-
-
-
 
 
             .backend_allows_parallel_command_recording = true,
@@ -67,6 +75,10 @@ namespace SFT::Core::Vulkan {
         };
     }
 
+    /// Returns the current GPU info.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<GpuInfo> VulkanBackend::gpu_info() const {
         ZoneScopedN("VulkanBackend::gpu_info");
 
@@ -87,6 +99,10 @@ namespace SFT::Core::Vulkan {
         return info;
     }
 
+    /// Waits for idle to complete.
+    ///
+    /// @return Returns the current wait idle value.
+    /// @note This function does not throw exceptions.
     void VulkanBackend::wait_idle() noexcept {
         ZoneScopedN("VulkanBackend::wait_idle");
         if (logicalDevice.is_valid()) {
@@ -94,6 +110,10 @@ namespace SFT::Core::Vulkan {
         }
     }
 
+    /// Returns the current or globally available destroy vulkan resources value.
+    ///
+    /// @return Returns the current destroy vulkan resources value.
+    /// @note This function does not throw exceptions.
     void VulkanBackend::destroyVulkanResources() noexcept {
         ZoneScopedN("VulkanBackend::destroyVulkanResources");
         wait_idle();
@@ -110,16 +130,22 @@ namespace SFT::Core::Vulkan {
 
     }
 
+    /// Destroys the `Vulkan` and releases resources owned by it.
+    ///
+    /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     VulkanBackend::~VulkanBackend() {
         ZoneScopedN("VulkanBackend::~VulkanBackend");
-
-
-
 
 
         destroyVulkanResources();
     }
 
+    /// Performs the init vulkan operation for `Vulkan` using the supplied arguments.
+    ///
+    /// @param init `init` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     RendererExpected<RenderSurfaceHandle> VulkanBackend::initVulkan(const RendererCreateInfo &init) {
         ZoneScopedN("VulkanBackend::initVulkan");
         if (auto result = this->createVulkanInstance(init); !result.has_value()) [[unlikely]] {
@@ -165,6 +191,13 @@ namespace SFT::Core::Vulkan {
         return surface;
     }
 
+    /// Initializes the `Vulkan` for use.
+    ///
+    /// @param init `init` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::InitializationFailed`.
     RendererExpected<RenderSurfaceHandle> VulkanBackend::initialize(const RendererCreateInfo &init) {
         ZoneScopedN("VulkanBackend::initialize");
         if (initialized_) {
@@ -178,7 +211,6 @@ namespace SFT::Core::Vulkan {
             return unexpected(GraphicsBackendError{GraphicsBackendErrorCode::InitializationFailed,
                                             "Vulkan backend requires a window to create its primary surface."});
         }
-
 
 
         initialized_ = true;
@@ -199,6 +231,10 @@ namespace SFT::Core::Vulkan {
 
 namespace SFT::Core {
 
+    /// Creates a vulkan backend from the supplied parameters.
+    ///
+    /// @return Returns the current create vulkan backend value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     unique_ptr<EngineBackend> create_vulkan_backend() {
         return EngineBackend::create_erased<Vulkan::VulkanBackend>();
     }

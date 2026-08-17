@@ -12,7 +12,6 @@ namespace SFT::KeyboardTester {
     namespace {
 
 
-
         struct KeyLayoutSlot {
             Engine::KeyboardKey key;
             f32 width_units;
@@ -57,9 +56,10 @@ namespace SFT::KeyboardTester {
         };
 
 
-
-
-
+        /// Computes key placements using the supplied arguments and current state.
+        ///
+        /// @return Returns the current compute key placements value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::vector<KeyPlacement> compute_key_placements() {
             std::vector<KeyPlacement> placements(kLayout.size());
 
@@ -91,9 +91,11 @@ namespace SFT::KeyboardTester {
 
     } // namespace
 
+    /// Performs the keyboard tester game logic operation for `KeyboardTester` using the supplied arguments.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     KeyboardTesterGameLogic::KeyboardTesterGameLogic() {
         camera_ = Engine::Camera::orthographic(9.0f, 16.0f / 9.0f, 0.05f, 100.0f);
-
 
 
         camera_.set_position({0.0f, 12.0f, 0.0f});
@@ -103,6 +105,12 @@ namespace SFT::KeyboardTester {
         render_graph_.set_resolution_scale(1.0f);
     }
 
+    /// Handles the on engine initialized callback and updates the associated platform state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Engine::GameLogicResult KeyboardTesterGameLogic::on_engine_initialized(Engine::Engine &engine) {
         if (Engine::AssetResult models = create_key_models(engine); !models) {
             return std::unexpected(Engine::GameLogicError{.message = models.error().message});
@@ -113,6 +121,12 @@ namespace SFT::KeyboardTester {
         return {};
     }
 
+    /// Creates a key models from the supplied parameters.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Engine::AssetResult KeyboardTesterGameLogic::create_key_models(Engine::Engine &engine) {
         Engine::AssetManager &assets = engine.assets();
         auto shader = assets.load_shader(Engine::ShaderAssetDesc{
@@ -146,8 +160,6 @@ namespace SFT::KeyboardTester {
             }
 
 
-
-
             Engine::AssetResult configured = assets.set_model_vec4(
                 *model, 0, "base_color_factor", glm::vec4{0.08f, 0.09f, 0.11f, 1.0f});
             if (configured) configured = assets.set_model_float(*model, 0, "metallic_factor", 0.0f);
@@ -169,6 +181,12 @@ namespace SFT::KeyboardTester {
         return {};
     }
 
+    /// Configures render extraction using the supplied arguments and current state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void KeyboardTesterGameLogic::configure_render_extraction(Engine::Engine &engine) {
         engine.ecs_world().bind_resource(engine.render_frame_requests());
         engine.render_extraction_schedule().add_system(
@@ -180,6 +198,12 @@ namespace SFT::KeyboardTester {
             });
     }
 
+    /// Configures keyboard tracking using the supplied arguments and current state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void KeyboardTesterGameLogic::configure_keyboard_tracking(Engine::Engine &engine) {
         engine.ecs_world().bind_resource(grid_state_);
         engine.update_schedule().add_system(
@@ -195,6 +219,12 @@ namespace SFT::KeyboardTester {
             });
     }
 
+    /// Spawns key entities.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void KeyboardTesterGameLogic::spawn_key_entities(Engine::Engine &engine) {
         const std::vector<KeyPlacement> placements = compute_key_placements();
         for (usize i = 0; i < kLayout.size(); ++i) {
@@ -208,6 +238,12 @@ namespace SFT::KeyboardTester {
         }
     }
 
+    /// Applies key color changes using the supplied arguments and current state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void KeyboardTesterGameLogic::apply_key_color_changes(Engine::Engine &engine) {
         Engine::AssetManager &assets = engine.assets();
         constexpr glm::vec4 kIdleEmissive{0.05f, 0.07f, 0.09f, 0.0f};
@@ -221,6 +257,12 @@ namespace SFT::KeyboardTester {
         }
     }
 
+    /// Requests render frame using the supplied arguments and current state.
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param frame `frame` value used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     std::optional<Engine::RenderFrameParameters> KeyboardTesterGameLogic::request_render_frame(
         Engine::Engine &engine,
         Core::RenderSurfaceHandle            ,
@@ -241,8 +283,16 @@ namespace SFT::KeyboardTester {
         return parameters;
     }
 
+    /// Handles the on shutdown callback and updates the associated platform state.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void KeyboardTesterGameLogic::on_shutdown(Engine::Engine &           ) noexcept {}
 
+    /// Creates a keyboard tester game logic from the supplied parameters.
+    ///
+    /// @return Returns the current create keyboard tester game logic value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     std::unique_ptr<Engine::GameLogic> create_keyboard_tester_game_logic() {
         return std::make_unique<KeyboardTesterGameLogic>();
     }

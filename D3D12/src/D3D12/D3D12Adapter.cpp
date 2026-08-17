@@ -15,11 +15,14 @@ namespace SFT::D3D12 {
     namespace {
 
 
-
-
-
         constexpr D3D_FEATURE_LEVEL minimum_feature_level = D3D_FEATURE_LEVEL_11_0;
 
+        /// Returns a human-readable name for the supplied vendor value.
+        ///
+        /// @param vendor_id Identifier of the target object or resource.
+        ///
+        /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const char *vendor_name(u32 vendor_id) noexcept {
             switch (vendor_id) {
                 case 0x1002:
@@ -39,6 +42,12 @@ namespace SFT::D3D12 {
             }
         }
 
+        /// Performs the narrow operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param wide `wide` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::string narrow(const wchar_t *wide) {
             std::string result;
             for (const wchar_t *cursor = wide; cursor != nullptr && *cursor != L'\0'; ++cursor) {
@@ -47,12 +56,24 @@ namespace SFT::D3D12 {
             return result;
         }
 
+        /// Formats driver version using the supplied arguments and current state.
+        ///
+        /// @param umd `umd` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::string format_driver_version(LARGE_INTEGER umd) {
             char buffer[64]{};
             std::snprintf(buffer, sizeof(buffer), "%u.%u.%u.%u", static_cast<unsigned>(HIWORD(umd.HighPart)), static_cast<unsigned>(LOWORD(umd.HighPart)), static_cast<unsigned>(HIWORD(umd.LowPart)), static_cast<unsigned>(LOWORD(umd.LowPart)));
             return buffer;
         }
 
+        /// Performs the physical device ID operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param luid `luid` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::string physical_device_id(LUID luid) {
             static_assert(sizeof(luid) == sizeof(u64));
             u64 bits = 0;
@@ -62,6 +83,12 @@ namespace SFT::D3D12 {
             return buffer;
         }
 
+        /// Returns a human-readable name for the supplied shader model value.
+        ///
+        /// @param model `model` value used by the operation.
+        ///
+        /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] const char *shader_model_name(D3D_SHADER_MODEL model) noexcept {
             switch (model) {
                 case D3D_SHADER_MODEL_6_9:
@@ -88,16 +115,26 @@ namespace SFT::D3D12 {
         }
 
 
-
-
+        /// Performs the check feature operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param feature `feature` value used by the operation.
+        /// @param data Data consumed or referenced by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         template <typename Data>
         [[nodiscard]] bool check_feature(ID3D12Device *device, D3D12_FEATURE feature, Data &data) noexcept {
             return SUCCEEDED(device->CheckFeatureSupport(feature, &data, sizeof(data)));
         }
 
 
-
-
+        /// Performs the highest shader model operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param device Device used or affected by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] D3D_SHADER_MODEL highest_shader_model(ID3D12Device *device) noexcept {
             constexpr D3D_SHADER_MODEL candidates[] = {
                 D3D_SHADER_MODEL_6_9,
@@ -120,9 +157,13 @@ namespace SFT::D3D12 {
             return D3D_SHADER_MODEL_6_0;
         }
 
+        /// Fills sample counts using the supplied arguments and current state.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param limits `limits` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
         void fill_sample_counts(ID3D12Device *device, rhi::DeviceLimits &limits) noexcept {
-
-
 
 
             u32 mask = 0;
@@ -146,14 +187,15 @@ namespace SFT::D3D12 {
 
     } // namespace
 
+    /// Performs the probe capabilities operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param device Device used or affected by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     DeviceCapabilities probe_capabilities(ID3D12Device *device) {
         DeviceCapabilities caps{};
         rhi::FeatureSet &features = caps.features;
-
-
-
-
-
 
 
         for (rhi::Feature feature : {
@@ -164,8 +206,6 @@ namespace SFT::D3D12 {
                  rhi::Feature::FullDrawIndexUint32,
 
 
-
-
                  rhi::Feature::MultiDrawIndirect,
                  rhi::Feature::DrawIndirectFirstInstance,
                  rhi::Feature::DrawIndirectCount,
@@ -173,8 +213,6 @@ namespace SFT::D3D12 {
                  rhi::Feature::PreciseOcclusionQueries,
                  rhi::Feature::TimestampQueries,
                  rhi::Feature::PipelineStatisticsQueries,
-
-
 
 
                  rhi::Feature::HostQueryReset,
@@ -221,8 +259,6 @@ namespace SFT::D3D12 {
             if (options0.TypedUAVLoadAdditionalFormats != FALSE) {
                 features.set(rhi::Feature::StorageImageReadWithoutFormat);
             }
-
-
 
 
             if (options0.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2) {
@@ -288,7 +324,6 @@ namespace SFT::D3D12 {
                 features.set(rhi::Feature::RayTracingPipeline);
 
 
-
                 caps.properties.ray_tracing.max_ray_recursion_depth = D3D12_RAYTRACING_MAX_DECLARABLE_TRACE_RECURSION_DEPTH;
                 caps.properties.ray_tracing.shader_group_handle_size = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
                 caps.properties.ray_tracing.shader_group_base_alignment =
@@ -339,8 +374,6 @@ namespace SFT::D3D12 {
             if (caps.enhanced_barriers) {
 
 
-
-
                 features.set(rhi::Feature::Synchronization2);
                 features.set(rhi::Feature::UnifiedImageLayouts);
             }
@@ -362,7 +395,6 @@ namespace SFT::D3D12 {
                 features.set(rhi::Feature::DepthBiasControl);
                 features.set(rhi::Feature::ExtendedDynamicState2);
             }
-
 
 
             caps.gpu_upload_heap_supported = options16.GPUUploadHeapSupported != FALSE;
@@ -394,10 +426,7 @@ namespace SFT::D3D12 {
         limits.max_texture_array_layers = D3D12_REQ_TEXTURE2D_ARRAY_AXIS_DIMENSION;
 
 
-
         limits.max_bind_groups = 8;
-
-
 
 
         limits.max_push_constants_size = 128;
@@ -415,9 +444,6 @@ namespace SFT::D3D12 {
         limits.min_storage_buffer_offset_alignment = 16;
         limits.timestamp_valid_bits = 64;
         fill_sample_counts(device, limits);
-
-
-
 
 
         caps.queue_infos.push_back(rhi::QueueInfo{
@@ -453,24 +479,63 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Performs the d3 d12 adapter operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param factory `factory` value used by the operation.
+    /// @param adapter `adapter` value used by the operation.
+    /// @param device Device used or affected by the operation.
+    /// @param info Description of the resource or operation to perform.
+    /// @param capabilities `capabilities` value used by the operation.
+    /// @param debug_layer_enabled `debug_layer_enabled` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     D3D12Adapter::D3D12Adapter(ComPtr<IDXGIFactory6> factory, ComPtr<IDXGIAdapter4> adapter, ComPtr<ID3D12Device> device, rhi::AdapterInfo info, DeviceCapabilities capabilities, bool debug_layer_enabled)
         : factory_(std::move(factory)), adapter_(std::move(adapter)), device_(std::move(device)),
           info_(std::move(info)), capabilities_(std::move(capabilities)),
           debug_layer_enabled_(debug_layer_enabled) {}
 
+    /// Returns the current or globally available info value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const rhi::AdapterInfo &D3D12Adapter::info() const noexcept { return info_; }
 
+    /// Returns the current or globally available supported features value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const rhi::FeatureSet &D3D12Adapter::supported_features() const noexcept { return capabilities_.features; }
 
+    /// Returns the current or globally available feature properties value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const rhi::FeatureProperties &D3D12Adapter::feature_properties() const noexcept { return capabilities_.properties; }
 
+    /// Returns the current or globally available supported extensions value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     span<const rhi::ExtensionId> D3D12Adapter::supported_extensions() const noexcept { return supported_extensions_; }
 
+    /// Returns the current or globally available queue infos value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     span<const rhi::QueueInfo> D3D12Adapter::queue_infos() const noexcept { return capabilities_.queue_infos; }
 
+    /// Returns the current or globally available limits value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const rhi::DeviceLimits &D3D12Adapter::limits() const noexcept { return capabilities_.limits; }
 
+    /// Creates a device from the supplied parameters.
+    ///
+    /// @param request `request` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<unique_ptr<rhi::RhiDevice>> D3D12Adapter::create_device(const rhi::DeviceRequest &request) {
         const rhi::FeatureNegotiationReport report = rhi::negotiate_features(
             capabilities_.features,
@@ -492,7 +557,6 @@ namespace SFT::D3D12 {
                                    std::string(extension.name_space) + "." + std::string(extension.name) + "'.");
             }
         }
-
 
 
         for (const rhi::QueueRequest &queue_request : request.queue_requests) {
@@ -533,19 +597,31 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Performs the d3 d12 instance operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param factory `factory` value used by the operation.
+    /// @param debug_layer_enabled `debug_layer_enabled` value used by the operation.
+    /// @param allow_tearing `allow_tearing` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     D3D12Instance::D3D12Instance(ComPtr<IDXGIFactory6> factory, bool debug_layer_enabled, bool allow_tearing)
         : factory_(std::move(factory)), debug_layer_enabled_(debug_layer_enabled), allow_tearing_(allow_tearing) {}
 
+    /// Returns the current or globally available backend type value.
+    ///
+    /// @return Returns the current backend type value.
+    /// @note This function does not throw exceptions.
     rhi::BackendType D3D12Instance::backend_type() const noexcept { return rhi::BackendType::D3D12; }
 
+    /// Enumerates adapters using the supplied arguments and current state.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<vector<unique_ptr<rhi::RhiAdapter>>> D3D12Instance::enumerate_adapters() {
         vector<unique_ptr<rhi::RhiAdapter>> adapters;
 
         for (UINT index = 0;; ++index) {
             ComPtr<IDXGIAdapter1> adapter1;
-
-
 
 
             if (factory_->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter1)) == DXGI_ERROR_NOT_FOUND) {
@@ -560,8 +636,6 @@ namespace SFT::D3D12 {
             if (FAILED(adapter->GetDesc3(&desc))) {
                 continue;
             }
-
-
 
 
             ComPtr<ID3D12Device> device;
@@ -605,6 +679,12 @@ namespace SFT::D3D12 {
         return adapters;
     }
 
+    /// Creates a D3D12 instance from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<unique_ptr<rhi::RhiInstance>> create_d3d12_instance(const rhi::InstanceDesc &desc) {
         UINT factory_flags = 0;
         bool debug_layer_enabled = false;
@@ -612,15 +692,11 @@ namespace SFT::D3D12 {
         if (desc.enable_validation) {
 
 
-
             ComPtr<ID3D12Debug> debug;
             if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug)))) {
                 debug->EnableDebugLayer();
                 debug_layer_enabled = true;
                 factory_flags |= DXGI_CREATE_FACTORY_DEBUG;
-
-
-
 
 
                 ComPtr<ID3D12Debug1> debug1;
@@ -632,8 +708,6 @@ namespace SFT::D3D12 {
                     "D3D12: validation was requested but the debug layer is unavailable (the Graphics "
                     "Tools optional feature is probably not installed); continuing without it.");
             }
-
-
 
 
             ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dred;
@@ -649,7 +723,6 @@ namespace SFT::D3D12 {
         }
 
 
-
         BOOL allow_tearing = FALSE;
         if (FAILED(factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow_tearing, sizeof(allow_tearing)))) {
             allow_tearing = FALSE;
@@ -661,6 +734,10 @@ namespace SFT::D3D12 {
             std::make_unique<D3D12Instance>(std::move(factory), debug_layer_enabled, allow_tearing != FALSE));
     }
 
+    /// Returns the current or globally available D3D12 backend registration value.
+    ///
+    /// @return Returns the current D3D12 backend registration value.
+    /// @note This function does not throw exceptions.
     rhi::BackendRegistration d3d12_backend_registration() noexcept {
         return {
             .backend = rhi::BackendType::D3D12,

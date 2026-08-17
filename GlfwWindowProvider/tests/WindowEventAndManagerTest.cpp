@@ -24,6 +24,13 @@ namespace {
 
     ThreadTrace thread_trace;
 
+    /// Checks the supplied condition and reports the accompanying diagnostic message when it is false.
+    ///
+    /// @param condition Condition controlling whether the operation proceeds.
+    /// @param message Text consumed by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool check(bool condition, const char *message) {
         if (!condition) {
             std::cerr << "FAILED: " << message << '\n';
@@ -33,8 +40,19 @@ namespace {
 
     class AffinityWindow final : public Window {
       public:
+        /// Destroys the `AffinityWindow` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
         ~AffinityWindow() noexcept override { thread_trace.destroyed = std::this_thread::get_id(); }
 
+        /// Constructs the supplied or associated value/state using the supplied arguments and current state.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OutOfMemory`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] static expected<unique_ptr<AffinityWindow>, WindowError> construct(
             ConstructorKey key,
             const WindowConfig &           ) noexcept {
@@ -45,11 +63,34 @@ namespace {
             return unique_ptr<AffinityWindow>{window};
         }
 
+        /// Returns the current or globally available backend kind value.
+        ///
+        /// @return Returns the current backend kind value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] WindowBackendKind backend_kind() const noexcept override { return WindowBackendKind::SDL3; }
+        /// Returns the runtime or backend type represented by `AffinityWindow`.
+        ///
+        /// @return Returns the current type value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] WindowingSystem type() const noexcept override { return WindowingSystem::SDL3; }
+        /// Returns the native backend handle associated with this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] expected<void *, WindowError> native_backend_handle() const noexcept override { return nullptr; }
+        /// Returns the native window handle associated with this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] expected<NativeWindowHandle, WindowError> native_window_handle() const noexcept override { return NativeWindowHandle{}; }
 
+        /// Pumps events using the supplied arguments and current state.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> pump_events() noexcept override {
             thread_trace.pumped = std::this_thread::get_id();
             if (!event_queued_) {
@@ -67,6 +108,11 @@ namespace {
             return {};
         }
 
+        /// Polls event for available work or state changes.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<WindowEvent> poll_event() noexcept override {
             thread_trace.polled = std::this_thread::get_id();
             if (events_.empty()) {
@@ -77,63 +123,259 @@ namespace {
             return event;
         }
 
+        /// Closes requested using the supplied arguments and current state.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool close_requested() const noexcept override { return close_requested_; }
+        /// Requests close using the supplied arguments and current state.
+        ///
+        /// @note This function does not throw exceptions.
         void request_close() noexcept override { close_requested_ = true; }
+        /// Changes the logical size to the requested value, creating or removing elements as needed.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool resized() const noexcept override { return false; }
+        /// Returns the current or globally available consume resize value.
+        ///
+        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] optional<WindowResize> consume_resize() noexcept override { return std::nullopt; }
 
+        /// Returns the current or globally available show value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> show() noexcept override { return {}; }
+        /// Returns the current or globally available hide value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> hide() noexcept override { return {}; }
+        /// Returns the current or globally available focus value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> focus() noexcept override { return {}; }
+        /// Returns the current or globally available raise value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> raise() noexcept override { return {}; }
+        /// Returns the current or globally available maximize value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> maximize() noexcept override { return {}; }
+        /// Returns the current or globally available minimize value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> minimize() noexcept override { return {}; }
+        /// Returns the current or globally available restore value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> restore() noexcept override { return {}; }
+        /// Sets the title for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_title(const char *          ) noexcept override { return {}; }
+        /// Returns the current or globally available position value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] expected<WindowPosition, WindowError> position() const noexcept override { return WindowPosition{}; }
+        /// Sets the position for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_position(WindowPosition             ) noexcept override { return {}; }
+        /// Returns the current or globally available global cursor position value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] expected<WindowPosition, WindowError> global_cursor_position() const noexcept override { return WindowPosition{}; }
+        /// Returns the size for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] expected<WindowExtent, WindowError> size() const noexcept override { return WindowExtent{640, 480}; }
+        /// Sets the size for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_size(WindowExtent           ) noexcept override { return {}; }
+        /// Returns the framebuffer size for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] expected<WindowExtent, WindowError> framebuffer_size() const noexcept override {
             thread_trace.sampled = std::this_thread::get_id();
             return WindowExtent{640, 480};
         }
+        /// Sets the minimum size for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_minimum_size(WindowExtent           ) noexcept override { return {}; }
+        /// Sets the maximum size for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_maximum_size(WindowExtent           ) noexcept override { return {}; }
+        /// Sets the resizable for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_resizable(bool            ) noexcept override { return {}; }
+        /// Sets the decorated for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_decorated(bool            ) noexcept override { return {}; }
+        /// Sets the fullscreen for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_fullscreen(WindowMode         ) noexcept override { return {}; }
+        /// Sets the opacity for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_opacity(f32            ) noexcept override { return {}; }
+        /// Returns the current or globally available opacity value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] expected<f32, WindowError> opacity() const noexcept override { return 1.0F; }
+        /// Sets the cursor icon for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_cursor_icon(CursorIcon         ) noexcept override { return {}; }
+        /// Sets the cursor visible for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_cursor_visible(bool            ) noexcept override { return {}; }
+        /// Sets the cursor grabbed for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_cursor_grabbed(bool            ) noexcept override { return {}; }
+        /// Sets the relative mouse mode for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_relative_mouse_mode(bool            ) noexcept override { return {}; }
+        /// Sets the mouse locked for this `AffinityWindow`.
+        ///
+        /// @param locked `locked` value used by the operation.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_mouse_locked(bool locked) noexcept override {
             mouse_locked_ = locked;
             return {};
         }
+        /// Returns the current or globally available mouse locked value.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool mouse_locked() const noexcept override { return mouse_locked_; }
+        /// Enables window effect using the supplied arguments and current state.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] WindowEffectResult enable_window_effect(WindowEffect           ) noexcept override {
             return WindowEffectResult::success();
         }
+        /// Sets the effect for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_effect(WindowEffect           ) noexcept override { return {}; }
+        /// Sets the blur enabled for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_blur_enabled(bool            ) noexcept override { return {}; }
+        /// Sets the transparent for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_transparent(bool            ) noexcept override { return {}; }
+        /// Returns the current or globally available required vulkan instance extensions value.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] expected<vector<const char *>, WindowError> required_vulkan_instance_extensions() const noexcept override {
             return vector<const char *>{};
         }
+        /// Creates a vulkan surface from the supplied parameters.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> create_vulkan_surface(
             void *             ,
             const void *                         ,
             void *                ) const noexcept override {
             return {};
         }
+        /// Returns the current or globally available clipboard text value.
+        ///
+        /// @return Returns the current clipboard text value.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] std::string clipboard_text() const noexcept override { return {}; }
+        /// Sets the clipboard text for this `AffinityWindow`.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
         expected<void, WindowError> set_clipboard_text(std::string_view         ) noexcept override { return {}; }
 
       private:
+        /// Constructs a `AffinityWindow` from the supplied initialization values.
+        ///
+        /// @param key Key used to identify the requested entry.
+        ///
+        /// @note This function does not throw exceptions.
         explicit AffinityWindow(ConstructorKey key) noexcept : Window(key) {
             thread_trace.constructed = std::this_thread::get_id();
         }
@@ -144,6 +386,10 @@ namespace {
         bool mouse_locked_ = false;
     };
 
+    /// Reports whether normalization is provider independent.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool normalization_is_provider_independent() {
         using SFT::Platform::Windowing::GLFW::Detail::normalize_mouse_button;
 
@@ -169,6 +415,13 @@ namespace {
         return passed;
     }
 
+    /// Performs the manager keeps window access on one owner operation using the supplied arguments.
+    ///
+    /// @param policy `policy` value used by the operation.
+    /// @param expect_dedicated `expect_dedicated` value used by the operation.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool manager_keeps_window_access_on_one_owner(WindowManagerPolicy policy, bool expect_dedicated) {
         thread_trace = {};
         const std::thread::id caller = std::this_thread::get_id();
@@ -183,12 +436,6 @@ namespace {
         if (!spawned) {
             return false;
         }
-
-
-
-
-
-
 
 
         vector<ManagedWindowEvents> packets;
@@ -231,6 +478,10 @@ namespace {
 
 } // namespace
 
+/// Runs the executable entry point and returns its process exit status.
+///
+/// @return Returns the process/application exit status; zero conventionally indicates successful completion.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     bool passed = normalization_is_provider_independent();
     passed &= manager_keeps_window_access_on_one_owner(

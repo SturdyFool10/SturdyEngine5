@@ -3,6 +3,12 @@
 
 namespace SFT::UI {
 
+    /// Performs the enabled operation for `UI` using the supplied arguments.
+    ///
+    /// @param trigger `trigger` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool TextEditBindings::enabled(EditKey trigger) const noexcept {
         for (const TextEditKeyBinding &binding : keys) {
             if (binding.trigger == trigger) {
@@ -12,6 +18,12 @@ namespace SFT::UI {
         return true;
     }
 
+    /// Resolves the requested value into the concrete value used by the engine.
+    ///
+    /// @param trigger `trigger` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     EditKey TextEditBindings::resolve(EditKey trigger) const noexcept {
         for (const TextEditKeyBinding &binding : keys) {
             if (binding.trigger == trigger) {
@@ -21,32 +33,82 @@ namespace SFT::UI {
         return trigger;
     }
 
+    /// Returns the current or globally available text value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     const UString &TextEditState::text() const noexcept { return text_; }
 
+    /// Sets the text for this `UI`.
+    ///
+    /// @param text Text consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextEditState::set_text(UString text) noexcept {
         text_ = std::move(text);
         caret_ = text_.size();
         selection_anchor_ = caret_;
     }
 
+    /// Returns the current or globally available caret value.
+    ///
+    /// @return Returns the current caret value.
+    /// @note This function does not throw exceptions.
     usize TextEditState::caret() const noexcept { return caret_; }
 
+    /// Reports whether this `UI` has selection.
+    ///
+    /// @return Returns the current has selection value.
+    /// @note This function does not throw exceptions.
     bool TextEditState::has_selection() const noexcept { return selection_anchor_ != caret_; }
 
+    /// Returns the current or globally available selection min value.
+    ///
+    /// @return Returns the current selection min value.
+    /// @note This function does not throw exceptions.
     usize TextEditState::selection_min() const noexcept { return std::min(caret_, selection_anchor_); }
 
+    /// Returns the current or globally available selection max value.
+    ///
+    /// @return Returns the current selection max value.
+    /// @note This function does not throw exceptions.
     usize TextEditState::selection_max() const noexcept { return std::max(caret_, selection_anchor_); }
 
+    /// Returns the current or globally available selected text value.
+    ///
+    /// @return Returns the current selected text value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString TextEditState::selected_text() const {
         return has_selection() ? text_.substr(selection_min(), selection_max() - selection_min()) : UString{};
     }
 
+    /// Returns the current or globally available focused value.
+    ///
+    /// @return Returns the current focused value.
+    /// @note This function does not throw exceptions.
     bool TextEditState::focused() const noexcept { return focused_; }
 
+    /// Sets the focused for this `UI`.
+    ///
+    /// @param focused `focused` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextEditState::set_focused(bool focused) noexcept { focused_ = focused; }
 
+    /// Returns the current or globally available composition text value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
     string_view TextEditState::composition_text() const noexcept { return composition_text_; }
 
+    /// Inserts the supplied value or range at the requested position.
+    ///
+    /// @param value Value consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void TextEditState::insert(const UString &value) {
         if (value.empty()) {
             return;
@@ -59,6 +121,10 @@ namespace SFT::UI {
         selection_anchor_ = caret_;
     }
 
+    /// Returns the current or globally available delete selection value.
+    ///
+    /// @return Returns the current delete selection value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void TextEditState::delete_selection() {
         if (!has_selection()) {
             return;
@@ -69,6 +135,12 @@ namespace SFT::UI {
         selection_anchor_ = start;
     }
 
+    /// Performs the backspace operation for `UI` using the supplied arguments.
+    ///
+    /// @param word `word` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void TextEditState::backspace(bool word) {
         if (has_selection()) {
             delete_selection();
@@ -83,6 +155,12 @@ namespace SFT::UI {
         selection_anchor_ = start;
     }
 
+    /// Performs the delete forward operation for `UI` using the supplied arguments.
+    ///
+    /// @param word `word` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void TextEditState::delete_forward(bool word) {
         if (has_selection()) {
             delete_selection();
@@ -95,6 +173,14 @@ namespace SFT::UI {
         text_.erase(caret_, stop - caret_);
     }
 
+    /// Moves caret using the supplied arguments and current state.
+    ///
+    /// @param direction `direction` value used by the operation.
+    /// @param extend `extend` value used by the operation.
+    /// @param word `word` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextEditState::move_caret(isize direction, bool extend, bool word) noexcept {
         if (has_selection() && !extend) {
             caret_ = direction < 0 ? selection_min() : selection_max();
@@ -111,6 +197,12 @@ namespace SFT::UI {
         }
     }
 
+    /// Moves to start using the supplied arguments and current state.
+    ///
+    /// @param extend `extend` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextEditState::move_to_start(bool extend) noexcept {
         caret_ = 0;
         if (!extend) {
@@ -118,6 +210,12 @@ namespace SFT::UI {
         }
     }
 
+    /// Moves to end using the supplied arguments and current state.
+    ///
+    /// @param extend `extend` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextEditState::move_to_end(bool extend) noexcept {
         caret_ = text_.size();
         if (!extend) {
@@ -125,11 +223,21 @@ namespace SFT::UI {
         }
     }
 
+    /// Selects all that best satisfies the supplied requirements.
+    ///
+    /// @return Returns the current select all value.
+    /// @note This function does not throw exceptions.
     void TextEditState::select_all() noexcept {
         selection_anchor_ = 0;
         caret_ = text_.size();
     }
 
+    /// Selects word at that best satisfies the supplied requirements.
+    ///
+    /// @param scalar_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextEditState::select_word_at(usize scalar_index) noexcept {
         if (text_.empty()) {
             caret_ = 0;
@@ -141,11 +249,25 @@ namespace SFT::UI {
         caret_ = word_boundary_after(probe);
     }
 
+    /// Selects range that best satisfies the supplied requirements.
+    ///
+    /// @param start First position or element included in the operation.
+    /// @param end End boundary for the operation; where applicable this is one-past-the-last element.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextEditState::select_range(usize start, usize end) noexcept {
         selection_anchor_ = std::min(start, text_.size());
         caret_ = std::min(end, text_.size());
     }
 
+    /// Registers click using the supplied arguments and current state.
+    ///
+    /// @param position `position` value used by the operation.
+    /// @param allow_multi_click `allow_multi_click` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     u8 TextEditState::register_click(glm::vec2 position, bool allow_multi_click) noexcept {
         constexpr f32 max_interval_seconds = 0.4f;
         constexpr f32 max_distance_px = 4.0f;
@@ -163,6 +285,13 @@ namespace SFT::UI {
         return click_streak_;
     }
 
+    /// Sets the caret to for this `UI`.
+    ///
+    /// @param scalar_index Zero-based index of the target element or entry.
+    /// @param extend `extend` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextEditState::set_caret_to(usize scalar_index, bool extend) noexcept {
         caret_ = std::min(scalar_index, text_.size());
         if (!extend) {
@@ -170,6 +299,15 @@ namespace SFT::UI {
         }
     }
 
+    /// Applies input using the supplied arguments and current state.
+    ///
+    /// @param input `input` value used by the operation.
+    /// @param multiline `multiline` value used by the operation.
+    /// @param features `features` value used by the operation.
+    /// @param bindings `bindings` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     TextEditState::ApplyResult TextEditState::apply_input(const TextEditInput &input, bool multiline, const TextEditFeatures &features,
                             const TextEditBindings &bindings) {
         ApplyResult result{};
@@ -177,8 +315,6 @@ namespace SFT::UI {
             composition_text_.clear();
             return result;
         }
-
-
 
 
         if (features.ime_enabled) {
@@ -241,16 +377,8 @@ namespace SFT::UI {
             case EditKey::Tab:
 
 
-
-
                 break;
             case EditKey::Enter:
-
-
-
-
-
-
 
 
                 if (features.ime_enabled && input.composing) {
@@ -313,6 +441,15 @@ namespace SFT::UI {
         return result;
     }
 
+    /// Updates visual from the supplied values.
+    ///
+    /// @param hovered `hovered` value used by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    /// @param style `style` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void TextEditState::update_visual(bool hovered, bool enabled, const TextEditStyle &style, f32 delta_seconds) noexcept {
         const Color &target = !enabled ? style.disabled : focused_ ? style.focused : hovered ? style.hovered : style.idle;
         color_.update(target, delta_seconds, style.transition_seconds, style.color_space, style.easing);
@@ -320,8 +457,18 @@ namespace SFT::UI {
         time_since_last_click_ += delta_seconds;
     }
 
+    /// Returns the current or globally available current color value.
+    ///
+    /// @return Returns the current current color value.
+    /// @note This function does not throw exceptions.
     Color TextEditState::current_color() const noexcept { return color_.current(); }
 
+    /// Performs the caret blink on operation for `UI` using the supplied arguments.
+    ///
+    /// @param blink_seconds `blink_seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     bool TextEditState::caret_blink_on(f32 blink_seconds) const noexcept {
         if (blink_seconds <= 0.0f) {
             return true;
@@ -331,6 +478,12 @@ namespace SFT::UI {
         return phase < blink_seconds;
     }
 
+    /// Performs the highlighted spans operation for `UI` using the supplied arguments.
+    ///
+    /// @param highlighter `highlighter` value used by the operation.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     const vector<RichTextSpan> &TextEditState::highlighted_spans(const Highlighter &highlighter) const {
         if (!highlighter) {
             highlight_cache_spans_.clear();
@@ -344,6 +497,12 @@ namespace SFT::UI {
         return highlight_cache_spans_;
     }
 
+    /// Performs the word boundary before operation for `UI` using the supplied arguments.
+    ///
+    /// @param scalar_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     usize TextEditState::word_boundary_before(usize scalar_index) const {
         if (scalar_index == 0 || text_.empty()) {
             return 0;
@@ -361,6 +520,12 @@ namespace SFT::UI {
         return text_.scalar_index_of_byte(best);
     }
 
+    /// Performs the word boundary after operation for `UI` using the supplied arguments.
+    ///
+    /// @param scalar_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     usize TextEditState::word_boundary_after(usize scalar_index) const {
         if (text_.empty()) {
             return 0;
@@ -379,6 +544,12 @@ namespace SFT::UI {
 
 namespace SFT::UI::Detail {
 
+    /// Performs the strip newlines operation for `Detail` using the supplied arguments.
+    ///
+    /// @param text Text consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString strip_newlines(const UString &text) {
         UString result;
         for (char32_t scalar : text.codepoints()) {
@@ -389,6 +560,12 @@ namespace SFT::UI::Detail {
         return result;
     }
 
+    /// Splits paragraphs using the supplied arguments and current state.
+    ///
+    /// @param text Text consumed by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     vector<pair<usize, usize>> split_paragraphs(const UString &text) {
         vector<pair<usize, usize>> result;
         usize start = 0;
@@ -403,14 +580,35 @@ namespace SFT::UI::Detail {
         return result;
     }
 
+    /// Performs the caret element ID operation for `Detail` using the supplied arguments.
+    ///
+    /// @param widget_id Identifier of the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString caret_element_id(const UString &widget_id) {
         return UString{widget_id.cpp_string() + "#caret"};
     }
 
+    /// Performs the line element ID operation for `Detail` using the supplied arguments.
+    ///
+    /// @param widget_id Identifier of the target object or resource.
+    /// @param line_scalar_offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     UString line_element_id(const UString &widget_id, usize line_scalar_offset) {
         return UString{widget_id.cpp_string() + "#line" + std::to_string(line_scalar_offset)};
     }
 
+    /// Performs the span for run operation for `Detail` using the supplied arguments.
+    ///
+    /// @param spans `spans` value used by the operation.
+    /// @param global_scalar_index Zero-based index of the target element or entry.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const RichTextSpan *span_for_run(const vector<RichTextSpan> &spans,
                                                            usize global_scalar_index) noexcept {
         for (const RichTextSpan &span : spans) {
@@ -421,6 +619,17 @@ namespace SFT::UI::Detail {
         return nullptr;
     }
 
+    /// Renders line using the current rendering state.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param line_text `line_text` value used by the operation.
+    /// @param line_scalar_offset Offset from the beginning of the relevant range or buffer.
+    /// @param style `style` value used by the operation.
+    /// @param state `state` value used by the operation.
+    /// @param widget_id Identifier of the target object or resource.
+    /// @param placeholder `placeholder` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void render_line(Context &ctx, const UString &line_text, usize line_scalar_offset,
                             const TextEditStyle &style, const TextEditState &state, const UString &widget_id,
                             const UString &placeholder) {
@@ -465,16 +674,6 @@ namespace SFT::UI::Detail {
             state.caret_blink_on(style.caret_blink_seconds) ? style.caret_color : Color{0.0, 0.0, 0.0, 0.0};
 
 
-
-
-
-
-
-
-
-
-
-
         const auto emit_caret = [&]() {
             auto anchor = ctx.element(ElementDecl{
                 .sizing = {SizingAxis::fixed(0.0f), SizingAxis::fixed(caret_height)},
@@ -498,20 +697,12 @@ namespace SFT::UI::Detail {
         };
 
 
-
-
-
-
-
-
         const string_view composition = state.composition_text();
         const bool show_composition = caret_on_this_line && !composition.empty();
         const auto emit_composition = [&]() {
             if (!show_composition) {
                 return;
             }
-
-
 
 
             auto scope = ctx.element(ElementDecl{});
@@ -536,7 +727,6 @@ namespace SFT::UI::Detail {
         const vector<usize> sorted_cuts(cuts.begin(), cuts.end());
 
 
-
         const bool single_run = sorted_cuts.size() <= 2;
         const bool can_wrap = style.wrap_lines && single_run;
         const TextWrapMode run_wrap_mode = can_wrap ? TextWrapMode::Words : TextWrapMode::None;
@@ -546,11 +736,6 @@ namespace SFT::UI::Detail {
             .id = line_element_id(widget_id, line_scalar_offset),
         });
         (void)row;
-
-
-
-
-
 
 
         {
@@ -582,7 +767,6 @@ namespace SFT::UI::Detail {
                 .background_color = run_selected ? style.selection_color : Color{0.0, 0.0, 0.0, 0.0},
             });
             (void)run_scope;
-
 
 
             const auto emit_decoration = [&](bool strikethrough) {
@@ -633,6 +817,15 @@ namespace SFT::UI::Detail {
         }
     }
 
+    /// Performs the hit test line scalar operation for `Detail` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param line_text `line_text` value used by the operation.
+    /// @param local_x `local_x` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     usize hit_test_line_scalar(Context &ctx, const TextEditStyle &style,
                                                     const UString &line_text, f32 local_x) {
         const TextStyle text_style{.font_id = style.font_id, .font_size = style.font_size};
@@ -660,6 +853,17 @@ namespace SFT::UI::Detail {
 
 namespace SFT::UI::Detail {
 
+    /// Performs the hit test paragraphs operation for `Detail` using the supplied arguments.
+    ///
+    /// @param ctx `ctx` value used by the operation.
+    /// @param style `style` value used by the operation.
+    /// @param text Text consumed by the operation.
+    /// @param paragraphs `paragraphs` value used by the operation.
+    /// @param widget_id Identifier of the target object or resource.
+    /// @param pointer Pointer to the object or storage used by the operation.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     [[nodiscard]] std::optional<ParagraphHit>
     hit_test_paragraphs(Context &ctx, const TextEditStyle &style, const UString &text,
                         const vector<pair<usize, usize>> &paragraphs, const UString &widget_id, glm::vec2 pointer) {

@@ -22,6 +22,13 @@ namespace SFT::Core::Vulkan {
 
     namespace rhi = SFT::RHI;
 
+    /// Creates a query set from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiExpected<rhi::QuerySetHandle> VulkanRhiDeviceBridge::create_query_set(const rhi::QuerySetDesc &desc) {
         ZoneScopedN("VulkanRhiDeviceBridge::create_query_set");
         if (logical_device_ == nullptr) {
@@ -39,11 +46,29 @@ namespace SFT::Core::Vulkan {
         return query_sets_.insert(std::move(*pool));
     }
 
+    /// Destroys the query set identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::destroy_query_set(rhi::QuerySetHandle handle) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::destroy_query_set");
         query_sets_.erase(handle);
     }
 
+    /// Returns the query set results associated with this `Vulkan`.
+    ///
+    /// @param query_set `query_set` value used by the operation.
+    /// @param first First position or element included in the operation.
+    /// @param count Number of elements or operations to process.
+    /// @param dst Destination value or resource.
+    /// @param stride `stride` value used by the operation.
+    /// @param flags Flags controlling optional behavior.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `RhiErrorCode::InvalidArgument`.
     rhi::RhiResult VulkanRhiDeviceBridge::get_query_set_results(rhi::QuerySetHandle query_set,
                                                                 u32 first,
                                                                 u32 count,
@@ -63,6 +88,14 @@ namespace SFT::Core::Vulkan {
         return {};
     }
 
+    /// Resets query set to its baseline state.
+    ///
+    /// @param query_set `query_set` value used by the operation.
+    /// @param first First position or element included in the operation.
+    /// @param count Number of elements or operations to process.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void VulkanRhiDeviceBridge::reset_query_set(rhi::QuerySetHandle query_set, u32 first, u32 count) noexcept {
         ZoneScopedN("VulkanRhiDeviceBridge::reset_query_set");
         if (VulkanQueryPool *pool = query_sets_.find(query_set)) {

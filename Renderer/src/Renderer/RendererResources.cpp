@@ -25,6 +25,15 @@ using std::unexpected;
 
 namespace SFT::Renderer {
 
+    /// Creates a mesh from the supplied parameters.
+    ///
+    /// @param vertices `vertices` value used by the operation.
+    /// @param indices `indices` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<MeshHandle> Renderer::create_mesh(span<const GeometryVertex> vertices,
                                                              span<const u32> indices,
                                                              const char *label) {
@@ -56,6 +65,12 @@ namespace SFT::Renderer {
         return meshes_.back().handle;
     }
 
+    /// Uploads the supplied or associated value/state using the supplied arguments and current state.
+    ///
+    /// @param mesh `mesh` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<MeshHandle> Renderer::upload(Mesh &mesh) {
         ZoneScopedN("Renderer::upload");
         if (mesh.is_gpu_resident()) {
@@ -72,6 +87,12 @@ namespace SFT::Renderer {
         return *handle;
     }
 
+    /// Destroys the mesh identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_mesh(MeshHandle handle) noexcept {
         ZoneScopedN("Renderer::destroy_mesh");
         MeshResource *resource = mesh(handle);
@@ -90,10 +111,6 @@ namespace SFT::Renderer {
         }
 
 
-
-
-
-
         vector<GeometryVertex>{}.swap(resource->vertices);
         vector<u32>{}.swap(resource->indices);
         resource->vertex_offset = 0;
@@ -104,6 +121,13 @@ namespace SFT::Renderer {
         resource->alive = false;
     }
 
+    /// Performs the mesh operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     MeshResource *Renderer::mesh(MeshHandle handle) noexcept {
         ZoneScopedN("Renderer::mesh");
         if (!handle || handle.value > meshes_.size()) {
@@ -113,6 +137,13 @@ namespace SFT::Renderer {
         return resource.alive ? &resource : nullptr;
     }
 
+    /// Performs the mesh operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const MeshResource *Renderer::mesh(MeshHandle handle) const noexcept {
         ZoneScopedN("Renderer::mesh");
         if (!handle || handle.value > meshes_.size()) {
@@ -122,6 +153,12 @@ namespace SFT::Renderer {
         return resource.alive ? &resource : nullptr;
     }
 
+    /// Creates a material from the supplied parameters.
+    ///
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<MaterialHandle> Renderer::create_material(const char *label) {
         ZoneScopedN("Renderer::create_material");
         MaterialResource material{};
@@ -132,6 +169,12 @@ namespace SFT::Renderer {
         return materials_.back().handle;
     }
 
+    /// Destroys the material identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_material(MaterialHandle handle) noexcept {
         ZoneScopedN("Renderer::destroy_material");
         MaterialResource *resource = material(handle);
@@ -142,6 +185,13 @@ namespace SFT::Renderer {
         resource->alive = false;
     }
 
+    /// Performs the material operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     MaterialResource *Renderer::material(MaterialHandle handle) noexcept {
         ZoneScopedN("Renderer::material");
         if (!handle || handle.value > materials_.size()) {
@@ -151,6 +201,13 @@ namespace SFT::Renderer {
         return resource.alive ? &resource : nullptr;
     }
 
+    /// Performs the material operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
+    /// @note Absence is represented by a null pointer rather than an exception.
+    /// @note This function does not throw exceptions.
     const MaterialResource *Renderer::material(MaterialHandle handle) const noexcept {
         ZoneScopedN("Renderer::material");
         if (!handle || handle.value > materials_.size()) {
@@ -160,6 +217,10 @@ namespace SFT::Renderer {
         return resource.alive ? &resource : nullptr;
     }
 
+    /// Destroys the all resources identified by the supplied parameters.
+    ///
+    /// @return Returns the current destroy all resources value.
+    /// @note This function does not throw exceptions.
     void Renderer::destroy_all_resources() noexcept {
         ZoneScopedN("Renderer::destroy_all_resources");
         if (shader_hot_reload_poll_) {
@@ -213,7 +274,6 @@ namespace SFT::Renderer {
         }
 
 
-
         destroy_all_offscreen_render_targets();
         for (TextureResource &resource : textures_) {
             if (resource.owns_gpu_resources) {
@@ -232,11 +292,6 @@ namespace SFT::Renderer {
             resource = {};
         }
         textures_.clear();
-
-
-
-
-
 
 
         auto window_surfaces_guard = window_surfaces_.lock();
@@ -272,6 +327,15 @@ namespace SFT::Renderer {
         destroy_hiz_build_resources();
     }
 
+    /// Grows geometry arena using the supplied arguments and current state.
+    ///
+    /// @param arena `arena` value used by the operation.
+    /// @param required_bytes `required_bytes` value used by the operation.
+    /// @param label `label` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::grow_geometry_arena(GeometryArena &arena, u64 required_bytes, const char *label) {
         ZoneScopedN("Renderer::grow_geometry_arena");
         RHI::RhiDevice *device = rhi_device();
@@ -289,9 +353,6 @@ namespace SFT::Renderer {
         if (!new_buffer) {
             return unexpected(graphics_error_from_rhi(new_buffer.error(), "grow geometry arena"));
         }
-
-
-
 
 
         if (arena.buffer && arena.used_bytes > 0) {
@@ -339,7 +400,6 @@ namespace SFT::Renderer {
             if (!*waited) {
 
 
-
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "wait geometry arena growth fence: vkWaitForFences timed out.");
             }
@@ -364,6 +424,13 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Attempts to upload mesh without requiring normal failure to be exceptional.
+    ///
+    /// @param mesh `mesh` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::Unsupported`, `RhiErrorCode::Unsupported`.
     Core::RendererResult Renderer::try_upload_mesh(MeshResource &mesh) {
         ZoneScopedN("Renderer::try_upload_mesh");
         RHI::RhiDevice *device = rhi_device();
@@ -378,8 +445,6 @@ namespace SFT::Renderer {
             vertex_arena_.usage |= RHI::BufferUsage::AccelerationStructureInput;
             index_arena_.usage |= RHI::BufferUsage::AccelerationStructureInput;
         }
-
-
 
 
         if (mesh.vertices.empty()) {
@@ -450,6 +515,13 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Performs the graphics error from RHI operation for `Renderer` using the supplied arguments.
+    ///
+    /// @param error Error value describing the failure.
+    /// @param operation `operation` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Core::GraphicsBackendError Renderer::graphics_error_from_rhi(const RHI::RhiError &error,
                                                                  const char *operation) {
         ZoneScopedN("Renderer::graphics_error_from_rhi");

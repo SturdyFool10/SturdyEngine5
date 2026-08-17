@@ -6,15 +6,21 @@
 
 namespace SFT::Runtime {
 
-    /// Standalone-product policy owned by Runtime rather than by consumer GameLogic. A future Editor
-    /// drives the same GameLogic with its own windows, titles, viewports, and update cadence.
+
     struct RuntimeConfig {
         Engine::ApplicationConfig application{};
         UString primary_window_title{UString{"Sturdy application"}};
     };
 
-    /// Construct one GameLogic session through an explicit factory and run it as a standalone desktop
-    /// application. No demo/game implementation is linked unless its factory symbol is passed here.
+
+    /// Runs the requested work.
+    ///
+    /// @param args `args` value used by the operation.
+    /// @param config Configuration values controlling the operation.
+    /// @param game_logic_factory `game_logic_factory` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] i32 run(
         const Foundation::CliArgs &args,
         RuntimeConfig config,

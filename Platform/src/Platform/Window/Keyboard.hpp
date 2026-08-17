@@ -4,8 +4,7 @@
 
 namespace SFT::Platform::Windowing {
 
-    /// Provider-neutral key identity. WindowKeyboardEvent retains each backend's raw key and
-    /// scancode alongside this value for consumers that need provider- or layout-specific data.
+
     enum class KeyboardKey : i32 {
         Unknown = 0,
 
@@ -87,8 +86,7 @@ namespace SFT::Platform::Windowing {
         RightSuper,
         Menu,
 
-        /// New blocks get their own base offset (well clear of the ~25-entry 0x100 block above) rather
-        /// than continuing that sequence, so future insertions into either block never renumber this one.
+
         F1 = 0x200,
         F2,
         F3,
@@ -133,10 +131,7 @@ namespace SFT::Platform::Windowing {
         NumpadEnter,
         NumpadEqual,
 
-        /// GLFW has no media-key constants at all (checked its full keycode table) — these stay
-        /// KeyboardKey::Unknown on that backend. Same honest architecture-limited-coverage stance
-        /// already used elsewhere in this codebase (e.g. Foundation::Cpu's Arm SVE detection, always
-        /// false there for the same "the backend genuinely cannot report this" reason).
+
         VolumeUp = 0x400,
         VolumeDown,
         Mute,
@@ -146,6 +141,12 @@ namespace SFT::Platform::Windowing {
         MediaStop,
     };
 
+    /// Performs the keyboard key from ascii operation using the supplied arguments.
+    ///
+    /// @param key Key used to identify the requested entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr KeyboardKey keyboard_key_from_ascii(i32 key) noexcept {
         if (key >= 'A' && key <= 'Z') {
             key += 'a' - 'A';
@@ -174,6 +175,12 @@ namespace SFT::Platform::Windowing {
         }
     }
 
+    /// Reports whether modifier key holds.
+    ///
+    /// @param key Key used to identify the requested entry.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool is_modifier_key(KeyboardKey key) noexcept {
         switch (key) {
             case KeyboardKey::LeftShift:
@@ -190,12 +197,7 @@ namespace SFT::Platform::Windowing {
         }
     }
 
-    /// Normalized modifier bitmask — WindowKeyboardEvent::modifiers carries this (SDL3/GLFW backends
-    /// translate their own native modifier bits into it), so a consumer never has to know whether an
-    /// event came from SDL's SDL_Keymod or GLFW's mods bitfield to check "is Shift held." Left/right
-    /// side is deliberately *not* distinguished here (that's what the left/right KeyboardKey
-    /// enumerators above are for, via is_modifier_key()/direct key_down() checks) — this is the
-    /// coarse "any Shift" convenience the way every other engine's modifier mask works.
+
     enum class KeyModifiers : u32 {
         None = 0,
         Shift = 1u << 0,
@@ -206,30 +208,73 @@ namespace SFT::Platform::Windowing {
         NumLock = 1u << 5,
     };
 
+    /// Combines the operands with bitwise OR.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr KeyModifiers operator|(KeyModifiers a, KeyModifiers b) noexcept {
         return static_cast<KeyModifiers>(static_cast<u32>(a) | static_cast<u32>(b));
     }
 
+    /// Combines the operands with bitwise AND.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr KeyModifiers operator&(KeyModifiers a, KeyModifiers b) noexcept {
         return static_cast<KeyModifiers>(static_cast<u32>(a) & static_cast<u32>(b));
     }
 
+    /// Implements `operator~` for `Windowing`.
+    ///
+    /// @param a `a` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr KeyModifiers operator~(KeyModifiers a) noexcept {
         return static_cast<KeyModifiers>(~static_cast<u32>(a));
     }
 
+    /// Combines this object with the right-hand operand using bitwise OR.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     constexpr KeyModifiers &operator|=(KeyModifiers &a, KeyModifiers b) noexcept { return a = a | b; }
+    /// Combines this object with the right-hand operand using bitwise AND.
+    ///
+    /// @param a `a` value used by the operation.
+    /// @param b `b` value used by the operation.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
     constexpr KeyModifiers &operator&=(KeyModifiers &a, KeyModifiers b) noexcept { return a = a & b; }
 
+    /// Reports whether modifier is available.
+    ///
+    /// @param value Value consumed by the operation.
+    /// @param flag `flag` value used by the operation.
+    ///
+    /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr bool has_modifier(KeyModifiers value, KeyModifiers flag) noexcept {
         return (value & flag) != KeyModifiers::None;
     }
 
-    /// The modifier a given left/right KeyboardKey contributes to the coarse KeyModifiers mask, or
-    /// KeyModifiers::None for every non-modifier key. Backends use this to fold their per-side key
-    /// state into one mask; InputState (Engine/src/Engine/InputState.hpp) reuses it the same way when
-    /// deriving modifiers() from the raw pressed-key set rather than trusting a second, driftable
-    /// source of truth.
+
+    /// Performs the modifier for key operation for `Windowing` using the supplied arguments.
+    ///
+    /// @param key Key used to identify the requested entry.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr KeyModifiers modifier_for_key(KeyboardKey key) noexcept {
         switch (key) {
             case KeyboardKey::LeftShift:

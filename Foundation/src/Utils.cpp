@@ -3,6 +3,12 @@
 
 namespace SFT::Foundation {
 
+    /// Performs the human readable time operation for `Foundation` using the supplied arguments.
+    ///
+    /// @param seconds `seconds` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     string human_readable_time(f64 seconds) {
         if (!std::isfinite(seconds)) {
             return format("{}s", seconds);
@@ -58,6 +64,12 @@ namespace SFT::Foundation {
         return formatted;
     }
 
+    /// Reads file to string from the associated source.
+    ///
+    /// @param path Filesystem path identifying the target resource.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    /// @note Normal inability to produce a value is represented by an empty optional.
     optional<string> read_file_to_string(const fs::path &path) {
         ifstream file(path, ios::in | ios::binary);
         if (!file) {

@@ -3,6 +3,16 @@
 
 namespace SFT::UI::Docking::Detail {
 
+    /// Performs the solve dock layout operation for `Detail` using the supplied arguments.
+    ///
+    /// @param tree `tree` value used by the operation.
+    /// @param id Identifier of the target object or resource.
+    /// @param rect `rect` value used by the operation.
+    /// @param tab_strip_height `tab_strip_height` value used by the operation.
+    /// @param divider_thickness `divider_thickness` value used by the operation.
+    /// @param out `out` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void solve_dock_layout(const DockTree &tree, DockNodeId id, DockRect rect, f32 tab_strip_height,
                                    f32 divider_thickness, vector<DockNodeLayout> &out) {
         const DockNode *n = tree.node(id);
@@ -59,6 +69,15 @@ namespace SFT::UI::Docking::Detail {
 
 namespace SFT::UI::Docking {
 
+    /// Computes dock layout using the supplied arguments and current state.
+    ///
+    /// @param tree `tree` value used by the operation.
+    /// @param workspace_rect `workspace_rect` value used by the operation.
+    /// @param tab_strip_height `tab_strip_height` value used by the operation.
+    /// @param divider_thickness `divider_thickness` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     vector<DockNodeLayout> compute_dock_layout(const DockTree &tree, DockRect workspace_rect,
                                                                      f32 tab_strip_height, f32 divider_thickness) {
         vector<DockNodeLayout> out;

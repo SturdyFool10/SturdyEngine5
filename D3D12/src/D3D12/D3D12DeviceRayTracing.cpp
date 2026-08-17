@@ -1,21 +1,5 @@
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #include <D3D12/D3D12Device.hpp>
 
 #pragma region Imports
@@ -34,6 +18,13 @@ namespace SFT::D3D12 {
 
     namespace {
 
+        /// Returns a human-readable name for the supplied export value.
+        ///
+        /// @param prefix `prefix` value used by the operation.
+        /// @param group_index Zero-based index of the target element or entry.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] std::wstring export_name(const char *prefix, usize group_index) {
             std::wstring name;
             for (const char *cursor = prefix; *cursor != '\0'; ++cursor) {
@@ -45,6 +36,13 @@ namespace SFT::D3D12 {
             return name;
         }
 
+        /// Performs the UTF-8 to UTF-16 operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param text Text consumed by the operation.
+        /// @param out `out` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool utf8_to_utf16(const char *text, std::wstring &out) {
             if (text == nullptr || *text == '\0') {
                 return false;
@@ -62,17 +60,37 @@ namespace SFT::D3D12 {
             return true;
         }
 
+        /// Reports whether single stage holds for this `D3D12`.
+        ///
+        /// @param stage `stage` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_single_stage(rhi::ShaderStage stage) noexcept {
             const u32 value = static_cast<u32>(stage);
             const u32 known_stages = static_cast<u32>(rhi::ShaderStage::All);
             return value != 0 && (value & (value - 1)) == 0 && (value & ~known_stages) == 0;
         }
 
+        /// Reports whether valid general stage holds for this `D3D12`.
+        ///
+        /// @param stage `stage` value used by the operation.
+        ///
+        /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_valid_general_stage(rhi::ShaderStage stage) noexcept {
             return stage == rhi::ShaderStage::RayGeneration || stage == rhi::ShaderStage::Miss ||
                    stage == rhi::ShaderStage::Callable;
         }
 
+        /// Performs the checked add operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param left Left-hand operand.
+        /// @param right Right-hand operand.
+        /// @param out `out` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool checked_add(u64 left, u64 right, u64 &out) noexcept {
             if (right > std::numeric_limits<u64>::max() - left) {
                 return false;
@@ -81,6 +99,14 @@ namespace SFT::D3D12 {
             return true;
         }
 
+        /// Performs the checked multiply operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param left Left-hand operand.
+        /// @param right Right-hand operand.
+        /// @param out `out` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool checked_multiply(u64 left, u64 right, u64 &out) noexcept {
             if (left != 0 && right > std::numeric_limits<u64>::max() / left) {
                 return false;
@@ -89,6 +115,16 @@ namespace SFT::D3D12 {
             return true;
         }
 
+        /// Performs the strided data fits operation for `D3D12` using the supplied arguments.
+        ///
+        /// @param buffer_size Requested or available size for the operation.
+        /// @param offset Offset from the beginning of the relevant range or buffer.
+        /// @param element_count Number of elements or operations to process.
+        /// @param stride `stride` value used by the operation.
+        /// @param element_size Requested or available size for the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool strided_data_fits(u64 buffer_size, u64 offset, u64 element_count, u64 stride, u64 element_size) noexcept {
             if (offset > buffer_size) {
                 return false;
@@ -104,8 +140,15 @@ namespace SFT::D3D12 {
         }
 
 
-
-
+        /// Converts the value to dxr vertex format representation.
+        ///
+        /// @param format Format used for the resource, render target, or conversion.
+        /// @param out `out` value used by the operation.
+        /// @param size Requested or available size for the operation.
+        /// @param alignment `alignment` value used by the operation.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
         [[nodiscard]] bool to_dxr_vertex_format(rhi::VertexFormat format, DXGI_FORMAT &out, u32 &size, u32 &alignment) noexcept {
             switch (format) {
                 case rhi::VertexFormat::Float32x3:
@@ -145,6 +188,12 @@ namespace SFT::D3D12 {
 
     } // namespace
 
+    /// Creates a ray tracing pipeline from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::RayTracingPipelineHandle> D3D12Device::create_ray_tracing_pipeline(
         const rhi::RayTracingPipelineDesc &desc) {
         ZoneScopedN("D3D12Device::create_ray_tracing_pipeline");
@@ -168,7 +217,6 @@ namespace SFT::D3D12 {
         record.group_exports.reserve(desc.groups.size());
 
         CD3DX12_STATE_OBJECT_DESC state_object(D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE);
-
 
 
         vector<std::wstring> stage_exports;
@@ -297,14 +345,11 @@ namespace SFT::D3D12 {
         auto *shader_config = state_object.CreateSubobject<CD3DX12_RAYTRACING_SHADER_CONFIG_SUBOBJECT>();
 
 
-
         shader_config->Config(D3D12_RAYTRACING_MAX_ATTRIBUTE_SIZE_IN_BYTES * 4,
                               D3D12_RAYTRACING_MAX_ATTRIBUTE_SIZE_IN_BYTES);
 
         auto *pipeline_config = state_object.CreateSubobject<CD3DX12_RAYTRACING_PIPELINE_CONFIG_SUBOBJECT>();
         pipeline_config->Config(std::max(1u, desc.max_ray_recursion_depth));
-
-
 
 
         auto *global_root_signature = state_object.CreateSubobject<CD3DX12_GLOBAL_ROOT_SIGNATURE_SUBOBJECT>();
@@ -321,10 +366,25 @@ namespace SFT::D3D12 {
         return ray_tracing_pipelines_.insert(std::move(record));
     }
 
+    /// Destroys the ray tracing pipeline identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_ray_tracing_pipeline(rhi::RayTracingPipelineHandle handle) noexcept {
         ray_tracing_pipelines_.erase(handle);
     }
 
+    /// Writes ray tracing shader group handles to the associated destination.
+    ///
+    /// @param pipeline Pipeline used or affected by the operation.
+    /// @param first_group `first_group` value used by the operation.
+    /// @param group_count Number of elements or operations to process.
+    /// @param dst Destination value or resource.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::write_ray_tracing_shader_group_handles(rhi::RayTracingPipelineHandle pipeline,
                                                                        u32 first_group, u32 group_count,
                                                                        span<std::byte> dst) {
@@ -356,7 +416,15 @@ namespace SFT::D3D12 {
     }
 
 
-
+    /// Builds acceleration structure inputs.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param desc Description of the resource or operation to perform.
+    /// @param geometry_storage `geometry_storage` value used by the operation.
+    /// @param inputs `inputs` value used by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult build_acceleration_structure_inputs(
         const D3D12Device &device, const rhi::AccelerationStructureBuildDesc &desc,
         vector<D3D12_RAYTRACING_GEOMETRY_DESC> &geometry_storage,
@@ -400,10 +468,6 @@ namespace SFT::D3D12 {
                 return invalid_argument(
                     "build_acceleration_structures: a top-level build requires exactly one build range.");
             }
-
-
-
-
 
 
             static_assert(sizeof(rhi::AccelerationStructureInstance) == sizeof(D3D12_RAYTRACING_INSTANCE_DESC));
@@ -644,6 +708,12 @@ namespace SFT::D3D12 {
         return {};
     }
 
+    /// Performs the acceleration structure build sizes operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::AccelerationStructureBuildSizes> D3D12Device::acceleration_structure_build_sizes(
         const rhi::AccelerationStructureBuildDesc &desc) const {
         ZoneScopedN("D3D12Device::acceleration_structure_build_sizes");
@@ -667,6 +737,12 @@ namespace SFT::D3D12 {
         };
     }
 
+    /// Creates a acceleration structure from the supplied parameters.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::AccelerationStructureHandle> D3D12Device::create_acceleration_structure(
         const rhi::AccelerationStructureDesc &desc) {
         ZoneScopedN("D3D12Device::create_acceleration_structure");
@@ -680,8 +756,6 @@ namespace SFT::D3D12 {
         if (desc.size == 0) {
             return invalid_argument("create_acceleration_structure: size must be non-zero.");
         }
-
-
 
 
         const CD3DX12_HEAP_PROPERTIES heap_properties(D3D12_HEAP_TYPE_DEFAULT);
@@ -702,10 +776,22 @@ namespace SFT::D3D12 {
         return acceleration_structures_.insert(std::move(record));
     }
 
+    /// Destroys the acceleration structure identified by the supplied parameters.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function does not throw exceptions.
     void D3D12Device::destroy_acceleration_structure(rhi::AccelerationStructureHandle handle) noexcept {
         acceleration_structures_.erase(handle);
     }
 
+    /// Performs the acceleration structure device address operation for `D3D12` using the supplied arguments.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<u64> D3D12Device::acceleration_structure_device_address(
         rhi::AccelerationStructureHandle handle) const {
         const AccelerationStructureRecord *record = acceleration_structures_.find(handle);
