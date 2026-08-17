@@ -42,6 +42,10 @@ namespace SFT::D3D12 {
         // DXGI_FEATURE_PRESENT_ALLOW_TEARING — required for any real "VSync off" present. A property
         // of the *factory*, not the device, so it is filled in by the instance and carried through.
         bool allow_tearing = false;
+        // D3D12_SHADER_CACHE_SUPPORT_LIBRARY (D3D12_FEATURE_SHADER_CACHE) — whether this device can
+        // back an ID3D12PipelineLibrary, which D3D12Device uses as an on-disk PSO cache to avoid
+        // recompiling every pipeline permutation cold on every run.
+        bool pipeline_library_supported = false;
     };
 
     [[nodiscard]] DeviceCapabilities probe_capabilities(ID3D12Device *device);

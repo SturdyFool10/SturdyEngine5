@@ -372,6 +372,11 @@ namespace SFT::D3D12 {
             return hresult_error(hr, "create_pipeline_layout (CreateRootSignature)");
         }
         set_debug_name(record.root_signature.Get(), desc.label);
+        // Hashed from the serialized blob rather than taken from the ComPtr address, so the PSO cache
+        // name D3D12DevicePipelines.cpp derives from this stays the same across process runs whenever
+        // the root signature's actual content does (see PipelineLayoutRecord's own comment).
+        record.root_signature_content_hash =
+            fnv1a_bytes(fnv1a_offset_basis, blob->GetBufferPointer(), blob->GetBufferSize());
 
         return pipeline_layouts_.insert(std::move(record));
     }

@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cwchar>
 #include <limits>
 #include <string>
 #include <utility>
@@ -88,6 +89,24 @@ namespace SFT::D3D12 {
                 .StencilPassOp = to_d3d12(face.pass_op),
                 .StencilFunc = to_d3d12(face.compare),
             };
+        }
+
+        // Folds a shader module's DXIL bytes into `hash` by content, not by the ShaderModuleRecord's
+        // address — the same reason PipelineLayoutRecord::root_signature_content_hash exists (see that
+        // field's comment). A null module (an unused optional stage) still perturbs the hash via its
+        // zero length, so e.g. a mesh pipeline with vs. without a task stage never collides.
+        [[nodiscard]] u64 mix_shader_module(u64 hash, const ShaderModuleRecord *module) noexcept {
+            const D3D12_SHADER_BYTECODE bytecode = to_bytecode(module);
+            hash = fnv1a(hash, bytecode.BytecodeLength);
+            return fnv1a_bytes(hash, bytecode.pBytecode, bytecode.BytecodeLength);
+        }
+
+        // `prefix` distinguishes the graphics and compute PSO namespaces so a hash collision between
+        // the two (astronomically unlikely on its own) still can't produce a mismatched Load*.
+        [[nodiscard]] std::wstring pipeline_cache_name(const wchar_t *prefix, u64 hash) {
+            wchar_t buffer[24];
+            swprintf(buffer, 24, L"%ls%016llx", prefix, static_cast<unsigned long long>(hash));
+            return buffer;
         }
 
     } // namespace
@@ -280,14 +299,70 @@ namespace SFT::D3D12 {
             record.vertex_strides.push_back(static_cast<u32>(buffer_layout.stride));
         }
         record.is_mesh_pipeline = is_mesh_pipeline;
-        ComPtr<ID3D12InfoQueue> info_queue;
-        if (SUCCEEDED(device_.As(&info_queue))) arm_info_queue(info_queue.Get());
-        if (const HRESULT hr = device2->CreatePipelineState(&stream_desc, IID_PPV_ARGS(&record.pipeline));
-            FAILED(hr)) {
-            std::string operation = "create_render_pipeline (CreatePipelineState)";
-            const std::string diagnostics = info_queue_messages(info_queue.Get());
-            if (!diagnostics.empty()) operation += ": " + diagnostics;
-            return hresult_error(hr, operation);
+
+        // ── PSO disk cache ──
+        //
+        // ID3D12PipelineLibrary keys by name, so the name is derived from everything that can change
+        // the built pipeline's content — not from any process-local pointer or handle, which would
+        // hand out a different name every run and make the on-disk cache pointless (see
+        // mix_shader_module()'s and PipelineLayoutRecord::root_signature_content_hash's comments).
+        std::wstring cache_name;
+        if (pipeline_library_supported_) {
+            u64 hash = fnv1a_offset_basis;
+            hash = fnv1a(hash, layout->root_signature_content_hash);
+            hash = mix_shader_module(hash, vertex);
+            hash = mix_shader_module(hash, task);
+            hash = mix_shader_module(hash, mesh);
+            hash = mix_shader_module(hash, fragment);
+            hash = fnv1a(hash, static_cast<const D3D12_BLEND_DESC &>(blend));
+            hash = fnv1a(hash, static_cast<const D3D12_RASTERIZER_DESC &>(rasterizer));
+            hash = fnv1a(hash, static_cast<const D3D12_DEPTH_STENCIL_DESC1 &>(depth_stencil));
+            hash = fnv1a(hash, rtv_formats);
+            hash = fnv1a(hash, to_dxgi_view_format(desc.depth_stencil.format));
+            hash = fnv1a(hash, to_d3d12_topology_type(desc.topology));
+            hash = fnv1a(hash, desc.multisample.samples);
+            hash = fnv1a(hash, desc.multisample.sample_mask);
+            hash = fnv1a(hash, desc.view_mask);
+            hash = fnv1a(hash, is_mesh_pipeline);
+            for (const D3D12_INPUT_ELEMENT_DESC &element : input_elements) {
+                hash = fnv1a(hash, element.SemanticIndex);
+                hash = fnv1a(hash, element.Format);
+                hash = fnv1a(hash, element.InputSlot);
+                hash = fnv1a(hash, element.AlignedByteOffset);
+                hash = fnv1a(hash, element.InputSlotClass);
+                hash = fnv1a(hash, element.InstanceDataStepRate);
+            }
+            cache_name = pipeline_cache_name(L"gfx_", hash);
+
+            auto library = pipeline_library_.lock();
+            if (*library != nullptr) {
+                ComPtr<ID3D12PipelineState> cached;
+                if (SUCCEEDED((*library)->LoadPipeline(cache_name.c_str(), &stream_desc, IID_PPV_ARGS(&cached)))) {
+                    record.pipeline = std::move(cached);
+                }
+            }
+        }
+
+        if (record.pipeline == nullptr) {
+            ComPtr<ID3D12InfoQueue> info_queue;
+            if (SUCCEEDED(device_.As(&info_queue))) arm_info_queue(info_queue.Get());
+            if (const HRESULT hr = device2->CreatePipelineState(&stream_desc, IID_PPV_ARGS(&record.pipeline));
+                FAILED(hr)) {
+                std::string operation = "create_render_pipeline (CreatePipelineState)";
+                const std::string diagnostics = info_queue_messages(info_queue.Get());
+                if (!diagnostics.empty()) operation += ": " + diagnostics;
+                return hresult_error(hr, operation);
+            }
+            if (!cache_name.empty()) {
+                auto library = pipeline_library_.lock();
+                if (*library != nullptr) {
+                    // A collision in a hash meant to be collision-free, or a library that has hit some
+                    // internal limit, are the only realistic failure modes here — either way the
+                    // pipeline itself is already valid and usable, so a failed store never becomes this
+                    // call's error.
+                    (void)(*library)->StorePipeline(cache_name.c_str(), record.pipeline.Get());
+                }
+            }
         }
         set_debug_name(record.pipeline.Get(), desc.label);
         return render_pipelines_.insert(std::move(record));
@@ -318,16 +393,46 @@ namespace SFT::D3D12 {
             .Flags = D3D12_PIPELINE_STATE_FLAG_NONE,
         };
 
+        // See create_render_pipeline()'s matching block for why the name is content-derived rather
+        // than pointer-derived. A compute pipeline's only defining inputs beyond the root signature are
+        // its shader, so the hash is correspondingly small.
+        std::wstring cache_name;
+        if (pipeline_library_supported_) {
+            u64 hash = fnv1a_offset_basis;
+            hash = fnv1a(hash, layout->root_signature_content_hash);
+            hash = mix_shader_module(hash, compute);
+            cache_name = pipeline_cache_name(L"cs_", hash);
+        }
+
         ComputePipelineRecord record{};
         record.layout = desc.layout;
-        ComPtr<ID3D12InfoQueue> info_queue;
-        if (SUCCEEDED(device_.As(&info_queue))) arm_info_queue(info_queue.Get());
-        if (const HRESULT hr = device_->CreateComputePipelineState(&pipeline_desc, IID_PPV_ARGS(&record.pipeline));
-            FAILED(hr)) {
-            std::string operation = "create_compute_pipeline (CreateComputePipelineState)";
-            const std::string diagnostics = info_queue_messages(info_queue.Get());
-            if (!diagnostics.empty()) operation += ": " + diagnostics;
-            return hresult_error(hr, operation);
+        if (!cache_name.empty()) {
+            auto library = pipeline_library_.lock();
+            if (*library != nullptr) {
+                ComPtr<ID3D12PipelineState> cached;
+                if (SUCCEEDED((*library)->LoadComputePipelineState(cache_name.c_str(), &pipeline_desc,
+                                                                    IID_PPV_ARGS(&cached)))) {
+                    record.pipeline = std::move(cached);
+                }
+            }
+        }
+
+        if (record.pipeline == nullptr) {
+            ComPtr<ID3D12InfoQueue> info_queue;
+            if (SUCCEEDED(device_.As(&info_queue))) arm_info_queue(info_queue.Get());
+            if (const HRESULT hr = device_->CreateComputePipelineState(&pipeline_desc, IID_PPV_ARGS(&record.pipeline));
+                FAILED(hr)) {
+                std::string operation = "create_compute_pipeline (CreateComputePipelineState)";
+                const std::string diagnostics = info_queue_messages(info_queue.Get());
+                if (!diagnostics.empty()) operation += ": " + diagnostics;
+                return hresult_error(hr, operation);
+            }
+            if (!cache_name.empty()) {
+                auto library = pipeline_library_.lock();
+                if (*library != nullptr) {
+                    (void)(*library)->StorePipeline(cache_name.c_str(), record.pipeline.Get());
+                }
+            }
         }
         set_debug_name(record.pipeline.Get(), desc.label);
         return compute_pipelines_.insert(std::move(record));

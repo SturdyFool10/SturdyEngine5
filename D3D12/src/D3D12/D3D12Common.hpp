@@ -39,6 +39,7 @@
 
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #pragma endregion
 
@@ -109,6 +110,23 @@ namespace SFT::D3D12 {
     // buffer (256B), texture-copy row-pitch (256B), and placed-resource alignment rules all need this.
     [[nodiscard]] constexpr u64 align_up(u64 value, u64 alignment) noexcept {
         return (value + alignment - 1) & ~(alignment - 1);
+    }
+
+    // ─── Content hashing ─────────────────────────────────────────────────────────
+
+    // FNV-1a (same constants Core::Slang::ShaderCache.cpp mixes its own keys with). Used to derive a
+    // pipeline-state-object cache name from *content* — shader bytecode bytes, root-signature bytes,
+    // blend/rasterizer/depth-stencil state — rather than a process-local pointer or handle, so the
+    // name D3D12DevicePipelines.cpp stores a PSO under in the on-disk ID3D12PipelineLibrary cache
+    // matches across runs whenever the pipeline's actual content does.
+    inline constexpr u64 fnv1a_offset_basis = 0xcbf29ce484222325ull;
+
+    [[nodiscard]] u64 fnv1a_bytes(u64 hash, const void *data, usize size) noexcept;
+
+    template <typename T>
+        requires std::is_trivially_copyable_v<T>
+    [[nodiscard]] u64 fnv1a(u64 hash, const T &value) noexcept {
+        return fnv1a_bytes(hash, &value, sizeof(T));
     }
 
 } // namespace SFT::D3D12

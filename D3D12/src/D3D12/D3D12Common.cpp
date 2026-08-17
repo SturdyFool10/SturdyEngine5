@@ -124,4 +124,12 @@ namespace SFT::D3D12 {
                                      static_cast<UINT>(std::char_traits<char>::length(label)), label);
     }
 
+    u64 fnv1a_bytes(u64 hash, const void *data, usize size) noexcept {
+        const auto *bytes = static_cast<const unsigned char *>(data);
+        for (usize i = 0; i < size; ++i) {
+            hash = (hash ^ bytes[i]) * 0x100000001b3ull;
+        }
+        return hash;
+    }
+
 } // namespace SFT::D3D12
