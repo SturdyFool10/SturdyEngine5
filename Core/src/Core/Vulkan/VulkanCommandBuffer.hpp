@@ -356,6 +356,12 @@ namespace SFT::Core::Vulkan {
         ///
         /// @note This function does not throw exceptions.
         void set_depth_bounds(float min_depth, float max_depth) const noexcept;
+        /// Sets custom MSAA sample positions for this `VulkanCommandBuffer`.
+        ///
+        /// @param info `info` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
+        void set_sample_locations(const VkSampleLocationsInfoEXT &info) const noexcept;
         /// Sets the blend constants for this `VulkanCommandBuffer`.
         ///
         /// @param constants `constants` value used by the operation.
@@ -807,6 +813,12 @@ namespace SFT::Core::Vulkan {
         void build_acceleration_structures(
             span<const VkAccelerationStructureBuildGeometryInfoKHR> builds,
             span<const VkAccelerationStructureBuildRangeInfoKHR *const> ranges) const noexcept;
+        /// Builds opacity micromaps.
+        ///
+        /// @param builds `builds` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
+        void build_opacity_micromaps(span<const VkMicromapBuildInfoEXT> builds) const noexcept;
         /// Copies acceleration structure to its destination.
         ///
         /// @param info Description of the resource or operation to perform.

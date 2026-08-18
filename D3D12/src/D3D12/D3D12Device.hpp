@@ -17,6 +17,11 @@
 
 #include <Async/src/Mutex.hpp>
 
+namespace D3D12MA {
+    class Allocator;
+    class Allocation;
+} // namespace D3D12MA
+
 namespace SFT::D3D12 {
 
     using std::span;
@@ -106,6 +111,11 @@ namespace SFT::D3D12 {
 
 
         bool gpu_upload_heap = false;
+
+        /// Non-null when this resource was placed by D3D12MA (Sturdy::D3D12MA) rather than created as
+        /// its own dedicated CreateCommittedResource allocation; owns the suballocation and must be
+        /// Release()d (mirrors VulkanBuffer's VmaAllocation handle -- see VulkanBuffer.hpp).
+        D3D12MA::Allocation *allocation = nullptr;
     };
 
     struct TextureRecord {
@@ -124,6 +134,11 @@ namespace SFT::D3D12 {
 
 
         vector<D3D12_RESOURCE_STATES> legacy_states;
+
+        /// Non-null when this resource was placed by D3D12MA rather than created as its own dedicated
+        /// CreateCommittedResource allocation. Always null for `is_swapchain_image` textures, since
+        /// those come from DXGI's own swapchain buffers, not this device's allocator.
+        D3D12MA::Allocation *allocation = nullptr;
     };
 
     struct TextureViewRecord {
@@ -211,6 +226,36 @@ namespace SFT::D3D12 {
 
 
         vector<rhi::BindGroupHandle> referenced_bind_groups;
+
+        /// Descriptor-table ranges this bundle's bind groups uploaded into the device's persistent
+        /// bundle allocators (bundle_resource_descriptors_/bundle_sampler_descriptors_). Released by
+        /// destroy_render_bundle() -- see PersistentShaderVisibleDescriptorAllocator's own doc comment
+        /// for why bundles cannot use the per-frame ring allocator every other draw path uses.
+        vector<DescriptorRange> resource_table_ranges;
+        vector<DescriptorRange> sampler_table_ranges;
+
+        /// D3D12 bundle command lists cannot call RSSetViewports/RSSetScissorRects at all (illegal on
+        /// D3D12_COMMAND_LIST_TYPE_BUNDLE); the last value set_viewport()/set_scissor() was given
+        /// during recording is captured here instead and applied by the parent pass's
+        /// execute_bundles() on its own (DIRECT) command list immediately before ExecuteBundle, so a
+        /// bundle that only ever sets one static viewport/scissor (the overwhelmingly common case)
+        /// still behaves as requested. A bundle that changes viewport/scissor mid-recording only keeps
+        /// the last value; there is no D3D12-legal way to vary it within a single bundle.
+        std::optional<D3D12_VIEWPORT> viewport;
+        std::optional<D3D12_RECT> scissor;
+
+        /// SetSamplePositions is, like RSSetViewports/RSSetScissorRects, uncertain-to-illegal inside a
+        /// D3D12 bundle (it is rasterizer/pixel-pattern state, not per-draw pipeline state), so the
+        /// same capture-and-hoist treatment applies: the last value set_sample_locations() was given
+        /// during recording is captured here and applied by execute_bundles() on its own DIRECT list
+        /// immediately before ExecuteBundle.
+        struct SampleLocations {
+            u32 samples_per_pixel = 0;
+            u32 grid_width = 1;
+            u32 grid_height = 1;
+            vector<D3D12_SAMPLE_POSITION> positions;
+        };
+        std::optional<SampleLocations> sample_locations;
     };
 
     struct SemaphoreRecord {
@@ -274,6 +319,13 @@ namespace SFT::D3D12 {
 
         bool has_hdr_metadata = false;
         DXGI_HDR_METADATA_HDR10 stored_hdr_metadata{};
+
+        /// True when this swapchain was built via `CreateSwapChainForHwnd` and successfully entered
+        /// legacy DXGI exclusive fullscreen (`IDXGISwapChain::SetFullscreenState(TRUE, ...)`).
+        /// `destroy_swapchain()` must call `SetFullscreenState(FALSE, nullptr)` before releasing a
+        /// swapchain with this set, mirroring the Vulkan backend's `full_screen_exclusive_active`
+        /// acquire/release pairing for `VK_EXT_full_screen_exclusive`.
+        bool full_screen_exclusive_active = false;
 
         /// Reports whether composition present holds for this `SwapchainRecord`.
         ///
@@ -558,6 +610,30 @@ namespace SFT::D3D12 {
         ///
         /// @note This function does not throw exceptions.
         void destroy_acceleration_structure(rhi::AccelerationStructureHandle handle) noexcept override;
+        /// Reports opacity micromap build sizes for `D3D12Device` using the supplied arguments.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Always returns RhiErrorCode::Unsupported -- see the .cpp definition's doc comment
+        /// for why D3D12 opacity micromap support is not implemented.
+        [[nodiscard]] rhi::RhiExpected<rhi::OpacityMicromapBuildSizes> opacity_micromap_build_sizes(
+            const rhi::OpacityMicromapDesc &desc) const override;
+        /// Creates an opacity micromap from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        /// @param size Backing-storage size, from a prior opacity_micromap_build_sizes() call.
+        ///
+        /// @return Always returns RhiErrorCode::Unsupported -- see the .cpp definition's doc comment.
+        [[nodiscard]] rhi::RhiExpected<rhi::OpacityMicromapHandle> create_opacity_micromap(
+            const rhi::OpacityMicromapDesc &desc, u64 size) override;
+        /// Destroys the opacity micromap identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note No-op: D3D12 never successfully creates an opacity micromap handle (see
+        /// create_opacity_micromap()'s doc comment), so there is nothing to destroy.
+        /// @note This function does not throw exceptions.
+        void destroy_opacity_micromap(rhi::OpacityMicromapHandle handle) noexcept override;
         /// Performs the buffer device address operation for `D3D12Device` using the supplied arguments.
         ///
         /// @param buffer Buffer used or affected by the operation.
@@ -984,6 +1060,12 @@ namespace SFT::D3D12 {
         CpuDescriptorAllocator cpu_rtv_descriptors_;
         CpuDescriptorAllocator cpu_dsv_descriptors_;
 
+        /// Backs render-bundle bind-group uploads (persistent, not reset per frame). See
+        /// PersistentShaderVisibleDescriptorAllocator's own doc comment for why bundles cannot share
+        /// the per-frame ring heaps below.
+        PersistentShaderVisibleDescriptorAllocator bundle_resource_descriptors_;
+        PersistentShaderVisibleDescriptorAllocator bundle_sampler_descriptors_;
+
 
         rhi::AdapterInfo adapter_info_{};
         rhi::DeviceLimits limits_{};
@@ -1001,6 +1083,13 @@ namespace SFT::D3D12 {
 
 
         bool gpu_upload_heap_supported_ = false;
+
+        /// Suballocates buffer/texture resources onto shared heaps via CreatePlacedResource instead
+        /// of every resource getting its own dedicated CreateCommittedResource heap -- the D3D12
+        /// counterpart to Sturdy::VMA on the Vulkan side (see VulkanAllocator.hpp). Created in
+        /// initialize(), released in the destructor. Null (and every allocation falls back to
+        /// CreateCommittedResource) if construction failed, so this is always null-checked before use.
+        D3D12MA::Allocator *d3d12ma_allocator_ = nullptr;
 
 
         D3D12ResourcePool<rhi::BufferHandle, BufferRecord> buffers_;

@@ -317,6 +317,29 @@ namespace SFT::Core::Vulkan {
         ///
         /// @note This function does not throw exceptions.
         void destroy_acceleration_structure(rhi::AccelerationStructureHandle handle) noexcept override;
+        /// Reports opacity micromap build sizes for `VulkanRhiDeviceBridge` using the supplied arguments.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] rhi::RhiExpected<rhi::OpacityMicromapBuildSizes> opacity_micromap_build_sizes(
+            const rhi::OpacityMicromapDesc &desc) const override;
+        /// Creates an opacity micromap from the supplied parameters.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        /// @param size Backing-storage size, from a prior opacity_micromap_build_sizes() call.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] rhi::RhiExpected<rhi::OpacityMicromapHandle> create_opacity_micromap(
+            const rhi::OpacityMicromapDesc &desc, u64 size) override;
+        /// Destroys the opacity micromap identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note This function does not throw exceptions.
+        void destroy_opacity_micromap(rhi::OpacityMicromapHandle handle) noexcept override;
         /// Performs the buffer device address operation for `VulkanRhiDeviceBridge` using the supplied arguments.
         ///
         /// @param buffer Buffer used or affected by the operation.
@@ -581,6 +604,13 @@ namespace SFT::Core::Vulkan {
         struct BufferRecord {
             VulkanBuffer buffer;
             rhi::MemoryLocation memory = rhi::MemoryLocation::DeviceLocal;
+            // Cached once at creation from VulkanBuffer::is_host_visible() rather than re-queried on
+            // every write_buffer()/map_buffer() call — a DeviceLocal buffer's actual memory type
+            // (opportunistic Resizable BAR vs. plain device-local fallback, see VulkanRhiConvert.hpp's
+            // to_vma()) is fixed for the allocation's lifetime, so there is nothing to invalidate this
+            // on. Always true for HostUpload/HostReadback (those already require a host-visible type
+            // to be created at all), only sometimes true for DeviceLocal.
+            bool host_visible = false;
         };
 
 
@@ -633,6 +663,14 @@ namespace SFT::Core::Vulkan {
         struct AccelerationStructureRecord {
             VulkanBuffer backing_buffer;
             VulkanAccelerationStructure acceleration_structure;
+        };
+
+        /// No wrapper class the way AccelerationStructureRecord has VulkanAccelerationStructure --
+        /// VkMicromapEXT's creation/destruction is a single vkCreateMicromapEXT/vkDestroyMicromapEXT
+        /// call each, so a dedicated wrapper would only add indirection over what's already here.
+        struct OpacityMicromapRecord {
+            VulkanBuffer backing_buffer;
+            VkMicromapEXT micromap = VK_NULL_HANDLE;
         };
 
         struct SurfaceRecord {
@@ -710,7 +748,8 @@ namespace SFT::Core::Vulkan {
         /// @note This function does not throw exceptions.
         friend VkAccelerationStructureGeometryKHR to_vk_geometry(
             const rhi::AccelerationStructureGeometryDesc &geometry,
-            const VulkanRhiDeviceBridge &bridge) noexcept;
+            const VulkanRhiDeviceBridge &bridge,
+            vector<VkAccelerationStructureTrianglesOpacityMicromapEXT> &omm_storage) noexcept;
         friend class VulkanRhiEncoderCommon;
         friend class VulkanRhiCommandEncoder;
         friend class VulkanRhiRenderPassEncoder;
@@ -841,6 +880,7 @@ namespace SFT::Core::Vulkan {
         VulkanRhiResourcePool<rhi::ComputePipelineHandle, PipelineRecord> compute_pipelines_;
         VulkanRhiResourcePool<rhi::RayTracingPipelineHandle, PipelineRecord> ray_tracing_pipelines_;
         VulkanRhiResourcePool<rhi::AccelerationStructureHandle, AccelerationStructureRecord> acceleration_structures_;
+        VulkanRhiResourcePool<rhi::OpacityMicromapHandle, OpacityMicromapRecord> opacity_micromaps_;
         VulkanRhiResourcePool<rhi::CommandBufferHandle, CommandBufferRecord> command_buffers_;
         VulkanRhiResourcePool<rhi::RenderBundleHandle, RenderBundleRecord> render_bundles_;
         VulkanRhiResourcePool<rhi::SemaphoreHandle, VulkanSemaphore> semaphores_;

@@ -93,6 +93,8 @@ namespace SFT::D3D12 {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     D3D12CommandEncoder::D3D12CommandEncoder(D3D12Device &device, CommandBufferRecord &&record)
         : device_(&device), record_(std::move(record)), list_(record_.list.Get()) {
+        (void)record_.list.As(&list1_);
+        (void)record_.list.As(&list5_);
         (void)record_.list.As(&list4_);
         (void)record_.list.As(&list6_);
         if (device_->enhanced_barriers_) {
@@ -1025,6 +1027,10 @@ namespace SFT::D3D12 {
         }
     }
 
+    void D3D12CommandEncoder::build_opacity_micromaps(span<const rhi::OpacityMicromapBuildDesc>) {
+        fail("build_opacity_micromaps: D3D12 opacity micromap support is not implemented.");
+    }
+
     void D3D12CommandEncoder::copy_acceleration_structure(const rhi::AccelerationStructureCopyDesc &copy) {
         if (!can_record_outside_pass("copy_acceleration_structure")) {
             return;
@@ -1230,9 +1236,6 @@ namespace SFT::D3D12 {
         if (record_.list_type != D3D12_COMMAND_LIST_TYPE_DIRECT) {
             return unsupported("begin_render_pass: only a D3D12 direct-queue encoder can record rendering.");
         }
-        if (desc.allow_bundles) {
-            return unsupported("begin_render_pass: D3D12 render bundles are not implemented; record this pass inline.");
-        }
         if (desc.view_mask != 0) {
             return unsupported("begin_render_pass: D3D12 multiview rendering is not implemented.");
         }
@@ -1263,6 +1266,7 @@ namespace SFT::D3D12 {
 
         D3D12_CPU_DESCRIPTOR_HANDLE depth_target{};
         const D3D12_CPU_DESCRIPTOR_HANDLE *depth_target_ptr = nullptr;
+        std::optional<D3D12RenderPassEncoder::DepthResolve> depth_resolve;
         if (desc.depth_stencil.view.is_valid()) {
             const TextureViewRecord *view = device_->texture_views_.find(desc.depth_stencil.view);
             if (view == nullptr || !view->dsv.is_valid()) {
@@ -1270,7 +1274,40 @@ namespace SFT::D3D12 {
                                       "begin_render_pass: the depth/stencil attachment has no valid DSV.");
             }
             if (desc.depth_stencil.resolve_view.is_valid()) {
-                return unsupported("begin_render_pass: depth/stencil resolve is not implemented for D3D12.");
+                if (list1_ == nullptr) {
+                    return unsupported(
+                        "begin_render_pass: depth resolve requires ID3D12GraphicsCommandList1, which this "
+                        "command list does not expose.");
+                }
+                const TextureViewRecord *resolve = device_->texture_views_.find(desc.depth_stencil.resolve_view);
+                const TextureRecord *source_texture = device_->textures_.find(view->texture);
+                const TextureRecord *destination_texture =
+                    resolve != nullptr ? device_->textures_.find(resolve->texture) : nullptr;
+                if (resolve == nullptr || source_texture == nullptr || destination_texture == nullptr ||
+                    view->format != resolve->format) {
+                    return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                          "begin_render_pass: depth resolve views must be valid and have matching "
+                                          "formats.");
+                }
+                D3D12_FEATURE_DATA_FORMAT_SUPPORT format_support{.Format = resolve->format};
+                const bool resolve_supported =
+                    SUCCEEDED(device_->device_->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &format_support,
+                                                                     sizeof(format_support))) &&
+                    (format_support.Support1 & D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE) != 0;
+                if (!resolve_supported) {
+                    return unsupported(
+                        "begin_render_pass: the depth resolve target's format does not report "
+                        "D3D12_FORMAT_SUPPORT1_MULTISAMPLE_RESOLVE on this device.");
+                }
+                depth_resolve = D3D12RenderPassEncoder::DepthResolve{
+                    .source = source_texture->resource.Get(),
+                    .destination = destination_texture->resource.Get(),
+                    .source_subresource = subresource_index(*source_texture, view->base_mip_level, view->base_array_layer),
+                    .destination_subresource =
+                        subresource_index(*destination_texture, resolve->base_mip_level, resolve->base_array_layer),
+                    .format = resolve->format,
+                    .resolve_mode = to_d3d12(desc.depth_stencil.depth_resolve_mode),
+                };
             }
             depth_target = device_->cpu_dsv_descriptors_.cpu_handle(view->dsv, 0);
             depth_target_ptr = &depth_target;
@@ -1301,12 +1338,27 @@ namespace SFT::D3D12 {
             }
         }
 
+        if (desc.shading_rate_attachment.is_valid()) {
+            if (list5_ == nullptr) {
+                return unsupported("begin_render_pass: a shading-rate attachment was supplied but Variable Rate "
+                                   "Shading is unavailable on this command list.");
+            }
+            const TextureViewRecord *view = device_->texture_views_.find(desc.shading_rate_attachment);
+            const TextureRecord *texture = view != nullptr ? device_->textures_.find(view->texture) : nullptr;
+            if (texture == nullptr) {
+                return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                      "begin_render_pass: shading_rate_attachment is not a valid texture view.");
+            }
+            list5_->RSSetShadingRateImage(texture->resource.Get());
+        }
+
         bind_descriptor_heaps();
         pass_open_ = true;
         return unique_ptr<rhi::RenderPassEncoder>(std::make_unique<D3D12RenderPassEncoder>(
             *this,
             desc.allow_bundles,
-            std::move(color_resolves)));
+            std::move(color_resolves),
+            depth_resolve));
     }
 
     /// Performs the begin compute pass operation for `D3D12` using the supplied arguments.
@@ -1333,8 +1385,9 @@ namespace SFT::D3D12 {
     /// @param color_resolves `color_resolves` value used by the operation.
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    D3D12RenderPassEncoder::D3D12RenderPassEncoder(D3D12CommandEncoder &parent, bool bundles_only, std::vector<ColorResolve> color_resolves)
-        : parent_(&parent), color_resolves_(std::move(color_resolves)), bundles_only_(bundles_only) {}
+    D3D12RenderPassEncoder::D3D12RenderPassEncoder(D3D12CommandEncoder &parent, bool bundles_only, std::vector<ColorResolve> color_resolves,
+                                                   std::optional<DepthResolve> depth_resolve)
+        : parent_(&parent), color_resolves_(std::move(color_resolves)), depth_resolve_(depth_resolve), bundles_only_(bundles_only) {}
     /// Destroys the `D3D12` and releases resources owned by it.
     ///
     /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
@@ -1509,6 +1562,26 @@ namespace SFT::D3D12 {
         const D3D12_RECT r{value.x, value.y, value.x + static_cast<LONG>(value.width), value.y + static_cast<LONG>(value.height)};
         parent_->list_->RSSetScissorRects(1, &r);
     }
+    /// Sets custom MSAA sample positions for this `D3D12`.
+    ///
+    /// @param samples_per_pixel Number of samples each pixel in `grid_size` provides locations for.
+    /// @param grid_size Repeating pixel-pattern size the locations apply across.
+    /// @param locations `samples_per_pixel * grid_size.width * grid_size.height` positions.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderPassEncoder::set_sample_locations(u32 samples_per_pixel, rhi::Extent2D grid_size,
+                                                      span<const rhi::SampleLocation> locations) {
+        if (ended_ || parent_->list1_ == nullptr) {
+            parent_->fail("set_sample_locations: ended pass or SetSamplePositions unavailable on this command list.");
+            return;
+        }
+        std::vector<D3D12_SAMPLE_POSITION> positions;
+        positions.reserve(locations.size());
+        for (const rhi::SampleLocation &location : locations) {
+            positions.push_back(to_d3d12(location));
+        }
+        parent_->list1_->SetSamplePositions(samples_per_pixel, grid_size.width * grid_size.height, positions.data());
+    }
     /// Sets the blend constant for this `D3D12`.
     ///
     /// @param color `color` value used by the operation.
@@ -1535,6 +1608,35 @@ namespace SFT::D3D12 {
             return;
         }
         parent_->list_->OMSetStencilRef(reference);
+    }
+    /// Sets the depth bounds test range for this `D3D12`.
+    ///
+    /// @param min_depth Lower bound of the depth range that passes the test, in [0, 1].
+    /// @param max_depth Upper bound of the depth range that passes the test, in [0, 1].
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderPassEncoder::set_depth_bounds(f32 min_depth, f32 max_depth) {
+        if (ended_ || parent_->list1_ == nullptr) {
+            parent_->fail("set_depth_bounds: ended pass or OMSetDepthBounds unavailable on this command list.");
+            return;
+        }
+        parent_->list1_->OMSetDepthBounds(min_depth, max_depth);
+    }
+    /// Sets the pipeline-stage shading rate and its combiners for this `D3D12`.
+    ///
+    /// @param rate Base shading rate for subsequent draws, before any combiner runs.
+    /// @param primitive_combiner Combines `rate` with a draw's per-primitive shading rate output.
+    /// @param attachment_combiner Combines the result with the bound shading-rate attachment's rate.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderPassEncoder::set_shading_rate(rhi::ShadingRate rate, rhi::ShadingRateCombiner primitive_combiner,
+                                                  rhi::ShadingRateCombiner attachment_combiner) {
+        if (ended_ || parent_->list5_ == nullptr) {
+            parent_->fail("set_shading_rate: ended pass or Variable Rate Shading unavailable on this command list.");
+            return;
+        }
+        const D3D12_SHADING_RATE_COMBINER combiners[2] = {to_d3d12(primitive_combiner), to_d3d12(attachment_combiner)};
+        parent_->list5_->RSSetShadingRate(to_d3d12(rate), combiners);
     }
 
     /// Draws the requested content using the current rendering state.
@@ -1738,7 +1840,57 @@ namespace SFT::D3D12 {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void D3D12RenderPassEncoder::execute_bundles(span<const rhi::RenderBundleHandle>) { parent_->fail("execute_bundles: D3D12 render bundles are not implemented."); }
+    void D3D12RenderPassEncoder::execute_bundles(span<const rhi::RenderBundleHandle> bundles) {
+        if (ended_) {
+            parent_->fail("execute_bundles: ended pass.");
+            return;
+        }
+        if (bundles.empty()) {
+            return;
+        }
+
+        // A bundle's own SetDescriptorHeaps (set once in create_render_bundle_encoder) must match
+        // whatever heaps are bound on this list while ExecuteBundle runs -- see
+        // D3D12RenderBundleEncoder's own class doc comment. Switch onto the same persistent bundle
+        // heaps for the duration of this call, then switch back to this pass's per-frame ring heaps
+        // afterward so any direct draws later in the same pass see the right heaps again.
+        ID3D12DescriptorHeap *bundle_heaps[] = {parent_->device_->bundle_resource_descriptors_.heap(),
+                                                parent_->device_->bundle_sampler_descriptors_.heap()};
+        parent_->list_->SetDescriptorHeaps(2, bundle_heaps);
+
+        for (rhi::RenderBundleHandle handle : bundles) {
+            const RenderBundleRecord *record = parent_->device_->render_bundles_.find(handle);
+            if (record == nullptr || record->list == nullptr) {
+                parent_->fail("execute_bundles: unknown render bundle handle.");
+                continue;
+            }
+            if (record->viewport.has_value()) {
+                parent_->list_->RSSetViewports(1, &*record->viewport);
+            }
+            if (record->scissor.has_value()) {
+                parent_->list_->RSSetScissorRects(1, &*record->scissor);
+            }
+            if (record->sample_locations.has_value() && parent_->list1_ != nullptr) {
+                const RenderBundleRecord::SampleLocations &locations = *record->sample_locations;
+                parent_->list1_->SetSamplePositions(locations.samples_per_pixel,
+                                                     locations.grid_width * locations.grid_height,
+                                                     const_cast<D3D12_SAMPLE_POSITION *>(locations.positions.data()));
+            }
+            parent_->list_->ExecuteBundle(record->list.Get());
+        }
+
+        // Per the D3D12 spec, "after a bundle executes, all state on the command list is undefined,
+        // except the pipeline state object and primitive topology" -- so this pass's own
+        // pipeline/root-signature/bind-group/vertex-buffer tracking is no longer trustworthy even
+        // though nothing here actually changed those members. Force set_pipeline() to be called again
+        // (which re-establishes vertex buffers too, see its own body) before any further direct draw,
+        // and force a full root-signature + bind-group re-flush once it is, rather than silently
+        // drawing against GPU state a bundle may have clobbered.
+        pipeline_bound_ = false;
+        parent_->graphics_bindings_.layout_dirty = true;
+
+        parent_->bind_descriptor_heaps();
+    }
     /// Performs the begin occlusion query operation for `D3D12` using the supplied arguments.
     ///
     /// @param set `set` value used by the operation.
@@ -1780,6 +1932,12 @@ namespace SFT::D3D12 {
             end_occlusion_query();
         for (const ColorResolve &resolve : color_resolves_) {
             parent_->list_->ResolveSubresource(resolve.destination, resolve.destination_subresource, resolve.source, resolve.source_subresource, resolve.format);
+        }
+        if (depth_resolve_.has_value() && parent_->list1_ != nullptr) {
+            const DepthResolve &resolve = *depth_resolve_;
+            parent_->list1_->ResolveSubresourceRegion(resolve.destination, resolve.destination_subresource, 0, 0,
+                                                       resolve.source, resolve.source_subresource, nullptr,
+                                                       resolve.format, resolve.resolve_mode);
         }
         ended_ = true;
         parent_->pass_open_ = false;
@@ -1904,6 +2062,503 @@ namespace SFT::D3D12 {
         }
     }
 
+    /// Constructs a `D3D12RenderBundleEncoder` from the supplied initialization values.
+    ///
+    /// @param device Device used or affected by the operation.
+    /// @param record `record` value used by the operation; ownership of its allocator/list moves in.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    D3D12RenderBundleEncoder::D3D12RenderBundleEncoder(D3D12Device &device, RenderBundleRecord record)
+        : device_(&device), record_(std::move(record)) {
+        (void)record_.list.As(&list1_);
+        (void)record_.list.As(&list6_);
+    }
+    /// Destroys the `D3D12RenderBundleEncoder` and releases resources owned by it.
+    ///
+    /// @note This function does not throw exceptions.
+    D3D12RenderBundleEncoder::~D3D12RenderBundleEncoder() = default;
+
+    /// Records the fail state for subsequent operations, keeping only the first failure recorded.
+    ///
+    /// @param message Text consumed by the operation.
+    ///
+    /// @note This function does not throw exceptions.
+    void D3D12RenderBundleEncoder::fail(std::string message) noexcept {
+        if (!deferred_error_.has_value()) {
+            deferred_error_ = rhi::RhiError{rhi::RhiErrorCode::InvalidArgument, std::move(message)};
+        }
+    }
+
+    /// Rejects an indirect draw call, which D3D12 bundles cannot legally record.
+    ///
+    /// @param operation `operation` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::reject_indirect(const char *operation) noexcept {
+        fail(std::string(operation) + ": ExecuteIndirect is not legal inside a D3D12 render bundle.");
+    }
+
+    /// Sets the pipeline for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @param pipeline Pipeline used or affected by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_pipeline(rhi::RenderPipelineHandle pipeline) {
+        const RenderPipelineRecord *record = device_->render_pipelines_.find(pipeline);
+        if (finished_ || record == nullptr) {
+            fail("set_pipeline: unknown render pipeline or finished bundle.");
+            return;
+        }
+        record_.list->SetPipelineState(record->pipeline.Get());
+        record_.list->IASetPrimitiveTopology(record->topology);
+        if (bindings_.layout != record->layout) {
+            bindings_.layout = record->layout;
+            bindings_.layout_dirty = true;
+            bindings_.push_constants.clear();
+            bindings_.push_constants_dirty = false;
+        }
+        pipeline_bound_ = true;
+        mesh_pipeline_bound_ = record->is_mesh_pipeline;
+        vertex_strides_ = record->vertex_strides;
+        if (!mesh_pipeline_bound_) {
+            for (u32 slot = 0; slot < vertex_strides_.size(); ++slot) {
+                if (vertex_buffers_[slot].buffer.is_valid()) {
+                    bind_vertex_buffer(slot);
+                }
+            }
+        }
+    }
+    /// Sets the bind group for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @param index Zero-based index of the target element or entry.
+    /// @param group `group` value used by the operation.
+    /// @param offsets Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_bind_group(u32 index, rhi::BindGroupHandle group, span<const u32> offsets) {
+        if (finished_ || index >= max_tracked_bind_groups || !group.is_valid()) {
+            fail("set_bind_group: invalid index, handle, or finished bundle.");
+            return;
+        }
+        auto &pending = bindings_.groups[index];
+        pending.handle = group;
+        pending.dynamic_offsets.assign(offsets.begin(), offsets.end());
+        pending.dirty = true;
+        record_.referenced_bind_groups.push_back(group);
+    }
+    /// Binds vertex buffer for subsequent operations.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::bind_vertex_buffer(u32 slot) {
+        if (!pipeline_bound_ || mesh_pipeline_bound_ || slot >= vertex_strides_.size()) {
+            fail("set_vertex_buffer: the slot is not declared by the bound vertex pipeline.");
+            return;
+        }
+        const PendingVertexBuffer &pending = vertex_buffers_[slot];
+        const BufferRecord *record = device_->buffers_.find(pending.buffer);
+        if (record == nullptr || pending.offset > record->size ||
+            !rhi::has_any(record->usage, rhi::BufferUsage::Vertex)) {
+            fail("set_vertex_buffer: invalid buffer, usage, or offset.");
+            return;
+        }
+        const u64 remaining = record->size - pending.offset;
+        const D3D12_VERTEX_BUFFER_VIEW view{
+            record->gpu_address + pending.offset,
+            static_cast<UINT>(std::min<u64>(remaining, std::numeric_limits<UINT>::max())),
+            vertex_strides_[slot],
+        };
+        record_.list->IASetVertexBuffers(slot, 1, &view);
+    }
+    /// Sets the vertex buffer for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @param slot Binding or storage slot addressed by the operation.
+    /// @param buffer Buffer used or affected by the operation.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_vertex_buffer(u32 slot, rhi::BufferHandle buffer, u64 offset) {
+        const BufferRecord *record = device_->buffers_.find(buffer);
+        if (finished_ || slot >= vertex_buffers_.size() || record == nullptr || offset > record->size ||
+            !rhi::has_any(record->usage, rhi::BufferUsage::Vertex)) {
+            fail("set_vertex_buffer: invalid slot, buffer, usage, offset, or finished bundle.");
+            return;
+        }
+        vertex_buffers_[slot] = PendingVertexBuffer{.buffer = buffer, .offset = offset};
+        if (pipeline_bound_) {
+            bind_vertex_buffer(slot);
+        }
+    }
+    /// Sets the index buffer for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @param buffer Buffer used or affected by the operation.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_index_buffer(rhi::BufferHandle buffer, rhi::IndexFormat format, u64 offset) {
+        const BufferRecord *record = device_->buffers_.find(buffer);
+        if (finished_ || record == nullptr || offset > record->size ||
+            !rhi::has_any(record->usage, rhi::BufferUsage::Index)) {
+            fail("set_index_buffer: invalid buffer, usage, offset, or finished bundle.");
+            return;
+        }
+        const D3D12_INDEX_BUFFER_VIEW view{
+            record->gpu_address + offset,
+            static_cast<UINT>(std::min<u64>(record->size - offset, std::numeric_limits<UINT>::max())),
+            to_dxgi(format),
+        };
+        record_.list->IASetIndexBuffer(&view);
+    }
+    /// Sets the push constants for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @param offset Offset from the beginning of the relevant range or buffer.
+    /// @param data Data consumed or referenced by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_push_constants(rhi::ShaderStage, u32 offset, span<const std::byte> data) {
+        if (finished_ || offset % 4 != 0 || data.size() % 4 != 0) {
+            fail("set_push_constants: data and offset must be four-byte aligned.");
+            return;
+        }
+        auto &constants = bindings_.push_constants;
+        if (constants.size() < offset + data.size())
+            constants.resize(offset + data.size());
+        std::memcpy(constants.data() + offset, data.data(), data.size());
+        bindings_.push_constants_dirty = true;
+    }
+    /// Captures the viewport for this `D3D12RenderBundleEncoder` instead of recording it.
+    ///
+    /// @param value RHI viewport, authored against the engine's +Y-up clip-space convention.
+    ///
+    /// @note RSSetViewports is not a legal call inside a D3D12_COMMAND_LIST_TYPE_BUNDLE command list
+    ///       (D3D12 always inherits viewport/scissor from the list that executes the bundle); the
+    ///       last value given here is instead applied by D3D12RenderPassEncoder::execute_bundles() on
+    ///       its own DIRECT list immediately before ExecuteBundle. See RenderBundleRecord::viewport's
+    ///       own doc comment.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_viewport(const rhi::Viewport &value) {
+        if (finished_) {
+            fail("set_viewport: finished bundle.");
+            return;
+        }
+        record_.viewport = D3D12_VIEWPORT{value.x, value.y, value.width, value.height, value.min_depth, value.max_depth};
+    }
+    /// Captures the scissor for this `D3D12RenderBundleEncoder` instead of recording it.
+    ///
+    /// @param value Value consumed by the operation.
+    ///
+    /// @note See set_viewport()'s own doc comment -- RSSetScissorRects is equally illegal inside a bundle.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_scissor(const rhi::Rect2D &value) {
+        if (finished_) {
+            fail("set_scissor: finished bundle.");
+            return;
+        }
+        record_.scissor = D3D12_RECT{value.x, value.y, value.x + static_cast<LONG>(value.width),
+                                     value.y + static_cast<LONG>(value.height)};
+    }
+    /// Captures custom MSAA sample positions for this `D3D12RenderBundleEncoder` instead of recording
+    /// them.
+    ///
+    /// @param samples_per_pixel Number of samples each pixel in `grid_size` provides locations for.
+    /// @param grid_size Repeating pixel-pattern size the locations apply across.
+    /// @param locations `samples_per_pixel * grid_size.width * grid_size.height` positions.
+    ///
+    /// @note See set_viewport()'s own doc comment -- SetSamplePositions gets the same
+    /// capture-and-hoist treatment for the same "uncertain-to-illegal inside a bundle" reason.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_sample_locations(u32 samples_per_pixel, rhi::Extent2D grid_size,
+                                                        span<const rhi::SampleLocation> locations) {
+        if (finished_) {
+            fail("set_sample_locations: finished bundle.");
+            return;
+        }
+        RenderBundleRecord::SampleLocations captured{
+            .samples_per_pixel = samples_per_pixel,
+            .grid_width = grid_size.width,
+            .grid_height = grid_size.height,
+        };
+        captured.positions.reserve(locations.size());
+        for (const rhi::SampleLocation &location : locations) {
+            captured.positions.push_back(to_d3d12(location));
+        }
+        record_.sample_locations = std::move(captured);
+    }
+    /// Sets the blend constant for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @param color `color` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_blend_constant(const rhi::ClearColor &color) {
+        if (finished_) {
+            fail("set_blend_constant: finished bundle.");
+            return;
+        }
+        const float v[] = {color.r, color.g, color.b, color.a};
+        record_.list->OMSetBlendFactor(v);
+    }
+    /// Sets the stencil reference for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @param reference `reference` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_stencil_reference(u32 reference) {
+        if (finished_) {
+            fail("set_stencil_reference: finished bundle.");
+            return;
+        }
+        record_.list->OMSetStencilRef(reference);
+    }
+    /// Sets the depth bounds test range for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @param min_depth Lower bound of the depth range that passes the test, in [0, 1].
+    /// @param max_depth Upper bound of the depth range that passes the test, in [0, 1].
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::set_depth_bounds(f32 min_depth, f32 max_depth) {
+        if (finished_ || list1_ == nullptr) {
+            fail("set_depth_bounds: finished bundle or OMSetDepthBounds unavailable on this command list.");
+            return;
+        }
+        list1_->OMSetDepthBounds(min_depth, max_depth);
+    }
+
+    /// Uploads pending bind-group descriptor tables into the device's persistent bundle allocator and
+    /// issues the matching SetGraphicsRootDescriptorTable/root-view calls.
+    ///
+    /// @return Returns `true` on success; `false` after recording a failure via fail().
+    /// @note Unlike D3D12CommandEncoder::flush_bindings, there is no "allocate a fresh heap and retry"
+    /// path on exhaustion: PersistentShaderVisibleDescriptorAllocator deliberately never grows past
+    /// its one fixed heap (see that class's own doc comment), so running out here is a hard failure.
+    bool D3D12RenderBundleEncoder::flush_bindings() {
+        const PipelineLayoutRecord *layout = device_->pipeline_layouts_.find(bindings_.layout);
+        if (layout == nullptr) {
+            fail("A draw was recorded before a pipeline (and therefore a pipeline layout) was bound.");
+            return false;
+        }
+
+        if (bindings_.layout_dirty) {
+            record_.list->SetGraphicsRootSignature(layout->root_signature.Get());
+            for (PendingBindGroup &group : bindings_.groups) {
+                if (group.handle.is_valid()) {
+                    group.dirty = true;
+                }
+            }
+            bindings_.push_constants_dirty = !bindings_.push_constants.empty();
+            bindings_.layout_dirty = false;
+        }
+
+        for (u32 set_index = 0; set_index < max_tracked_bind_groups && set_index < layout->sets.size();
+             ++set_index) {
+            PendingBindGroup &pending = bindings_.groups[set_index];
+            if (!pending.handle.is_valid() || !pending.dirty) {
+                continue;
+            }
+            const BindGroupRecord *group = device_->bind_groups_.find(pending.handle);
+            if (group == nullptr) {
+                fail("set_bind_group was given a bind group handle that has since been destroyed.");
+                return false;
+            }
+            const BindGroupLayoutRecord *group_layout = device_->bind_group_layouts_.find(group->layout);
+            if (group_layout == nullptr) {
+                fail("A bound bind group's layout has been destroyed.");
+                return false;
+            }
+            if (set_index >= layout->set_layouts.size() || group->layout != layout->set_layouts[set_index]) {
+                fail("A bound bind group's layout is incompatible with the current pipeline layout at that set index.");
+                return false;
+            }
+            if (pending.dynamic_offsets.size() != group_layout->dynamic_slots.size()) {
+                fail("set_bind_group supplied the wrong number of dynamic offsets for its layout.");
+                return false;
+            }
+
+            std::optional<D3D12_GPU_DESCRIPTOR_HANDLE> resource_table;
+            std::optional<D3D12_GPU_DESCRIPTOR_HANDLE> sampler_table;
+            if (group->resources.is_valid()) {
+                auto range = device_->bundle_resource_descriptors_.allocate(group->resources.count);
+                if (!range) {
+                    fail(range.error().message);
+                    return false;
+                }
+                device_->device_->CopyDescriptorsSimple(
+                    group->resources.count,
+                    device_->bundle_resource_descriptors_.cpu_handle(*range, 0),
+                    device_->cpu_resource_descriptors_.cpu_handle(group->resources, 0),
+                    D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+                resource_table = device_->bundle_resource_descriptors_.gpu_handle(*range, 0);
+                record_.resource_table_ranges.push_back(*range);
+            }
+            if (group->samplers.is_valid()) {
+                auto range = device_->bundle_sampler_descriptors_.allocate(group->samplers.count);
+                if (!range) {
+                    fail(range.error().message);
+                    return false;
+                }
+                device_->device_->CopyDescriptorsSimple(
+                    group->samplers.count,
+                    device_->bundle_sampler_descriptors_.cpu_handle(*range, 0),
+                    device_->cpu_sampler_descriptors_.cpu_handle(group->samplers, 0),
+                    D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+                sampler_table = device_->bundle_sampler_descriptors_.gpu_handle(*range, 0);
+                record_.sampler_table_ranges.push_back(*range);
+            }
+
+            const SetRootParameters &mapping = layout->sets[set_index];
+            if (resource_table.has_value() && mapping.resource_table >= 0) {
+                record_.list->SetGraphicsRootDescriptorTable(static_cast<UINT>(mapping.resource_table), *resource_table);
+            }
+            if (sampler_table.has_value() && mapping.sampler_table >= 0) {
+                record_.list->SetGraphicsRootDescriptorTable(static_cast<UINT>(mapping.sampler_table), *sampler_table);
+            }
+
+            for (usize slot = 0; slot < group_layout->dynamic_slots.size(); ++slot) {
+                if (slot >= mapping.dynamic_root_parameters.size() || slot >= group->dynamic_addresses.size()) {
+                    break;
+                }
+                const D3D12_GPU_VIRTUAL_ADDRESS base = group->dynamic_addresses[slot];
+                if (base == 0) {
+                    fail("A dynamic-offset binding was never given a buffer when its bind group was created.");
+                    return false;
+                }
+                const u64 dynamic_offset = slot < pending.dynamic_offsets.size() ? pending.dynamic_offsets[slot] : 0;
+                const UINT parameter = static_cast<UINT>(mapping.dynamic_root_parameters[slot]);
+                const D3D12_GPU_VIRTUAL_ADDRESS address = base + dynamic_offset;
+                switch (group_layout->dynamic_slots[slot].type) {
+                    case rhi::BindingType::UniformBuffer:
+                        record_.list->SetGraphicsRootConstantBufferView(parameter, address);
+                        break;
+                    case rhi::BindingType::StorageBuffer:
+                        record_.list->SetGraphicsRootUnorderedAccessView(parameter, address);
+                        break;
+                    default:
+                        record_.list->SetGraphicsRootShaderResourceView(parameter, address);
+                        break;
+                }
+            }
+            pending.dirty = false;
+        }
+
+        if (bindings_.push_constants.size() > static_cast<usize>(layout->push_constant_values) * sizeof(u32)) {
+            fail("Push-constant data exceeds the current pipeline layout's declared range.");
+            return false;
+        }
+        if (bindings_.push_constants_dirty && layout->push_constant_root_parameter >= 0) {
+            const UINT values = static_cast<UINT>(bindings_.push_constants.size() / 4);
+            if (values > 0) {
+                record_.list->SetGraphicsRoot32BitConstants(static_cast<UINT>(layout->push_constant_root_parameter),
+                                                             values, bindings_.push_constants.data(), 0);
+            }
+            bindings_.push_constants_dirty = false;
+        }
+        return !deferred_error_.has_value();
+    }
+
+    /// Draws the requested content using the current rendering state.
+    ///
+    /// @param args `args` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::draw(const rhi::DrawArgs &args) {
+        if (finished_ || !pipeline_bound_ || mesh_pipeline_bound_) {
+            fail("draw: a vertex pipeline must be bound before drawing, or the bundle is finished.");
+            return;
+        }
+        if (!flush_bindings()) {
+            return;
+        }
+        record_.list->DrawInstanced(args.vertex_count, args.instance_count, args.first_vertex, args.first_instance);
+    }
+    /// Draws indexed using the current rendering state.
+    ///
+    /// @param args `args` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::draw_indexed(const rhi::DrawIndexedArgs &args) {
+        if (finished_ || !pipeline_bound_ || mesh_pipeline_bound_) {
+            fail("draw_indexed: a vertex pipeline must be bound before drawing, or the bundle is finished.");
+            return;
+        }
+        if (!flush_bindings()) {
+            return;
+        }
+        record_.list->DrawIndexedInstanced(args.index_count, args.instance_count, args.first_index, args.base_vertex,
+                                           args.first_instance);
+    }
+    /// Draws mesh tasks using the current rendering state.
+    ///
+    /// @param args `args` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void D3D12RenderBundleEncoder::draw_mesh_tasks(const rhi::DrawMeshTasksArgs &args) {
+        if (finished_ || list6_ == nullptr || !pipeline_bound_ || !mesh_pipeline_bound_) {
+            fail("draw_mesh_tasks: mesh dispatch is unavailable, no mesh pipeline is bound, or the bundle is finished.");
+            return;
+        }
+        if (!flush_bindings()) {
+            return;
+        }
+        list6_->DispatchMesh(args.group_count_x, args.group_count_y, args.group_count_z);
+    }
+    /// Draws indirect using the current rendering state.
+    ///
+    /// @note ExecuteIndirect is not a legal call inside a D3D12 bundle -- see reject_indirect()'s own doc comment.
+    void D3D12RenderBundleEncoder::draw_indirect(rhi::BufferHandle, u64) { reject_indirect("draw_indirect"); }
+    /// Draws indexed indirect using the current rendering state.
+    ///
+    /// @note ExecuteIndirect is not a legal call inside a D3D12 bundle -- see reject_indirect()'s own doc comment.
+    void D3D12RenderBundleEncoder::draw_indexed_indirect(rhi::BufferHandle, u64) { reject_indirect("draw_indexed_indirect"); }
+    /// Draws indirect using the current rendering state.
+    ///
+    /// @note ExecuteIndirect is not a legal call inside a D3D12 bundle -- see reject_indirect()'s own doc comment.
+    void D3D12RenderBundleEncoder::draw_indirect(rhi::BufferHandle, u64, u32, u32) { reject_indirect("draw_indirect"); }
+    /// Draws indexed indirect using the current rendering state.
+    ///
+    /// @note ExecuteIndirect is not a legal call inside a D3D12 bundle -- see reject_indirect()'s own doc comment.
+    void D3D12RenderBundleEncoder::draw_indexed_indirect(rhi::BufferHandle, u64, u32, u32) { reject_indirect("draw_indexed_indirect"); }
+    /// Returns the draw indirect count for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @note ExecuteIndirect is not a legal call inside a D3D12 bundle -- see reject_indirect()'s own doc comment.
+    void D3D12RenderBundleEncoder::draw_indirect_count(rhi::BufferHandle, u64, rhi::BufferHandle, u64, u32, u32) {
+        reject_indirect("draw_indirect_count");
+    }
+    /// Returns the draw indexed indirect count for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @note ExecuteIndirect is not a legal call inside a D3D12 bundle -- see reject_indirect()'s own doc comment.
+    void D3D12RenderBundleEncoder::draw_indexed_indirect_count(rhi::BufferHandle, u64, rhi::BufferHandle, u64, u32, u32) {
+        reject_indirect("draw_indexed_indirect_count");
+    }
+    /// Draws mesh tasks indirect using the current rendering state.
+    ///
+    /// @note ExecuteIndirect is not a legal call inside a D3D12 bundle -- see reject_indirect()'s own doc comment.
+    void D3D12RenderBundleEncoder::draw_mesh_tasks_indirect(rhi::BufferHandle, u64) { reject_indirect("draw_mesh_tasks_indirect"); }
+    /// Returns the draw mesh tasks indirect count for this `D3D12RenderBundleEncoder`.
+    ///
+    /// @note ExecuteIndirect is not a legal call inside a D3D12 bundle -- see reject_indirect()'s own doc comment.
+    void D3D12RenderBundleEncoder::draw_mesh_tasks_indirect_count(rhi::BufferHandle, u64, rhi::BufferHandle, u64, u32, u32) {
+        reject_indirect("draw_mesh_tasks_indirect_count");
+    }
+
+    /// Returns the current or globally available finish value.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    rhi::RhiExpected<rhi::RenderBundleHandle> D3D12RenderBundleEncoder::finish() {
+        if (finished_) {
+            return operation_failed("finish: this render bundle encoder has already finished.");
+        }
+        finished_ = true;
+        if (deferred_error_.has_value()) {
+            return std::unexpected(*deferred_error_);
+        }
+        if (const HRESULT hr = record_.list->Close(); FAILED(hr)) {
+            return hresult_error(hr, "finish (Close)");
+        }
+        return device_->render_bundles_.insert(std::move(record_));
+    }
+
     /// Creates a command encoder from the supplied parameters.
     ///
     /// @param desc Description of the resource or operation to perform.
@@ -1926,8 +2581,43 @@ namespace SFT::D3D12 {
     ///
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-    rhi::RhiExpected<unique_ptr<rhi::RenderBundleEncoder>> D3D12Device::create_render_bundle_encoder(const rhi::RenderBundleDesc &) {
-        return unsupported("create_render_bundle_encoder: D3D12 render bundles are not implemented.");
+    rhi::RhiExpected<unique_ptr<rhi::RenderBundleEncoder>> D3D12Device::create_render_bundle_encoder(
+        const rhi::RenderBundleDesc &desc) {
+        if (device_ == nullptr) {
+            return device_not_ready<unique_ptr<rhi::RenderBundleEncoder>>("create_render_bundle_encoder");
+        }
+
+        RenderBundleRecord record{};
+        if (const HRESULT hr =
+                device_->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_BUNDLE, IID_PPV_ARGS(&record.allocator));
+            FAILED(hr)) {
+            return hresult_error(hr, "create_render_bundle_encoder (CreateCommandAllocator)");
+        }
+        if (const HRESULT hr = device_->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_BUNDLE, record.allocator.Get(),
+                                                           nullptr, IID_PPV_ARGS(&record.list));
+            FAILED(hr)) {
+            return hresult_error(hr, "create_render_bundle_encoder (CreateCommandList)");
+        }
+        set_debug_name(record.list.Get(), desc.label);
+
+        // D3D12 requires a bundle to call SetDescriptorHeaps itself with the same heap pointers the
+        // executing (DIRECT) command list has bound -- see D3D12RenderBundleEncoder's own class doc
+        // comment and D3D12RenderPassEncoder::execute_bundles(), which switches onto these same
+        // persistent bundle heaps before ExecuteBundle for exactly this reason. Bound once here,
+        // unconditionally, since every bundle uses the persistent allocator for its bind groups.
+        ID3D12DescriptorHeap *bundle_heaps[] = {bundle_resource_descriptors_.heap(), bundle_sampler_descriptors_.heap()};
+        record.list->SetDescriptorHeaps(2, bundle_heaps);
+
+        // D3D12 bundles carry no render-target/format declaration the way Vulkan secondary command
+        // buffers need one for VkCommandBufferInheritanceRenderingInfo -- a bundle is just state-set
+        // and draw calls, replayed into whatever render targets happen to be bound on the executing
+        // list. Nothing here needs these fields.
+        (void)desc.color_formats;
+        (void)desc.depth_stencil_format;
+        (void)desc.samples;
+        (void)desc.view_mask;
+
+        return unique_ptr<rhi::RenderBundleEncoder>(std::make_unique<D3D12RenderBundleEncoder>(*this, std::move(record)));
     }
     /// Performs the indirect signature operation for `D3D12` using the supplied arguments.
     ///

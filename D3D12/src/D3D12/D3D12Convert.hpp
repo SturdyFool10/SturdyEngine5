@@ -132,6 +132,43 @@ namespace SFT::D3D12 {
     /// @note This function does not throw exceptions.
     [[nodiscard]] D3D12_TEXTURE_ADDRESS_MODE to_d3d12(rhi::AddressMode mode) noexcept;
 
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note `rhi::ResolveMode::SampleZero` maps to `D3D12_RESOLVE_MODE_DECOMPRESS`, which the D3D12
+    /// specification documents as taking the value of sample 0 without blending -- the same semantics
+    /// as Vulkan's `VK_RESOLVE_MODE_SAMPLE_ZERO_BIT` -- rather than to any format-dependent averaging
+    /// behavior.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] D3D12_RESOLVE_MODE to_d3d12(rhi::ResolveMode mode) noexcept;
+
+    /// Converts an RHI sample location (normalized [0,1) from the pixel's top-left corner) to a
+    /// D3D12_SAMPLE_POSITION (signed 1/16-pixel offset from pixel center, range [-8,7]).
+    ///
+    /// @param location `location` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] D3D12_SAMPLE_POSITION to_d3d12(rhi::SampleLocation location) noexcept;
+
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param rate `rate` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] D3D12_SHADING_RATE to_d3d12(rhi::ShadingRate rate) noexcept;
+
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param combiner `combiner` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] D3D12_SHADING_RATE_COMBINER to_d3d12(rhi::ShadingRateCombiner combiner) noexcept;
+
 
     /// Converts the supplied engine/RHI value to its D3D12 representation.
     ///

@@ -176,9 +176,13 @@ namespace SFT::Core::Vulkan {
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES,
             .pNext = &ray_tracing_properties,
         };
+        VkPhysicalDeviceFragmentShadingRatePropertiesKHR fragment_shading_rate_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR,
+            .pNext = &depth_resolve_properties,
+        };
         VkPhysicalDeviceProperties2 extended_properties{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
-            .pNext = &depth_resolve_properties,
+            .pNext = &fragment_shading_rate_properties,
         };
         vkGetPhysicalDeviceProperties2(physical_device.vk_handle(), &extended_properties);
         limits_.supports_minimum_depth_resolve =
@@ -196,6 +200,21 @@ namespace SFT::Core::Vulkan {
                 static_cast<u32>(acceleration_structure_properties.maxInstanceCount);
             feature_properties_.ray_tracing.min_acceleration_structure_scratch_offset_alignment =
                 acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment;
+        }
+        if (enabled_features_.has(rhi::Feature::AttachmentFragmentShadingRate)) {
+            // Vulkan reports a legal range (min..max) for the shading-rate attachment's texel size;
+            // D3D12's equivalent (D3D12_FEATURE_DATA_D3D12_OPTIONS6::ShadingRateImageTileSize) is a
+            // single fixed value with no such range. Pinning both min and max to Vulkan's own
+            // minimum here gives every caller one concrete, always-legal tile size on both backends
+            // instead of a Vulkan-only range a D3D12-targeting caller would have no use for.
+            feature_properties_.variable_rate_shading.min_tile_width =
+                fragment_shading_rate_properties.minFragmentShadingRateAttachmentTexelSize.width;
+            feature_properties_.variable_rate_shading.min_tile_height =
+                fragment_shading_rate_properties.minFragmentShadingRateAttachmentTexelSize.height;
+            feature_properties_.variable_rate_shading.max_tile_width =
+                fragment_shading_rate_properties.minFragmentShadingRateAttachmentTexelSize.width;
+            feature_properties_.variable_rate_shading.max_tile_height =
+                fragment_shading_rate_properties.minFragmentShadingRateAttachmentTexelSize.height;
         }
         if (enabled_features_.has(rhi::Feature::BindlessResources)) {
             feature_properties_.descriptor_indexing.max_update_after_bind_descriptors =

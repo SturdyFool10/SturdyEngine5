@@ -102,7 +102,18 @@ namespace SFT::Core::D3D12 {
                                           "D3D12 instance enumerated no adapters.");
         }
 
+        RHI::FeatureSet required_features = init.features.required_rhi_features;
         RHI::FeatureSet optional_features = init.features.optional_rhi_features;
+
+
+        optional_features.set(RHI::Feature::FullScreenExclusive);
+        optional_features.set(RHI::Feature::RenderBundles);
+        optional_features.set(RHI::Feature::DepthBoundsTest);
+        optional_features.set(RHI::Feature::ConservativeRasterization);
+        optional_features.set(RHI::Feature::SampleLocations);
+        optional_features.set(RHI::Feature::VariableRateShading);
+        optional_features.set(RHI::Feature::PipelineFragmentShadingRate);
+        optional_features.set(RHI::Feature::AttachmentFragmentShadingRate);
         if (init.features.raytracing) {
             optional_features.set(RHI::Feature::RayTracingPipeline)
                 .set(RHI::Feature::RayQuery)
@@ -110,8 +121,36 @@ namespace SFT::Core::D3D12 {
                 .set(RHI::Feature::BufferDeviceAddress)
                 .set(RHI::Feature::BindlessResources);
         }
+        // Mirrors VulkanBackendDevice.cpp's `close_bindless_dependencies`: requesting
+        // BindlessResources (or any of its constituents) without also requesting the rest of the
+        // descriptor-indexing set left DescriptorBindingUpdateAfterBind (and friends) unrequested on
+        // D3D12, so ray-query spectral path tracing's required-feature check
+        // (RendererSpectralPathTracing.cpp) could never be satisfied on this backend even though
+        // D3D12Adapter.cpp now reports full support for it at resource binding tier 3.
+        const auto close_bindless_dependencies = [](RHI::FeatureSet &features) {
+            if (!features.has(RHI::Feature::BindlessResources) &&
+                !features.has(RHI::Feature::DescriptorIndexing) &&
+                !features.has(RHI::Feature::RuntimeDescriptorArrays) &&
+                !features.has(RHI::Feature::DescriptorBindingVariableCount) &&
+                !features.has(RHI::Feature::DescriptorBindingPartiallyBound) &&
+                !features.has(RHI::Feature::DescriptorBindingUpdateAfterBind) &&
+                !features.has(RHI::Feature::NonUniformResourceIndexing) &&
+                !features.has(RHI::Feature::SampledImageArrayNonUniformIndexing)) {
+                return;
+            }
+            features.set(RHI::Feature::BindlessResources)
+                .set(RHI::Feature::DescriptorIndexing)
+                .set(RHI::Feature::RuntimeDescriptorArrays)
+                .set(RHI::Feature::DescriptorBindingVariableCount)
+                .set(RHI::Feature::DescriptorBindingPartiallyBound)
+                .set(RHI::Feature::DescriptorBindingUpdateAfterBind)
+                .set(RHI::Feature::NonUniformResourceIndexing)
+                .set(RHI::Feature::SampledImageArrayNonUniformIndexing);
+        };
+        close_bindless_dependencies(required_features);
+        close_bindless_dependencies(optional_features);
         const RHI::DeviceRequest device_request{
-            .required_features = init.features.required_rhi_features,
+            .required_features = required_features,
             .optional_features = optional_features,
             .required_extensions = {},
             .optional_extensions = {},

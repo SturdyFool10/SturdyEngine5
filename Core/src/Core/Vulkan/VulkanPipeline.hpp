@@ -474,6 +474,20 @@ namespace SFT::Core::Vulkan {
         /// @return Returns `*this` so the operation can be chained.
         /// @note This function does not throw exceptions.
         GraphicsPipelineBuilder &set_depth_bounds_test(bool enable) noexcept;
+        /// Sets conservative rasterization (overestimation mode) for this `GraphicsPipelineBuilder`.
+        ///
+        /// @param enable Whether the associated behavior is enabled.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
+        GraphicsPipelineBuilder &set_conservative_rasterization(bool enable) noexcept;
+        /// Opts this pipeline into RenderPassEncoder::set_sample_locations() for this `GraphicsPipelineBuilder`.
+        ///
+        /// @param enable Whether the associated behavior is enabled.
+        ///
+        /// @return Returns `*this` so the operation can be chained.
+        /// @note This function does not throw exceptions.
+        GraphicsPipelineBuilder &set_sample_locations_enable(bool enable) noexcept;
         /// Sets the stencil for this `GraphicsPipelineBuilder`.
         ///
         /// @param front `front` value used by the operation.
@@ -580,6 +594,8 @@ namespace SFT::Core::Vulkan {
         float depth_bias_constant_ = 0.0f;
         float depth_bias_clamp_ = 0.0f;
         float depth_bias_slope_ = 0.0f;
+        bool conservative_rasterization_ = false;
+        bool sample_locations_enable_ = false;
         VkSampleCountFlagBits samples_ = VK_SAMPLE_COUNT_1_BIT;
         bool alpha_to_coverage_ = false;
         u32 sample_mask_ = 0xFFFFFFFFu;

@@ -40,6 +40,7 @@ namespace SFT::RHI {
     using ComputePipelineHandle = Handle<struct ComputePipelineTag>;
     using RayTracingPipelineHandle = Handle<struct RayTracingPipelineTag>;
     using AccelerationStructureHandle = Handle<struct AccelerationStructureTag>;
+    using OpacityMicromapHandle = Handle<struct OpacityMicromapTag>;
     using CommandBufferHandle = Handle<struct CommandBufferTag>;
     using RenderBundleHandle = Handle<struct RenderBundleTag>;
     using SurfaceHandle = Handle<struct SurfaceTag>;

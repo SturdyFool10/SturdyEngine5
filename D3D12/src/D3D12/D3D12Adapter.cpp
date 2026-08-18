@@ -241,6 +241,8 @@ namespace SFT::D3D12 {
                  rhi::Feature::HdrMetadata,
                  rhi::Feature::HdrOutput,
                  rhi::Feature::DriverProperties,
+                 rhi::Feature::FullScreenExclusive,
+                 rhi::Feature::RenderBundles,
              }) {
             features.set(feature);
         }
@@ -255,6 +257,9 @@ namespace SFT::D3D12 {
             }
             if (options0.ROVsSupported != FALSE) {
                 features.set(rhi::Feature::FragmentShaderInterlock);
+            }
+            if (options0.ConservativeRasterizationTier != D3D12_CONSERVATIVE_RASTERIZATION_TIER_NOT_SUPPORTED) {
+                features.set(rhi::Feature::ConservativeRasterization);
             }
             if (options0.TypedUAVLoadAdditionalFormats != FALSE) {
                 features.set(rhi::Feature::StorageImageReadWithoutFormat);
@@ -276,12 +281,22 @@ namespace SFT::D3D12 {
                     D3D12_MAX_SHADER_VISIBLE_SAMPLER_HEAP_SIZE;
             }
             if (options0.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3) {
+                // Matches VulkanBackendDevice.cpp's `supports_bindless_descriptor_heap` grouping,
+                // which only sets DescriptorBindingUpdateAfterBind alongside the rest of the bindless
+                // set. D3D12 has no separate "update after bind" device cap to probe: a shader-visible
+                // descriptor heap slot is just GPU-visible memory the shader indexes at draw time, so
+                // CopyDescriptors can rewrite a table's slots any time before the command list that
+                // reads them actually executes on the GPU timeline. That's the same guarantee
+                // VK_EXT_descriptor_indexing's update-after-bind bit provides, so it's safe (and, per
+                // RendererSpectralPathTracing.cpp's required-feature set, necessary) to advertise it
+                // wherever tier 3 already grants full bindless resource-binding support.
                 for (rhi::Feature feature : {rhi::Feature::BindlessResources,
                                              rhi::Feature::NonUniformResourceIndexing,
                                              rhi::Feature::SampledImageArrayNonUniformIndexing,
                                              rhi::Feature::UniformBufferArrayNonUniformIndexing,
                                              rhi::Feature::StorageBufferArrayNonUniformIndexing,
-                                             rhi::Feature::StorageImageArrayNonUniformIndexing}) {
+                                             rhi::Feature::StorageImageArrayNonUniformIndexing,
+                                             rhi::Feature::DescriptorBindingUpdateAfterBind}) {
                     features.set(feature);
                 }
             }
@@ -300,6 +315,16 @@ namespace SFT::D3D12 {
             }
         }
 
+
+        D3D12_FEATURE_DATA_D3D12_OPTIONS2 options2{};
+        if (check_feature(device, D3D12_FEATURE_D3D12_OPTIONS2, options2)) {
+            if (options2.DepthBoundsTestSupported != FALSE) {
+                features.set(rhi::Feature::DepthBoundsTest);
+            }
+            if (options2.ProgrammableSamplePositionsTier != D3D12_PROGRAMMABLE_SAMPLE_POSITIONS_TIER_NOT_SUPPORTED) {
+                features.set(rhi::Feature::SampleLocations);
+            }
+        }
 
         D3D12_FEATURE_DATA_D3D12_OPTIONS3 options3{};
         if (check_feature(device, D3D12_FEATURE_D3D12_OPTIONS3, options3)) {
@@ -339,6 +364,32 @@ namespace SFT::D3D12 {
             }
         }
 
+        // rhi::Feature::RayTracingInvocationReorder (Shader Execution Reordering / HitObject) is
+        // deliberately never set here: unlike Vulkan's VK_EXT_ray_tracing_invocation_reorder (see
+        // VulkanBackendDevice.cpp), the exact Agility SDK capability-query struct/field name for D3D12
+        // SER could not be recalled with enough confidence to write without risking a fabricated,
+        // non-existent symbol -- consistent with this session's opacity-micromap decision
+        // (D3D12DeviceRayTracing.cpp's opacity_micromap_build_sizes() doc comment) not to guess at
+        // uncertain newer-extension API surfaces. Also true on both backends regardless: enabling this
+        // bit only tells shader code a HitObject-style reorder intrinsic is safe to call -- there is no
+        // CPU-side command or pipeline state gated by it, and this engine's Slang shader layer has no
+        // stdlib support for that intrinsic yet either.
+
+
+        D3D12_FEATURE_DATA_D3D12_OPTIONS6 options6{};
+        if (check_feature(device, D3D12_FEATURE_D3D12_OPTIONS6, options6)) {
+            if (options6.VariableShadingRateTier >= D3D12_VARIABLE_SHADING_RATE_TIER_1) {
+                features.set(rhi::Feature::VariableRateShading);
+                features.set(rhi::Feature::PipelineFragmentShadingRate);
+            }
+            if (options6.VariableShadingRateTier >= D3D12_VARIABLE_SHADING_RATE_TIER_2) {
+                features.set(rhi::Feature::AttachmentFragmentShadingRate);
+                caps.properties.variable_rate_shading.min_tile_width = options6.ShadingRateImageTileSize;
+                caps.properties.variable_rate_shading.min_tile_height = options6.ShadingRateImageTileSize;
+                caps.properties.variable_rate_shading.max_tile_width = options6.ShadingRateImageTileSize;
+                caps.properties.variable_rate_shading.max_tile_height = options6.ShadingRateImageTileSize;
+            }
+        }
 
         D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7{};
         if (check_feature(device, D3D12_FEATURE_D3D12_OPTIONS7, options7) &&

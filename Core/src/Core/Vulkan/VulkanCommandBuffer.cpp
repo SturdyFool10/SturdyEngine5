@@ -529,6 +529,17 @@ void VulkanCommandBuffer::set_depth_bounds(float min_depth, float max_depth) con
             vkCmdSetDepthBounds(buffer_, min_depth, max_depth);
         }
 
+/// Sets custom MSAA sample positions for this `Vulkan`.
+///
+/// @param info `info` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
+void VulkanCommandBuffer::set_sample_locations(const VkSampleLocationsInfoEXT &info) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::set_sample_locations");
+            vkCmdSetSampleLocationsEXT(buffer_, &info);
+        }
+
 /// Sets the blend constants for this `Vulkan`.
 ///
 /// @return Returns the value produced by the operation.
@@ -1172,6 +1183,20 @@ void VulkanCommandBuffer::build_acceleration_structures(
                 return;
             }
             vkCmdBuildAccelerationStructuresKHR(buffer_, static_cast<u32>(builds.size()), builds.data(), ranges.data());
+        }
+
+/// Builds opacity micromaps.
+///
+/// @param builds `builds` value used by the operation.
+///
+/// @return Returns the value produced by the operation.
+/// @note This function does not throw exceptions.
+void VulkanCommandBuffer::build_opacity_micromaps(span<const VkMicromapBuildInfoEXT> builds) const noexcept {
+            ZoneScopedN("VulkanCommandBuffer::build_opacity_micromaps");
+            if (vkCmdBuildMicromapsEXT == nullptr) {
+                return;
+            }
+            vkCmdBuildMicromapsEXT(buffer_, static_cast<u32>(builds.size()), builds.data());
         }
 
 /// Copies acceleration structure to its destination.

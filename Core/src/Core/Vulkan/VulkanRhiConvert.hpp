@@ -711,6 +711,70 @@ namespace SFT::Core::Vulkan {
     }
 
 
+    /// Converts the value to Vulkan representation.
+    ///
+    /// @param rate `rate` value used by the operation.
+    ///
+    /// @return Returns the value converted to VkExtent2D representation.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] constexpr VkExtent2D to_vk(rhi::ShadingRate rate) noexcept {
+        switch (rate) {
+            case rhi::ShadingRate::X1x1: return {1, 1};
+            case rhi::ShadingRate::X1x2: return {1, 2};
+            case rhi::ShadingRate::X2x1: return {2, 1};
+            case rhi::ShadingRate::X2x2: return {2, 2};
+            case rhi::ShadingRate::X2x4: return {2, 4};
+            case rhi::ShadingRate::X4x2: return {4, 2};
+            case rhi::ShadingRate::X4x4: return {4, 4};
+        }
+        return {1, 1};
+    }
+
+    /// Converts the value to Vulkan representation.
+    ///
+    /// @param combiner `combiner` value used by the operation.
+    ///
+    /// @return Returns the value converted to VkFragmentShadingRateCombinerOpKHR representation.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] constexpr VkFragmentShadingRateCombinerOpKHR to_vk(rhi::ShadingRateCombiner combiner) noexcept {
+        switch (combiner) {
+            case rhi::ShadingRateCombiner::Passthrough: return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+            case rhi::ShadingRateCombiner::Override: return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR;
+            case rhi::ShadingRateCombiner::Min: return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MIN_KHR;
+            case rhi::ShadingRateCombiner::Max: return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MAX_KHR;
+            case rhi::ShadingRateCombiner::Combine: return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MUL_KHR;
+        }
+        return VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+    }
+
+    /// Converts the value to Vulkan representation.
+    ///
+    /// @param format `format` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] constexpr VkOpacityMicromapFormatEXT to_vk(rhi::OpacityMicromapFormat format) noexcept {
+        switch (format) {
+            case rhi::OpacityMicromapFormat::TwoState: return VK_OPACITY_MICROMAP_FORMAT_2_STATE_EXT;
+            case rhi::OpacityMicromapFormat::FourState: return VK_OPACITY_MICROMAP_FORMAT_4_STATE_EXT;
+        }
+        return VK_OPACITY_MICROMAP_FORMAT_2_STATE_EXT;
+    }
+
+    /// Converts the value to Vulkan representation.
+    ///
+    /// @param usage `usage` value used by the operation.
+    ///
+    /// @return Returns the value converted to Vulkan representation.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] constexpr VkMicromapUsageEXT to_vk(const rhi::OpacityMicromapUsageCount &usage) noexcept {
+        return VkMicromapUsageEXT{
+            .count = usage.count,
+            .subdivisionLevel = usage.subdivision_level,
+            .format = static_cast<u32>(to_vk(usage.format)),
+        };
+    }
+
     struct VmaMapping {
         VmaMemoryUsage usage = VMA_MEMORY_USAGE_AUTO;
         VmaAllocationCreateFlags flags = 0;
@@ -721,11 +785,30 @@ namespace SFT::Core::Vulkan {
     /// @param location `location` value used by the operation.
     ///
     /// @return Returns the value converted to vma representation.
+    /// @note DeviceLocal opportunistically requests Resizable BAR placement: VMA's own documented
+    ///       pattern for "prefer device-local, but let me write it directly when the GPU exposes a
+    ///       large enough DEVICE_LOCAL+HOST_VISIBLE heap" is exactly HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+    ///       + ALLOW_TRANSFER_INSTEAD_BIT on VMA_MEMORY_USAGE_AUTO — VMA internally weighs the
+    ///       allocation's size against the heap's size and only places it there when that's a good
+    ///       fit, and ALLOW_TRANSFER_INSTEAD_BIT tells VMA it's fine to fall back to pure
+    ///       non-mappable device-local memory otherwise (which is exactly what happens on a
+    ///       pre-ReBAR system/GPU with no such heap at all). No manual heap-size scanning needed on
+    ///       this engine's side; VulkanRhiBridgeBuffers.cpp's create_buffer() queries where the
+    ///       allocation actually landed afterward (vmaGetAllocationMemoryProperties) and
+    ///       write_buffer() takes a direct-write path instead of a staging-buffer upload whenever it
+    ///       landed in host-visible memory. map_buffer() deliberately keeps rejecting DeviceLocal
+    ///       regardless — the RHI's public MemoryLocation contract has to stay hardware-agnostic (a
+    ///       caller can never portably rely on a DeviceLocal buffer being mappable), so this
+    ///       optimization stays an internal write_buffer() implementation choice, invisible above the
+    ///       RHI boundary.
     /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VmaMapping to_vma(rhi::MemoryLocation location) noexcept {
         switch (location) {
             case rhi::MemoryLocation::DeviceLocal:
-                return {VMA_MEMORY_USAGE_AUTO, 0};
+                return {VMA_MEMORY_USAGE_AUTO,
+                        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+                            VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
+                            VMA_ALLOCATION_CREATE_MAPPED_BIT};
             case rhi::MemoryLocation::HostUpload:
                 return {VMA_MEMORY_USAGE_AUTO,
                         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT};

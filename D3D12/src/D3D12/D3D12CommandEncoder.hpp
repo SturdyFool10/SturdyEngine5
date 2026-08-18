@@ -148,6 +148,13 @@ namespace SFT::D3D12 {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void build_acceleration_structures(span<const rhi::AccelerationStructureBuildDesc> builds) override;
+        /// Builds opacity micromaps.
+        ///
+        /// @param builds `builds` value used by the operation.
+        ///
+        /// @note No-op: D3D12 opacity micromap support is not implemented -- see
+        /// D3D12Device::opacity_micromap_build_sizes()'s doc comment.
+        void build_opacity_micromaps(span<const rhi::OpacityMicromapBuildDesc> builds) override;
         /// Copies acceleration structure to its destination.
         ///
         /// @param copy `copy` value used by the operation.
@@ -305,6 +312,16 @@ namespace SFT::D3D12 {
 
         ComPtr<ID3D12GraphicsCommandList7> list7_;
 
+        /// Queried unconditionally in the constructor. `ResolveSubresourceRegion` (used for depth
+        /// resolve, since the legacy `ResolveSubresource` has no resolve-mode parameter) lives on this
+        /// interface; it has been present since D3D12's initial release, but the `.As()` query is
+        /// still checked for null before use rather than assumed to succeed.
+        ComPtr<ID3D12GraphicsCommandList1> list1_;
+
+        /// Queried unconditionally; RSSetShadingRate/RSSetShadingRateImage (Variable Rate Shading)
+        /// live on this interface, present since D3D12 VRS shipped (Windows 10 2004 / list5).
+        ComPtr<ID3D12GraphicsCommandList5> list5_;
+
         ComPtr<ID3D12GraphicsCommandList4> list4_;
 
         ComPtr<ID3D12GraphicsCommandList6> list6_;
@@ -330,14 +347,25 @@ namespace SFT::D3D12 {
             DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
         };
 
+        struct DepthResolve {
+            ID3D12Resource *source = nullptr;
+            ID3D12Resource *destination = nullptr;
+            u32 source_subresource = 0;
+            u32 destination_subresource = 0;
+            DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+            D3D12_RESOLVE_MODE resolve_mode = D3D12_RESOLVE_MODE_DECOMPRESS;
+        };
+
         /// Constructs a `D3D12RenderPassEncoder` from the supplied initialization values.
         ///
         /// @param parent `parent` value used by the operation.
         /// @param bundles_only `bundles_only` value used by the operation.
         /// @param color_resolves `color_resolves` value used by the operation.
+        /// @param depth_resolve Present when the pass has a depth resolve target to write on end().
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        D3D12RenderPassEncoder(D3D12CommandEncoder &parent, bool bundles_only, std::vector<ColorResolve> color_resolves);
+        D3D12RenderPassEncoder(D3D12CommandEncoder &parent, bool bundles_only, std::vector<ColorResolve> color_resolves,
+                               std::optional<DepthResolve> depth_resolve);
         /// Destroys the `D3D12RenderPassEncoder` and releases resources owned by it.
         ///
         /// @note This function does not throw exceptions.
@@ -393,6 +421,15 @@ namespace SFT::D3D12 {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_scissor(const rhi::Rect2D &scissor) override;
+        /// Sets custom MSAA sample positions for this `D3D12RenderPassEncoder`.
+        ///
+        /// @param samples_per_pixel Number of samples each pixel in `grid_size` provides locations for.
+        /// @param grid_size Repeating pixel-pattern size the locations apply across.
+        /// @param locations `samples_per_pixel * grid_size.width * grid_size.height` positions.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_sample_locations(u32 samples_per_pixel, rhi::Extent2D grid_size,
+                                  span<const rhi::SampleLocation> locations) override;
         /// Sets the blend constant for this `D3D12RenderPassEncoder`.
         ///
         /// @param color `color` value used by the operation.
@@ -405,6 +442,22 @@ namespace SFT::D3D12 {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_stencil_reference(u32 reference) override;
+        /// Sets the depth bounds test range for this `D3D12RenderPassEncoder`.
+        ///
+        /// @param min_depth Lower bound of the depth range that passes the test, in [0, 1].
+        /// @param max_depth Upper bound of the depth range that passes the test, in [0, 1].
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_depth_bounds(f32 min_depth, f32 max_depth) override;
+        /// Sets the pipeline-stage shading rate and its combiners for this `D3D12RenderPassEncoder`.
+        ///
+        /// @param rate Base shading rate for subsequent draws, before any combiner runs.
+        /// @param primitive_combiner Combines `rate` with a draw's per-primitive shading rate output.
+        /// @param attachment_combiner Combines the result with the bound shading-rate attachment's rate.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_shading_rate(rhi::ShadingRate rate, rhi::ShadingRateCombiner primitive_combiner,
+                              rhi::ShadingRateCombiner attachment_combiner) override;
 
         /// Draws the requested content using the current rendering state.
         ///
@@ -550,6 +603,7 @@ namespace SFT::D3D12 {
         bool pipeline_bound_ = false;
         bool mesh_pipeline_bound_ = false;
         std::vector<ColorResolve> color_resolves_;
+        std::optional<DepthResolve> depth_resolve_;
 
 
         bool bundles_only_ = false;
@@ -617,6 +671,112 @@ namespace SFT::D3D12 {
       private:
         D3D12CommandEncoder *parent_ = nullptr;
         bool ended_ = false;
+    };
+
+    /// Records a `D3D12_COMMAND_LIST_TYPE_BUNDLE` command list that can be `ExecuteBundle`'d from
+    /// many later frames' render passes without re-recording.
+    ///
+    /// D3D12 bundles impose restrictions the direct/DIRECT-list encoders above don't have to deal
+    /// with, so this is a separate class rather than another mode of D3D12RenderPassEncoder:
+    /// - RSSetViewports/RSSetScissorRects are illegal inside a bundle at all; set_viewport()/
+    ///   set_scissor() instead capture the latest value onto the RenderBundleRecord for
+    ///   D3D12RenderPassEncoder::execute_bundles() to apply on its own (legal, DIRECT) list
+    ///   immediately before ExecuteBundle.
+    /// - Bind-group descriptor tables cannot be uploaded into the per-frame ring
+    ///   (ShaderVisibleDescriptorHeap) allocator every other encoder uses, since a bundle outlives
+    ///   the frame it was recorded on; they go through the device's persistent, bundle-lifetime
+    ///   PersistentShaderVisibleDescriptorAllocator instead (see that class's own doc comment).
+    /// - ExecuteIndirect is documented as illegal inside a bundle, so every draw_*indirect* override
+    ///   here fails with a clear "not supported inside a D3D12 render bundle" error instead of
+    ///   recording something the runtime would reject.
+    class D3D12RenderBundleEncoder final : public rhi::RenderBundleEncoder {
+      public:
+        /// Constructs a `D3D12RenderBundleEncoder` from the supplied initialization values.
+        ///
+        /// @param device Device used or affected by the operation.
+        /// @param record `record` value used by the operation; ownership of its allocator/list moves in.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        D3D12RenderBundleEncoder(D3D12Device &device, RenderBundleRecord record);
+        /// Destroys the `D3D12RenderBundleEncoder` and releases resources owned by it.
+        ///
+        /// @note This function does not throw exceptions.
+        ~D3D12RenderBundleEncoder() override;
+
+        void set_pipeline(rhi::RenderPipelineHandle pipeline) override;
+        void set_bind_group(u32 index, rhi::BindGroupHandle bind_group, span<const u32> dynamic_offsets) override;
+        void set_vertex_buffer(u32 slot, rhi::BufferHandle buffer, u64 offset) override;
+        void set_index_buffer(rhi::BufferHandle buffer, rhi::IndexFormat format, u64 offset) override;
+        void set_push_constants(rhi::ShaderStage stages, u32 offset, span<const std::byte> data) override;
+        void set_viewport(const rhi::Viewport &viewport) override;
+        void set_scissor(const rhi::Rect2D &scissor) override;
+        void set_sample_locations(u32 samples_per_pixel, rhi::Extent2D grid_size,
+                                  span<const rhi::SampleLocation> locations) override;
+        void set_blend_constant(const rhi::ClearColor &color) override;
+        void set_stencil_reference(u32 reference) override;
+        void set_depth_bounds(f32 min_depth, f32 max_depth) override;
+
+        void draw(const rhi::DrawArgs &args) override;
+        void draw_indexed(const rhi::DrawIndexedArgs &args) override;
+        void draw_mesh_tasks(const rhi::DrawMeshTasksArgs &args) override;
+        void draw_indirect(rhi::BufferHandle indirect_buffer, u64 offset) override;
+        void draw_indexed_indirect(rhi::BufferHandle indirect_buffer, u64 offset) override;
+        void draw_indirect(rhi::BufferHandle indirect_buffer, u64 offset, u32 draw_count, u32 stride) override;
+        void draw_indexed_indirect(rhi::BufferHandle indirect_buffer, u64 offset, u32 draw_count, u32 stride) override;
+        void draw_indirect_count(rhi::BufferHandle indirect_buffer, u64 indirect_offset,
+                                 rhi::BufferHandle count_buffer, u64 count_offset, u32 max_draws, u32 stride) override;
+        void draw_indexed_indirect_count(rhi::BufferHandle indirect_buffer, u64 indirect_offset,
+                                         rhi::BufferHandle count_buffer, u64 count_offset, u32 max_draws,
+                                         u32 stride) override;
+        void draw_mesh_tasks_indirect(rhi::BufferHandle indirect_buffer, u64 offset) override;
+        void draw_mesh_tasks_indirect_count(rhi::BufferHandle indirect_buffer, u64 indirect_offset,
+                                            rhi::BufferHandle count_buffer, u64 count_offset, u32 max_draws,
+                                            u32 stride) override;
+
+        [[nodiscard]] rhi::RhiExpected<rhi::RenderBundleHandle> finish() override;
+
+      private:
+        struct PendingVertexBuffer {
+            rhi::BufferHandle buffer{};
+            u64 offset = 0;
+        };
+
+        /// Records the fail state for subsequent operations, keeping only the first failure recorded.
+        ///
+        /// @param message Text consumed by the operation.
+        ///
+        /// @note This function does not throw exceptions.
+        void fail(std::string message) noexcept;
+        /// Uploads pending bind-group descriptor tables into the device's persistent bundle allocator
+        /// and issues the matching SetGraphicsRootDescriptorTable/root-view calls.
+        ///
+        /// @return Returns `true` on success; `false` after recording a failure via fail().
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        bool flush_bindings();
+        /// Binds vertex buffer for subsequent operations.
+        ///
+        /// @param slot Binding or storage slot addressed by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void bind_vertex_buffer(u32 slot);
+        /// Rejects an indirect draw call, which D3D12 bundles cannot legally record.
+        ///
+        /// @param operation `operation` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void reject_indirect(const char *operation) noexcept;
+
+        D3D12Device *device_ = nullptr;
+        RenderBundleRecord record_{};
+        BindingState bindings_{};
+        std::array<PendingVertexBuffer, D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT> vertex_buffers_{};
+        vector<u32> vertex_strides_;
+        ComPtr<ID3D12GraphicsCommandList1> list1_;
+        ComPtr<ID3D12GraphicsCommandList6> list6_;
+        bool pipeline_bound_ = false;
+        bool mesh_pipeline_bound_ = false;
+        bool finished_ = false;
+        std::optional<rhi::RhiError> deferred_error_;
     };
 
 } // namespace SFT::D3D12

@@ -786,6 +786,39 @@ namespace SFT::D3D12 {
         acceleration_structures_.erase(handle);
     }
 
+    /// Reports opacity micromap build sizes for `D3D12` using the supplied arguments.
+    ///
+    /// @param desc Description of the resource or operation to perform.
+    ///
+    /// @return Always returns RhiErrorCode::Unsupported.
+    /// @note D3D12 opacity micromap support (D3D12_RAYTRACING_GEOMETRY_TYPE_OMM_TRIANGLES / the
+    /// opacity-micromap-array acceleration-structure build path) is not implemented here: unlike
+    /// every other feature added this session, this one's exact Agility SDK struct/enum names could
+    /// not be recalled with enough confidence to write without risking fabricated symbols that would
+    /// not match real DirectX-Headers content -- see the project convention against undocumented/
+    /// unverified API usage. Feature::OpacityMicromap is correspondingly never set in
+    /// D3D12Adapter.cpp, so RHI::negotiate_features() already keeps callers from reaching here in
+    /// practice; these three methods exist only to satisfy RhiDevice's pure-virtual interface.
+    /// Vulkan's VK_EXT_opacity_micromap path (VulkanRhiBridgeAccelerationStructures.cpp) is fully
+    /// implemented, with its own lower-confidence-than-usual caveat noted there.
+    rhi::RhiExpected<rhi::OpacityMicromapBuildSizes> D3D12Device::opacity_micromap_build_sizes(
+        const rhi::OpacityMicromapDesc &) const {
+        return unsupported("opacity_micromap_build_sizes: D3D12 opacity micromap support is not implemented.");
+    }
+
+    /// Creates an opacity micromap from the supplied parameters.
+    ///
+    /// @return Always returns RhiErrorCode::Unsupported -- see opacity_micromap_build_sizes()'s doc comment.
+    rhi::RhiExpected<rhi::OpacityMicromapHandle> D3D12Device::create_opacity_micromap(
+        const rhi::OpacityMicromapDesc &, u64) {
+        return unsupported("create_opacity_micromap: D3D12 opacity micromap support is not implemented.");
+    }
+
+    /// Destroys the opacity micromap identified by the supplied parameters.
+    ///
+    /// @note No-op: create_opacity_micromap() never successfully produces a handle.
+    void D3D12Device::destroy_opacity_micromap(rhi::OpacityMicromapHandle) noexcept {}
+
     /// Performs the acceleration structure device address operation for `D3D12` using the supplied arguments.
     ///
     /// @param handle Handle identifying the target object or resource.

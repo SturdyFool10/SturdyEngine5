@@ -5,6 +5,8 @@
 #pragma region Imports
 #include <D3D12/D3D12Convert.hpp>
 
+#include <D3D12MemAlloc.h>
+
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -158,6 +160,11 @@ namespace SFT::D3D12 {
 
         wait_idle();
 
+        if (d3d12ma_allocator_ != nullptr) {
+            d3d12ma_allocator_->Release();
+            d3d12ma_allocator_ = nullptr;
+        }
+
 
         if (pipeline_library_supported_) {
             save_pipeline_library(pipeline_library_.lock()->Get());
@@ -232,6 +239,28 @@ namespace SFT::D3D12 {
             }
         }
 
+        // D3D12MA suballocates buffers/textures onto shared heaps via CreatePlacedResource instead of
+        // every resource paying for its own dedicated CreateCommittedResource heap (the D3D12
+        // counterpart to Sturdy::VMA on the Vulkan side; see VulkanBackendDevice.cpp's initializeVMA).
+        // Left null on failure -- create_buffer()/create_texture() null-check it and fall back to
+        // CreateCommittedResource, so a failed allocator create degrades performance, not correctness.
+        {
+            const D3D12MA::ALLOCATOR_DESC allocator_desc{
+                .Flags = D3D12MA::ALLOCATOR_FLAG_NONE,
+                .pDevice = device_.Get(),
+                .PreferredBlockSize = 0,
+                .pAllocationCallbacks = nullptr,
+                .pAdapter = adapter_.Get(),
+            };
+            if (const HRESULT hr = D3D12MA::CreateAllocator(&allocator_desc, &d3d12ma_allocator_); FAILED(hr)) {
+                d3d12ma_allocator_ = nullptr;
+                Foundation::log_warn(
+                    "D3D12: D3D12MA::CreateAllocator failed (hr=0x{:08X}); every buffer/texture will fall "
+                    "back to its own dedicated CreateCommittedResource allocation.",
+                    static_cast<u32>(hr));
+            }
+        }
+
         struct AllocatorSetup {
             CpuDescriptorAllocator *allocator;
             D3D12_DESCRIPTOR_HEAP_TYPE type;
@@ -249,6 +278,17 @@ namespace SFT::D3D12 {
                 !initialized) {
                 return initialized;
             }
+        }
+
+        if (auto initialized = bundle_resource_descriptors_.initialize(
+                device_.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, default_persistent_bundle_resource_descriptors);
+            !initialized) {
+            return initialized;
+        }
+        if (auto initialized = bundle_sampler_descriptors_.initialize(
+                device_.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, default_persistent_bundle_sampler_descriptors);
+            !initialized) {
+            return initialized;
         }
 
 
@@ -493,7 +533,14 @@ namespace SFT::D3D12 {
     }
 
     void D3D12Device::destroy_render_bundle(rhi::RenderBundleHandle handle) noexcept {
-        render_bundles_.erase(handle);
+        if (auto record = render_bundles_.extract(handle)) {
+            for (const DescriptorRange &range : record->resource_table_ranges) {
+                bundle_resource_descriptors_.release(range);
+            }
+            for (const DescriptorRange &range : record->sampler_table_ranges) {
+                bundle_sampler_descriptors_.release(range);
+            }
+        }
     }
 
 } // namespace SFT::D3D12

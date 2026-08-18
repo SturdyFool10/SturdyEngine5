@@ -72,7 +72,11 @@ namespace SFT::Core::Vulkan {
             return rhi_error_from_graphics(buffer.error());
         }
 
-        return buffers_.insert(BufferRecord{std::move(*buffer), desc.memory});
+        // Queried once here (rather than on every write_buffer()/map_buffer() call) — see
+        // BufferRecord::host_visible's own doc comment for why a DeviceLocal buffer's placement isn't
+        // knowable ahead of time (opportunistic Resizable BAR vs. plain device-local fallback).
+        const bool host_visible = buffer->is_host_visible();
+        return buffers_.insert(BufferRecord{std::move(*buffer), desc.memory, host_visible});
     }
 
     /// Destroys the buffer identified by the supplied parameters.
@@ -102,7 +106,13 @@ namespace SFT::Core::Vulkan {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "write_buffer: unknown buffer handle.");
         }
 
-        if (record->memory == rhi::MemoryLocation::DeviceLocal) {
+        // A DeviceLocal buffer that opportunistically landed in HOST_VISIBLE memory (Resizable BAR —
+        // see VulkanRhiConvert.hpp's to_vma() and BufferRecord::host_visible's own doc comment) writes
+        // directly below, exactly like HostUpload, skipping the staging-buffer-and-copy round trip (a
+        // fresh buffer allocation, a GPU submit, and a synchronous fence wait) entirely. Only a
+        // DeviceLocal buffer that landed in plain device-local memory — always true without Resizable
+        // BAR — needs that path.
+        if (record->memory == rhi::MemoryLocation::DeviceLocal && !record->host_visible) {
             return upload_via_staging(record->buffer, offset, data);
         }
 

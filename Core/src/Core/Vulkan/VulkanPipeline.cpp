@@ -691,6 +691,30 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_depth_bounds_test(bool ena
             return *this;
         }
 
+/// Sets conservative rasterization (overestimation mode) for this `Vulkan`.
+///
+/// @param enable Whether the associated behavior is enabled.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
+GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_conservative_rasterization(bool enable) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_conservative_rasterization");
+            conservative_rasterization_ = enable;
+            return *this;
+        }
+
+/// Opts this pipeline into RenderPassEncoder::set_sample_locations() for this `Vulkan`.
+///
+/// @param enable Whether the associated behavior is enabled.
+///
+/// @return Returns `*this` so the operation can be chained.
+/// @note This function does not throw exceptions.
+GraphicsPipelineBuilder &GraphicsPipelineBuilder::set_sample_locations_enable(bool enable) noexcept {
+            ZoneScopedN("GraphicsPipelineBuilder::set_sample_locations_enable");
+            sample_locations_enable_ = enable;
+            return *this;
+        }
+
 /// Sets the stencil for this `Vulkan`.
 ///
 /// @param front `front` value used by the operation.
@@ -829,8 +853,14 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_dynamic_state(VkDynamicSta
                 .viewportCount = 1,
                 .scissorCount = 1,
             };
+            const VkPipelineRasterizationConservativeStateCreateInfoEXT conservative_rasterization{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT,
+                .conservativeRasterizationMode = VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT,
+                .extraPrimitiveOverestimationSize = 0.0f,
+            };
             const VkPipelineRasterizationStateCreateInfo rasterization{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+                .pNext = conservative_rasterization_ ? &conservative_rasterization : nullptr,
                 .depthClampEnable = depth_clamp_ ? VK_TRUE : VK_FALSE,
                 .rasterizerDiscardEnable = rasterizer_discard_ ? VK_TRUE : VK_FALSE,
                 .polygonMode = polygon_mode_,
@@ -842,8 +872,26 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::add_dynamic_state(VkDynamicSta
                 .depthBiasSlopeFactor = depth_bias_slope_,
                 .lineWidth = line_width_,
             };
+            // Placeholder default -- VK_DYNAMIC_STATE_SAMPLE_LOCATIONS_EXT (added to dynamic_states_
+            // below whenever sample_locations_enable_ is set) overrides this per draw via
+            // vkCmdSetSampleLocationsEXT; VkPipelineSampleLocationsStateCreateInfoEXT still requires
+            // some valid initial value at pipeline-creation time regardless.
+            const VkSampleLocationEXT default_sample_location{0.5f, 0.5f};
+            const VkSampleLocationsInfoEXT default_sample_locations_info{
+                .sType = VK_STRUCTURE_TYPE_SAMPLE_LOCATIONS_INFO_EXT,
+                .sampleLocationsPerPixel = samples_,
+                .sampleLocationGridSize = {1, 1},
+                .sampleLocationsCount = 1,
+                .pSampleLocations = &default_sample_location,
+            };
+            const VkPipelineSampleLocationsStateCreateInfoEXT sample_locations_state{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SAMPLE_LOCATIONS_STATE_CREATE_INFO_EXT,
+                .sampleLocationsEnable = sample_locations_enable_ ? VK_TRUE : VK_FALSE,
+                .sampleLocationsInfo = default_sample_locations_info,
+            };
             const VkPipelineMultisampleStateCreateInfo multisample{
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+                .pNext = sample_locations_enable_ ? &sample_locations_state : nullptr,
                 .rasterizationSamples = samples_,
                 .sampleShadingEnable = VK_FALSE,
                 .pSampleMask = &sample_mask_,

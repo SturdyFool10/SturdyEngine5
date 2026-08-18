@@ -22,12 +22,12 @@ void coordinates_and_snapshots() {
     Document document{"alpha\n😀e\u0301\n"};
     const DocumentSnapshot first = document.snapshot();
     assert(first.byte_size() == std::string{"alpha\n😀e\u0301\n"}.size());
-    assert(first.offset_to_point(ByteOffset{6}) == TextPoint{1, 0});
-    assert(first.offset_to_utf16(ByteOffset{10}) == Utf16Point{1, 2});
+    assert(first.offset_to_point(ByteOffset{6}) == (TextPoint{1, 0}));
+    assert(first.offset_to_utf16(ByteOffset{10}) == (Utf16Point{1, 2}));
     assert(first.point_to_offset(TextPoint{1, 1}) == ByteOffset{10});
     assert(first.utf16_to_offset(Utf16Point{1, 2}) == ByteOffset{10});
     assert(first.line_count() == 3);
-    assert(first.line_range(1) == TextRange{{6}, {13}});
+    assert(first.line_range(1) == (TextRange{{6}, {13}}));
     assert(first.slice(*first.line_range(1)).flatten() == "😀e\u0301");
 
     const auto anchor = first.anchor_at(ByteOffset{6}, AnchorBias::After);
@@ -57,7 +57,7 @@ void bulk_edits_and_ranges() {
     assert(applied);
     assert(applied->snapshot.flatten() == "1 two 3");
     assert(applied->changes.changes.size() == 2);
-    assert(applied->changes.changes[1].new_range == TextRange{{6}, {7}});
+    assert(applied->changes.changes[1].new_range == (TextRange{{6}, {7}}));
     const TextSlice slice = applied->snapshot.slice({{2}, {5}});
     assert(slice.flatten() == "two");
 
@@ -190,7 +190,7 @@ void clip_offset_and_max_point() {
     assert(s.clip_offset({100}) == ByteOffset{6});
     assert(s.clip_offset({3}, Bias::Before) == ByteOffset{1});
     assert(s.clip_offset({3}, Bias::After) == ByteOffset{5});
-    assert(s.max_point() == TextPoint{0, 3});
+    assert(s.max_point() == (TextPoint{0, 3}));
 }
 
 /// Performs the reference longest line operation using the supplied arguments.
@@ -563,7 +563,7 @@ void randomized_large_document_transactions_match_reference() {
         vector<std::pair<usize, usize>> ranges;
         for (usize s = 0; s < splice_count; ++s) {
             const usize start = random() % (reference.size() + 1);
-            const usize length = std::min(reference.size() - start, random() % 64);
+            const usize length = std::min(reference.size() - start, static_cast<usize>(random() % 64));
             bool overlaps = false;
             for (const auto &[existing_start, existing_length] : ranges) {
                 if (start < existing_start + existing_length && existing_start < start + length) overlaps = true;

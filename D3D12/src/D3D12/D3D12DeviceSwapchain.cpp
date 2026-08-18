@@ -291,7 +291,14 @@ namespace SFT::D3D12 {
 
         const bool wants_transparency = desc.composite_alpha != rhi::CompositeAlphaMode::Auto &&
                                         desc.composite_alpha != rhi::CompositeAlphaMode::Opaque;
+        const bool wants_exclusive_fullscreen =
+            desc.request_full_screen_exclusive && enabled_features_.has(rhi::Feature::FullScreenExclusive);
         ResolvedPresent resolved = resolve_present(desc.present_strategy, allow_tearing_);
+        if (wants_exclusive_fullscreen) {
+
+
+            resolved.wants_tearing = false;
+        }
         if (desc.image_count != 0) {
             resolved.buffer_count = std::clamp(desc.image_count, static_cast<u32>(minimum_flip_buffer_count), static_cast<u32>(DXGI_MAX_SWAP_CHAIN_BUFFERS));
         }
@@ -337,7 +344,12 @@ namespace SFT::D3D12 {
         // (VulkanRhiBridgeSwapchain.cpp attempts composition present for every swapchain generation
         // on a supporting platform, not only transparent ones; see WS_EX_NOREDIRECTIONBITMAP's own
         // doc comment in SDL3Impl.cpp/GlfwWindowNative.cpp, which already documents this as the
-        // expected behavior for "every swapchain generation" on both backends).
+        // expected behavior for "every swapchain generation" on both backends) — UNLESS the caller
+        // requested legacy DXGI exclusive fullscreen, which is fundamentally incompatible with
+        // CreateSwapChainForComposition (SetFullscreenState only operates on an HWND-bound
+        // CreateSwapChainForHwnd swapchain). Vulkan makes the exact same trade: see
+        // VulkanRhiBridgeSwapchain.cpp's `!desc.request_full_screen_exclusive` gate on its own
+        // composition-present attempt.
         //
         // This used to branch on wants_transparency: CreateSwapChainForHwnd for opaque, only
         // switching to CreateSwapChainForComposition (+ a fresh IDCompositionDevice/Target/Visual)
@@ -351,44 +363,85 @@ namespace SFT::D3D12 {
         // promptly destroy_swapchain() released it. Never making that transition (always
         // composition, opaque or not) is what the RHI's abstraction already assumes — see
         // RHI::PresentationResolution::via_composition_present's own doc comment — this backend just
-        // wasn't honoring it unconditionally.
+        // wasn't honoring it unconditionally. Exclusive fullscreen keeps that same all-or-nothing
+        // discipline: a swapchain generation is either fully composition-owned or fully
+        // HWND/SetFullscreenState-owned, never transitioning between the two mid-lifetime, so the
+        // same ghosting failure mode cannot recur for the exclusive-fullscreen path either.
         const rhi::CompositeAlphaMode effective_alpha =
-            wants_transparency
-                ? (desc.composite_alpha == rhi::CompositeAlphaMode::Inherit ? rhi::CompositeAlphaMode::Premultiplied
-                                                                            : desc.composite_alpha)
-                : rhi::CompositeAlphaMode::Opaque;
+            wants_exclusive_fullscreen
+                ? rhi::CompositeAlphaMode::Opaque
+                : (wants_transparency
+                       ? (desc.composite_alpha == rhi::CompositeAlphaMode::Inherit
+                              ? rhi::CompositeAlphaMode::Premultiplied
+                              : desc.composite_alpha)
+                       : rhi::CompositeAlphaMode::Opaque);
         swapchain_desc.AlphaMode = to_dxgi_alpha_mode(effective_alpha);
         swapchain_desc.Scaling = DXGI_SCALING_STRETCH;
 
         ComPtr<IDXGISwapChain1> swapchain1;
-        if (const HRESULT hr = factory_->CreateSwapChainForComposition(graphics_queue_.Get(), &swapchain_desc, nullptr, &swapchain1);
-            FAILED(hr)) {
-            return hresult_error(hr, "create_swapchain (CreateSwapChainForComposition)");
-        }
-        if (const HRESULT hr = DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&record.composition_device));
-            FAILED(hr)) {
-            return hresult_error(hr, "create_swapchain (DCompositionCreateDevice)");
-        }
-        if (const HRESULT hr = record.composition_device->CreateTargetForHwnd(surface->hwnd, TRUE, &record.composition_target);
-            FAILED(hr)) {
-            return hresult_error(hr, "create_swapchain (CreateTargetForHwnd)");
-        }
-        if (const HRESULT hr = record.composition_device->CreateVisual(&record.composition_visual); FAILED(hr)) {
-            return hresult_error(hr, "create_swapchain (CreateVisual)");
-        }
-        if (const HRESULT hr = record.composition_visual->SetContent(swapchain1.Get()); FAILED(hr)) {
-            return hresult_error(hr, "create_swapchain (SetContent)");
-        }
-        if (const HRESULT hr = record.composition_target->SetRoot(record.composition_visual.Get()); FAILED(hr)) {
-            return hresult_error(hr, "create_swapchain (SetRoot)");
-        }
-        if (const HRESULT hr = record.composition_device->Commit(); FAILED(hr)) {
-            return hresult_error(hr, "create_swapchain (Commit)");
+        bool full_screen_exclusive_active = false;
+        if (wants_exclusive_fullscreen) {
+            if (const HRESULT hr = factory_->CreateSwapChainForHwnd(
+                    graphics_queue_.Get(), surface->hwnd, &swapchain_desc, nullptr, nullptr, &swapchain1);
+                FAILED(hr)) {
+                return hresult_error(hr, "create_swapchain (CreateSwapChainForHwnd)");
+            }
+
+
+            (void)factory_->MakeWindowAssociation(surface->hwnd, DXGI_MWA_NO_ALT_ENTER);
+
+            const DXGI_MODE_DESC target_mode{
+                .Width = desc.width,
+                .Height = desc.height,
+                .RefreshRate = {.Numerator = 0, .Denominator = 0},
+                .Format = back_buffer_format,
+                .ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED,
+                .Scaling = DXGI_MODE_SCALING_UNSPECIFIED,
+            };
+            if (const HRESULT hr = swapchain1->ResizeTarget(&target_mode); FAILED(hr)) {
+                return hresult_error(hr, "create_swapchain (ResizeTarget)");
+            }
+
+
+            if (const HRESULT hr = swapchain1->SetFullscreenState(TRUE, nullptr); SUCCEEDED(hr)) {
+                full_screen_exclusive_active = true;
+            } else {
+                Foundation::log_warn(
+                    "D3D12: SetFullscreenState(TRUE) failed (hr=0x{:08X}); presenting windowed instead.",
+                    static_cast<u32>(hr));
+            }
+        } else {
+            if (const HRESULT hr =
+                    factory_->CreateSwapChainForComposition(graphics_queue_.Get(), &swapchain_desc, nullptr, &swapchain1);
+                FAILED(hr)) {
+                return hresult_error(hr, "create_swapchain (CreateSwapChainForComposition)");
+            }
+            if (const HRESULT hr = DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&record.composition_device));
+                FAILED(hr)) {
+                return hresult_error(hr, "create_swapchain (DCompositionCreateDevice)");
+            }
+            if (const HRESULT hr = record.composition_device->CreateTargetForHwnd(surface->hwnd, TRUE, &record.composition_target);
+                FAILED(hr)) {
+                return hresult_error(hr, "create_swapchain (CreateTargetForHwnd)");
+            }
+            if (const HRESULT hr = record.composition_device->CreateVisual(&record.composition_visual); FAILED(hr)) {
+                return hresult_error(hr, "create_swapchain (CreateVisual)");
+            }
+            if (const HRESULT hr = record.composition_visual->SetContent(swapchain1.Get()); FAILED(hr)) {
+                return hresult_error(hr, "create_swapchain (SetContent)");
+            }
+            if (const HRESULT hr = record.composition_target->SetRoot(record.composition_visual.Get()); FAILED(hr)) {
+                return hresult_error(hr, "create_swapchain (SetRoot)");
+            }
+            if (const HRESULT hr = record.composition_device->Commit(); FAILED(hr)) {
+                return hresult_error(hr, "create_swapchain (Commit)");
+            }
         }
 
         if (const HRESULT hr = swapchain1.As(&record.swapchain); FAILED(hr)) {
             return hresult_error(hr, "create_swapchain (IDXGISwapChain4)");
         }
+        record.full_screen_exclusive_active = full_screen_exclusive_active;
 
         record.image_count = resolved.buffer_count;
         record.sync_interval = resolved.sync_interval;
@@ -455,10 +508,9 @@ namespace SFT::D3D12 {
             .supports_completion_fence = false,
 
 
-            .full_screen_exclusive_active = false,
+            .full_screen_exclusive_active = full_screen_exclusive_active,
         };
         (void)desc.allow_present_from_compute;
-        (void)desc.request_full_screen_exclusive;
         (void)desc.clipped;
 
         if (auto created = create_swapchain_textures(record, desc.format, desc.width, desc.height, desc.usage);
@@ -565,6 +617,15 @@ namespace SFT::D3D12 {
         }
         if (record->composition_device != nullptr) {
             (void)record->composition_device->Commit();
+        }
+
+
+        // DXGI refuses to release a swapchain that is still in legacy exclusive fullscreen — it must
+        // be returned to windowed mode first (Microsoft Learn: "Full-screen swap chains continue to
+        // use ... until the app calls SetFullscreenState(FALSE)"). This mirrors the Vulkan backend's
+        // `vkReleaseFullScreenExclusiveModeEXT` call in the equivalent teardown path.
+        if (record->full_screen_exclusive_active && record->swapchain != nullptr) {
+            (void)record->swapchain->SetFullscreenState(FALSE, nullptr);
         }
 
 

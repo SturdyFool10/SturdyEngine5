@@ -233,6 +233,16 @@ namespace SFT::D3D12 {
         rasterizer.DepthClipEnable = desc.rasterization.depth_clamp_enable ? FALSE : TRUE;
         rasterizer.MultisampleEnable = desc.multisample.samples != rhi::SampleCount::X1 ? TRUE : FALSE;
 
+        if (desc.rasterization.conservative_rasterization_enable &&
+            !enabled_features_.has(rhi::Feature::ConservativeRasterization)) {
+            return unsupported(
+                "create_render_pipeline: conservative_rasterization_enable was requested but "
+                "Feature::ConservativeRasterization is not enabled on this device.");
+        }
+        rasterizer.ConservativeRaster = desc.rasterization.conservative_rasterization_enable
+                                            ? D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON
+                                            : D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
 
         (void)desc.rasterization.line_width;
 
@@ -246,7 +256,12 @@ namespace SFT::D3D12 {
         depth_stencil.StencilWriteMask = desc.depth_stencil.stencil_write_mask;
         depth_stencil.FrontFace = to_stencil_desc(desc.depth_stencil.stencil_front);
         depth_stencil.BackFace = to_stencil_desc(desc.depth_stencil.stencil_back);
-        depth_stencil.DepthBoundsTestEnable = FALSE;
+        if (desc.depth_stencil.depth_bounds_test_enable && !enabled_features_.has(rhi::Feature::DepthBoundsTest)) {
+            return unsupported(
+                "create_render_pipeline: depth_bounds_test_enable was requested but Feature::DepthBoundsTest is "
+                "not enabled on this device.");
+        }
+        depth_stencil.DepthBoundsTestEnable = desc.depth_stencil.depth_bounds_test_enable ? TRUE : FALSE;
 
 
         vector<D3D12_VIEW_INSTANCE_LOCATION> view_locations;

@@ -64,6 +64,62 @@ namespace SFT::RHI {
 
         BufferHandle transform_buffer{};
         u64 transform_offset = 0;
+
+        // Requires Feature::OpacityMicromap. Links a prebuilt OpacityMicromapHandle (see
+        // create_opacity_micromap()) onto this triangle geometry, letting hardware skip any-hit
+        // shader invocation for alpha-tested regions the micromap classifies as fully opaque or fully
+        // transparent -- the main real-time payoff being avoided any-hit dispatches on foliage/
+        // vegetation/alpha-tested geometry, not a rasterization-time effect. Leave
+        // opacity_micromap invalid (the default) for geometry that doesn't use one.
+        OpacityMicromapHandle opacity_micromap{};
+        // One entry per triangle in this geometry, indexing into opacity_micromap's packed usage
+        // regions; required whenever opacity_micromap is valid.
+        BufferHandle opacity_micromap_index_buffer{};
+        u64 opacity_micromap_index_offset = 0;
+        IndexFormat opacity_micromap_index_format = IndexFormat::Uint32;
+    };
+
+    // The number of opacity states a micromap's 11 (or fewer)-bit-per-microtriangle format encodes.
+    // TwoState: Transparent/Opaque only. FourState additionally distinguishes "Unknown" (ambiguous,
+    // still needs an any-hit shader) from "known" Transparent/Opaque -- the practically useful format
+    // for most real geometry, since TwoState forces every ambiguous microtriangle to round to Opaque
+    // (safe but loses the any-hit-skip optimization there).
+    enum class OpacityMicromapFormat : u32 {
+        TwoState,
+        FourState,
+    };
+
+    // One entry in an opacity micromap's usage-counts table: how many microtriangle regions of a
+    // given (format, subdivision_level) pair the micromap's packed data buffer contains. Mirrors
+    // Vulkan's VkMicromapUsageEXT; every backend that implements Feature::OpacityMicromap needs this
+    // same shape to size/build the micromap; it is not otherwise a hardware-agnostic-safe extension
+    // point.
+    struct OpacityMicromapUsageCount {
+        u32 count = 0;
+        u32 subdivision_level = 0;
+        OpacityMicromapFormat format = OpacityMicromapFormat::TwoState;
+    };
+
+    struct OpacityMicromapDesc {
+        span<const OpacityMicromapUsageCount> usage_counts;
+        const char *label = nullptr;
+    };
+
+    struct OpacityMicromapBuildSizes {
+        u64 micromap_size = 0;
+        u64 build_scratch_size = 0;
+    };
+
+    struct OpacityMicromapBuildDesc {
+        OpacityMicromapHandle dst{};
+        BufferHandle scratch_buffer{};
+        u64 scratch_offset = 0;
+        // Packed 1 (TwoState) or 2 (FourState) bit-per-microtriangle opacity data, laid out per
+        // Vulkan's VK_EXT_opacity_micromap encoding (the only backend that currently builds this --
+        // see create_opacity_micromap()'s own doc comment on D3D12 support).
+        BufferHandle data_buffer{};
+        u64 data_buffer_offset = 0;
+        span<const OpacityMicromapUsageCount> usage_counts;
     };
 
     struct AccelerationStructureAabbsDesc {

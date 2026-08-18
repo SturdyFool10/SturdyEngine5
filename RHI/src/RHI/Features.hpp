@@ -47,6 +47,13 @@ namespace SFT::RHI {
         RayTraversalPrimitiveCulling,
         RayTracingMaintenance1,
         RayTracingPositionFetch,
+        // Shader Execution Reordering (D3D12 HitObject / Vulkan VK_EXT_ray_tracing_invocation_reorder).
+        // Unlike every other bit in this enum, this one gates no RHI-level command or pipeline state
+        // at all -- it only tells shader code (compiled HLSL/GLSL/Slang) that a HitObject-style
+        // reorder intrinsic is safe to call from within a ray-generation shader. A caller needs
+        // shader-language-level support for that intrinsic (not present in this engine's Slang stdlib
+        // as of when this bit was added) to actually benefit from it; the bit alone is necessary but
+        // not sufficient. D3D12 currently never sets this (see D3D12Adapter.cpp's own comment on why).
         RayTracingInvocationReorder,
         OpacityMicromap,
         DisplacementMicromap,

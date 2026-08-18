@@ -10,6 +10,7 @@ sturdy_add_package(D3D12
 
     PRIVATE_DEPS
         Sturdy::Tracy
+        Sturdy::D3D12MA
         dcomp
 
     DEBUG_PUBLIC_DEPS

@@ -1,5 +1,10 @@
 #include <D3D12/D3D12Convert.hpp>
 
+#pragma region Imports
+#include <algorithm>
+#include <cmath>
+#pragma endregion
+
 namespace SFT::D3D12 {
 
     using rhi::has_any;
@@ -486,6 +491,90 @@ namespace SFT::D3D12 {
                 return D3D12_TEXTURE_ADDRESS_MODE_BORDER;
         }
         return D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    }
+
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param mode Mode controlling how the operation is performed.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
+    D3D12_RESOLVE_MODE to_d3d12(rhi::ResolveMode mode) noexcept {
+        switch (mode) {
+            case rhi::ResolveMode::SampleZero:
+                return D3D12_RESOLVE_MODE_DECOMPRESS;
+            case rhi::ResolveMode::Average:
+                return D3D12_RESOLVE_MODE_AVERAGE;
+            case rhi::ResolveMode::Minimum:
+                return D3D12_RESOLVE_MODE_MIN;
+            case rhi::ResolveMode::Maximum:
+                return D3D12_RESOLVE_MODE_MAX;
+        }
+        return D3D12_RESOLVE_MODE_DECOMPRESS;
+    }
+
+    /// Converts an RHI sample location (normalized [0,1) from the pixel's top-left corner) to a
+    /// D3D12_SAMPLE_POSITION (signed 1/16-pixel offset from pixel center, range [-8,7]).
+    ///
+    /// @param location `location` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
+    D3D12_SAMPLE_POSITION to_d3d12(rhi::SampleLocation location) noexcept {
+        const auto quantize = [](f32 normalized) noexcept -> INT8 {
+            const f32 offset_from_center = normalized - 0.5f;
+            const f32 sixteenths = std::round(offset_from_center * 16.0f);
+            return static_cast<INT8>(std::clamp(sixteenths, -8.0f, 7.0f));
+        };
+        return D3D12_SAMPLE_POSITION{quantize(location.x), quantize(location.y)};
+    }
+
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param rate `rate` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
+    D3D12_SHADING_RATE to_d3d12(rhi::ShadingRate rate) noexcept {
+        switch (rate) {
+            case rhi::ShadingRate::X1x1:
+                return D3D12_SHADING_RATE_1X1;
+            case rhi::ShadingRate::X1x2:
+                return D3D12_SHADING_RATE_1X2;
+            case rhi::ShadingRate::X2x1:
+                return D3D12_SHADING_RATE_2X1;
+            case rhi::ShadingRate::X2x2:
+                return D3D12_SHADING_RATE_2X2;
+            case rhi::ShadingRate::X2x4:
+                return D3D12_SHADING_RATE_2X4;
+            case rhi::ShadingRate::X4x2:
+                return D3D12_SHADING_RATE_4X2;
+            case rhi::ShadingRate::X4x4:
+                return D3D12_SHADING_RATE_4X4;
+        }
+        return D3D12_SHADING_RATE_1X1;
+    }
+
+    /// Converts the supplied engine/RHI value to its D3D12 representation.
+    ///
+    /// @param combiner `combiner` value used by the operation.
+    ///
+    /// @return Returns the value converted to D3D12 representation.
+    /// @note This function does not throw exceptions.
+    D3D12_SHADING_RATE_COMBINER to_d3d12(rhi::ShadingRateCombiner combiner) noexcept {
+        switch (combiner) {
+            case rhi::ShadingRateCombiner::Passthrough:
+                return D3D12_SHADING_RATE_COMBINER_PASSTHROUGH;
+            case rhi::ShadingRateCombiner::Override:
+                return D3D12_SHADING_RATE_COMBINER_OVERRIDE;
+            case rhi::ShadingRateCombiner::Min:
+                return D3D12_SHADING_RATE_COMBINER_MIN;
+            case rhi::ShadingRateCombiner::Max:
+                return D3D12_SHADING_RATE_COMBINER_MAX;
+            case rhi::ShadingRateCombiner::Combine:
+                return D3D12_SHADING_RATE_COMBINER_SUM;
+        }
+        return D3D12_SHADING_RATE_COMBINER_PASSTHROUGH;
     }
 
     /// Converts the supplied engine/RHI value to its D3D12 representation.

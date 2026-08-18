@@ -156,11 +156,43 @@ namespace SFT::RHI {
         Uint32,
     };
 
+    // The axis-aligned fragment sizes both D3D12 VRS Tier 2 and Vulkan VK_KHR_fragment_shading_rate
+    // guarantee as a conformant baseline (1x4/4x1 and other non-power-of-2-aligned combinations are
+    // deliberately excluded -- neither API guarantees those universally).
+    enum class ShadingRate : u32 {
+        X1x1,
+        X1x2,
+        X2x1,
+        X2x2,
+        X2x4,
+        X4x2,
+        X4x4,
+    };
+
+    // How a shading rate combines with the next stage's rate (pipeline -> primitive -> attachment).
+    // `Combine` maps to D3D12_SHADING_RATE_COMBINER_SUM and Vulkan's
+    // VK_FRAGMENT_SHADING_RATE_COMBINER_OP_MUL_KHR -- these are believed analogous (both extend
+    // coarseness rather than just picking one side) but this hasn't been empirically verified against
+    // either spec's exact combine formula, so treat any visual difference between backends when using
+    // `Combine` as a known unknown rather than a bug in one specific backend.
+    enum class ShadingRateCombiner : u32 {
+        Passthrough,
+        Override,
+        Min,
+        Max,
+        Combine,
+    };
+
 
     struct Extent3D {
         u32 width = 1;
         u32 height = 1;
         u32 depth_or_layers = 1;
+    };
+
+    struct Extent2D {
+        u32 width = 1;
+        u32 height = 1;
     };
 
     struct Offset3D {
@@ -175,6 +207,15 @@ namespace SFT::RHI {
         i32 y = 0;
         u32 width = 0;
         u32 height = 0;
+    };
+
+    // A programmable MSAA sample position within a pixel, normalized to [0, 1) with (0,0) at the
+    // pixel's top-left corner and (1,1) one full pixel step away -- Vulkan's native
+    // VkSampleLocationEXT representation. D3D12's SetSamplePositions uses signed 1/16-pixel offsets
+    // from pixel center instead (D3D12_SAMPLE_POSITION, range [-8,7]); the D3D12 backend converts.
+    struct SampleLocation {
+        f32 x = 0.5f;
+        f32 y = 0.5f;
     };
 
     // Floating-point viewport, in the same top-left-origin pixel space as Rect2D.

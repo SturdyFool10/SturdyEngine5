@@ -71,6 +71,18 @@ namespace SFT::RHI {
 
 
         bool allow_bundles = false;
+
+        // Requires Feature::AttachmentFragmentShadingRate. A single-channel 8-bit UINT texture view
+        // (DXGI_FORMAT_R8_UINT / VK_FORMAT_R8_UINT) whose texels each cover a tile of screen pixels
+        // (FeatureProperties::variable_rate_shading gives the device's tile-size range); its per-texel
+        // value is combined with the pipeline/primitive shading rate via the attachment combiner
+        // passed to RenderPassEncoder::set_shading_rate(). Encoding of that per-texel value is
+        // backend-native (D3D12's packed D3D12_SHADING_RATE bit layout differs from Vulkan's, which
+        // just reads two 4-bit width/height log2 fields) -- writing this texture's contents portably
+        // is not addressed at the RHI level; a caller targeting both backends needs its own per-backend
+        // encode step.
+        TextureViewHandle shading_rate_attachment{};
+
         const char *label = nullptr;
     };
 
@@ -227,6 +239,20 @@ namespace SFT::RHI {
         /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_scissor(const Rect2D &scissor) = 0;
+        /// Sets custom MSAA sample positions for this `RenderPassEncoder`.
+        ///
+        /// @param samples_per_pixel Number of samples each pixel in `grid_size` provides locations for.
+        /// @param grid_size Repeating pixel-pattern size the locations apply across (D3D12 tier-2
+        /// programmable sample positions); {1,1} for a single, uniform per-pixel pattern.
+        /// @param locations `samples_per_pixel * grid_size.width * grid_size.height` positions, in the
+        /// pixel-pattern's row-major, then per-pixel-sample order.
+        ///
+        /// @note Requires Feature::SampleLocations and, on Vulkan, a bound pipeline whose
+        /// MultisampleState::sample_locations_enable was set at creation time; concrete
+        /// implementations define backend-specific failure details when a precondition doesn't hold.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        virtual void set_sample_locations(u32 samples_per_pixel, Extent2D grid_size,
+                                          span<const SampleLocation> locations) = 0;
 
         /// Sets the blend constant for this `RenderPassEncoder`.
         ///
@@ -242,6 +268,33 @@ namespace SFT::RHI {
         /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_stencil_reference(u32 reference) = 0;
+        /// Sets the depth bounds test range for this `RenderPassEncoder`.
+        ///
+        /// @param min_depth Lower bound of the depth range that passes the test, in [0, 1].
+        /// @param max_depth Upper bound of the depth range that passes the test, in [0, 1].
+        ///
+        /// @note Requires Feature::DepthBoundsTest and a bound pipeline whose
+        /// DepthStencilState::depth_bounds_test_enable was set at creation time; concrete
+        /// implementations define backend-specific failure details when either precondition doesn't
+        /// hold.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        virtual void set_depth_bounds(f32 min_depth, f32 max_depth) = 0;
+        /// Sets the pipeline-stage shading rate and its combiners for this `RenderPassEncoder`.
+        ///
+        /// @param rate Base shading rate for subsequent draws, before any combiner runs.
+        /// @param primitive_combiner Combines `rate` with a draw's per-primitive shading rate output
+        /// (Feature::PrimitiveFragmentShadingRate; ignored if a draw's shaders never write one).
+        /// @param attachment_combiner Combines the result of `primitive_combiner` with
+        /// RenderPassDesc::shading_rate_attachment's per-tile rate (Feature::AttachmentFragmentShadingRate).
+        ///
+        /// @note Requires Feature::VariableRateShading (and PipelineFragmentShadingRate, since `rate`
+        /// is set here rather than only ever coming from a primitive/attachment source); concrete
+        /// implementations define backend-specific failure details when a precondition doesn't hold.
+        /// Not available on RenderBundleEncoder -- D3D12's bundle-legality for RSSetShadingRate is
+        /// unconfirmed, so it's conservatively left unsupported there rather than guessed at.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        virtual void set_shading_rate(ShadingRate rate, ShadingRateCombiner primitive_combiner,
+                                      ShadingRateCombiner attachment_combiner) = 0;
 
         /// Draws the requested content using the current rendering state.
         ///
@@ -456,6 +509,16 @@ namespace SFT::RHI {
         /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_scissor(const Rect2D &scissor) = 0;
+        /// Sets custom MSAA sample positions for this `RenderBundleEncoder`.
+        ///
+        /// @param samples_per_pixel Number of samples each pixel in `grid_size` provides locations for.
+        /// @param grid_size Repeating pixel-pattern size the locations apply across.
+        /// @param locations `samples_per_pixel * grid_size.width * grid_size.height` positions.
+        ///
+        /// @note See RenderPassEncoder::set_sample_locations()'s own doc comment for preconditions.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        virtual void set_sample_locations(u32 samples_per_pixel, Extent2D grid_size,
+                                          span<const SampleLocation> locations) = 0;
         /// Sets the blend constant for this `RenderBundleEncoder`.
         ///
         /// @param color `color` value used by the operation.
@@ -470,6 +533,14 @@ namespace SFT::RHI {
         /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void set_stencil_reference(u32 reference) = 0;
+        /// Sets the depth bounds test range for this `RenderBundleEncoder`.
+        ///
+        /// @param min_depth Lower bound of the depth range that passes the test, in [0, 1].
+        /// @param max_depth Upper bound of the depth range that passes the test, in [0, 1].
+        ///
+        /// @note See RenderPassEncoder::set_depth_bounds()'s own doc comment for preconditions.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        virtual void set_depth_bounds(f32 min_depth, f32 max_depth) = 0;
 
         /// Draws the requested content using the current rendering state.
         ///
@@ -783,6 +854,13 @@ namespace SFT::RHI {
         /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void build_acceleration_structures(span<const AccelerationStructureBuildDesc> builds) = 0;
+        /// Builds opacity micromaps. Requires Feature::OpacityMicromap.
+        ///
+        /// @param builds `builds` value used by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        virtual void build_opacity_micromaps(span<const OpacityMicromapBuildDesc> builds) = 0;
         /// Copies acceleration structure to its destination.
         ///
         /// @param copy `copy` value used by the operation.

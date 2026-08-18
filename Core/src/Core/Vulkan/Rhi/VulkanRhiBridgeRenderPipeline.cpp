@@ -153,8 +153,39 @@ namespace SFT::Core::Vulkan {
         builder.set_samples(to_vk(desc.multisample.samples), desc.multisample.alpha_to_coverage_enable);
         builder.set_sample_mask(desc.multisample.sample_mask);
 
+        if (desc.rasterization.conservative_rasterization_enable &&
+            !enabled_features_.has(rhi::Feature::ConservativeRasterization)) {
+            return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
+                                  "create_render_pipeline: conservative_rasterization_enable was requested but "
+                                  "Feature::ConservativeRasterization is not enabled on this device.");
+        }
+        builder.set_conservative_rasterization(desc.rasterization.conservative_rasterization_enable);
+
+        if (desc.multisample.sample_locations_enable && !enabled_features_.has(rhi::Feature::SampleLocations)) {
+            return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
+                                  "create_render_pipeline: sample_locations_enable was requested but "
+                                  "Feature::SampleLocations is not enabled on this device.");
+        }
+        builder.set_sample_locations_enable(desc.multisample.sample_locations_enable);
+        if (desc.multisample.sample_locations_enable) {
+            builder.add_dynamic_state(VK_DYNAMIC_STATE_SAMPLE_LOCATIONS_EXT);
+        }
+
         builder.set_depth_test(desc.depth_stencil.depth_test_enable, desc.depth_stencil.depth_write_enable,
                                to_vk(desc.depth_stencil.depth_compare));
+        if (desc.depth_stencil.depth_bounds_test_enable && !enabled_features_.has(rhi::Feature::DepthBoundsTest)) {
+            return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
+                                  "create_render_pipeline: depth_bounds_test_enable was requested but "
+                                  "Feature::DepthBoundsTest is not enabled on this device.");
+        }
+        builder.set_depth_bounds_test(desc.depth_stencil.depth_bounds_test_enable);
+        if (desc.depth_stencil.depth_bounds_test_enable) {
+            // vkCmdSetDepthBounds (RenderPassEncoder::set_depth_bounds) always requires this dynamic
+            // state regardless of whether depthBoundsTestEnable itself is static or dynamic -- this
+            // pipeline only ever bakes the enable in statically (see set_depth_bounds_test above), but
+            // the min/max values it's enabled for are still set dynamically per draw.
+            builder.add_dynamic_state(VK_DYNAMIC_STATE_DEPTH_BOUNDS);
+        }
         if (desc.depth_stencil.stencil_test_enable) {
             const VkStencilOpState front{
                 .failOp = to_vk(desc.depth_stencil.stencil_front.fail_op),

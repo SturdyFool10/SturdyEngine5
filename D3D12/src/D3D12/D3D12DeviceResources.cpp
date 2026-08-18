@@ -5,6 +5,8 @@
 #pragma region Imports
 #include <D3D12/D3D12Convert.hpp>
 
+#include <D3D12MemAlloc.h>
+
 #include <algorithm>
 #include <cstring>
 #include <utility>
@@ -109,14 +111,37 @@ namespace SFT::D3D12 {
         record.usage = desc.usage;
         record.gpu_upload_heap = use_gpu_upload_heap;
 
-        if (const HRESULT hr = device_->CreateCommittedResource(
-                &heap_properties,
-                D3D12_HEAP_FLAG_NONE,
-                &resource_desc,
-                initial_state_for_heap(heap_type),
-                nullptr,
-                IID_PPV_ARGS(&record.resource));
-            FAILED(hr)) {
+        // D3D12MA doesn't need to be involved for GPU_UPLOAD-heap buffers: that heap type already
+        // gets its own opportunistic-placement decision above (use_gpu_upload_heap), and D3D12MA's
+        // suballocation strategy is for the ordinary DEFAULT/UPLOAD/READBACK heaps this device
+        // otherwise sends straight to CreateCommittedResource, one dedicated allocation per resource
+        // (see the D3D12MA integration note on d3d12ma_allocator_'s own declaration).
+        if (d3d12ma_allocator_ != nullptr && !use_gpu_upload_heap) {
+            const D3D12MA::ALLOCATION_DESC allocation_desc{
+                .Flags = D3D12MA::ALLOCATION_FLAG_NONE,
+                .HeapType = heap_type,
+                .ExtraHeapFlags = D3D12_HEAP_FLAG_NONE,
+                .CustomPool = nullptr,
+                .pPrivateData = nullptr,
+            };
+            if (const HRESULT hr = d3d12ma_allocator_->CreateResource(
+                    &allocation_desc,
+                    &resource_desc,
+                    initial_state_for_heap(heap_type),
+                    nullptr,
+                    &record.allocation,
+                    IID_PPV_ARGS(&record.resource));
+                FAILED(hr)) {
+                return hresult_error(hr, "create_buffer (D3D12MA::CreateResource)");
+            }
+        } else if (const HRESULT hr = device_->CreateCommittedResource(
+                       &heap_properties,
+                       D3D12_HEAP_FLAG_NONE,
+                       &resource_desc,
+                       initial_state_for_heap(heap_type),
+                       nullptr,
+                       IID_PPV_ARGS(&record.resource));
+                   FAILED(hr)) {
             return hresult_error(hr, "create_buffer (CreateCommittedResource)");
         }
         set_debug_name(record.resource.Get(), desc.label);
@@ -135,6 +160,9 @@ namespace SFT::D3D12 {
         if (auto record = buffers_.extract(handle)) {
             if (record->mapped != nullptr && record->resource != nullptr) {
                 record->resource->Unmap(0, nullptr);
+            }
+            if (record->allocation != nullptr) {
+                record->allocation->Release();
             }
         }
     }
@@ -354,14 +382,32 @@ namespace SFT::D3D12 {
 
         const CD3DX12_HEAP_PROPERTIES heap_properties(D3D12_HEAP_TYPE_DEFAULT);
         TextureRecord record{};
-        if (const HRESULT hr = device_->CreateCommittedResource(
-                &heap_properties,
-                D3D12_HEAP_FLAG_NONE,
-                &resource_desc,
-                D3D12_RESOURCE_STATE_COMMON,
-                wants_clear_value ? &clear_value : nullptr,
-                IID_PPV_ARGS(&record.resource));
-            FAILED(hr)) {
+        if (d3d12ma_allocator_ != nullptr) {
+            const D3D12MA::ALLOCATION_DESC allocation_desc{
+                .Flags = D3D12MA::ALLOCATION_FLAG_NONE,
+                .HeapType = D3D12_HEAP_TYPE_DEFAULT,
+                .ExtraHeapFlags = D3D12_HEAP_FLAG_NONE,
+                .CustomPool = nullptr,
+                .pPrivateData = nullptr,
+            };
+            if (const HRESULT hr = d3d12ma_allocator_->CreateResource(
+                    &allocation_desc,
+                    &resource_desc,
+                    D3D12_RESOURCE_STATE_COMMON,
+                    wants_clear_value ? &clear_value : nullptr,
+                    &record.allocation,
+                    IID_PPV_ARGS(&record.resource));
+                FAILED(hr)) {
+                return hresult_error(hr, "create_texture (D3D12MA::CreateResource)");
+            }
+        } else if (const HRESULT hr = device_->CreateCommittedResource(
+                       &heap_properties,
+                       D3D12_HEAP_FLAG_NONE,
+                       &resource_desc,
+                       D3D12_RESOURCE_STATE_COMMON,
+                       wants_clear_value ? &clear_value : nullptr,
+                       IID_PPV_ARGS(&record.resource));
+                   FAILED(hr)) {
             return hresult_error(hr, "create_texture (CreateCommittedResource)");
         }
         set_debug_name(record.resource.Get(), desc.label);
@@ -392,7 +438,9 @@ namespace SFT::D3D12 {
     /// @note This function does not throw exceptions.
     void D3D12Device::destroy_texture(rhi::TextureHandle handle) noexcept {
         ZoneScopedN("D3D12Device::destroy_texture");
-        textures_.erase(handle);
+        if (auto record = textures_.extract(handle); record && record->allocation != nullptr) {
+            record->allocation->Release();
+        }
     }
 
 

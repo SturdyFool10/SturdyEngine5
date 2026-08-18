@@ -155,6 +155,19 @@ VulkanBuffer &VulkanBuffer::operator=(VulkanBuffer &&o) noexcept {
 /// @note This function does not throw exceptions.
 [[nodiscard]] VkBufferUsageFlags VulkanBuffer::usage() const noexcept { return usage_; }
 
+/// Reports whether this allocation actually landed in HOST_VISIBLE memory.
+///
+/// @return true if the allocation's real memory type carries VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT.
+/// @note This function does not throw exceptions.
+[[nodiscard]] bool VulkanBuffer::is_host_visible() const noexcept {
+            if (allocator_ == VK_NULL_HANDLE || allocation_ == VK_NULL_HANDLE) {
+                return false;
+            }
+            VkMemoryPropertyFlags flags = 0;
+            vmaGetAllocationMemoryProperties(allocator_, allocation_, &flags);
+            return (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0;
+        }
+
 /// Uploads the supplied or associated value/state using the supplied arguments and current state.
 ///
 /// @param data Data consumed or referenced by the operation.

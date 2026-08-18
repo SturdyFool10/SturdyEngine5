@@ -133,6 +133,19 @@ namespace SFT::Core::Vulkan {
         /// @note This function does not throw exceptions.
         [[nodiscard]] VkBufferUsageFlags usage() const noexcept;
 
+        /// Reports whether this allocation actually landed in HOST_VISIBLE memory.
+        ///
+        /// @return true if the allocation's real memory type carries VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT.
+        /// @note Meaningful for any allocation, but this is what makes opportunistic Resizable BAR
+        ///       placement observable after the fact: a buffer created with MemoryLocation::DeviceLocal
+        ///       (VulkanRhiConvert.hpp's to_vma()) asks VMA to prefer a combined DEVICE_LOCAL|
+        ///       HOST_VISIBLE memory type when the GPU exposes one large enough, but VMA silently
+        ///       falls back to plain device-local memory when it doesn't (or the allocation is too
+        ///       large for that heap) — there is no way to know which happened except asking the
+        ///       allocation itself. See VulkanRhiBridgeBuffers.cpp's create_buffer()/write_buffer().
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] bool is_host_visible() const noexcept;
+
 
         /// Uploads the supplied or associated value/state using the supplied arguments and current state.
         ///

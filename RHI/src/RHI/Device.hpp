@@ -454,6 +454,32 @@ namespace SFT::RHI {
         /// @note This function does not throw exceptions.
         virtual void destroy_acceleration_structure(AccelerationStructureHandle handle) noexcept = 0;
 
+        /// Reports the backing-storage and build-scratch sizes an opacity micromap with this usage
+        /// table would need. Requires Feature::OpacityMicromap.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] virtual RhiExpected<OpacityMicromapBuildSizes> opacity_micromap_build_sizes(
+            const OpacityMicromapDesc &desc) const = 0;
+        /// Creates an opacity micromap from the supplied parameters. Requires Feature::OpacityMicromap.
+        ///
+        /// @param desc Description of the resource or operation to perform.
+        /// @param size Backing-storage size, from a prior opacity_micromap_build_sizes() call.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] virtual RhiExpected<OpacityMicromapHandle> create_opacity_micromap(
+            const OpacityMicromapDesc &desc, u64 size) = 0;
+        /// Destroys the opacity micromap identified by the supplied parameters.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function does not throw exceptions.
+        virtual void destroy_opacity_micromap(OpacityMicromapHandle handle) noexcept = 0;
+
 
         /// Performs the buffer device address operation for `RhiDevice` using the supplied arguments.
         ///

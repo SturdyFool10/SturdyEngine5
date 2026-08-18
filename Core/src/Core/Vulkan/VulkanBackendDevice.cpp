@@ -64,6 +64,32 @@ namespace SFT::Core::Vulkan {
             return out.empty() ? string{"none"} : out;
         }
 
+        /// Largest heap backing a memory type that is both DEVICE_LOCAL and HOST_VISIBLE, in bytes, or
+        /// 0 if no such type exists.
+        ///
+        /// @param memory Physical device memory properties to scan.
+        ///
+        /// @return See summary above.
+        /// @note A pre-Resizable-BAR system typically exposes no such type at all, or only a small
+        ///       (~256 MiB) legacy aperture; Resizable BAR exposes a much larger one (often the GPU's
+        ///       full VRAM). This is purely a diagnostic — VMA already opportunistically places
+        ///       suitable DeviceLocal buffer allocations there on its own (see VulkanRhiConvert.hpp's
+        ///       to_vma()); nothing here gates that behavior.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] VkDeviceSize rebar_heap_size_bytes(const VkPhysicalDeviceMemoryProperties &memory) noexcept {
+            VkDeviceSize largest = 0;
+            constexpr VkMemoryPropertyFlags required =
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+            for (u32 type_index = 0; type_index < memory.memoryTypeCount; ++type_index) {
+                const VkMemoryType &type = memory.memoryTypes[type_index];
+                if ((type.propertyFlags & required) != required) {
+                    continue;
+                }
+                largest = std::max(largest, memory.memoryHeaps[type.heapIndex].size);
+            }
+            return largest;
+        }
+
         /// Returns the available queue count for this `Vulkan`.
         ///
         /// @param device Device used or affected by the operation.
@@ -232,9 +258,25 @@ namespace SFT::Core::Vulkan {
             .pNext = nullptr};
 
 
+        // Shader Execution Reordering. Note this only ever gates whether shader code may use the
+        // reorder intrinsic (Slang/HLSL/GLSL HitObject-style API) -- there is no CPU-side command or
+        // pipeline state for it, unlike every other feature this session. See the feature-detection
+        // block below for the fuller caveat on this extension's confidence level.
+        VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT supportedInvocationReorderFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_EXT,
+            .pNext = &supportedPresentModeFifoLatestReadyFeatures,
+        };
+        VkPhysicalDeviceOpacityMicromapFeaturesEXT supportedOpacityMicromapFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT,
+            .pNext = &supportedInvocationReorderFeatures,
+        };
+        VkPhysicalDeviceFragmentShadingRateFeaturesKHR supportedFragmentShadingRateFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR,
+            .pNext = &supportedOpacityMicromapFeatures,
+        };
         VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR supportedSwapchainMaintenance1Features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
-            .pNext = &supportedPresentModeFifoLatestReadyFeatures,
+            .pNext = &supportedFragmentShadingRateFeatures,
         };
         VkPhysicalDeviceRayQueryFeaturesKHR supportedRayQueryFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
@@ -282,6 +324,19 @@ namespace SFT::Core::Vulkan {
         });
         if (supportedFeatures.features.imageCubeArray) {
             supported_rhi_features.set(RHI::Feature::ImageCubeArray);
+        }
+        if (supportedFeatures.features.depthBounds) {
+            supported_rhi_features.set(RHI::Feature::DepthBoundsTest);
+        }
+        if (supportedFragmentShadingRateFeatures.pipelineFragmentShadingRate) {
+            supported_rhi_features.set(RHI::Feature::VariableRateShading);
+            supported_rhi_features.set(RHI::Feature::PipelineFragmentShadingRate);
+        }
+        if (supportedFragmentShadingRateFeatures.primitiveFragmentShadingRate) {
+            supported_rhi_features.set(RHI::Feature::PrimitiveFragmentShadingRate);
+        }
+        if (supportedFragmentShadingRateFeatures.attachmentFragmentShadingRate) {
+            supported_rhi_features.set(RHI::Feature::AttachmentFragmentShadingRate);
         }
         const bool supports_bindless_descriptor_heap =
             supportedFeatures12.descriptorIndexing &&
@@ -354,6 +409,29 @@ namespace SFT::Core::Vulkan {
             supported_rhi_features.set(RHI::Feature::FullScreenExclusive);
         }
 #endif
+        if (this->physicalDevice.supports_extension("VK_EXT_conservative_rasterization")) {
+            supported_rhi_features.set(RHI::Feature::ConservativeRasterization);
+        }
+        if (this->physicalDevice.supports_extension("VK_EXT_sample_locations")) {
+            supported_rhi_features.set(RHI::Feature::SampleLocations);
+        }
+        // See VulkanRhiBridgeAccelerationStructures.cpp's opacity_micromap_build_sizes() doc comment:
+        // this extension's struct layout is implemented from lower-confidence memory than the rest of
+        // this file's ray-tracing feature detection.
+        if (supportedOpacityMicromapFeatures.micromap) {
+            supported_rhi_features.set(RHI::Feature::OpacityMicromap);
+        }
+        // VK_EXT_ray_tracing_invocation_reorder (Shader Execution Reordering): struct/field names
+        // here are moderate-, not high-, confidence -- verify against real headers before trusting.
+        // Unlike every other feature this session, enabling this bit does not unlock any RHI-level
+        // command or pipeline state; it only tells shader code (Slang/HLSL/GLSL) that the
+        // HitObject-style reorder intrinsic is safe to call. No Slang stdlib support for that
+        // intrinsic exists in this engine yet, so setting this bit is necessary-but-not-sufficient
+        // for a shader to actually use SER today -- see Feature::RayTracingInvocationReorder's own
+        // doc comment in Features.hpp for the fuller picture.
+        if (supportedInvocationReorderFeatures.rayTracingInvocationReorder) {
+            supported_rhi_features.set(RHI::Feature::RayTracingInvocationReorder);
+        }
         const auto probed_gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);
         const auto probed_dedicated_compute_family = find_dedicated_queue_family(
             this->physicalDevice,
@@ -415,6 +493,15 @@ namespace SFT::Core::Vulkan {
                 .set(RHI::Feature::AccelerationStructures)
                 .set(RHI::Feature::BufferDeviceAddress)
                 .set(RHI::Feature::BindlessResources);
+
+            // Both extensions declare VK_KHR_acceleration_structure as a hard dependency in the
+            // Vulkan registry; requesting either one without acceleration structures also being
+            // negotiated on produces an invalid device-extension combination that fails
+            // vkCreateDevice outright (confirmed empirically: UiWorkbench, which doesn't request
+            // raytracing, failed device creation while these were being requested unconditionally
+            // below regardless of init.features.raytracing).
+            optional_rhi_features.set(RHI::Feature::OpacityMicromap);
+            optional_rhi_features.set(RHI::Feature::RayTracingInvocationReorder);
         }
         const auto close_ray_tracing_dependencies = [](RHI::FeatureSet &features) {
             if (features.has(RHI::Feature::RayQuery) || features.has(RHI::Feature::RayTracingPipeline)) {
@@ -470,6 +557,27 @@ namespace SFT::Core::Vulkan {
 
 
         optional_rhi_features.set(RHI::Feature::RenderBundles);
+
+
+        optional_rhi_features.set(RHI::Feature::DepthBoundsTest);
+
+
+        optional_rhi_features.set(RHI::Feature::ConservativeRasterization);
+
+
+        optional_rhi_features.set(RHI::Feature::SampleLocations);
+
+
+        optional_rhi_features.set(RHI::Feature::VariableRateShading);
+        optional_rhi_features.set(RHI::Feature::PipelineFragmentShadingRate);
+        optional_rhi_features.set(RHI::Feature::AttachmentFragmentShadingRate);
+
+
+        // OpacityMicromap and RayTracingInvocationReorder are requested inside the
+        // `if (init.features.raytracing)` block above instead of here -- both extensions hard-depend
+        // on VK_KHR_acceleration_structure, and requesting them independent of raytracing being
+        // negotiated on produced an invalid device-extension combination (empirically confirmed via
+        // vkCreateDevice failing on UiWorkbench, which doesn't request raytracing).
 
 
         optional_rhi_features.set(RHI::Feature::SwapchainMaintenance);
@@ -538,6 +646,20 @@ namespace SFT::Core::Vulkan {
         const bool enable_bindless_descriptor_heap = enabled_rhi_features.has(RHI::Feature::BindlessResources);
         const bool enable_present_mode_fifo_latest_ready = enabled_rhi_features.has(RHI::Feature::PresentModeFifoLatestReady);
         const bool enable_swapchain_maintenance1 = enabled_rhi_features.has(RHI::Feature::SwapchainMaintenance);
+        const bool enable_conservative_rasterization = enabled_rhi_features.has(RHI::Feature::ConservativeRasterization);
+        const bool enable_sample_locations = enabled_rhi_features.has(RHI::Feature::SampleLocations);
+        const bool enable_pipeline_fragment_shading_rate =
+            enabled_rhi_features.has(RHI::Feature::PipelineFragmentShadingRate);
+        const bool enable_primitive_fragment_shading_rate =
+            enabled_rhi_features.has(RHI::Feature::PrimitiveFragmentShadingRate);
+        const bool enable_attachment_fragment_shading_rate =
+            enabled_rhi_features.has(RHI::Feature::AttachmentFragmentShadingRate);
+        const bool enable_fragment_shading_rate =
+            enable_pipeline_fragment_shading_rate || enable_primitive_fragment_shading_rate ||
+            enable_attachment_fragment_shading_rate;
+        const bool enable_opacity_micromap = enabled_rhi_features.has(RHI::Feature::OpacityMicromap);
+        const bool enable_ray_tracing_invocation_reorder =
+            enabled_rhi_features.has(RHI::Feature::RayTracingInvocationReorder);
 #if defined(_WIN32)
         const bool enable_external_memory_win32 = enabled_rhi_features.has(RHI::Feature::ExternalMemoryWin32);
         const bool enable_external_semaphore_win32 = enabled_rhi_features.has(RHI::Feature::ExternalSemaphoreWin32);
@@ -591,14 +713,32 @@ namespace SFT::Core::Vulkan {
             .taskShader = enable_task_shader ? VK_TRUE : VK_FALSE,
             .meshShader = enable_mesh_shader ? VK_TRUE : VK_FALSE,
         };
+        VkPhysicalDeviceFragmentShadingRateFeaturesKHR fragmentShadingRateFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR,
+            .pNext = &meshFeatures,
+            .pipelineFragmentShadingRate = enable_pipeline_fragment_shading_rate ? VK_TRUE : VK_FALSE,
+            .primitiveFragmentShadingRate = enable_primitive_fragment_shading_rate ? VK_TRUE : VK_FALSE,
+            .attachmentFragmentShadingRate = enable_attachment_fragment_shading_rate ? VK_TRUE : VK_FALSE,
+        };
+        VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT invocationReorderFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_EXT,
+            .pNext = &fragmentShadingRateFeatures,
+            .rayTracingInvocationReorder = enable_ray_tracing_invocation_reorder ? VK_TRUE : VK_FALSE,
+        };
+        VkPhysicalDeviceOpacityMicromapFeaturesEXT opacityMicromapFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_OPACITY_MICROMAP_FEATURES_EXT,
+            .pNext = &invocationReorderFeatures,
+            .micromap = enable_opacity_micromap ? VK_TRUE : VK_FALSE,
+        };
 
 
         VkPhysicalDeviceVulkan14Features features14{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
             .pNext = (enable_mesh_shader || enable_acceleration_structures || enable_ray_tracing_pipeline ||
                       enable_ray_query || enable_swapchain_maintenance1 ||
-                      enable_present_mode_fifo_latest_ready)
-                         ? &meshFeatures
+                      enable_present_mode_fifo_latest_ready || enable_fragment_shading_rate ||
+                      enable_opacity_micromap || enable_ray_tracing_invocation_reorder)
+                         ? &opacityMicromapFeatures
                          : nullptr,
         };
         VkPhysicalDeviceVulkan13Features features13{
@@ -637,6 +777,9 @@ namespace SFT::Core::Vulkan {
         }
         if (enabled_rhi_features.has(RHI::Feature::ImageCubeArray)) {
             features.features.imageCubeArray = VK_TRUE;
+        }
+        if (enabled_rhi_features.has(RHI::Feature::DepthBoundsTest)) {
+            features.features.depthBounds = VK_TRUE;
         }
 
 
@@ -689,6 +832,21 @@ namespace SFT::Core::Vulkan {
 
 
             extensions.push_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
+        }
+        if (enable_fragment_shading_rate) {
+            extensions.push_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+        }
+        if (enable_opacity_micromap) {
+            extensions.push_back(VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME);
+        }
+        if (enable_ray_tracing_invocation_reorder) {
+            extensions.push_back(VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME);
+        }
+        if (enable_conservative_rasterization) {
+            extensions.push_back(VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME);
+        }
+        if (enable_sample_locations) {
+            extensions.push_back(VK_EXT_SAMPLE_LOCATIONS_EXTENSION_NAME);
         }
 #if defined(_WIN32)
         if (enable_external_memory_win32) {
@@ -821,6 +979,28 @@ namespace SFT::Core::Vulkan {
         }
 
         this->vmaAllocator = std::move(*allocator_result);
+
+        // Diagnostic only — see rebar_heap_size_bytes's own doc comment for why nothing here needs to
+        // gate or configure anything; VMA already opportunistically uses whatever it finds.
+        constexpr VkDeviceSize rebar_heap_threshold_bytes = 512ull * 1024 * 1024; // 512 MiB
+        const VkDeviceSize rebar_heap_size = rebar_heap_size_bytes(this->physicalDevice.memory_properties());
+        if (rebar_heap_size >= rebar_heap_threshold_bytes) {
+            Foundation::log_info(
+                "Vulkan Resizable BAR detected: {:.1f} GiB of DEVICE_LOCAL+HOST_VISIBLE memory "
+                "available; DeviceLocal buffers will opportunistically skip staging uploads where VMA "
+                "places them there.",
+                static_cast<f64>(rebar_heap_size) / (1024.0 * 1024.0 * 1024.0));
+        } else if (rebar_heap_size > 0) {
+            Foundation::log_info(
+                "Vulkan DEVICE_LOCAL+HOST_VISIBLE memory available, but only {:.0f} MiB — likely the "
+                "legacy pre-Resizable-BAR aperture, not full Resizable BAR; VMA may still "
+                "opportunistically use it for small DeviceLocal allocations.",
+                static_cast<f64>(rebar_heap_size) / (1024.0 * 1024.0));
+        } else {
+            Foundation::log_info(
+                "Vulkan Resizable BAR is not available on this GPU/driver; DeviceLocal buffers will "
+                "always use a staging-buffer upload.");
+        }
 
         Foundation::log_info("VMA Initialization was a success!");
         return {};

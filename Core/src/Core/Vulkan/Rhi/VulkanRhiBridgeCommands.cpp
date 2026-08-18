@@ -333,6 +333,17 @@ namespace SFT::Core::Vulkan {
             return bridge_.acceleration_structures_.find(handle);
         }
 
+        /// Performs the opacity micromap operation for `VulkanRhiEncoderCommon` using the supplied arguments.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] VulkanRhiDeviceBridge::OpacityMicromapRecord *opacity_micromap(
+            rhi::OpacityMicromapHandle handle) const noexcept {
+            return bridge_.opacity_micromaps_.find(handle);
+        }
+
         /// Binds group impl for subsequent operations.
         ///
         /// @param bind_point `bind_point` value used by the operation.
@@ -418,6 +429,51 @@ namespace SFT::Core::Vulkan {
         /// @note This function does not throw exceptions.
         void set_stencil_reference_impl(u32 reference) const noexcept {
             command_buffer_.set_stencil_reference(VK_STENCIL_FRONT_AND_BACK, reference);
+        }
+        /// Sets the depth bounds impl for this `VulkanRhiEncoderCommon`.
+        ///
+        /// @param min_depth Lower bound of the depth range that passes the test, in [0, 1].
+        /// @param max_depth Upper bound of the depth range that passes the test, in [0, 1].
+        ///
+        /// @note This function does not throw exceptions.
+        void set_depth_bounds_impl(f32 min_depth, f32 max_depth) const noexcept {
+            command_buffer_.set_depth_bounds(min_depth, max_depth);
+        }
+        /// Sets the pipeline-stage shading rate impl for this `VulkanRhiEncoderCommon`.
+        ///
+        /// @param rate Base shading rate for subsequent draws, before any combiner runs.
+        /// @param primitive_combiner Combines `rate` with a draw's per-primitive shading rate output.
+        /// @param attachment_combiner Combines the result with the bound shading-rate attachment's rate.
+        ///
+        /// @note This function does not throw exceptions.
+        void set_shading_rate_impl(rhi::ShadingRate rate, rhi::ShadingRateCombiner primitive_combiner,
+                                   rhi::ShadingRateCombiner attachment_combiner) const noexcept {
+            const VkFragmentShadingRateCombinerOpKHR combiners[2] = {to_vk(primitive_combiner),
+                                                                     to_vk(attachment_combiner)};
+            command_buffer_.set_fragment_shading_rate(to_vk(rate), combiners);
+        }
+        /// Sets custom MSAA sample positions impl for this `VulkanRhiEncoderCommon`.
+        ///
+        /// @param samples_per_pixel Number of samples each pixel in `grid_size` provides locations for.
+        /// @param grid_size Repeating pixel-pattern size the locations apply across.
+        /// @param locations RHI sample locations, normalized [0,1) -- Vulkan's own native
+        /// VkSampleLocationEXT representation, so no conversion is needed here (contrast D3D12's
+        /// to_d3d12(rhi::SampleLocation), which does need one).
+        ///
+        /// @note This function does not throw exceptions.
+        void set_sample_locations_impl(u32 samples_per_pixel, rhi::Extent2D grid_size,
+                                       span<const rhi::SampleLocation> locations) const noexcept {
+            static_assert(sizeof(rhi::SampleLocation) == sizeof(VkSampleLocationEXT),
+                         "rhi::SampleLocation must stay layout-compatible with VkSampleLocationEXT for this "
+                         "reinterpret_cast to be valid.");
+            const VkSampleLocationsInfoEXT info{
+                .sType = VK_STRUCTURE_TYPE_SAMPLE_LOCATIONS_INFO_EXT,
+                .sampleLocationsPerPixel = static_cast<VkSampleCountFlagBits>(samples_per_pixel),
+                .sampleLocationGridSize = {grid_size.width, grid_size.height},
+                .sampleLocationsCount = static_cast<u32>(locations.size()),
+                .pSampleLocations = reinterpret_cast<const VkSampleLocationEXT *>(locations.data()),
+            };
+            command_buffer_.set_sample_locations(info);
         }
 
         /// Draws impl using the current rendering state.
@@ -607,6 +663,17 @@ namespace SFT::Core::Vulkan {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_scissor(const rhi::Rect2D &scissor) override { set_scissor_impl(scissor); }
+        /// Sets custom MSAA sample positions for this encoder.
+        ///
+        /// @param samples_per_pixel Number of samples each pixel in `grid_size` provides locations for.
+        /// @param grid_size Repeating pixel-pattern size the locations apply across.
+        /// @param locations `samples_per_pixel * grid_size.width * grid_size.height` positions.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_sample_locations(u32 samples_per_pixel, rhi::Extent2D grid_size,
+                                  span<const rhi::SampleLocation> locations) override {
+            set_sample_locations_impl(samples_per_pixel, grid_size, locations);
+        }
         /// Sets the blend constant for this `VulkanRhiRenderPassEncoder`.
         ///
         /// @param color `color` value used by the operation.
@@ -619,6 +686,24 @@ namespace SFT::Core::Vulkan {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_stencil_reference(u32 reference) override { set_stencil_reference_impl(reference); }
+        /// Sets the depth bounds test range for this encoder.
+        ///
+        /// @param min_depth Lower bound of the depth range that passes the test, in [0, 1].
+        /// @param max_depth Upper bound of the depth range that passes the test, in [0, 1].
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_depth_bounds(f32 min_depth, f32 max_depth) override { set_depth_bounds_impl(min_depth, max_depth); }
+        /// Sets the pipeline-stage shading rate and its combiners for this `VulkanRhiRenderPassEncoder`.
+        ///
+        /// @param rate Base shading rate for subsequent draws, before any combiner runs.
+        /// @param primitive_combiner Combines `rate` with a draw's per-primitive shading rate output.
+        /// @param attachment_combiner Combines the result with the bound shading-rate attachment's rate.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_shading_rate(rhi::ShadingRate rate, rhi::ShadingRateCombiner primitive_combiner,
+                              rhi::ShadingRateCombiner attachment_combiner) override {
+            set_shading_rate_impl(rate, primitive_combiner, attachment_combiner);
+        }
         /// Draws the requested content using the current rendering state.
         ///
         /// @param args `args` value used by the operation.
@@ -830,6 +915,17 @@ namespace SFT::Core::Vulkan {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_scissor(const rhi::Rect2D &scissor) override { set_scissor_impl(scissor); }
+        /// Sets custom MSAA sample positions for this encoder.
+        ///
+        /// @param samples_per_pixel Number of samples each pixel in `grid_size` provides locations for.
+        /// @param grid_size Repeating pixel-pattern size the locations apply across.
+        /// @param locations `samples_per_pixel * grid_size.width * grid_size.height` positions.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_sample_locations(u32 samples_per_pixel, rhi::Extent2D grid_size,
+                                  span<const rhi::SampleLocation> locations) override {
+            set_sample_locations_impl(samples_per_pixel, grid_size, locations);
+        }
         /// Sets the blend constant for this `VulkanRhiRenderBundleEncoder`.
         ///
         /// @param color `color` value used by the operation.
@@ -842,6 +938,13 @@ namespace SFT::Core::Vulkan {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_stencil_reference(u32 reference) override { set_stencil_reference_impl(reference); }
+        /// Sets the depth bounds test range for this encoder.
+        ///
+        /// @param min_depth Lower bound of the depth range that passes the test, in [0, 1].
+        /// @param max_depth Upper bound of the depth range that passes the test, in [0, 1].
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_depth_bounds(f32 min_depth, f32 max_depth) override { set_depth_bounds_impl(min_depth, max_depth); }
         /// Draws the requested content using the current rendering state.
         ///
         /// @param args `args` value used by the operation.
@@ -1034,6 +1137,10 @@ namespace SFT::Core::Vulkan {
         rhi::RhiExpected<unique_ptr<rhi::RenderPassEncoder>> begin_render_pass(const rhi::RenderPassDesc &desc) override {
             RenderingInfo rendering;
             rendering.set_render_area(to_vk_rect(desc.render_area)).set_view_mask(desc.view_mask);
+            // Declared at function scope (not inside the `if` below) because RenderingInfo::set_next()
+            // only stores a pointer -- this must stay alive until rendering.build()/begin_rendering()
+            // actually consume it further down.
+            VkRenderingFragmentShadingRateAttachmentInfoKHR shading_rate_attachment_info{};
             if (desc.allow_bundles) {
 
 
@@ -1101,6 +1208,23 @@ namespace SFT::Core::Vulkan {
                         .clear_stencil = desc.depth_stencil.clear_value.stencil,
                     });
                 }
+            }
+
+            if (desc.shading_rate_attachment.is_valid()) {
+                VulkanImageView *shading_rate_view = bridge_.texture_views_.find(desc.shading_rate_attachment);
+                if (shading_rate_view == nullptr) {
+                    return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                          "begin_render_pass: unknown shading_rate_attachment view handle.");
+                }
+                const rhi::VariableRateShadingProperties &tile =
+                    bridge_.feature_properties().variable_rate_shading;
+                shading_rate_attachment_info = VkRenderingFragmentShadingRateAttachmentInfoKHR{
+                    .sType = VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR,
+                    .imageView = shading_rate_view->vk_handle(),
+                    .imageLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR,
+                    .shadingRateAttachmentTexelSize = {tile.min_tile_width, tile.min_tile_height},
+                };
+                rendering.set_next(&shading_rate_attachment_info);
             }
 
             const VkRenderingInfo info = rendering.build();
@@ -1268,10 +1392,12 @@ namespace SFT::Core::Vulkan {
         void build_acceleration_structures(span<const rhi::AccelerationStructureBuildDesc> builds) override {
             vector<VkAccelerationStructureBuildGeometryInfoKHR> build_infos;
             vector<vector<VkAccelerationStructureGeometryKHR>> geometry_storage;
+            vector<vector<VkAccelerationStructureTrianglesOpacityMicromapEXT>> omm_storage_all;
             vector<vector<VkAccelerationStructureBuildRangeInfoKHR>> range_storage;
             vector<const VkAccelerationStructureBuildRangeInfoKHR *> range_ptrs;
             build_infos.reserve(builds.size());
             geometry_storage.reserve(builds.size());
+            omm_storage_all.reserve(builds.size());
             range_storage.reserve(builds.size());
             range_ptrs.reserve(builds.size());
 
@@ -1284,7 +1410,9 @@ namespace SFT::Core::Vulkan {
                 }
 
                 vector<VkAccelerationStructureGeometryKHR> geometries;
+                vector<VkAccelerationStructureTrianglesOpacityMicromapEXT> omm_storage;
                 geometries.reserve(build.geometries.size());
+                omm_storage.reserve(build.geometries.size());
                 for (const rhi::AccelerationStructureGeometryDesc &geometry : build.geometries) {
                     VkAccelerationStructureGeometryKHR vk_geometry{
                         .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
@@ -1308,6 +1436,25 @@ namespace SFT::Core::Vulkan {
                                 .indexData = device_address_const(indices ? indices->device_address() + geometry.triangles.index_offset : 0),
                                 .transformData = device_address_const(transform ? transform->device_address() + geometry.triangles.transform_offset : 0),
                             };
+                            if (geometry.triangles.opacity_micromap.is_valid()) {
+                                auto *micromap = opacity_micromap(geometry.triangles.opacity_micromap);
+                                VulkanBuffer *omm_indices = buffer(geometry.triangles.opacity_micromap_index_buffer);
+                                if (micromap != nullptr && omm_indices != nullptr) {
+                                    omm_storage.push_back(VkAccelerationStructureTrianglesOpacityMicromapEXT{
+                                        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_EXT,
+                                        .indexType = to_vk(geometry.triangles.opacity_micromap_index_format),
+                                        .indexBuffer = device_address_const(
+                                            omm_indices->device_address() + geometry.triangles.opacity_micromap_index_offset),
+                                        .indexStride = static_cast<VkDeviceSize>(
+                                            geometry.triangles.opacity_micromap_index_format == rhi::IndexFormat::Uint16 ? 2 : 4),
+                                        .baseTriangle = 0,
+                                        .usageCountsCount = 0,
+                                        .pUsageCounts = nullptr,
+                                        .micromap = micromap->micromap,
+                                    });
+                                    vk_geometry.geometry.triangles.pNext = &omm_storage.back();
+                                }
+                            }
                             break;
                         }
                         case rhi::AccelerationStructureGeometryType::Aabbs: {
@@ -1346,6 +1493,7 @@ namespace SFT::Core::Vulkan {
                 }
 
                 geometry_storage.push_back(std::move(geometries));
+                omm_storage_all.push_back(std::move(omm_storage));
                 range_storage.push_back(std::move(ranges));
                 range_ptrs.push_back(range_storage.back().empty() ? nullptr : range_storage.back().data());
                 build_infos.push_back(VkAccelerationStructureBuildGeometryInfoKHR{
@@ -1364,6 +1512,49 @@ namespace SFT::Core::Vulkan {
 
             if (!build_infos.empty()) {
                 command_buffer_.build_acceleration_structures(build_infos, range_ptrs);
+            }
+        }
+        /// Builds opacity micromaps.
+        ///
+        /// @param builds `builds` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void build_opacity_micromaps(span<const rhi::OpacityMicromapBuildDesc> builds) override {
+            vector<VkMicromapBuildInfoEXT> build_infos;
+            vector<vector<VkMicromapUsageEXT>> usage_storage;
+            build_infos.reserve(builds.size());
+            usage_storage.reserve(builds.size());
+
+            for (const rhi::OpacityMicromapBuildDesc &build : builds) {
+                auto *dst = opacity_micromap(build.dst);
+                VulkanBuffer *scratch = buffer(build.scratch_buffer);
+                VulkanBuffer *data = buffer(build.data_buffer);
+                if (dst == nullptr || scratch == nullptr || data == nullptr) {
+                    continue;
+                }
+
+                vector<VkMicromapUsageEXT> usage_counts;
+                usage_counts.reserve(build.usage_counts.size());
+                for (const rhi::OpacityMicromapUsageCount &usage : build.usage_counts) {
+                    usage_counts.push_back(to_vk(usage));
+                }
+                usage_storage.push_back(std::move(usage_counts));
+
+                build_infos.push_back(VkMicromapBuildInfoEXT{
+                    .sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT,
+                    .type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT,
+                    .flags = 0,
+                    .mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT,
+                    .dstMicromap = dst->micromap,
+                    .usageCountsCount = static_cast<u32>(usage_storage.back().size()),
+                    .pUsageCounts = usage_storage.back().empty() ? nullptr : usage_storage.back().data(),
+                    .data = device_address_const(data->device_address() + build.data_buffer_offset),
+                    .scratchData = device_address(scratch->device_address() + build.scratch_offset),
+                });
+            }
+
+            if (!build_infos.empty()) {
+                command_buffer_.build_opacity_micromaps(build_infos);
             }
         }
         /// Copies acceleration structure to its destination.

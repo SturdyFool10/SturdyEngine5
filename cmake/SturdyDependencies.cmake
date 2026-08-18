@@ -5,6 +5,10 @@ include(FetchContent)
 set(STURDY_DEPS_FOLDER "ThirdParty")
 set(STURDY_GLM_TAG "1.0.3" CACHE STRING "glm git tag to fetch.")
 set(STURDY_VMA_TAG "v3.4.0" CACHE STRING "Vulkan Memory Allocator git tag to fetch.")
+# GPUOpen's D3D12 sibling to VMA above; only fetched on Windows, where the D3D12 backend lives.
+# Verify this tag against the upstream repo's releases before relying on it -- it was picked from
+# memory of the project's release history, not confirmed against a live checkout.
+set(STURDY_D3D12MA_TAG "v2.0.1" CACHE STRING "D3D12 Memory Allocator git tag to fetch.")
 set(STURDY_VOLK_TAG "1.4.350" CACHE STRING "volk git tag to fetch.")
 set(STURDY_SDL3_TAG "release-3.4.10" CACHE STRING "SDL3 git tag to fetch.")
 if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
@@ -336,6 +340,7 @@ function(sturdy_configure_dependencies)
         if(STURDY_OS STREQUAL "Windows")
             sturdy_fetch_directx_headers()
             sturdy_fetch_directstorage()
+            sturdy_fetch_d3d12ma()
         endif()
         if(STURDY_OS STREQUAL "MacOS")
             sturdy_fetch_metalcpp()
@@ -368,6 +373,7 @@ function(sturdy_configure_dependencies)
 
         if(STURDY_OS STREQUAL "Windows")
             sturdy_find_directx()
+            sturdy_find_d3d12ma()
         endif()
         if(STURDY_OS STREQUAL "MacOS")
             sturdy_find_metalcpp()
@@ -438,6 +444,16 @@ function(sturdy_find_directx)
         add_library(Sturdy::DirectX INTERFACE IMPORTED GLOBAL)
         target_link_libraries(Sturdy::DirectX INTERFACE d3d12 dxgi dxguid)
     endif()
+endfunction()
+
+function(sturdy_find_d3d12ma)
+    find_package(D3D12MemoryAllocator CONFIG QUIET)
+    if(NOT TARGET D3D12MemoryAllocator AND NOT TARGET GPUOpen::D3D12MemoryAllocator AND
+       NOT TARGET D3D12MemoryAllocator::D3D12MemoryAllocator)
+        find_package(unofficial-d3d12-memory-allocator CONFIG REQUIRED)
+    endif()
+    # The Sturdy::D3D12MA alias itself is created uniformly by sturdy_normalize_dependency_targets(),
+    # same as find_package(VulkanMemoryAllocator ...) above leaves Sturdy::VMA to that function too.
 endfunction()
 
 # Microsoft.Direct3D.DirectStorage (MIT) -- ships as a NuGet package (a .nupkg is just a zip), not
@@ -737,6 +753,42 @@ function(sturdy_fetch_vma)
     FetchContent_MakeAvailable(vma)
     sturdy_mark_dependency_targets_exclude_from_all(VulkanMemoryAllocator GPUOpen::VulkanMemoryAllocator VulkanMemoryAllocator::VulkanMemoryAllocator)
     sturdy_register_license(vma "${vma_SOURCE_DIR}")
+endfunction()
+
+# D3D12's suballocator, mirroring the role Sturdy::VMA plays for the Vulkan backend (see
+# sturdy_fetch_vma above). Windows-only: guarded at the call site, not here, so this function stays
+# consistent with the other per-dependency fetch functions in this file (none of them self-guard).
+function(sturdy_fetch_d3d12ma)
+    sturdy_fetchcontent_declare(d3d12ma
+        GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator.git
+        GIT_TAG ${STURDY_D3D12MA_TAG}
+        FIND_PACKAGE_ARGS CONFIG QUIET NAMES D3D12MemoryAllocator unofficial-d3d12-memory-allocator
+    )
+    FetchContent_MakeAvailable(d3d12ma)
+    if(TARGET D3D12MemoryAllocator)
+        # Upstream's own CMakeLists.txt (src/CMakeLists.txt) only exposes include/ via the legacy,
+        # directory-scoped include_directories() at its top level -- it never calls
+        # target_include_directories() on the D3D12MemoryAllocator target itself, so nothing outside
+        # that directory scope (i.e. every consumer here) ever sees D3D12MemAlloc.h on its include
+        # path from just linking the target. Fixed up here rather than patching their CMakeLists.txt.
+        target_include_directories(D3D12MemoryAllocator PUBLIC "${d3d12ma_SOURCE_DIR}/include")
+
+        # Upstream pins CXX_STANDARD 14 unconditionally. Clang in strict C++14 mode fails to compile
+        # D3D12MemAlloc.cpp with "copying member subobject of type std::atomic<UINT> invokes deleted
+        # constructor" (several classes hold an atomic member without an explicitly-declared/deleted
+        # copy constructor, and C++14's implicit special-member-function rules pick a copy where C++17
+        # picks a move); this is a known upstream/Clang interaction, not a real logic bug, and bumping
+        # only this fetched target's standard resolves it without touching upstream source.
+        set_target_properties(D3D12MemoryAllocator PROPERTIES CXX_STANDARD 17)
+    endif()
+    sturdy_mark_dependency_targets_exclude_from_all(
+        D3D12MemoryAllocator
+        GPUOpen::D3D12MemoryAllocator
+        D3D12MemoryAllocator::D3D12MemoryAllocator
+        unofficial::d3d12-memory-allocator
+        unofficial::d3d12-memory-allocator::d3d12-memory-allocator
+    )
+    sturdy_register_license(d3d12ma "${d3d12ma_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_fetch_volk)
@@ -1630,6 +1682,19 @@ function(sturdy_normalize_dependency_targets)
         Tracy::TracyClient
         TracyClient
     )
+
+    # Only fetched/found on Windows (see the STURDY_OS STREQUAL "Windows" guards around
+    # sturdy_fetch_d3d12ma()/sturdy_find_d3d12ma()); sturdy_alias_existing_target would hard-FATAL_ERROR
+    # here on other platforms since none of its candidate targets would exist.
+    if(STURDY_OS STREQUAL "Windows")
+        sturdy_alias_existing_target(Sturdy::D3D12MA
+            GPUOpen::D3D12MemoryAllocator
+            D3D12MemoryAllocator::D3D12MemoryAllocator
+            D3D12MemoryAllocator
+            unofficial::d3d12-memory-allocator::d3d12-memory-allocator
+            unofficial::d3d12-memory-allocator
+        )
+    endif()
 endfunction()
 
 function(sturdy_alias_existing_target alias_name)
