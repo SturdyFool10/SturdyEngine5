@@ -42,15 +42,17 @@ namespace SFT::UI {
         [[nodiscard]] Core::RendererResult prepare(RHI::RhiDevice &device, RHI::Format color_format,
                                                     span<const CustomDraw> draws, bool enable_shader_disk_cache = true);
 
-
-        /// Draws the requested content using the current rendering state.
+        /// Issues one draw call per entry of `draws`, in order.
         ///
         /// @param pass Render-pass encoder that receives the draw commands.
         /// @param color_format Format used for the resource, render target, or conversion.
-        /// @param draws Draw descriptions processed in submission order.
+        /// @param draws Draw descriptions processed in submission order — every shader referenced
+        ///        must have already been prepared this frame via prepare() above (same
+        ///        `color_format`, which is what the shader cache is keyed by).
         /// @param viewport_size Requested or available size for the operation.
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note See class doc comment for why this doesn't batch.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass, RHI::Format color_format,

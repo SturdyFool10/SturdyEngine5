@@ -333,54 +333,57 @@ namespace SFT::D3D12 {
             swapchain_desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
         }
 
-        rhi::CompositeAlphaMode effective_alpha = rhi::CompositeAlphaMode::Opaque;
+        // Always DirectComposition, never CreateSwapChainForHwnd — matching the Vulkan backend
+        // (VulkanRhiBridgeSwapchain.cpp attempts composition present for every swapchain generation
+        // on a supporting platform, not only transparent ones; see WS_EX_NOREDIRECTIONBITMAP's own
+        // doc comment in SDL3Impl.cpp/GlfwWindowNative.cpp, which already documents this as the
+        // expected behavior for "every swapchain generation" on both backends).
+        //
+        // This used to branch on wants_transparency: CreateSwapChainForHwnd for opaque, only
+        // switching to CreateSwapChainForComposition (+ a fresh IDCompositionDevice/Target/Visual)
+        // when transparency was requested. That branch is exactly what caused the reported ghosting
+        // bug — toggling PresentationSettings::transparent_composition rebuilds the swapchain, which
+        // transitioned the window off a direct HWND-bound flip-model swapchain and onto a brand-new
+        // composition visual tree. Windows' flip model keeps showing an HWND-bound swapchain's last
+        // presented frame for that HWND independently of the new composition visual taking over
+        // (this is also why a crashed flip-model app leaves a frozen window behind), so the old
+        // swapchain's content stayed visible underneath the new transparent one no matter how
+        // promptly destroy_swapchain() released it. Never making that transition (always
+        // composition, opaque or not) is what the RHI's abstraction already assumes — see
+        // RHI::PresentationResolution::via_composition_present's own doc comment — this backend just
+        // wasn't honoring it unconditionally.
+        const rhi::CompositeAlphaMode effective_alpha =
+            wants_transparency
+                ? (desc.composite_alpha == rhi::CompositeAlphaMode::Inherit ? rhi::CompositeAlphaMode::Premultiplied
+                                                                            : desc.composite_alpha)
+                : rhi::CompositeAlphaMode::Opaque;
+        swapchain_desc.AlphaMode = to_dxgi_alpha_mode(effective_alpha);
+        swapchain_desc.Scaling = DXGI_SCALING_STRETCH;
+
         ComPtr<IDXGISwapChain1> swapchain1;
-
-        if (wants_transparency) {
-
-
-            swapchain_desc.AlphaMode = to_dxgi_alpha_mode(desc.composite_alpha == rhi::CompositeAlphaMode::Inherit
-                                                              ? rhi::CompositeAlphaMode::Premultiplied
-                                                              : desc.composite_alpha);
-
-
-            swapchain_desc.Scaling = DXGI_SCALING_STRETCH;
-
-            if (const HRESULT hr = factory_->CreateSwapChainForComposition(graphics_queue_.Get(), &swapchain_desc, nullptr, &swapchain1);
-                FAILED(hr)) {
-                return hresult_error(hr, "create_swapchain (CreateSwapChainForComposition)");
-            }
-            if (const HRESULT hr = DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&record.composition_device));
-                FAILED(hr)) {
-                return hresult_error(hr, "create_swapchain (DCompositionCreateDevice)");
-            }
-            if (const HRESULT hr = record.composition_device->CreateTargetForHwnd(surface->hwnd, TRUE, &record.composition_target);
-                FAILED(hr)) {
-                return hresult_error(hr, "create_swapchain (CreateTargetForHwnd)");
-            }
-            if (const HRESULT hr = record.composition_device->CreateVisual(&record.composition_visual); FAILED(hr)) {
-                return hresult_error(hr, "create_swapchain (CreateVisual)");
-            }
-            if (const HRESULT hr = record.composition_visual->SetContent(swapchain1.Get()); FAILED(hr)) {
-                return hresult_error(hr, "create_swapchain (SetContent)");
-            }
-            if (const HRESULT hr = record.composition_target->SetRoot(record.composition_visual.Get()); FAILED(hr)) {
-                return hresult_error(hr, "create_swapchain (SetRoot)");
-            }
-            if (const HRESULT hr = record.composition_device->Commit(); FAILED(hr)) {
-                return hresult_error(hr, "create_swapchain (Commit)");
-            }
-            effective_alpha = desc.composite_alpha == rhi::CompositeAlphaMode::Inherit
-                                  ? rhi::CompositeAlphaMode::Premultiplied
-                                  : desc.composite_alpha;
-        } else {
-            if (const HRESULT hr = factory_->CreateSwapChainForHwnd(graphics_queue_.Get(), surface->hwnd, &swapchain_desc, nullptr, nullptr, &swapchain1);
-                FAILED(hr)) {
-                return hresult_error(hr, "create_swapchain (CreateSwapChainForHwnd)");
-            }
-
-
-            (void)factory_->MakeWindowAssociation(surface->hwnd, DXGI_MWA_NO_ALT_ENTER);
+        if (const HRESULT hr = factory_->CreateSwapChainForComposition(graphics_queue_.Get(), &swapchain_desc, nullptr, &swapchain1);
+            FAILED(hr)) {
+            return hresult_error(hr, "create_swapchain (CreateSwapChainForComposition)");
+        }
+        if (const HRESULT hr = DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&record.composition_device));
+            FAILED(hr)) {
+            return hresult_error(hr, "create_swapchain (DCompositionCreateDevice)");
+        }
+        if (const HRESULT hr = record.composition_device->CreateTargetForHwnd(surface->hwnd, TRUE, &record.composition_target);
+            FAILED(hr)) {
+            return hresult_error(hr, "create_swapchain (CreateTargetForHwnd)");
+        }
+        if (const HRESULT hr = record.composition_device->CreateVisual(&record.composition_visual); FAILED(hr)) {
+            return hresult_error(hr, "create_swapchain (CreateVisual)");
+        }
+        if (const HRESULT hr = record.composition_visual->SetContent(swapchain1.Get()); FAILED(hr)) {
+            return hresult_error(hr, "create_swapchain (SetContent)");
+        }
+        if (const HRESULT hr = record.composition_target->SetRoot(record.composition_visual.Get()); FAILED(hr)) {
+            return hresult_error(hr, "create_swapchain (SetRoot)");
+        }
+        if (const HRESULT hr = record.composition_device->Commit(); FAILED(hr)) {
+            return hresult_error(hr, "create_swapchain (Commit)");
         }
 
         if (const HRESULT hr = swapchain1.As(&record.swapchain); FAILED(hr)) {

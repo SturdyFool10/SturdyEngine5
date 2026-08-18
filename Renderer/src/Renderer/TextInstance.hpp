@@ -198,14 +198,16 @@ namespace SFT::Renderer {
                                                    span<const u32> instance_paint_groups,
                                                    TextFrameResources &resources, vector<TextDrawBatch> &out_batches);
 
-
-        /// Draws the requested content using the current rendering state.
+        /// Issues one instanced draw per batch against `pass`.
         ///
         /// @param pass Render-pass encoder that receives the draw commands.
-        /// @param batches `batches` value used by the operation.
-        /// @param viewport_size Requested or available size for the operation.
+        /// @param batches Batches prepare() built, drawn in order.
+        /// @param viewport_size The render target's pixel dimensions.
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Sets each batch's own scissor first — a caller does not need to (and should not)
+        ///       call pass.set_scissor() itself around draw(), mirroring UiQuadPipeline::draw()'s
+        ///       identical contract.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass,
                                                 span<const TextDrawBatch> batches, glm::vec2 viewport_size);

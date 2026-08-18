@@ -43,6 +43,27 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
 #endif
     }
 
+    /// No-op on macOS — WS_EX_NOREDIRECTIONBITMAP is a Win32/DWM concept with no Cocoa equivalent.
+    /// See GlfwWindowNative.hpp's own doc comment and the Windows implementation
+    /// (Platform/Windows/GlfwWindowNative.cpp) for why this exists at all.
+    ///
+    /// @param window_handle Unused.
+    ///
+    /// @note This function does not throw exceptions.
+    void apply_composition_window_style(void *window_handle) noexcept { (void)window_handle; }
+
+    /// No-op on macOS — matching SDL3's default window appearance is a Win32/DWM concept
+    /// (DWMWA_USE_IMMERSIVE_DARK_MODE, WM_ERASEBKGND) with no Cocoa equivalent. See
+    /// GlfwWindowNative.hpp's own doc comment and the Windows implementation
+    /// (Platform/Windows/GlfwWindowNative.cpp) for why this exists at all.
+    ///
+    /// @param window_handle Unused.
+    ///
+    /// @note This function does not throw exceptions.
+    void apply_windows_appearance(void *window_handle, bool paint_erase_background) noexcept {
+        (void)window_handle;
+        (void)paint_erase_background;
+    }
 
     /// Performs the install ime composition hook operation for `Detail` using the supplied arguments.
     ///

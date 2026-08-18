@@ -439,12 +439,19 @@ namespace SFT::Core::Vulkan {
         return VK_CULL_MODE_NONE;
     }
 
-
-    /// Converts the supplied engine/RHI value to its Vulkan representation.
+    /// Converts the supplied engine/RHI front-face winding to its Vulkan representation, **inverted**
+    /// rather than mapped 1:1.
     ///
-    /// @param face `face` value used by the operation.
+    /// @param face RHI front-face winding, authored against the engine's +Y-up clip-space convention.
     ///
-    /// @return Returns the value converted to Vulkan representation.
+    /// @return The Vulkan winding with Clockwise/CounterClockwise swapped — Vulkan's viewport gets a
+    ///         negative-height flip to reconcile its native +Y-down NDC against the engine's +Y-up
+    ///         convention (see VulkanRhiBridgeCommands.cpp's to_vk_viewport doc comment), and that
+    ///         viewport-space mirror also reverses how the rasterizer classifies a triangle's winding.
+    ///         Mapping this 1:1 would silently cull exactly the faces that should be visible.
+    /// @note Inverted on purpose — do not "fix" this to the obvious 1:1 mapping. D3D12's equivalent
+    ///       conversion (D3D12DevicePipelines.cpp) needs no such inversion, because D3D12's viewport
+    ///       is never touched.
     /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkFrontFace to_vk(rhi::FrontFace face) noexcept {
         return face == rhi::FrontFace::Clockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;

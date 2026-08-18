@@ -94,12 +94,12 @@ namespace SFT::Engine {
         return nullptr;
     }
 
-    /// Records applied effect using the supplied arguments and current state.
+    /// Updates `id`'s ManagedWindow::applied_effects with `effect`, replacing any existing entry for
+    /// the same WindowEffectKind rather than appending.
     ///
-    /// @param id Identifier of the target object or resource.
-    /// @param effect `effect` value used by the operation.
+    /// @param id Managed window to update; a no-op if this isn't currently a managed window.
+    /// @param effect Window effect to record.
     ///
-    /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
     void Application::record_applied_effect(Platform::Windowing::WindowId id,
                                             Platform::Windowing::WindowEffect effect) noexcept {
@@ -257,21 +257,25 @@ namespace SFT::Engine {
         }
         const Platform::Windowing::WindowFactory effective_factory =
             factory != nullptr ? factory : client_->application_config().primary_window_factory;
-        if (!spawn_managed_window(config, effective_factory,                false)) {
+        if (!spawn_managed_window(config, effective_factory, false)) {
             return std::nullopt;
         }
-
 
         return windows_.back()->surface;
     }
 
-    /// Recreates primary window using the supplied arguments and current state.
+    /// Tears down the current primary window and replaces it with one spawned through `factory`,
+    /// carrying the outgoing window's presentation settings (vsync/HDR/transparent-composition/...)
+    /// and native window effects (blur/acrylic/transparent/...) forward onto the replacement.
     ///
-    /// @param config Configuration values controlling the operation.
+    /// @param config Configuration values controlling the replacement window.
     /// @param factory `factory` value used by the operation.
     ///
     /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     /// @note Normal inability to produce a value is represented by an empty optional.
+    /// @note Without the carry-forward described above, a window recreated to pick up a
+    ///       graphics-API/provider change (the actual reason this function exists) would silently
+    ///       drop blur/transparency/HDR and revert to plain opaque SDR.
     optional<Core::RenderSurfaceHandle> Application::recreate_primary_window(
         const Platform::Windowing::WindowConfig &config, Platform::Windowing::WindowFactory factory) {
         if (!engine_ || !client_->application_config().enable_runtime_window_management) {
@@ -289,7 +293,12 @@ namespace SFT::Engine {
             return std::nullopt;
         }
 
-
+        // Snapshotted before spawn_managed_window() below so the replacement can carry them forward —
+        // see ManagedWindow::applied_effects' own doc comment for why this is the only durable record
+        // of a window's current native effects (blur/transparent/...), and Renderer::
+        // presentation_settings's doc comment for why this surface's live policy is the source of
+        // truth rather than, say, client_->application_config() (which is only ever the *initial*
+        // config, not whatever set_presentation_settings() calls have changed it to since).
         const vector<Platform::Windowing::WindowEffect> effects_to_restore = old_managed->applied_effects;
         const optional<Core::PresentationSettings> presentation_to_restore =
             old_managed->surface ? optional{engine_->presentation_settings(*old_managed->surface)} : std::nullopt;
@@ -297,11 +306,9 @@ namespace SFT::Engine {
         const Platform::Windowing::WindowFactory effective_factory =
             factory != nullptr ? factory : client_->application_config().primary_window_factory;
 
-
-        if (!spawn_managed_window(config, effective_factory,                false)) {
+        if (!spawn_managed_window(config, effective_factory, false)) {
             return std::nullopt;
         }
-
 
         ManagedWindow *new_managed = windows_.back().get();
         new_managed->primary = true;
@@ -312,7 +319,10 @@ namespace SFT::Engine {
             return true;
         });
 
-
+        // Restore the outgoing window's presentation policy and native effects onto the replacement —
+        // without this, a window recreated to pick up a graphics-API/provider change (the actual
+        // reason recreate_primary_window() exists) would silently drop blur/transparency/HDR and
+        // revert to plain opaque SDR, even though the caller never asked for that.
         if (presentation_to_restore && new_managed->surface) {
             if (Core::RendererResult applied =
                     engine_->set_presentation_settings(*new_managed->surface, *presentation_to_restore);
@@ -330,7 +340,9 @@ namespace SFT::Engine {
         }
         new_managed->applied_effects = effects_to_restore;
 
-
+        // Reuses request_close_window()'s own mechanism (just inlined here since it's a one-line
+        // flag flip) — run()'s closing loop drains old_managed's in-flight frames and destroys it
+        // exactly like any other window close, primary or not.
         old_managed->closing = true;
 
         return new_managed->surface;
@@ -658,7 +670,7 @@ namespace SFT::Engine {
         if (!spawn_managed_window(
                 config.primary_window,
                 config.primary_window_factory,
-                               true)) {
+                true)) {
             engine_.reset();
             Async::Scheduler::shutdown();
             return false;

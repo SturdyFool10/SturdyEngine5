@@ -598,7 +598,8 @@ namespace SFT::Engine {
         /// @note This function does not throw exceptions.
         void set_normalized_viewport(glm::vec4 rectangle) noexcept;
 
-
+        // Derived transforms and coordinate conversion. Screen coordinates use a top-left origin and
+        // depth in [0,1].
         /// Returns the current or globally available world matrix value.
         ///
         /// @return Returns the current world matrix value.
@@ -611,7 +612,11 @@ namespace SFT::Engine {
         [[nodiscard]] glm::mat4 view_matrix() const noexcept;
         /// Returns the current or globally available projection matrix value.
         ///
-        /// @return Returns the current projection matrix value.
+        /// @return glm::perspectiveRH_ZO/orthoRH_ZO's native +Y-up NDC, unmodified.
+        /// @note Every backend reconciles its own native clip-space convention against this one
+        ///       value (D3D12 needs nothing; Vulkan flips its viewport — see RHI::Viewport's own doc
+        ///       comment), so this matrix is never backend-flipped, and no caller should flip it
+        ///       either.
         /// @note This function does not throw exceptions.
         [[nodiscard]] glm::mat4 projection_matrix() const noexcept;
         /// Returns the current or globally available view projection matrix value.

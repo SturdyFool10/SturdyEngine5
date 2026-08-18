@@ -12,6 +12,7 @@
 #define NOMINMAX
 #endif
 #include <commctrl.h>
+#include <dwmapi.h>
 #include <imm.h>
 #endif
 
@@ -50,6 +51,128 @@ namespace SFT::Platform::Windowing::GLFW::Detail {
         return unexpected(WindowError{WindowErrorCode::Unsupported, "GLFW Win32 native handles are only available on Windows builds."});
 #endif
     }
+
+#if defined(_WIN32)
+
+    /// Sets WS_EX_NOREDIRECTIONBITMAP on `window_handle`'s HWND.
+    ///
+    /// @param window_handle Opaque `GLFWwindow*` whose native HWND this style is applied to.
+    ///
+    /// @note DirectComposition's CreateTargetForHwnd composites its visual tree *over* the window's
+    ///       own DWM redirection surface, not instead of it — and that surface is opaque. Without
+    ///       WS_EX_NOREDIRECTIONBITMAP, a fully transparent (alpha=0) pixel in the composition visual
+    ///       still shows the opaque redirection surface underneath rather than the desktop, which is
+    ///       exactly "transparency doesn't change when the compositor alpha mode is toggled": the
+    ///       compositor alpha mode was never the missing piece, the redirection surface always was.
+    ///       Both graphics backends try DirectComposition for every swapchain generation they create
+    ///       on a Vulkan/Direct3D window (see VulkanRhiBridgeSwapchain.cpp's create_swapchain() and
+    ///       D3D12DeviceSwapchain.cpp's wants_transparency branch, both of which attempt
+    ///       CreateSwapChainForComposition unconditionally), so this needs applying to every such
+    ///       window, not only ones created with WindowConfig::transparent set.
+    /// @note This style can only take effect if it is set *before* DWM ever allocates that surface
+    ///       for the window, which happens the first time the window is mapped/shown — not at
+    ///       glfwCreateWindow time. GLFW has no public API to request WS_EX_NOREDIRECTIONBITMAP at
+    ///       window creation, so GLFWWindow::construct() forces the window hidden (GLFW_VISIBLE =
+    ///       GLFW_FALSE) whenever it would otherwise be shown immediately, calls this right after
+    ///       glfwCreateWindow returns, and only then shows it if the caller asked for a visible
+    ///       window — the same sequencing SDL3Impl.cpp's identically-named
+    ///       apply_composition_window_style() uses for the same reason.
+    /// @note This function does not throw exceptions.
+    void apply_composition_window_style(void *window_handle) noexcept {
+        auto *window = static_cast<GLFWwindow *>(window_handle);
+        if (!window) [[unlikely]] {
+            return;
+        }
+        HWND hwnd = glfwGetWin32Window(window);
+        if (!hwnd) [[unlikely]] {
+            return;
+        }
+        const LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_NOREDIRECTIONBITMAP);
+    }
+
+    namespace {
+
+        // Same registry key Windows' own Settings app and every documented "does this user prefer
+        // dark apps" sample reads — mirrors what SDL3's WIN_UpdateDarkModeForHWND ultimately falls
+        // back to (ShouldAppsUseDarkMode(), an undocumented uxtheme.dll ordinal SDL3 prefers when
+        // available) without depending on an undocumented ordinal ourselves. Missing key/value (very
+        // old Windows builds predating this setting) defaults to light, matching that build's own
+        // lack of a dark title-bar concept.
+        [[nodiscard]] bool system_prefers_dark_mode() noexcept {
+            HKEY key = nullptr;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                              L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                              0, KEY_READ, &key) != ERROR_SUCCESS) {
+                return false;
+            }
+            DWORD value = 1; // AppsUseLightTheme: 1 = light (the documented default).
+            DWORD size = sizeof(value);
+            DWORD type = REG_DWORD;
+            const LSTATUS status = RegQueryValueExW(key, L"AppsUseLightTheme", nullptr, &type,
+                                                     reinterpret_cast<BYTE *>(&value), &size);
+            RegCloseKey(key);
+            return status == ERROR_SUCCESS && type == REG_DWORD && value == 0;
+        }
+
+        constexpr DWORD kDwmwaUseImmersiveDarkMode = 20;
+        constexpr UINT_PTR kEraseBackgroundSubclassId = 0xE6A5EBC0;
+
+        // Matches SDL3's own WM_ERASEBKGND handling (SDL_windowsevents.c): GLFW's window class
+        // registers no background brush and its own WM_ERASEBKGND handler just returns TRUE without
+        // painting anything (win32_window.c), so the client area shows whatever GDI/DWM's initial
+        // surface content is — effectively white — until the first real present. Filling black here
+        // instead makes that (usually sub-frame, but visible on a slow GPU/driver init) gap match
+        // SDL3's dark appearance rather than standing out as a bright flash.
+        //
+        // Never installed on a WS_EX_NOREDIRECTIONBITMAP window (see apply_composition_window_style
+        // and apply_windows_appearance's own `paint_erase_background` parameter below) — GetDC/FillRect
+        // here forces GDI to allocate the very redirection surface WS_EX_NOREDIRECTIONBITMAP exists to
+        // suppress, and that opaque surface then sits permanently behind DirectComposition's visual
+        // tree, blocking a transparent swapchain exactly like the bleed-through
+        // apply_composition_window_style's own doc comment describes — this GDI paint would recreate
+        // the same class of problem for those windows, not fix it.
+        LRESULT CALLBACK erase_background_subclass_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                         UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/) {
+            if (msg == WM_ERASEBKGND) {
+                RECT client_rect{};
+                GetClientRect(hwnd, &client_rect);
+                HDC dc = reinterpret_cast<HDC>(wParam);
+                HBRUSH black_brush = CreateSolidBrush(RGB(0, 0, 0));
+                FillRect(dc, &client_rect, black_brush);
+                DeleteObject(black_brush);
+                return 1;
+            }
+            return DefSubclassProc(hwnd, msg, wParam, lParam);
+        }
+
+    } // namespace
+
+    void apply_windows_appearance(void *window_handle, bool paint_erase_background) noexcept {
+        auto *window = static_cast<GLFWwindow *>(window_handle);
+        if (!window) [[unlikely]] {
+            return;
+        }
+        HWND hwnd = glfwGetWin32Window(window);
+        if (!hwnd) [[unlikely]] {
+            return;
+        }
+        const BOOL dark = system_prefers_dark_mode() ? TRUE : FALSE;
+        DwmSetWindowAttribute(hwnd, kDwmwaUseImmersiveDarkMode, &dark, sizeof(dark));
+        if (paint_erase_background) {
+            SetWindowSubclass(hwnd, erase_background_subclass_proc, kEraseBackgroundSubclassId, 0);
+        }
+    }
+
+#else // !defined(_WIN32)
+
+    void apply_composition_window_style(void *window_handle) noexcept { (void)window_handle; }
+    void apply_windows_appearance(void *window_handle, bool paint_erase_background) noexcept {
+        (void)window_handle;
+        (void)paint_erase_background;
+    }
+
+#endif
 
 #if defined(_WIN32)
 

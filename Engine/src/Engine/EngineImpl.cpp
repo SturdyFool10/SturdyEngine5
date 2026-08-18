@@ -496,11 +496,13 @@ namespace SFT::Engine {
         return renderer_.set_presentation_settings(surface, settings);
     }
 
-    /// Presents the completed frame to the target surface or swapchain.
+    /// Returns `surface`'s current presentation policy (vsync/HDR/transparent-composition/...).
     ///
-    /// @param surface Surface used or affected by the operation.
+    /// @param surface Surface to query.
     ///
-    /// @return Returns the value produced by the operation.
+    /// @return The value last accepted by set_presentation_settings() for this surface, or the
+    ///         app-wide default it was created with if never overridden; default-constructed
+    ///         Core::PresentationSettings{} if `surface` isn't registered.
     /// @note This function does not throw exceptions.
     Core::PresentationSettings Engine::presentation_settings(Core::RenderSurfaceHandle surface) const noexcept {
         return renderer_.presentation_settings(surface);

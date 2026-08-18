@@ -1475,19 +1475,21 @@ namespace SFT::D3D12 {
         std::memcpy(constants.data() + offset, data.data(), data.size());
         parent_->graphics_bindings_.push_constants_dirty = true;
     }
-    /// Sets the viewport for this `D3D12`.
+    /// Sets the viewport for this `D3D12` render pass, passed through unmodified.
     ///
-    /// @param value Value consumed by the operation.
+    /// @param value RHI viewport, authored against the engine's +Y-up clip-space convention.
     ///
-    /// @return Returns the value produced by the operation.
+    /// @note D3D12 is the RHI's native/reference clip-space convention (see RHI::Viewport's own doc
+    ///       comment), so `value` is used as-is — no Y flip, no origin shift. Vulkan is the one
+    ///       backend that reconciles its own opposite native NDC Y, and it does so via a
+    ///       negative-height viewport (VulkanRhiBridgeCommands.cpp), not here.
+    ///       D3D12_VIEWPORT::Height is documented as non-negative, so D3D12 never gets that treatment.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void D3D12RenderPassEncoder::set_viewport(const rhi::Viewport &value) {
         if (ended_) {
             parent_->fail("set_viewport: ended pass.");
             return;
         }
-
-
         const D3D12_VIEWPORT v{value.x, value.y, value.width, value.height, value.min_depth, value.max_depth};
         parent_->list_->RSSetViewports(1, &v);
     }

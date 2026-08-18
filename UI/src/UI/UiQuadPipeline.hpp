@@ -97,14 +97,15 @@ namespace SFT::UI {
                                                     span<const u32> instance_paint_groups,
                                                     UiQuadFrameResources &resources, vector<UiQuadDrawBatch> &out_batches);
 
-
         /// Draws the requested content using the current rendering state.
         ///
         /// @param pass Render-pass encoder that receives the draw commands.
-        /// @param batches `batches` value used by the operation.
+        /// @param batches Batches prepare() built, drawn in order.
         /// @param viewport_size Requested or available size for the operation.
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Sets each batch's own scissor rect before drawing it — a caller does not need to
+        ///       (and should not) call pass.set_scissor() itself around draw().
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass, span<const UiQuadDrawBatch> batches,

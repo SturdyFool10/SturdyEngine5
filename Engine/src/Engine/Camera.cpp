@@ -845,7 +845,10 @@ namespace SFT::Engine {
 
     /// Returns the current or globally available projection matrix value.
     ///
-    /// @return Returns the current projection matrix value.
+    /// @return glm::perspectiveRH_ZO/orthoRH_ZO's native +Y-up NDC, unmodified.
+    /// @note Every backend reconciles its own native clip-space convention against this one value
+    ///       (D3D12 needs nothing; Vulkan flips its viewport — see RHI::Viewport's own doc comment),
+    ///       so this matrix is never backend-flipped, and no caller should flip it either.
     /// @note This function does not throw exceptions.
     glm::mat4 Camera::projection_matrix() const noexcept {
         if (projection_mode_ == CameraProjectionMode::Custom) {

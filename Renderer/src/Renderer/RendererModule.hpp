@@ -120,13 +120,18 @@ namespace SFT::Renderer {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult set_presentation_settings(Core::RenderSurfaceHandle surface,
                                                                      const Core::PresentationSettings &settings);
-
-
-        /// Presents the completed frame to the target surface or swapchain.
+        /// Returns `surface`'s current presentation policy (vsync/HDR/transparent-composition/...).
         ///
-        /// @param surface Surface used or affected by the operation.
+        /// @param surface Surface to query.
         ///
-        /// @return Returns the value produced by the operation.
+        /// @return The last value set_presentation_settings() accepted for this surface, or the
+        ///         app-wide default it was created with if this surface has never had its own
+        ///         override (see create_window_surface's own doc comment); default-constructed
+        ///         Core::PresentationSettings{} when `surface` isn't registered.
+        /// @note Lets a caller that's about to replace a window (e.g.
+        ///       Application::recreate_primary_window()) read the outgoing surface's actual current
+        ///       policy and carry it forward onto the replacement, rather than the replacement
+        ///       silently reverting to whatever a freshly created surface defaults to.
         /// @note This function does not throw exceptions.
         [[nodiscard]] Core::PresentationSettings presentation_settings(Core::RenderSurfaceHandle surface) const noexcept;
         /// Performs the reconfigure backend operation for `Renderer` using the supplied arguments.

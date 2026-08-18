@@ -162,6 +162,25 @@ namespace SFT::Platform::Windowing::GLFW {
             }
         }
 
+#if defined(_WIN32)
+        /// Reports whether `config` will end up on the DirectComposition path at all.
+        ///
+        /// @param config Window configuration to check.
+        ///
+        /// @return true for every Vulkan/Direct3D window, not only ones with `config.transparent`
+        ///         set — both graphics backends try DirectComposition for every swapchain generation
+        ///         they create on such a window (see VulkanRhiBridgeSwapchain.cpp's create_swapchain()
+        ///         and D3D12DeviceSwapchain.cpp's wants_transparency branch, both of which attempt
+        ///         CreateSwapChainForComposition unconditionally), so this has to match that same
+        ///         condition — see GLFW::Detail::apply_composition_window_style's own doc comment for
+        ///         why every such window needs WS_EX_NOREDIRECTIONBITMAP applied.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] bool wants_composition_window_style(const WindowConfig &config) noexcept {
+            return config.graphics_api == WindowGraphicsApi::Vulkan ||
+                   config.graphics_api == WindowGraphicsApi::Direct3D;
+        }
+#endif
+
         /// Performs the monitor for mode operation for `GLFW` using the supplied arguments.
         ///
         /// @param mode Mode controlling how the operation is performed.
@@ -737,6 +756,17 @@ namespace SFT::Platform::Windowing::GLFW {
         Foundation::log_debug("GLFW initialized or already active.");
 
         apply_window_hints(config);
+#if defined(_WIN32)
+        // See GLFW::Detail::apply_composition_window_style's own doc comment for why this style has
+        // to be set before the window is ever shown, and why that forces window creation itself
+        // hidden here whenever the caller actually asked for a visible window — mirrors
+        // SDL3Impl.cpp's identical force_hidden_for_composition_style handling.
+        const bool needs_composition_style = wants_composition_window_style(config);
+        const bool force_hidden_for_composition_style = needs_composition_style && config.visible;
+        if (force_hidden_for_composition_style) {
+            glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+        }
+#endif
         Foundation::log_debug(
             "GLFW window hints applied: visible={} resizable={} decorated={} "
             "high_dpi={} client_api={}",
@@ -775,6 +805,24 @@ namespace SFT::Platform::Windowing::GLFW {
             config.title,
             config.extent.x,
             config.extent.y);
+
+#if defined(_WIN32)
+        // Dark title bar is unconditional (every GLFW window on Windows gets SDL3's default
+        // appearance instead of GLFW's own white title bar) — see
+        // GLFW::Detail::apply_windows_appearance's own doc comment. The WM_ERASEBKGND black-fill is
+        // NOT applied to composition-style windows: GetDC/FillRect there would force GDI to allocate
+        // the very redirection surface WS_EX_NOREDIRECTIONBITMAP (applied just below) exists to
+        // suppress, permanently blocking a transparent DirectComposition swapchain behind an opaque
+        // black surface — see apply_windows_appearance's own doc comment on `paint_erase_background`.
+        // Applied before any show, same reasoning as apply_composition_window_style.
+        GLFW::Detail::apply_windows_appearance(window, /*paint_erase_background=*/!needs_composition_style);
+        if (needs_composition_style) {
+            GLFW::Detail::apply_composition_window_style(window);
+        }
+        if (force_hidden_for_composition_style) {
+            glfwShowWindow(window);
+        }
+#endif
 
         if (!config.use_default_position && config.mode == WindowMode::Windowed) [[unlikely]] {
             Foundation::log_debug(

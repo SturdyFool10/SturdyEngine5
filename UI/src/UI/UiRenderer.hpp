@@ -87,8 +87,7 @@ namespace SFT::UI {
                                                     vector<RHI::BufferHandle> &out_transient_buffers,
                                                     Renderer::TextAtlasRetiredResources &out_retired_atlas_resources);
 
-
-        /// Draws the requested content using the current rendering state.
+        /// Issues the batches prepare() built, interleaved by paint order (see class doc comment).
         ///
         /// @param pass Render-pass encoder that receives the draw commands.
         /// @param viewport_size Requested or available size for the operation.
@@ -96,6 +95,8 @@ namespace SFT::UI {
         /// @param frame_resource_index Zero-based index of the target element or entry.
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Each pipeline sets its own scissor per batch; the caller should not rely on scissor
+        ///       (or bound-pipeline) state surviving this call.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult draw(RHI::RenderPassEncoder &pass, glm::vec2 viewport_size,
                                                  Core::RenderSurfaceHandle surface, u32 frame_resource_index);

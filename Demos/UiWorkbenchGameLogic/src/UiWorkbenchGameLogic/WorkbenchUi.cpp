@@ -1527,8 +1527,13 @@ namespace SFT::UiWorkbench {
                         .resizable = true,
                         .decorated = true,
                         .high_dpi = true,
-
-
+                        // Matches the workbench's own current toggle rather than being hardcoded true —
+                        // a window recreated while "Transparent swapchain" is off should stay opaque,
+                        // not silently switch on. Presentation settings (HDR/transparent-composition)
+                        // and any active blur effect survive recreation on their own now
+                        // (Application::recreate_primary_window() carries a window's current
+                        // Core::PresentationSettings and Platform::Windowing::WindowEffects forward
+                        // onto its replacement), so nothing else needs reapplying here.
                         .transparent = swapchain_transparent_,
                         .mode = Platform::Windowing::WindowMode::Windowed,
                         .graphics_api = Platform::Windowing::WindowGraphicsApi::Vulkan,

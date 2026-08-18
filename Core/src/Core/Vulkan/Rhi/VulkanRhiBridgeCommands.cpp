@@ -54,12 +54,22 @@ namespace SFT::Core::Vulkan {
             };
         }
 
-
-        /// Converts the supplied engine/RHI value to its Vulkan representation.
+        /// Converts the supplied engine/RHI viewport to its Vulkan representation, negating height and
+        /// shifting the origin to the rect's bottom edge.
         ///
-        /// @param viewport `viewport` value used by the operation.
+        /// @param viewport RHI viewport, authored against the engine's +Y-up clip-space convention
+        ///        (glm::perspectiveRH_ZO / D3D12 native — see RHI::Viewport's own doc comment).
         ///
-        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @return The equivalent VkViewport, with height negated (`-viewport.height`) and `y` moved
+        ///         to `viewport.y + viewport.height` — the sole place this engine reconciles Vulkan's
+        ///         native +Y-down NDC against that +Y-up convention. This is core Vulkan behavior
+        ///         since 1.1 (VK_KHR_maintenance1, promoted; this engine requires 1.4 unconditionally
+        ///         — see VulkanConstants.hpp), specifically meant for D3D-convention interop, so no
+        ///         shader ever needs to know this happened.
+        /// @note The mirrored viewport also reverses how the rasterizer classifies a triangle's
+        ///       winding — see to_vk(rhi::FrontFace) below, which inverts instead of mapping 1:1 for
+        ///       exactly that reason (D3D12's equivalent conversion does not, since D3D12's viewport
+        ///       is never touched).
         /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr VkViewport to_vk_viewport(const rhi::Viewport &viewport) noexcept {
             return VkViewport{

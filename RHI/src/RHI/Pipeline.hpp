@@ -11,13 +11,13 @@
 #include "Types.hpp"
 #include "Handles.hpp"
 #include "Shader.hpp"
-#include "Resources.hpp"
+#include "Resources.hpp" // CompareOp
 
 using std::span;
 
 namespace SFT::RHI {
 
-
+    // ─── Input assembly ──────────────────────────────────────────────────────────
 
     enum class PrimitiveTopology : u32 {
         PointList,
@@ -27,11 +27,11 @@ namespace SFT::RHI {
         TriangleStrip,
     };
 
-
+    // ─── Rasterization ───────────────────────────────────────────────────────────
 
     enum class PolygonMode : u32 {
         Fill,
-        Line,
+        Line,  // wireframe (a device feature on some backends)
         Point,
     };
 
@@ -41,15 +41,15 @@ namespace SFT::RHI {
         Back,
     };
 
-                                                                                                   
-                                                                                                
-                                                                          
-       
-                                                                                                    
-                                                                                                     
-                                                                                                      
-                                                                                                      
-                                                                  
+    // Winding of a front-facing triangle, in clip space — +Y up, D3D12's native convention (see
+    // RHI::Viewport). Set it as if every backend rasterized that convention directly; backends
+    // reconcile it themselves where their own native convention differs.
+    //
+    // Backends do NOT all receive this verbatim. Vulkan reconciles the RHI's clip-space convention
+    // with its own native +Y-down NDC via a negative-height viewport (VulkanRhiBridgeCommands.cpp's
+    // to_vk_viewport), and that mirror reverses how its rasterizer classifies winding, so the Vulkan
+    // backend inverts this value on the way in (VulkanRhiConvert.hpp's to_vk(rhi::FrontFace)). D3D12
+    // needs no such inversion — its viewport is never touched.
     enum class FrontFace : u32 {
         CounterClockwise,
         Clockwise,
@@ -60,15 +60,15 @@ namespace SFT::RHI {
         CullMode cull_mode = CullMode::Back;
         FrontFace front_face = FrontFace::CounterClockwise;
         bool depth_clamp_enable = false;
-                                                                                                   
-                          
+        // Constant/slope-scaled depth bias — the usual shadow-map peter-panning knobs. All zero
+        // disables bias.
         f32 depth_bias_constant = 0.0f;
         f32 depth_bias_slope_scale = 0.0f;
         f32 depth_bias_clamp = 0.0f;
         f32 line_width = 1.0f;
     };
 
-
+    // ─── Depth / stencil ─────────────────────────────────────────────────────────
 
     enum class StencilOp : u32 {
         Keep,
@@ -88,9 +88,9 @@ namespace SFT::RHI {
         CompareOp compare = CompareOp::Always;
     };
 
-                                                                                                      
-                                                                                            
-                                                                     
+    // Depth/stencil attachment behavior. `format` names the attachment this state targets (needed up
+    // front for dynamic-rendering pipelines, which have no VkRenderPass to infer it from);
+    // Undefined means the pipeline has no depth/stencil attachment.
     struct DepthStencilState {
         Format format = Format::Undefined;
         bool depth_test_enable = false;
@@ -103,7 +103,7 @@ namespace SFT::RHI {
         u8 stencil_write_mask = 0xFF;
     };
 
-
+    // ─── Multisample ─────────────────────────────────────────────────────────────
 
     struct MultisampleState {
         SampleCount samples = SampleCount::X1;
@@ -111,7 +111,7 @@ namespace SFT::RHI {
         bool alpha_to_coverage_enable = false;
     };
 
-
+    // ─── Color blend ─────────────────────────────────────────────────────────────
 
     enum class BlendFactor : u32 {
         Zero,
@@ -137,7 +137,7 @@ namespace SFT::RHI {
         Max,
     };
 
-                                                                            
+    // Which channels a color target write touches. A bitmask (see :Flags).
     enum class ColorWriteMask : u32 {
         None = 0,
         Red = 1u << 0,
@@ -153,9 +153,9 @@ namespace SFT::RHI {
         BlendOp op = BlendOp::Add;
     };
 
-                                                                                             
-                                                                                          
-                                                                                               
+    // One color attachment's format + blend/write behavior. `blend_enable` false = straight
+    // overwrite (the color/alpha components are then ignored). `format` is named here so
+    // dynamic-rendering pipelines know their attachment formats without a render-pass object.
     struct ColorTargetState {
         Format format = Format::Undefined;
         bool blend_enable = false;
@@ -164,37 +164,37 @@ namespace SFT::RHI {
         ColorWriteMask write_mask = ColorWriteMask::All;
     };
 
+    // ─── Pipelines ───────────────────────────────────────────────────────────────
 
-
-                                                                                             
-                                                                                                    
-                                                                                                         
-                                                                                                        
-                                               
-       
-                                                                                                      
-                                                                                                         
-                                                                                            
+    // Everything needed to build a raster pipeline, described against dynamic rendering (no
+    // render-pass object): the shader stages, vertex/mesh front-end, fixed-function state, and the
+    // attachment formats it will render into. Viewport/scissor are always dynamic (set per-draw via the
+    // render-pass encoder), so they aren't baked in here. All spans are non-owning — consumed during
+    // create_render_pipeline() (see :Device).
+    //
+    // Front-end rule: set `mesh` (and optionally `task`) for a mesh-shader pipeline, or set `vertex`
+    // for a traditional vertex-input pipeline. A mesh pipeline requires Feature::MeshShader and ignores
+    // `vertex_buffers`/`topology`; a task stage additionally requires Feature::TaskShader.
     struct RenderPipelineDesc {
         PipelineLayoutHandle layout{};
 
         ShaderEntry vertex{};
         ShaderEntry task{};
         ShaderEntry mesh{};
-        ShaderEntry fragment{};
+        ShaderEntry fragment{}; // module may be null for a depth-only pipeline
 
         span<const VertexBufferLayout> vertex_buffers;
 
         PrimitiveTopology topology = PrimitiveTopology::TriangleList;
         RasterizationState rasterization{};
         MultisampleState multisample{};
-        DepthStencilState depth_stencil{};
+        DepthStencilState depth_stencil{}; // format Undefined => no depth/stencil attachment
         span<const ColorTargetState> color_targets;
 
-                                                                                                     
-                                                                                                      
-                                                                                                        
-                                                                                                               
+        // Multiview view mask (requires Feature::Multiview): each set bit is a view rendered in one
+        // pass, broadcasting to that array layer (single-pass cascaded shadow maps, cubemap shadows,
+        // stereo VR). 0 disables multiview. Must match the RenderPassDesc/RenderBundleDesc it executes
+        // in — dynamic-rendering pipelines bake the view mask in, having no render-pass object to carry it.
         u32 view_mask = 0;
 
         const char *label = nullptr;

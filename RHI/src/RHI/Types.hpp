@@ -177,7 +177,49 @@ namespace SFT::RHI {
         u32 height = 0;
     };
 
-
+    // Floating-point viewport, in the same top-left-origin pixel space as Rect2D.
+    // `min_depth`/`max_depth` map the [0,1] clip-space depth range.
+    //
+    // ─── Clip-space convention ──────────────────────────────────────────────────
+    // The RHI standardizes on the "traditional" +Y-up NDC every common 3D math library produces by
+    // default (glm::perspectiveRH_ZO/orthoRH_ZO, D3D12's native convention) — not Vulkan's native
+    // +Y-down NDC. A shader is written once, against this one convention, with zero backend-specific
+    // code — no macro, no per-vertex sign multiply, no C++-supplied "which backend am I" scalar:
+    //
+    //   * NDC X ∈ [-1, 1], +X right.
+    //   * NDC Y ∈ [-1, 1], +Y up — y = 1 is the TOP of the viewport.
+    //   * NDC Z ∈ [0, 1], near plane at 0.
+    //   * Texture/UV origin is top-left, matching the pixel spaces above.
+    //
+    // How each backend reaches that convention:
+    //   * D3D12   — native; nothing is touched. Camera::projection_matrix(), every matrix multiply,
+    //               every SV_Position write is used exactly as authored.
+    //   * Vulkan  — native NDC is +Y down, the opposite of the RHI convention above. Rather than
+    //               touch a single matrix or shader, the Vulkan backend flips its *viewport*: negative
+    //               height (VkViewport.height = -height, y += height — core Vulkan since 1.1 via
+    //               VK_KHR_maintenance1, explicitly meant for this D3D-interop case; this engine
+    //               requires Vulkan 1.4 unconditionally, so no feature check is needed). See
+    //               VulkanRhiBridgeCommands.cpp's to_vk_viewport doc comment. This is the *only* place
+    //               in the engine that reconciles the two conventions. Depth needs no adjustment
+    //               (Vulkan is already [0, 1]).
+    //
+    // Consequences worth knowing:
+    //   * Viewports and scissor rects are never translated on any backend — only the Vulkan viewport's
+    //     height/origin above.
+    //   * FrontFace IS inverted by the Vulkan backend (VulkanRhiConvert.hpp's to_vk(rhi::FrontFace)):
+    //     the negative-height viewport is a mirror, so it reverses the rasterizer's winding
+    //     classification there. D3D12's equivalent conversion is a plain 1:1 map — its viewport is
+    //     never touched. See FrontFace in Pipeline.hpp. Get this backwards and geometry lands in the
+    //     right place with the wrong half of it culled away. This applies equally to shadow-atlas
+    //     depth draws (Renderer::record_shadow_view_chunk) — they reuse the same material pipelines as
+    //     the camera pass.
+    //   * A shader never needs to think about any of this: write SV_Position from a plain
+    //     matrix-vector multiply (or, for screen-space passes, plain `uv * 2 - 1` NDC math) and it
+    //     renders identically on every backend.
+    //
+    // Do NOT compensate for any of this in matrix or shader code — that defeats the point. If a
+    // draw looks vertically mirrored on one backend, the bug is in RHI backend plumbing (viewport
+    // setup or a FrontFace conversion), not in application/shader code.
     struct Viewport {
         f32 x = 0.0f;
         f32 y = 0.0f;

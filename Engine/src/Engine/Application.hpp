@@ -187,11 +187,22 @@ namespace SFT::Engine {
 
 
             optional<WindowRequestId> pending_close_completion;
-
-
+            // Every native window effect (blur/acrylic/mica/transparent/...) currently requested for
+            // this window, one entry per WindowEffectKind (a later SetBlurRequest/SetTransparentRequest
+            // for the same kind replaces its entry rather than appending) — see
+            // process_window_requests()'s SetBlurRequest/SetTransparentRequest handlers, the only place
+            // these mutate. Window effects have no persistent record anywhere else (a live Window only
+            // tracks its own applied state internally, e.g. SDL3Window::active_blur_effect_, which is
+            // discarded along with the window itself on teardown), so this is what lets
+            // recreate_primary_window() below carry a window's current effects forward onto its
+            // replacement instead of silently dropping them.
             vector<Platform::Windowing::WindowEffect> applied_effects;
-
-
+            // Each window gets its own dedicated render thread (rather than every window sharing one
+            // Application-wide thread) so recording/submitting/presenting for separate OS windows —
+            // most commonly several torn-off docking panels — actually runs concurrently instead of
+            // serializing on a single CPU thread. Null under the same conditions the old shared
+            // render_thread_ was null (see use_render_threading_'s doc comment): the inline
+            // single-threaded fallback in render_managed_window() applies per window exactly as before.
             unique_ptr<Async::DedicatedThread> render_thread;
             u64 frame_index = 0;
             std::chrono::high_resolution_clock::time_point last_frame_time{};
@@ -222,23 +233,29 @@ namespace SFT::Engine {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void process_window_requests();
 
-
-        /// Records applied effect using the supplied arguments and current state.
+        /// Updates `id`'s ManagedWindow::applied_effects with `effect` (replacing any existing entry
+        /// for the same WindowEffectKind), if `id` is currently a managed window.
         ///
-        /// @param id Identifier of the target object or resource.
-        /// @param effect `effect` value used by the operation.
+        /// @param id Managed window to update; a no-op if this isn't currently a managed window.
+        /// @param effect Window effect to record, replacing any existing entry with the same
+        ///        WindowEffectKind rather than appending.
         ///
+        /// @note This is the only place that record is written — see ManagedWindow::applied_effects'
+        ///       own doc comment for why it exists.
         /// @note This function does not throw exceptions.
         void record_applied_effect(Platform::Windowing::WindowId id, Platform::Windowing::WindowEffect effect) noexcept;
 
-
-        /// Spawns managed window.
+        /// Spawns one window through an explicitly supplied optional provider factory, or SDL3 when
+        /// `factory` is null, then registers it with the engine's render-surface set and repaint path.
         ///
-        /// @param config Configuration values controlling the operation.
-        /// @param factory `factory` value used by the operation.
-        /// @param is_primary `is_primary` value used by the operation.
+        /// @param config Configuration values controlling the new window.
+        /// @param factory Explicit provider factory, or null to use the built-in SDL3 path — kept
+        ///        indirect (rather than resolved here) so Application never retains optional provider
+        ///        symbols merely by linking their static archives.
+        /// @param is_primary Whether this is the bootstrap primary window (routes through
+        ///        Engine::initialize()) or an additional window (routes through Engine::add_window()).
         ///
-        /// @return Returns the boolean result of the operation.
+        /// @return true on success; false if window creation or render-surface registration failed.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         bool spawn_managed_window(
             const Platform::Windowing::WindowConfig &config,
