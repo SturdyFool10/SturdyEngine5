@@ -439,22 +439,17 @@ namespace SFT::Core::Vulkan {
         return VK_CULL_MODE_NONE;
     }
 
-    /// Converts the supplied engine/RHI front-face winding to its Vulkan representation, **inverted**
-    /// rather than mapped 1:1.
+    /// Converts the supplied engine/RHI front-face winding to its Vulkan representation.
     ///
-    /// @param face RHI front-face winding, authored against the engine's +Y-up clip-space convention.
+    /// @param face RHI front-face winding.
     ///
-    /// @return The Vulkan winding with Clockwise/CounterClockwise swapped — Vulkan's viewport gets a
-    ///         negative-height flip to reconcile its native +Y-down NDC against the engine's +Y-up
-    ///         convention (see VulkanRhiBridgeCommands.cpp's to_vk_viewport doc comment), and that
-    ///         viewport-space mirror also reverses how the rasterizer classifies a triangle's winding.
-    ///         Mapping this 1:1 would silently cull exactly the faces that should be visible.
-    /// @note Inverted on purpose — do not "fix" this to the obvious 1:1 mapping. D3D12's equivalent
-    ///       conversion (D3D12DevicePipelines.cpp) needs no such inversion, because D3D12's viewport
-    ///       is never touched.
+    /// @return The corresponding Vulkan front-face winding.
+    /// @note FrontFace is an RHI raster-state convention and maps 1:1 at the backend boundary. The
+    ///       Vulkan viewport conversion is responsible only for the coordinate-system transform;
+    ///       applying a second winding inversion here culls the visible side of ordinary meshes.
     /// @note This function does not throw exceptions.
     [[nodiscard]] constexpr VkFrontFace to_vk(rhi::FrontFace face) noexcept {
-        return face == rhi::FrontFace::Clockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
+        return face == rhi::FrontFace::Clockwise ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
     }
 
     /// Converts the supplied engine/RHI value to its Vulkan representation.

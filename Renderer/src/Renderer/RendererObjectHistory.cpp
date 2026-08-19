@@ -126,13 +126,16 @@ namespace SFT::Renderer {
     /// @param color_formats Format used for the resource, render target, or conversion.
     /// @param depth_format Format used for the resource, render target, or conversion.
     /// @param standard_depth_test `standard_depth_test` value used by the operation.
+    /// @param cull_mode Face-culling mode used for the pipeline variant.
+    /// @param front_face Authored front-face winding used for the pipeline variant.
     /// @param samples `samples` value used by the operation.
     ///
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::history_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
-        RHI::Format depth_format, bool standard_depth_test, RHI::SampleCount samples) {
+        RHI::Format depth_format, bool standard_depth_test, RHI::CullMode cull_mode,
+        RHI::FrontFace front_face, RHI::SampleCount samples) {
         ZoneScopedN("Renderer::history_pipeline_for");
         if (color_formats.empty()) {
             return unexpected(object_history_error("Cannot build a history pipeline without at least one color target."));
@@ -150,7 +153,8 @@ namespace SFT::Renderer {
 
         for (const ObjectHistoryPipelineVariant &variant : template_resources.pipeline_variants) {
             if (variant.depth_format == depth_format &&
-                variant.standard_depth_test == standard_depth_test && variant.samples == samples &&
+                variant.standard_depth_test == standard_depth_test && variant.cull_mode == cull_mode &&
+                variant.front_face == front_face && variant.samples == samples &&
                 variant.color_formats.size() == color_formats.size() &&
                 std::equal(variant.color_formats.begin(), variant.color_formats.end(), color_formats.begin())) {
                 return variant.pipeline;
@@ -227,7 +231,7 @@ namespace SFT::Renderer {
                             : RHI::ShaderEntry{},
             .vertex_buffers = span<const RHI::VertexBufferLayout>{&vertex_layout, 1},
             .topology = RHI::PrimitiveTopology::TriangleList,
-            .rasterization = RHI::RasterizationState{},
+            .rasterization = RHI::RasterizationState{.cull_mode = cull_mode, .front_face = front_face},
             .multisample = RHI::MultisampleState{.samples = samples},
             .depth_stencil = depth_stencil,
             .color_targets = span<const RHI::ColorTargetState>{color_targets.data(), color_targets.size()},
@@ -241,6 +245,8 @@ namespace SFT::Renderer {
             .color_formats = vector<RHI::Format>{color_formats.begin(), color_formats.end()},
             .depth_format = depth_format,
             .standard_depth_test = standard_depth_test,
+            .cull_mode = cull_mode,
+            .front_face = front_face,
             .samples = samples,
             .pipeline = *pipeline,
         });
@@ -276,6 +282,7 @@ namespace SFT::Renderer {
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "object history bind group",
         });
         if (!bind_group) {

@@ -629,6 +629,7 @@ namespace SFT::Core::Vulkan {
         struct DescriptorPoolChunk {
             VulkanDescriptorPool pool;
             u32 live_sets = 0;
+            bool frame_transient = false;
         };
 
 

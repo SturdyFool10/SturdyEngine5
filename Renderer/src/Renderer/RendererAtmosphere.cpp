@@ -413,7 +413,8 @@ namespace SFT::Renderer {
                 auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
                     .layout = bind_group_layout,
                     .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
-                    .label = "sky transmittance lut bind group",
+                    .lifetime = RHI::BindGroupLifetime::FrameTransient,
+            .label = "sky transmittance lut bind group",
                 });
                 if (!bind_group) {
                     return unexpected(graphics_error_from_rhi(bind_group.error(), "create sky transmittance lut bind group"));
@@ -468,7 +469,8 @@ namespace SFT::Renderer {
                 auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
                     .layout = bind_group_layout,
                     .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
-                    .label = "sky multi-scattering lut bind group",
+                    .lifetime = RHI::BindGroupLifetime::FrameTransient,
+            .label = "sky multi-scattering lut bind group",
                 });
                 if (!bind_group) {
                     return unexpected(graphics_error_from_rhi(bind_group.error(), "create sky multi-scattering lut bind group"));
@@ -526,7 +528,8 @@ namespace SFT::Renderer {
                 auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
                     .layout = bind_group_layout,
                     .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
-                    .label = "sky view lut bind group",
+                    .lifetime = RHI::BindGroupLifetime::FrameTransient,
+            .label = "sky view lut bind group",
                 });
                 if (!bind_group) {
                     return unexpected(graphics_error_from_rhi(bind_group.error(), "create sky view lut bind group"));

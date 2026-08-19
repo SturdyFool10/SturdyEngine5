@@ -180,6 +180,27 @@ namespace SFT::RHI {
     }
 
 
+    enum class ColorSpace : u32 {
+        SrgbNonlinear,
+        Hdr10St2084,
+
+
+        ScrgbLinear,
+
+
+        Hdr10Hlg,
+
+
+        DolbyVision,
+
+
+        AdobeRgbLinear,
+        AdobeRgbNonlinear,
+        DisplayP3Linear,
+        DisplayP3Nonlinear,
+        Bt2020Linear,
+    };
+
     struct PresentationResolution {
         PresentStrategy strategy = PresentStrategy::TearFreeOrdered;
         PresentMode effective_mode = PresentMode::Fifo;
@@ -202,27 +223,9 @@ namespace SFT::RHI {
 
 
         bool full_screen_exclusive_active = false;
-    };
 
-    enum class ColorSpace : u32 {
-        SrgbNonlinear,
-        Hdr10St2084,
-
-
-        ScrgbLinear,
-
-
-        Hdr10Hlg,
-
-
-        DolbyVision,
-
-
-        AdobeRgbLinear,
-        AdobeRgbNonlinear,
-        DisplayP3Linear,
-        DisplayP3Nonlinear,
-        Bt2020Linear,
+        Format effective_format = Format::BGRA8UnormSrgb;
+        ColorSpace effective_color_space = ColorSpace::SrgbNonlinear;
     };
 
     struct SwapchainDesc {

@@ -36,13 +36,14 @@ namespace SFT::Runtime {
             .set_tone_mapping(Engine::ToneMappingOperator::PsychoV, 0.55f)
             .configure_bloom([](Engine::BloomSettings &bloom) { bloom.threshold = 3.20f; })
             .enable(Engine::RenderFeature::DebugOverlay);
-        render_graph_.scene().integrator = Engine::SceneIntegrator::FullPathTracing;
+        render_graph_.scene().integrator = Engine::SceneIntegrator::RasterDeferred;
         render_graph_.scene().path_samples_per_pixel = 1;
         render_graph_.scene().path_max_bounces = 4;
         render_graph_.scene().path_russian_roulette_start_bounce = 3;
         render_graph_.scene().caustic_photon_count = 262144;
         render_graph_.scene().caustic_gather_radius = 0.075f;
-        render_graph_.anti_aliasing().msaa_samples = 1;
+        render_graph_.anti_aliasing().msaa_samples = 4;
+        render_graph_.anti_aliasing().post_process = Engine::PostProcessAntiAliasing::None;
     }
 
     /// Handles the on engine initialized callback and updates the associated platform state.
@@ -59,6 +60,12 @@ namespace SFT::Runtime {
         configure_render_extraction(engine);
         configure_event_systems(engine);
         spawn_demo_entities(engine);
+        Foundation::log_info(
+            "Runtime demo baseline: native-resolution raster deferred, 4x spatial/deferred MSAA, "
+            "no temporal AA, no post-process AA, no upscaling, and no frame generation.");
+        Foundation::log_info(
+            "Press P to toggle the spectral path-tracing comparison {}; press M to cycle raster MSAA.",
+            engine.capabilities().raytracing ? "(available)" : "(unavailable on this device)");
         return {};
     }
 
@@ -82,12 +89,12 @@ namespace SFT::Runtime {
         gltf_shader_ = *shader;
 
         auto floor_model = assets.create_model(Engine::ModelAssetDesc{
-            .label = UString{"spectral caustic floor"_ustr},
+            .label = UString{"runtime reference floor"_ustr},
             .primitives = {
                 Engine::ModelPrimitiveDesc{
                     .mesh = RendererApi::Mesh::plane(
                         {.width = 18.0f, .depth = 18.0f, .width_segments = 1, .depth_segments = 1},
-                        "spectral caustic floor"),
+                        "runtime reference floor"),
                     .shader = gltf_shader_,
                 },
             },
@@ -95,34 +102,17 @@ namespace SFT::Runtime {
         if (!floor_model) {
             return std::unexpected(floor_model.error());
         }
-        spectral_floor_model_ = *floor_model;
+        reference_floor_model_ = *floor_model;
 
-        auto glass_model = assets.create_model(Engine::ModelAssetDesc{
-            .label = UString{"dispersive glass sphere"_ustr},
-            .primitives = {
-                Engine::ModelPrimitiveDesc{
-
-
-                    .mesh = RendererApi::Mesh::uv_sphere(
-                        {.radius = 1.1f, .rings = 96, .segments = 192},
-                        "dispersive glass sphere"),
-                    .shader = gltf_shader_,
-                },
-            },
-        });
-        if (!glass_model) {
-            return std::unexpected(glass_model.error());
-        }
-        spectral_glass_model_ = *glass_model;
-
-        const auto configure_spectral_material = [&](Engine::Asset model,
+        const auto configure_reference_material = [&](Engine::Asset model,
                                                       const glm::vec4 &base_color,
+                                                      f32 metallic,
                                                       f32 roughness,
                                                       f32 transmission,
                                                       f32 dispersion,
                                                       f32 absorption) -> Engine::AssetResult {
             Engine::AssetResult result = assets.set_model_vec4(model, 0, "base_color_factor", base_color);
-            if (result) result = assets.set_model_float(model, 0, "metallic_factor", 0.0f);
+            if (result) result = assets.set_model_float(model, 0, "metallic_factor", metallic);
             if (result) result = assets.set_model_float(model, 0, "roughness_factor", roughness);
             if (result) result = assets.set_model_float(model, 0, "specular_factor", 1.0f);
             if (result) result = assets.set_model_float(model, 0, "ior", 1.5f);
@@ -135,15 +125,10 @@ namespace SFT::Runtime {
             if (result) result = assets.set_model_float(model, 0, "emissive_strength", 1.0f);
             return result;
         };
-        if (Engine::AssetResult configured = configure_spectral_material(
-                spectral_floor_model_, glm::vec4{0.72f, 0.74f, 0.78f, 1.0f},
-                0.72f, 0.0f, 0.0042f, 0.0f);
-            !configured) {
-            return configured;
-        }
-        if (Engine::AssetResult configured = configure_spectral_material(
-                spectral_glass_model_, glm::vec4{0.92f, 0.97f, 1.0f, 1.0f},
-                0.025f, 1.0f, 0.0042f, 0.045f);
+
+        if (Engine::AssetResult configured = configure_reference_material(
+                reference_floor_model_, glm::vec4{0.62f, 0.64f, 0.68f, 1.0f},
+                0.0f, 0.82f, 0.0f, 0.0f, 0.0f);
             !configured) {
             return configured;
         }
@@ -285,6 +270,65 @@ namespace SFT::Runtime {
             });
 
 
+        runtime_rendering_events_.build(engine.ecs_world(), engine.update_schedule());
+        runtime_rendering_entity_ = engine.ecs_world().spawn(
+            RuntimeRenderingState{
+                .mode = RuntimeRenderingMode::NativeRaster,
+                .raster_msaa_samples = render_graph_.anti_aliasing().msaa_samples,
+                .spectral_path_tracing_available = static_cast<bool>(engine.capabilities().raytracing),
+            });
+        engine.update_schedule().add_system(
+            [](Ecs::Entity,
+               RuntimeRenderingState &state,
+               Ecs::EventReader<Engine::KeyboardEvent> keyboard,
+               Ecs::EventWriter<RuntimeRenderingSettingsChanged> changed_events) noexcept {
+                bool changed = false;
+                for (const Engine::KeyboardEvent &event : keyboard.read()) {
+                    if (!event.pressed() || event.repeat) continue;
+                    if (event.key == 'p' || event.key == 'P') {
+                        if (!state.spectral_path_tracing_available) {
+                            Foundation::log_warn(
+                                "Spectral path tracing is unavailable because this device did not negotiate ray tracing.");
+                            continue;
+                        }
+                        state.mode = state.mode == RuntimeRenderingMode::NativeRaster
+                                         ? RuntimeRenderingMode::SpectralPathTracing
+                                         : RuntimeRenderingMode::NativeRaster;
+                        changed = true;
+                    } else if (event.key == 'm' || event.key == 'M') {
+                        switch (state.raster_msaa_samples) {
+                            case 1: state.raster_msaa_samples = 2; break;
+                            case 2: state.raster_msaa_samples = 4; break;
+                            case 4: state.raster_msaa_samples = 8; break;
+                            default: state.raster_msaa_samples = 1; break;
+                        }
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    changed_events.send(RuntimeRenderingSettingsChanged{
+                        .mode = state.mode,
+                        .raster_msaa_samples = state.raster_msaa_samples,
+                    });
+                }
+            });
+        engine.update_schedule().add_system(
+            [](Ecs::EventReader<RuntimeRenderingSettingsChanged> changes) noexcept {
+                for (const RuntimeRenderingSettingsChanged &change : changes.read()) {
+                    if (change.mode == RuntimeRenderingMode::NativeRaster) {
+                        Foundation::log_info(
+                            "Runtime renderer: native raster deferred, {}x MSAA, no post-process AA.",
+                            change.raster_msaa_samples);
+                    } else {
+                        Foundation::log_info(
+                            "Runtime renderer: spectral path-tracing comparison (raster MSAA disabled; "
+                            "native raster comparison remains set to {}x MSAA).",
+                            change.raster_msaa_samples);
+                    }
+                }
+            });
+
+
         spectral_path_tracing_events_.build(engine.ecs_world(), engine.update_schedule());
         spectral_path_tracing_controls_entity_ = engine.ecs_world().spawn(
             SpectralPathTracingKeyboardControls{},
@@ -406,11 +450,9 @@ namespace SFT::Runtime {
 #else
         (void)engine.ecs_world().spawn(
             Engine::WorldTransform{.value = glm::mat4{1.0f}},
-            Engine::ModelRenderer{.model = spectral_floor_model_});
+            Engine::ModelRenderer{.model = reference_floor_model_});
 #endif
-        (void)engine.ecs_world().spawn(
-            Engine::WorldTransform{.value = glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 1.12f, 0.0f})},
-            Engine::ModelRenderer{.model = spectral_glass_model_});
+
 
 
         {
@@ -473,6 +515,7 @@ namespace SFT::Runtime {
             }
 
             Engine::EngineConfig new_config = engine_config_;
+            new_config.features.presentation = engine.presentation_settings(surface);
             new_config.features.presentation.hdr_enabled = !new_config.features.presentation.hdr_enabled;
             if (const auto applied = engine.apply_runtime_settings(surface, new_config)) {
                 engine_config_ = new_config;
@@ -489,6 +532,7 @@ namespace SFT::Runtime {
 
 
             Engine::EngineConfig new_config = engine_config_;
+            new_config.features.presentation = engine.presentation_settings(surface);
             const auto current = static_cast<u8>(new_config.features.presentation.hdr_color_space);
             constexpr u8 mode_count = 4;
             new_config.features.presentation.hdr_color_space =
@@ -542,6 +586,19 @@ namespace SFT::Runtime {
             threshold_view = bloom->threshold_view;
         }
         render_graph_.bloom().enabled = !threshold_view;
+
+        if (auto rendering = engine.ecs_world().get_component<RuntimeRenderingState>(
+                runtime_rendering_entity_)) {
+            const bool spectral_path_tracing =
+                rendering->mode == RuntimeRenderingMode::SpectralPathTracing &&
+                rendering->spectral_path_tracing_available;
+            render_graph_.scene().integrator = spectral_path_tracing
+                                                   ? Engine::SceneIntegrator::FullPathTracing
+                                                   : Engine::SceneIntegrator::RasterDeferred;
+            render_graph_.anti_aliasing().msaa_samples =
+                spectral_path_tracing ? 1u : rendering->raster_msaa_samples;
+            render_graph_.anti_aliasing().post_process = Engine::PostProcessAntiAliasing::None;
+        }
 
         if (auto spectral = engine.ecs_world().get_component<SpectralPathTracingTuningState>(
                 spectral_path_tracing_controls_entity_)) {

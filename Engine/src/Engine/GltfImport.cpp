@@ -620,6 +620,7 @@ namespace SFT::Engine {
                 ModelPrimitiveDesc primitive_desc{
                     .mesh = Renderer::Mesh::from_vertices(vertices, indices, primitive_label.c_str()),
                     .shader = shader,
+                    .double_sided = primitive.material != nullptr && primitive.material->double_sided,
                 };
 
                 PendingMaterial material_values{};

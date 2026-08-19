@@ -2,10 +2,11 @@
 //
 // Shadow generation is a single depth atlas pass. This resolve supports stable cascaded sun
 // shadows, perspective spot maps, six-face point maps, cascade cross-fades, receiver normal bias,
-// and a bounded stochastic PCSS blocker-search/filter. All loops have fixed compile-time maxima so
-// cost is deterministic and the shader remains portable across Vulkan/D3D12/Metal-class hardware.
+// and a bounded shadow-space-stable PCSS blocker-search/filter. All loops have fixed compile-time
+// maxima so cost is deterministic and the shader remains portable across Vulkan/D3D12/Metal-class hardware.
 
 import sturdy_common;
+import sturdy_pbr;
 import sturdy_atmosphere;
 
 // Must match sky_view_lut.slang's LUT_SIZE exactly — same mirrored-constant convention as the limits
@@ -16,20 +17,23 @@ static const uint SFT_MAX_SPOT_LIGHTS = 8;
 static const uint SFT_MAX_POINT_LIGHTS = 8;
 static const uint SFT_MAX_SHADOW_VIEWS = 36;
 static const uint SFT_PCSS_BLOCKER_SAMPLES = 12;
-static const uint SFT_PCSS_FILTER_SAMPLES = 16;
+static const uint SFT_PCSS_FILTER_SAMPLES = 8;
 static const float SFT_MIN_PBR_ROUGHNESS = 0.045;
 
-static const float2 SFT_POISSON[16] = {
-    // The exact center is mandatory: a purely stochastic ring can completely miss a one-texel
-    // blocker, which turns fine foliage/wires into false light.
-    float2( 0.00000000,  0.00000000), float2( 0.94558609, -0.76890725),
-    float2(-0.09418410, -0.92938870), float2( 0.34495938,  0.29387760),
-    float2(-0.91588581,  0.45771432), float2(-0.81544232, -0.87912464),
-    float2(-0.38277543,  0.27676845), float2( 0.97484398,  0.75648379),
-    float2( 0.44323325, -0.97511554), float2( 0.53742981, -0.47373420),
-    float2(-0.26496911, -0.41893023), float2( 0.79197514,  0.19090188),
-    float2(-0.24188840,  0.99706507), float2(-0.81409955,  0.91437590),
-    float2( 0.19984126,  0.78641367), float2( 0.14383161, -0.14100790)
+static const float2 SFT_BLOCKER_DISK[SFT_PCSS_BLOCKER_SAMPLES] = {
+    float2( 0.00000000,  0.00000000), float2( 0.21320072,  0.00000000),
+    float2(-0.27229150,  0.24944132), float2( 0.04167858, -0.47490591),
+    float2( 0.34320580,  0.44765120), float2(-0.62982486, -0.11140715),
+    float2( 0.59662509, -0.37952405), float2(-0.19955942,  0.74235108),
+    float2(-0.38058145, -0.73278642), float2( 0.82570951,  0.30154779),
+    float2(-0.85901316,  0.35458815), float2( 0.41410111, -0.88491001)
+};
+
+static const float2 SFT_FILTER_DISK[SFT_PCSS_FILTER_SAMPLES] = {
+    float2( 0.25000000,  0.00000000), float2(-0.31929009,  0.29249588),
+    float2( 0.04887247, -0.55687654), float2( 0.40244448,  0.52491756),
+    float2(-0.73853511, -0.13063646), float2( 0.69960493, -0.44503139),
+    float2(-0.23400416,  0.87048380), float2(-0.44627131, -0.85926825)
 };
 
 struct VertexOutput {
@@ -96,7 +100,8 @@ Texture2D<float4> transmittanceLut;
 Texture2D<float4> multiScatteringLut;
 Texture2D<float4> skyViewLut;
 SamplerState gbufferSampler;
-SamplerState shadowSampler;
+SamplerState shadowDepthSampler;
+SamplerComparisonState shadowCompareSampler;
 SamplerState atmosphereSampler;
 
 [shader("vertex")]
@@ -105,18 +110,6 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     output.uv = fullscreenTriangleUv(vertexId);
     output.position = fullscreenTrianglePosition(output.uv);
     return output;
-}
-
-float randomAngle(float2 pixel) {
-    return frac(sin(dot(pixel, float2(12.9898, 78.233))) * 43758.5453) * (2.0 * SFT_PI);
-}
-
-float2 rotateSample(float2 sampleOffset, float angle) {
-    float s;
-    float c;
-    sincos(angle, s, c);
-    return float2(c * sampleOffset.x - s * sampleOffset.y,
-                  s * sampleOffset.x + c * sampleOffset.y);
 }
 
 float linearShadowDepth(float depth, ShadowViewGpuData view) {
@@ -168,8 +161,27 @@ float receiverDepthAtTap(float receiverDepth, float2 receiverGradient, float2 of
     return saturate(receiverDepth + dot(receiverGradient, offsetLocal));
 }
 
+
+float filteredShadowVisibility(ShadowViewGpuData view, float2 atlasUv, float receiverDepth,
+                               float2 receiverGradient, float filterRadiusLocal, float depthEpsilon) {
+    float visible = 0.0;
+    float totalWeight = 0.0;
+    [unroll]
+    for (uint i = 0; i < SFT_PCSS_FILTER_SAMPLES; ++i) {
+        float2 diskSample = SFT_FILTER_DISK[i];
+        float2 offsetLocal = diskSample * filterRadiusLocal;
+        float2 sampleUv = clampAtlasUv(atlasUv + offsetLocal * view.atlasScaleBias.xy, view);
+        float tapReceiverDepth = receiverDepthAtTap(receiverDepth, receiverGradient, offsetLocal);
+        float compareDepth = saturate(tapReceiverDepth - depthEpsilon);
+        float weight = 1.0 / (1.0 + 2.0 * dot(diskSample, diskSample));
+        visible += shadowAtlas.SampleCmpLevelZero(shadowCompareSampler, sampleUv, compareDepth) * weight;
+        totalWeight += weight;
+    }
+    return visible / max(totalWeight, SFT_EPSILON);
+}
+
 float shadowVisibility(uint viewIndex, float3 worldPosition, float3 normal, float3 lightVector,
-                       float3 worldDx, float3 worldDy, float2 pixelPosition) {
+                       float3 worldDx, float3 worldDy) {
     if (viewIndex >= (uint)lightingData.counts.z) {
         return 1.0;
     }
@@ -193,10 +205,14 @@ float shadowVisibility(uint viewIndex, float3 worldPosition, float3 normal, floa
     if (view.depthParams.z > 0.5) {
         worldTexel *= max(unbiasedLinear, view.depthParams.x);
     }
-    float nDotL = saturate(dot(normal, lightVector));
+    float3 receiverNormal = safeNormalizeOr(cross(worldDx, worldDy), normal);
+    if (dot(receiverNormal, normal) < 0.0) {
+        receiverNormal = -receiverNormal;
+    }
+    float nDotL = saturate(dot(receiverNormal, lightVector));
     float grazing = sqrt(saturate(1.0 - nDotL * nDotL));
     float normalOffsetTexels = min(lightingData.shadowParams.y * grazing, 2.0);
-    float3 biasedPosition = worldPosition + normal * (worldTexel * normalOffsetTexels);
+    float3 biasedPosition = worldPosition + receiverNormal * (worldTexel * normalOffsetTexels);
     float4 clip = mul(float4(biasedPosition, 1.0), view.viewProjection);
     if (clip.w <= SFT_EPSILON) {
         return 1.0;
@@ -212,36 +228,44 @@ float shadowVisibility(uint viewIndex, float3 worldPosition, float3 normal, floa
     float2 receiverGradient = receiverPlaneDepthGradient(
         localUv, receiverDepth, biasedPosition, worldDx, worldDy, view);
     float minimumRadiusLocal = 0.85 / tileResolution;
-    float angle = randomAngle(pixelPosition + float2(viewIndex * 17u, viewIndex * 31u));
+    float maxFilterRadiusLocal = view.filterParams.z > SFT_EPSILON
+                                     ? max(view.filterParams.z, minimumRadiusLocal)
+                                     : 0.10;
+    float maxSearchRadiusLocal = view.filterParams.w > SFT_EPSILON
+                                     ? max(view.filterParams.w, minimumRadiusLocal)
+                                     : 0.075;
     const float depthEpsilon = 2.0e-6;
+
+    if (lightingData.shadowParams.z < 0.5 || view.depthParams.w <= SFT_EPSILON) {
+        return filteredShadowVisibility(
+            view, atlasUv, receiverDepth, receiverGradient, minimumRadiusLocal, depthEpsilon);
+    }
 
     float searchRadiusLocal = max(1.5 / tileResolution, minimumRadiusLocal);
     if (lightingData.shadowParams.z > 0.5) {
+        float nearPlane = view.depthParams.x;
         if (view.depthParams.z < 0.5) {
             searchRadiusLocal = max(searchRadiusLocal,
-                view.depthParams.w * min(receiverLinear, view.depthParams.y - view.depthParams.x));
+                view.depthParams.w * max(receiverLinear - nearPlane, 0.0));
         } else {
-            float nearPlane = view.depthParams.x;
             searchRadiusLocal = max(searchRadiusLocal,
                 view.depthParams.w * max(receiverLinear - nearPlane, 0.0) /
                 max(nearPlane * receiverLinear, SFT_EPSILON));
         }
-        searchRadiusLocal = min(searchRadiusLocal, 0.075);
+        searchRadiusLocal = min(searchRadiusLocal, maxSearchRadiusLocal);
     }
 
     float blockerDepthSum = 0.0;
     float blockerCount = 0.0;
-    float nearestReceiverBlocker = 0.0;
     [unroll]
     for (uint i = 0; i < SFT_PCSS_BLOCKER_SAMPLES; ++i) {
-        float2 offsetLocal = rotateSample(SFT_POISSON[i], angle) * searchRadiusLocal;
+        float2 offsetLocal = SFT_BLOCKER_DISK[i] * searchRadiusLocal;
         float2 sampleUv = clampAtlasUv(atlasUv + offsetLocal * view.atlasScaleBias.xy, view);
-        float sampleDepth = shadowAtlas.SampleLevel(shadowSampler, sampleUv, 0.0);
+        float sampleDepth = shadowAtlas.SampleLevel(shadowDepthSampler, sampleUv, 0.0);
         float tapReceiverDepth = receiverDepthAtTap(receiverDepth, receiverGradient, offsetLocal);
         if (sampleDepth + depthEpsilon < tapReceiverDepth) {
             float blockerLinear = linearShadowDepth(sampleDepth, view);
             blockerDepthSum += blockerLinear;
-            nearestReceiverBlocker = max(nearestReceiverBlocker, blockerLinear);
             blockerCount += 1.0;
         }
     }
@@ -249,9 +273,7 @@ float shadowVisibility(uint viewIndex, float3 worldPosition, float3 normal, floa
         return 1.0;
     }
 
-    // Bias the estimate toward the blocker nearest the receiver. Averaging unrelated depth layers
-    // makes an excessively wide filter and is a common source of light bleeding behind thin walls.
-    float blockerLinear = lerp(blockerDepthSum / blockerCount, nearestReceiverBlocker, 0.65);
+    float blockerLinear = blockerDepthSum / blockerCount;
     float filterRadiusLocal = minimumRadiusLocal;
     if (lightingData.shadowParams.z > 0.5) {
         if (view.depthParams.z < 0.5) {
@@ -262,25 +284,11 @@ float shadowVisibility(uint viewIndex, float3 worldPosition, float3 normal, floa
                 view.depthParams.w * max(receiverLinear - blockerLinear, 0.0) /
                 max(blockerLinear * receiverLinear, SFT_EPSILON));
         }
-        filterRadiusLocal = min(filterRadiusLocal, 0.10);
+        filterRadiusLocal = min(filterRadiusLocal, maxFilterRadiusLocal);
     }
 
-    float visible = 0.0;
-    float totalWeight = 0.0;
-    [unroll]
-    for (uint i = 0; i < SFT_PCSS_FILTER_SAMPLES; ++i) {
-        float2 diskSample = rotateSample(SFT_POISSON[i], angle);
-        float2 offsetLocal = diskSample * filterRadiusLocal;
-        float2 sampleUv = clampAtlasUv(atlasUv + offsetLocal * view.atlasScaleBias.xy, view);
-        float sampleDepth = shadowAtlas.SampleLevel(shadowSampler, sampleUv, 0.0);
-        float tapReceiverDepth = receiverDepthAtTap(receiverDepth, receiverGradient, offsetLocal);
-        // A center-weighted kernel retains one-texel features while the rotated outer taps still
-        // provide a soft, temporally stable penumbra.
-        float weight = 1.0 / (1.0 + 2.0 * dot(diskSample, diskSample));
-        visible += tapReceiverDepth <= sampleDepth + depthEpsilon ? weight : 0.0;
-        totalWeight += weight;
-    }
-    return visible / max(totalWeight, SFT_EPSILON);
+    return filteredShadowVisibility(
+        view, atlasUv, receiverDepth, receiverGradient, filterRadiusLocal, depthEpsilon);
 }
 
 // Short same-frame refinement for details that are too small to survive the raster-map footprint
@@ -296,6 +304,11 @@ float screenSpaceSunContactShadow(float3 worldPosition, float3 sunVector) {
     uint stepCount = min((uint)lightingData.contactShadowParams.z, 12u);
     float stepLength = lightingData.contactShadowParams.x / max((float)stepCount, 1.0);
     float thickness = lightingData.contactShadowParams.y;
+    // Screen-space contact shadows are only valid as a short-range refinement. If the depth buffer
+    // reports geometry that is far from the marched point, that is almost always an unrelated
+    // foreground/background overlap rather than a true contact occluder.
+    float maxWorldSeparation = max(thickness * 2.0, stepLength * 2.0);
+    float maxViewSeparation = max(thickness * 4.0, stepLength * 2.0);
     [unroll]
     for (uint i = 0; i < 12u; ++i) {
         if (i >= stepCount) break;
@@ -317,13 +330,21 @@ float screenSpaceSunContactShadow(float3 worldPosition, float3 sunVector) {
         float3 sceneWorld = sceneWorldH.xyz / sceneWorldH.w;
         float candidateViewDepth = -mul(float4(candidate, 1.0), lightingData.view).z;
         float sceneViewDepth = -mul(float4(sceneWorld, 1.0), lightingData.view).z;
-        if (candidateViewDepth > sceneViewDepth + thickness) return 0.0;
+        float viewSeparation = candidateViewDepth - sceneViewDepth;
+        if (viewSeparation <= thickness) continue;
+
+        float worldSeparation = length(sceneWorld - candidate);
+        if (viewSeparation > maxViewSeparation || worldSeparation > maxWorldSeparation) {
+            continue;
+        }
+
+        return 0.0;
     }
     return 1.0;
 }
 
 float directionalShadow(float3 worldPosition, float3 normal, float3 lightVector,
-                        float3 worldDx, float3 worldDy, float viewDepth, float2 pixelPosition) {
+                        float3 worldDx, float3 worldDy, float viewDepth) {
     uint cascadeCount = (uint)lightingData.sun.cascadeParams.x;
     if (lightingData.sun.radianceShadow.w < 0.5 || cascadeCount == 0) {
         return 1.0;
@@ -339,7 +360,7 @@ float directionalShadow(float3 worldPosition, float3 normal, float3 lightVector,
     }
     uint firstView = (uint)lightingData.sun.cascadeParams.z;
     float visibility = shadowVisibility(firstView + cascade, worldPosition, normal, lightVector,
-                                        worldDx, worldDy, pixelPosition);
+                                        worldDx, worldDy);
 
     float cascadeStart = cascade == 0 ? lightingData.cameraPositionNear.w
                                       : lightingData.sun.cascadeSplits[cascade - 1];
@@ -347,7 +368,7 @@ float directionalShadow(float3 worldPosition, float3 normal, float3 lightVector,
     float blend = saturate((viewDepth - (cascadeEnd - blendWidth)) / blendWidth);
     if (cascade + 1 < cascadeCount) {
         float nextVisibility = shadowVisibility(firstView + cascade + 1, worldPosition, normal,
-                                                lightVector, worldDx, worldDy, pixelPosition);
+                                                lightVector, worldDx, worldDy);
         visibility = lerp(visibility, nextVisibility, blend);
     } else {
         visibility = lerp(visibility, 1.0, blend);
@@ -362,22 +383,21 @@ uint pointShadowFace(float3 fromLight) {
     return fromLight.z >= 0.0 ? 4u : 5u;
 }
 
-float distributionGGXLocal(float nDotH, float roughness) {
-    float a2 = roughness * roughness;
-    a2 *= a2;
+float distributionGGXLocal(float nDotH, float alphaRoughness) {
+    float a2 = alphaRoughness * alphaRoughness;
     float d = nDotH * nDotH * (a2 - 1.0) + 1.0;
     return a2 * SFT_INV_PI / max(d * d, SFT_EPSILON);
 }
 
-float geometrySmithCorrelated(float nDotV, float nDotL, float roughness) {
-    float a2 = roughness * roughness;
-    a2 *= a2;
+float geometrySmithCorrelated(float nDotV, float nDotL, float alphaRoughness) {
+    float a2 = alphaRoughness * alphaRoughness;
     float gv = nDotL * sqrt(max(nDotV * nDotV * (1.0 - a2) + a2, SFT_EPSILON));
     float gl = nDotV * sqrt(max(nDotL * nDotL * (1.0 - a2) + a2, SFT_EPSILON));
     return 0.5 / max(gv + gl, SFT_EPSILON);
 }
 
-float3 evaluateDirect(float3 albedo, float metallic, float roughness, float dielectricF0,
+float3 evaluateDirect(float3 albedo, float metallic, float perceptualRoughness,
+                      float alphaRoughness, float dielectricF0,
                       float3 normal, float3 viewVector, float3 lightVector, float3 radiance) {
     float nDotL = saturate(dot(normal, lightVector));
     float nDotV = saturate(dot(normal, viewVector));
@@ -387,10 +407,12 @@ float3 evaluateDirect(float3 albedo, float metallic, float roughness, float diel
     float vDotH = saturate(dot(viewVector, halfVector));
     float3 f0 = lerp(float3(dielectricF0), albedo, metallic);
     float3 fresnel = f0 + (1.0 - f0) * pow5(1.0 - vDotH);
-    float distribution = distributionGGXLocal(nDotH, roughness);
-    float visibility = geometrySmithCorrelated(nDotV, nDotL, roughness);
+    float distribution = distributionGGXLocal(nDotH, alphaRoughness);
+    float visibility = geometrySmithCorrelated(nDotV, nDotL, alphaRoughness);
     float3 specular = fresnel * distribution * visibility;
-    float3 diffuse = (1.0 - fresnel) * (1.0 - metallic) * albedo * SFT_INV_PI;
+    float3 diffuseBrdf = evaluateEonDiffuse(
+        albedo, perceptualRoughness, normal, lightVector, viewVector);
+    float3 diffuse = (1.0 - fresnel) * (1.0 - metallic) * diffuseBrdf;
     return (diffuse + specular) * radiance * nDotL;
 }
 
@@ -565,7 +587,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float3 albedo = albedoSample.rgb;
     float3 normal = decodeOctahedralNormal(gbufferNormal.SampleLevel(gbufferSampler, input.uv, 0.0));
     float4 material = gbufferMaterial.SampleLevel(gbufferSampler, input.uv, 0.0);
-    float roughness = max(material.x * material.x, SFT_MIN_PBR_ROUGHNESS);
+    float perceptualRoughness = saturate(material.x);
+    float roughness = max(perceptualRoughness * perceptualRoughness, SFT_MIN_PBR_ROUGHNESS);
     float metallic = saturate(material.y);
     float ambientOcclusion = saturate(material.z);
     uint spectralMode = (uint)round(lightingData.spectralParams.x);
@@ -584,11 +607,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                  gtaoMultiBounce(ambientOcclusion, albedo);
     float3 sunVector = -safeNormalizeOr(lightingData.sun.directionAngularRadius.xyz, float3(0.0, -1.0, 0.0));
     float3 sunVisibility = float3(directionalShadow(worldPosition, normal, sunVector, worldDx, worldDy,
-                                                    viewDepth, pixelPosition));
+                                                    viewDepth));
     sunVisibility *= screenSpaceSunContactShadow(worldPosition, sunVector);
     if (spectralMode == 1u) sunVisibility = saturate(tracedEffect.rrr);
     if (spectralMode == 4u) sunVisibility = max(tracedEffect.rgb, 0.0);
-    hdr += evaluateDirect(albedo, metallic, roughness, dielectricF0, normal, viewVector,
+    hdr += evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal, viewVector,
                           sunVector, lightingData.sun.radianceShadow.rgb) * sunVisibility;
     if (spectralMode == 2u) {
         float3 specularTint = lerp(float3(dielectricF0), albedo, metallic);
@@ -610,10 +633,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         int shadowView = (int)light.shadowParams.x;
         if (shadowView >= 0) {
             visibility = shadowVisibility((uint)shadowView, worldPosition, normal, lightVector,
-                                          worldDx, worldDy, pixelPosition);
+                                          worldDx, worldDy);
         }
         float3 radiance = light.radianceInnerCos.rgb * punctualAttenuation(distanceToLight, light.positionRange.w) * cone;
-        hdr += evaluateDirect(albedo, metallic, roughness, dielectricF0, normal, viewVector,
+        hdr += evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal, viewVector,
                               lightVector, radiance) * visibility;
     }
 
@@ -630,10 +653,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         if (firstShadowView >= 0) {
             uint face = pointShadowFace(worldPosition - light.positionRange.xyz);
             visibility = shadowVisibility((uint)firstShadowView + face, worldPosition, normal,
-                                          lightVector, worldDx, worldDy, pixelPosition);
+                                          lightVector, worldDx, worldDy);
         }
         float3 radiance = light.radianceSourceRadius.rgb * punctualAttenuation(distanceToLight, light.positionRange.w);
-        hdr += evaluateDirect(albedo, metallic, roughness, dielectricF0, normal, viewVector,
+        hdr += evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal, viewVector,
                               lightVector, radiance) * visibility;
     }
 

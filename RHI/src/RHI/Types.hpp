@@ -247,13 +247,9 @@ namespace SFT::RHI {
     // Consequences worth knowing:
     //   * Viewports and scissor rects are never translated on any backend — only the Vulkan viewport's
     //     height/origin above.
-    //   * FrontFace IS inverted by the Vulkan backend (VulkanRhiConvert.hpp's to_vk(rhi::FrontFace)):
-    //     the negative-height viewport is a mirror, so it reverses the rasterizer's winding
-    //     classification there. D3D12's equivalent conversion is a plain 1:1 map — its viewport is
-    //     never touched. See FrontFace in Pipeline.hpp. Get this backwards and geometry lands in the
-    //     right place with the wrong half of it culled away. This applies equally to shadow-atlas
-    //     depth draws (Renderer::record_shadow_view_chunk) — they reuse the same material pipelines as
-    //     the camera pass.
+    //   * Raster FrontFace is not another coordinate conversion. It is mapped 1:1 by each backend;
+    //     applying an additional Vulkan-only inversion here double-corrects winding and culls the
+    //     visible side of ordinary meshes.
     //   * A shader never needs to think about any of this: write SV_Position from a plain
     //     matrix-vector multiply (or, for screen-space passes, plain `uv * 2 - 1` NDC math) and it
     //     renders identically on every backend.

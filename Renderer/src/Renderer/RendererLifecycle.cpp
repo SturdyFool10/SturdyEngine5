@@ -53,6 +53,27 @@ namespace SFT::Renderer {
 
         constexpr u32 kPregraphGpuTimingQueryCount = 4u;
 
+        /// Resolves the front-face convention after applying a model transform.
+        ///
+        /// @param authored_front_face Front-face winding authored for the untransformed mesh.
+        /// @param world_transform Transform applied to the mesh.
+        ///
+        /// @return Returns the winding that remains front-facing after the transform.
+        /// @note A transform with a negative determinant mirrors geometry and therefore reverses winding.
+        [[nodiscard]] RHI::FrontFace transformed_front_face(
+            RHI::FrontFace authored_front_face, const glm::mat4 &world_transform) noexcept {
+            const glm::vec3 x{world_transform[0]};
+            const glm::vec3 y{world_transform[1]};
+            const glm::vec3 z{world_transform[2]};
+            const bool reverses_winding = glm::dot(glm::cross(x, y), z) < 0.0f;
+            if (!reverses_winding) {
+                return authored_front_face;
+            }
+            return authored_front_face == RHI::FrontFace::CounterClockwise
+                       ? RHI::FrontFace::Clockwise
+                       : RHI::FrontFace::CounterClockwise;
+        }
+
         class ScopedRendererStageTimer {
           public:
             /// Constructs a `ScopedRendererStageTimer` from the supplied initialization values.
@@ -299,7 +320,8 @@ namespace SFT::Renderer {
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::submit_draw(MeshHandle mesh_handle, MaterialInstanceHandle material_handle) {
         ZoneScopedN("Renderer::submit_draw");
-        if (mesh(mesh_handle) == nullptr) {
+        const MeshResource *mesh_resource = mesh(mesh_handle);
+        if (mesh_resource == nullptr) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Cannot submit a draw for an unknown mesh.");
         }
@@ -307,7 +329,12 @@ namespace SFT::Renderer {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Cannot submit a draw for an unknown material instance.");
         }
-        frame_draws_.push_back(RenderItem{.mesh = mesh_handle, .material = material_handle});
+        frame_draws_.push_back(RenderItem{
+            .mesh = mesh_handle,
+            .material = material_handle,
+            .world_bounds_center = mesh_resource->bounds_center,
+            .world_bounds_radius = mesh_resource->bounds_radius,
+        });
         return {};
     }
 
@@ -345,7 +372,8 @@ namespace SFT::Renderer {
                 if ((renderable.visibility_mask & desc.view.visibility_mask) == 0) {
                     continue;
                 }
-                if (mesh(renderable.mesh) == nullptr) {
+                const MeshResource *mesh_resource = mesh(renderable.mesh);
+                if (mesh_resource == nullptr) {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Scene renderable references an unknown mesh.");
                 }
@@ -353,19 +381,31 @@ namespace SFT::Renderer {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Scene renderable references an unknown material instance.");
                 }
+                const f32 scale_x = glm::length(glm::vec3{renderable.world_transform[0]});
+                const f32 scale_y = glm::length(glm::vec3{renderable.world_transform[1]});
+                const f32 scale_z = glm::length(glm::vec3{renderable.world_transform[2]});
+                const f32 maximum_scale = std::max({scale_x, scale_y, scale_z});
+                const glm::vec3 world_bounds_center =
+                    glm::vec3{renderable.world_transform * glm::vec4{mesh_resource->bounds_center, 1.0f}};
                 submission.draws.push_back(RenderItem{
                     .mesh = renderable.mesh,
                     .material = renderable.material,
                     .world_transform = renderable.world_transform,
                     .stable_id = renderable.stable_id,
                     .sort_key = renderable.sort_key,
+                    .casts_shadows = renderable.casts_shadows,
+                    .cull_mode = renderable.cull_mode,
+                    .front_face = transformed_front_face(renderable.front_face, renderable.world_transform),
+                    .world_bounds_center = world_bounds_center,
+                    .world_bounds_radius = mesh_resource->bounds_radius * maximum_scale,
                 });
             }
 
 
             submission.gizmo_draws.reserve(desc.view.gizmo_renderables.size());
             for (const SceneRenderable &renderable : desc.view.gizmo_renderables) {
-                if (mesh(renderable.mesh) == nullptr) {
+                const MeshResource *mesh_resource = mesh(renderable.mesh);
+                if (mesh_resource == nullptr) {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Gizmo renderable references an unknown mesh.");
                 }
@@ -373,12 +413,23 @@ namespace SFT::Renderer {
                     return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Gizmo renderable references an unknown material instance.");
                 }
+                const f32 scale_x = glm::length(glm::vec3{renderable.world_transform[0]});
+                const f32 scale_y = glm::length(glm::vec3{renderable.world_transform[1]});
+                const f32 scale_z = glm::length(glm::vec3{renderable.world_transform[2]});
+                const f32 maximum_scale = std::max({scale_x, scale_y, scale_z});
+                const glm::vec3 world_bounds_center =
+                    glm::vec3{renderable.world_transform * glm::vec4{mesh_resource->bounds_center, 1.0f}};
                 submission.gizmo_draws.push_back(RenderItem{
                     .mesh = renderable.mesh,
                     .material = renderable.material,
                     .world_transform = renderable.world_transform,
                     .stable_id = renderable.stable_id,
                     .sort_key = renderable.sort_key,
+                    .casts_shadows = renderable.casts_shadows,
+                    .cull_mode = renderable.cull_mode,
+                    .front_face = transformed_front_face(renderable.front_face, renderable.world_transform),
+                    .world_bounds_center = world_bounds_center,
+                    .world_bounds_radius = mesh_resource->bounds_radius * maximum_scale,
                 });
             }
         }
@@ -435,7 +486,13 @@ namespace SFT::Renderer {
                 if (!(a.material == b.material)) {
                     return a.material.value < b.material.value;
                 }
-                return a.mesh.value < b.mesh.value;
+                if (!(a.mesh == b.mesh)) {
+                    return a.mesh.value < b.mesh.value;
+                }
+                if (a.cull_mode != b.cull_mode) {
+                    return static_cast<u32>(a.cull_mode) < static_cast<u32>(b.cull_mode);
+                }
+                return static_cast<u32>(a.front_face) < static_cast<u32>(b.front_face);
             });
 
 
@@ -516,17 +573,7 @@ namespace SFT::Renderer {
     /// @note This function does not throw exceptions.
     bool Renderer::render_item_visible(const RenderItem &item, const Frustum &frustum) noexcept {
         ZoneScopedN("Renderer::render_item_visible");
-        const MeshResource *mesh_resource = mesh(item.mesh);
-        if (mesh_resource == nullptr) {
-            return true;
-        }
-        const f32 scale_x = glm::length(glm::vec3{item.world_transform[0]});
-        const f32 scale_y = glm::length(glm::vec3{item.world_transform[1]});
-        const f32 scale_z = glm::length(glm::vec3{item.world_transform[2]});
-        const f32 max_scale = std::max({scale_x, scale_y, scale_z});
-        const glm::vec3 world_center =
-            glm::vec3{item.world_transform * glm::vec4{mesh_resource->bounds_center, 1.0f}};
-        return frustum_intersects_sphere(frustum, world_center, mesh_resource->bounds_radius * max_scale);
+        return frustum_intersects_sphere(frustum, item.world_bounds_center, item.world_bounds_radius);
     }
 
     /// Records render item using the supplied arguments and current state.
@@ -587,12 +634,13 @@ namespace SFT::Renderer {
         const bool use_object_history = with_object_history && !depth_only;
         auto pipeline = depth_only
                             ? depth_only_pipeline_for(*material_template_resource, depth_format, shadow_map,
-                                                      shadow_depth_bias, shadow_slope_bias, samples)
+                                                      shadow_depth_bias, shadow_slope_bias, item.cull_mode,
+                                                      item.front_face, samples)
                             : (use_object_history
                                    ? history_pipeline_for(*material_template_resource, color_formats, depth_format,
-                                                          standard_depth_test, samples)
+                                                          standard_depth_test, item.cull_mode, item.front_face, samples)
                                    : material_pipeline_for(*material_template_resource, color_formats, depth_format,
-                                                           standard_depth_test, samples));
+                                                           standard_depth_test, item.cull_mode, item.front_face, samples));
         if (!pipeline) {
             return unexpected(pipeline.error());
         }
@@ -886,7 +934,7 @@ namespace SFT::Renderer {
             });
             encoder.set_scissor(view.viewport);
             for (const RenderItem &item : draws) {
-                if (!render_item_visible(item, view.frustum)) {
+                if (!item.casts_shadows || !render_item_visible(item, view.frustum)) {
                     continue;
                 }
                 if (Core::RendererResult recorded = record_render_item(
@@ -1040,11 +1088,66 @@ namespace SFT::Renderer {
         const RHI::SwapchainHandle old_swapchain = record.rhi_swapchain;
         const RHI::TextureHandle old_depth_texture = record.depth_texture;
         const RHI::TextureViewHandle old_depth_view = record.depth_view;
+        const bool explicit_presentation_change = record.explicit_presentation_change_pending;
 
 
         const RHI::PresentationResolution old_presentation =
             old_swapchain ? device->presentation_resolution(old_swapchain) : RHI::PresentationResolution{};
         const bool old_swapchain_supports_completion_fence = old_presentation.supports_completion_fence;
+        bool old_presentation_destroyed_before_create = false;
+
+        const auto destroy_old_presentation_resources = [&]() noexcept {
+            for (const RHI::FenceHandle fence : record.active_presentation_completion_fences) {
+                device->destroy_fence(fence);
+            }
+            record.active_presentation_completion_fences.clear();
+            if (old_depth_view) {
+                device->destroy_texture_view(old_depth_view);
+            }
+            if (old_depth_texture) {
+                device->destroy_texture(old_depth_texture);
+            }
+            if (old_swapchain) {
+                device->destroy_swapchain(old_swapchain);
+            }
+        };
+
+        if (explicit_presentation_change && (old_swapchain || old_depth_texture || old_depth_view)) {
+            drain_frames_in_flight(record);
+            if (old_swapchain_supports_completion_fence) {
+                const auto wait_completion_fences = [&](span<const RHI::FenceHandle> fences) -> Core::RendererResult {
+                    if (fences.empty()) {
+                        return {};
+                    }
+                    const auto waited = device->wait_fences(fences, true);
+                    if (!waited) {
+                        return unexpected(graphics_error_from_rhi(
+                            waited.error(), "wait for presentation completion before swapchain mode change"));
+                    }
+                    if (!*waited) {
+                        return Core::graphics_backend_error(
+                            Core::GraphicsBackendErrorCode::OperationFailed,
+                            "Presentation completion wait did not finish before swapchain mode change.");
+                    }
+                    return {};
+                };
+                for (const RetiredPresentationResources &retired : record.retired_presentation_resources) {
+                    if (Core::RendererResult waited = wait_completion_fences(retired.completion_fences); !waited) {
+                        return waited;
+                    }
+                }
+                if (Core::RendererResult waited = wait_completion_fences(record.active_presentation_completion_fences);
+                    !waited) {
+                    return waited;
+                }
+            }
+            destroy_retired_presentations(record);
+            destroy_old_presentation_resources();
+            record.rhi_swapchain = {};
+            record.depth_texture = {};
+            record.depth_view = {};
+            old_presentation_destroyed_before_create = true;
+        }
 
         RHI::SwapchainDesc swapchain_desc{
             .surface = record.rhi_surface,
@@ -1066,7 +1169,7 @@ namespace SFT::Renderer {
 
 
             .frames_in_flight = capabilities_.max_frames_in_flight,
-            .old_swapchain = old_swapchain,
+            .old_swapchain = old_presentation_destroyed_before_create ? RHI::SwapchainHandle{} : old_swapchain,
             .allow_present_from_compute = static_cast<bool>(record.presentation.allow_present_from_compute),
 
 
@@ -1085,6 +1188,7 @@ namespace SFT::Renderer {
         record.depth_view = {};
         record.swapchain_extent = extent;
         record.rhi_swapchain_dirty = false;
+        record.explicit_presentation_change_pending = false;
 
 
         const RHI::PresentationResolution new_presentation = device->presentation_resolution(record.rhi_swapchain);
@@ -1094,22 +1198,8 @@ namespace SFT::Renderer {
 
         const bool can_retire_composition_immediately = old_swapchain &&
             old_presentation.via_composition_present && new_presentation.via_composition_present;
-        const auto destroy_old_presentation_resources = [&]() noexcept {
-            for (const RHI::FenceHandle fence : record.active_presentation_completion_fences) {
-                device->destroy_fence(fence);
-            }
-            record.active_presentation_completion_fences.clear();
-            if (old_depth_view) {
-                device->destroy_texture_view(old_depth_view);
-            }
-            if (old_depth_texture) {
-                device->destroy_texture(old_depth_texture);
-            }
-            if (old_swapchain) {
-                device->destroy_swapchain(old_swapchain);
-            }
-        };
-        if (old_swapchain || old_depth_texture || old_depth_view) {
+        if (!old_presentation_destroyed_before_create &&
+            (old_swapchain || old_depth_texture || old_depth_view)) {
             if (must_retire_native_before_composition) {
                 device->wait_idle();
                 destroy_old_presentation_resources();
@@ -1371,8 +1461,16 @@ namespace SFT::Renderer {
             presentation_extent = record.swapchain_extent;
         }
 
-        const bool hdr_output = !offscreen_output && static_cast<bool>(record.presentation.hdr_enabled);
-        const RHI::Format output_format = hdr_output ? hdr_presentation_format(record.presentation) : RHI::Format::BGRA8UnormSrgb;
+        const RHI::PresentationResolution active_presentation =
+            !offscreen_output && record.rhi_swapchain
+                ? device->presentation_resolution(record.rhi_swapchain)
+                : RHI::PresentationResolution{};
+        const bool hdr_output = !offscreen_output &&
+                                static_cast<bool>(record.presentation.hdr_enabled) &&
+                                active_presentation.effective_color_space != RHI::ColorSpace::SrgbNonlinear;
+        const RHI::Format output_format = offscreen_output
+            ? RHI::Format::BGRA8UnormSrgb
+            : active_presentation.effective_format;
         const f32 resolution_scale = std::clamp(submission.render_graph.resolution_scale, 0.1f, 2.0f);
         const Core::Extent2D render_extent = glm::max(
             Core::Extent2D{std::lround(static_cast<f64>(presentation_extent.x) * resolution_scale),
@@ -1749,6 +1847,11 @@ namespace SFT::Renderer {
 
             const f32 overlay_fps = frame.delta_seconds > 0.0 ? static_cast<f32>(1.0 / frame.delta_seconds) : 0.0f;
             const optional<Core::GpuInfo> overlay_gpu_info = gpu_info();
+            FrameTimingSnapshot overlay_timings{};
+            {
+                auto published_timings = record.last_frame_timings->lock();
+                overlay_timings = *published_timings;
+            }
             vector<UString> overlay_lines{
                 submission.debug_label.empty() ? UString{"Scene"_ustr} : submission.debug_label,
                 std::format("Renderables: {}", submission.draws.size()),
@@ -1762,12 +1865,17 @@ namespace SFT::Renderer {
                 std::format("Frame: {}", frame.frame_index),
                 [&] {
                     if (!hdr_output) {
-                        return offscreen_output
-                                   ? string{"HDR: disabled (off-screen SDR)"}
-                                   : string{"HDR: disabled (SDR/sRGB)"};
+                        if (offscreen_output) {
+                            return string{"HDR: disabled (off-screen SDR)"};
+                        }
+                        if (static_cast<bool>(record.presentation.hdr_enabled) && active_presentation.degraded) {
+                            return string{"HDR: requested; presentation degraded to SDR"};
+                        }
+                        return string{"HDR: disabled (SDR/sRGB)"};
                     }
-                    return std::format("HDR: enabled ({})",
-                                       hdr_color_space_name(record.presentation.hdr_color_space));
+                    return std::format("HDR: enabled ({}){}",
+                                       hdr_color_space_name(record.presentation.hdr_color_space),
+                                       active_presentation.degraded ? " (degraded)" : "");
                 }(),
                 [&] {
                     if (offscreen_output) {
@@ -1781,37 +1889,37 @@ namespace SFT::Renderer {
             };
 
 
-            if (!gpu_pass_timings_ms.empty()) {
+            if (!overlay_timings.gpu_pass_timings_ms.empty()) {
                 f64 gpu_total_ms = 0.0;
-                for (const auto &[category, ms] : gpu_pass_timings_ms) {
+                for (const auto &[category, ms] : overlay_timings.gpu_pass_timings_ms) {
                     gpu_total_ms += ms;
                 }
                 overlay_lines.push_back(std::format("GPU total: {:.2f} ms", gpu_total_ms));
-                for (const auto &[category, ms] : gpu_pass_timings_ms) {
+                for (const auto &[category, ms] : overlay_timings.gpu_pass_timings_ms) {
                     overlay_lines.push_back(std::format("  {}: {:.2f} ms", category, ms));
                 }
             }
 
 
-            if (!cpu_stage_timings_ms.empty()) {
+            if (!overlay_timings.cpu_stage_timings_ms.empty()) {
                 f64 cpu_stage_total_ms = 0.0;
-                for (const auto &[stage, ms] : cpu_stage_timings_ms) {
+                for (const auto &[stage, ms] : overlay_timings.cpu_stage_timings_ms) {
                     cpu_stage_total_ms += ms;
                 }
                 overlay_lines.push_back(std::format("CPU frame total: {:.2f} ms", cpu_stage_total_ms));
-                for (const auto &[stage, ms] : cpu_stage_timings_ms) {
+                for (const auto &[stage, ms] : overlay_timings.cpu_stage_timings_ms) {
                     overlay_lines.push_back(std::format("  {}: {:.2f} ms", stage, ms));
                 }
             }
 
 
-            if (!cpu_pass_timings_ms.empty()) {
+            if (!overlay_timings.cpu_pass_timings_ms.empty()) {
                 f64 cpu_pass_total_ms = 0.0;
-                for (const auto &[category, ms] : cpu_pass_timings_ms) {
+                for (const auto &[category, ms] : overlay_timings.cpu_pass_timings_ms) {
                     cpu_pass_total_ms += ms;
                 }
                 overlay_lines.push_back(std::format("CPU pass recording total: {:.2f} ms", cpu_pass_total_ms));
-                for (const auto &[category, ms] : cpu_pass_timings_ms) {
+                for (const auto &[category, ms] : overlay_timings.cpu_pass_timings_ms) {
                     overlay_lines.push_back(std::format("  {}: {:.2f} ms", category, ms));
                 }
             }

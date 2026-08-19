@@ -191,40 +191,105 @@ namespace SFT::Core::Vulkan {
             return color_space != rhi::ColorSpace::SrgbNonlinear;
         }
 
-        /// Selects surface format that best satisfies the supplied requirements.
+        struct SurfaceFormatSelection {
+            VkSurfaceFormatKHR vk{};
+            rhi::Format format = rhi::Format::Undefined;
+            rhi::ColorSpace color_space = rhi::ColorSpace::SrgbNonlinear;
+            bool degraded = false;
+        };
+
+        /// Converts a Vulkan swapchain format into the matching RHI format when the renderer can target it.
         ///
-        /// @param formats Format used for the resource, render target, or conversion.
-        /// @param requested `requested` value used by the operation.
-        /// @param requested_color_space `requested_color_space` value used by the operation.
+        /// @param format Vulkan surface format to convert.
         ///
-        /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
-        /// @note Normal inability to produce a value is represented by an empty optional.
+        /// @return Returns the corresponding RHI format when supported; otherwise returns `std::nullopt`.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] std::optional<VkSurfaceFormatKHR> choose_surface_format(span<const VkSurfaceFormatKHR> formats,
-                                                                              rhi::Format requested,
-                                                                              rhi::ColorSpace requested_color_space) noexcept {
+        [[nodiscard]] std::optional<rhi::Format> swapchain_format_from_vk(VkFormat format) noexcept {
+            switch (format) {
+                case VK_FORMAT_B8G8R8A8_SRGB: return rhi::Format::BGRA8UnormSrgb;
+                case VK_FORMAT_R8G8B8A8_SRGB: return rhi::Format::RGBA8UnormSrgb;
+                case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return rhi::Format::RGB10A2Unorm;
+                case VK_FORMAT_R16G16B16A16_SFLOAT: return rhi::Format::RGBA16Float;
+                default: return std::nullopt;
+            }
+        }
+
+        /// Selects the closest usable surface format while preserving the requested color space when possible.
+        ///
+        /// @param formats Surface format/color-space pairs exposed by the Vulkan WSI implementation.
+        /// @param requested Requested RHI swapchain format.
+        /// @param requested_color_space Requested RHI presentation color space.
+        ///
+        /// @return Returns the selected presentation format and effective RHI interpretation, or `std::nullopt` when none is usable.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] std::optional<SurfaceFormatSelection> choose_surface_format(
+            span<const VkSurfaceFormatKHR> formats,
+            rhi::Format requested,
+            rhi::ColorSpace requested_color_space) noexcept {
             const VkFormat preferred = SFT::Core::Vulkan::to_vk(requested);
             const VkColorSpaceKHR preferred_color_space = color_space_to_vk(requested_color_space);
+
             for (const VkSurfaceFormatKHR &format : formats) {
-                if (format.format == preferred && format.colorSpace == preferred_color_space) {
-                    return format;
+                if (format.colorSpace != preferred_color_space) {
+                    continue;
+                }
+                if (format.format == preferred || format.format == VK_FORMAT_UNDEFINED) {
+                    return SurfaceFormatSelection{
+                        .vk = VkSurfaceFormatKHR{.format = preferred, .colorSpace = preferred_color_space},
+                        .format = requested,
+                        .color_space = requested_color_space,
+                        .degraded = false,
+                    };
                 }
             }
-            if (requires_swapchain_colorspace_extension(requested_color_space)) {
-                for (const VkSurfaceFormatKHR &format : formats) {
-                    if (format.colorSpace == preferred_color_space) {
-                        return format;
-                    }
-                }
-                return std::nullopt;
-            }
+
             for (const VkSurfaceFormatKHR &format : formats) {
-                if (format.format == preferred) {
-                    return format;
+                if (format.colorSpace != preferred_color_space) {
+                    continue;
+                }
+                if (const auto mapped = swapchain_format_from_vk(format.format)) {
+                    return SurfaceFormatSelection{
+                        .vk = format,
+                        .format = *mapped,
+                        .color_space = requested_color_space,
+                        .degraded = format.format != preferred,
+                    };
                 }
             }
-            return formats.empty() ? VkSurfaceFormatKHR{.format = preferred, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR}
-                                   : formats.front();
+
+            for (const VkSurfaceFormatKHR &format : formats) {
+                if (format.colorSpace != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                    continue;
+                }
+                if (format.format == VK_FORMAT_B8G8R8A8_SRGB || format.format == VK_FORMAT_UNDEFINED) {
+                    return SurfaceFormatSelection{
+                        .vk = VkSurfaceFormatKHR{
+                            .format = VK_FORMAT_B8G8R8A8_SRGB,
+                            .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+                        },
+                        .format = rhi::Format::BGRA8UnormSrgb,
+                        .color_space = rhi::ColorSpace::SrgbNonlinear,
+                        .degraded = requested_color_space != rhi::ColorSpace::SrgbNonlinear ||
+                                    requested != rhi::Format::BGRA8UnormSrgb,
+                    };
+                }
+            }
+
+            for (const VkSurfaceFormatKHR &format : formats) {
+                if (format.colorSpace != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                    continue;
+                }
+                if (const auto mapped = swapchain_format_from_vk(format.format)) {
+                    return SurfaceFormatSelection{
+                        .vk = format,
+                        .format = *mapped,
+                        .color_space = rhi::ColorSpace::SrgbNonlinear,
+                        .degraded = requested_color_space != rhi::ColorSpace::SrgbNonlinear || *mapped != requested,
+                    };
+                }
+            }
+
+            return std::nullopt;
         }
 
         /// Selects image count that best satisfies the supplied requirements.
@@ -554,16 +619,24 @@ namespace SFT::Core::Vulkan {
             return rhi_error_from_graphics(modes.error());
         }
 
-        if (requires_swapchain_colorspace_extension(desc.color_space) && !hdr_swapchain_colorspace_enabled_) {
-            return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
-                                  "create_swapchain: HDR/wide-gamut color-space requested but VK_EXT_swapchain_colorspace was not enabled.");
-        }
-        const auto selected_format = choose_surface_format(*formats, desc.format, desc.color_space);
+        const bool requested_color_space_extension_unavailable =
+            requires_swapchain_colorspace_extension(desc.color_space) && !hdr_swapchain_colorspace_enabled_;
+        const rhi::ColorSpace selectable_color_space = requested_color_space_extension_unavailable
+            ? rhi::ColorSpace::SrgbNonlinear
+            : desc.color_space;
+        const rhi::Format selectable_format = requested_color_space_extension_unavailable
+            ? rhi::Format::BGRA8UnormSrgb
+            : desc.format;
+        const auto selected_format = choose_surface_format(*formats, selectable_format, selectable_color_space);
         if (!selected_format) {
             return rhi::rhi_error(rhi::RhiErrorCode::Unsupported,
-                                  "create_swapchain: surface does not expose a Vulkan surface format for the requested color space.");
+                                  "create_swapchain: surface exposes no usable Vulkan presentation format.");
         }
-        const VkSurfaceFormatKHR format = *selected_format;
+        const VkSurfaceFormatKHR format = selected_format->vk;
+        if (requested_color_space_extension_unavailable || selected_format->degraded) {
+            Foundation::log_warn(
+                "Vulkan: requested swapchain format/color space is unavailable; using a supported presentation fallback.");
+        }
         const VkExtent2D extent{
             .width = desc.width != 0 ? desc.width : caps->currentExtent.width,
             .height = desc.height != 0 ? desc.height : caps->currentExtent.height,
@@ -580,6 +653,9 @@ namespace SFT::Core::Vulkan {
         const bool fifo_latest_ready_enabled = enabled_features_.has(rhi::Feature::PresentModeFifoLatestReady);
         rhi::PresentationResolution resolution =
             resolve_present_mode(*modes, desc.present_strategy, fifo_latest_ready_enabled);
+        resolution.degraded = resolution.degraded || requested_color_space_extension_unavailable || selected_format->degraded;
+        resolution.effective_format = selected_format->format;
+        resolution.effective_color_space = selected_format->color_space;
 
 
         bool present_via_compute = false;
@@ -723,7 +799,7 @@ namespace SFT::Core::Vulkan {
                 };
                 for (u32 i = 0; i < image_count; ++i) {
                     rhi::TextureHandle texture =
-                        textures_.insert(TextureRecord{std::move(record.composition.images[i].image), desc.format});
+                        textures_.insert(TextureRecord{std::move(record.composition.images[i].image), selected_format->format});
                     record.textures.push_back(texture);
                     record.views.push_back(texture_views_.insert(std::move(record.composition.views[i])));
 
@@ -836,7 +912,7 @@ namespace SFT::Core::Vulkan {
 
         VkHdrMetadataEXT initial_hdr_metadata{};
         bool initial_hdr_metadata_set = false;
-        if (desc.color_space == rhi::ColorSpace::Hdr10St2084 && hdr_metadata_enabled_ && vkSetHdrMetadataEXT != nullptr) {
+        if (selected_format->color_space == rhi::ColorSpace::Hdr10St2084 && hdr_metadata_enabled_ && vkSetHdrMetadataEXT != nullptr) {
             const rhi::SurfaceHdrCapabilityQuery hdr_query = ::SFT::Core::query_platform_hdr_display_capabilities(surface->desc);
             if (!hdr_query || !hdr_query.capabilities.display_metadata.has_value()) {
                 Foundation::log_info(
@@ -885,7 +961,7 @@ namespace SFT::Core::Vulkan {
         for (VkImage image : record.swapchain.images()) {
             VulkanImage borrowed = VulkanImage::borrow(logical_device_->vk_handle(), image, record.swapchain.format(),
                                                        VkExtent3D{extent.width, extent.height, 1}, usage);
-            rhi::TextureHandle texture = textures_.insert(TextureRecord{std::move(borrowed), desc.format});
+            rhi::TextureHandle texture = textures_.insert(TextureRecord{std::move(borrowed), selected_format->format});
             record.textures.push_back(texture);
 
             const VkImageViewCreateInfo view_info{

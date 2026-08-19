@@ -153,8 +153,9 @@ VertexOutput vertexMain(VertexInput input) {
 }
 
 [shader("fragment")]
-GBufferOutput fragmentMain(VertexOutput input) {
+GBufferOutput fragmentMain(VertexOutput input, bool frontFacing : SV_IsFrontFace) {
     GBufferOutput output;
+    float faceSign = frontFacing ? 1.0 : -1.0;
     float3 normal = normalize(input.worldNormal);
     // Gram-Schmidt re-orthogonalize the interpolated tangent against the interpolated normal (they
     // drift apart across a triangle) before building the TBN basis.
@@ -169,7 +170,7 @@ GBufferOutput fragmentMain(VertexOutput input) {
     float normalZ = sqrt(saturate(1.0 - dot(normalXY, normalXY)));
     float3 normalSample = float3(normalXY, normalZ);
     float3x3 tbn = float3x3(tangent, bitangent, normal);
-    normal = normalize(mul(normalSample, tbn));
+    normal = normalize(mul(normalSample, tbn)) * faceSign;
     output.normal = encodeOctahedralNormal(normal);
 
     float4 baseColorSample = base_color_texture.Sample(input.uv);

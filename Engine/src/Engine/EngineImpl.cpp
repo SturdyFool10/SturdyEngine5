@@ -540,8 +540,10 @@ namespace SFT::Engine {
             static_cast<bool>(old_presentation.hdr_enabled) != static_cast<bool>(new_presentation.hdr_enabled);
 
 
-        const bool hdr_color_space_changed = static_cast<bool>(new_presentation.hdr_enabled) &&
-                                             old_presentation.hdr_color_space != new_presentation.hdr_color_space;
+        const bool hdr_color_space_setting_changed =
+            old_presentation.hdr_color_space != new_presentation.hdr_color_space;
+        const bool hdr_color_space_changed =
+            static_cast<bool>(new_presentation.hdr_enabled) && hdr_color_space_setting_changed;
         const bool hdr_changed = hdr_enabled_changed || hdr_color_space_changed;
         const RHI::RhiDevice *active_rhi = renderer_.rhi_device();
 
@@ -581,7 +583,8 @@ namespace SFT::Engine {
         const string_view new_app_name = settings.app_name != nullptr ? string_view{settings.app_name} : string_view{};
         const bool app_name_changed = old_app_name != new_app_name;
 
-        if (!presentation_changed && !backend_features_changed && !app_name_changed &&
+        if (!presentation_changed && !hdr_color_space_setting_changed &&
+            !backend_features_changed && !app_name_changed &&
             config_.shaders_directory == settings.shaders_directory) {
             result.mode = Core::RuntimeSettingApplyMode::NoChange;
             result.message = "Runtime settings already match the active engine configuration.";
@@ -623,6 +626,13 @@ namespace SFT::Engine {
             config_.features.presentation = new_presentation;
             result.mode = Core::RuntimeSettingApplyMode::SurfaceRecreated;
             result.message = "Presentation settings were applied; the swapchain will be recreated on the next rendered frame.";
+            return result;
+        }
+
+        if (hdr_color_space_setting_changed) {
+            config_.features.presentation = new_presentation;
+            result.mode = Core::RuntimeSettingApplyMode::HotApplied;
+            result.message = "HDR color-space preference was stored and will take effect when HDR presentation is enabled.";
             return result;
         }
 

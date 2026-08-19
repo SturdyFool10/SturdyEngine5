@@ -898,6 +898,7 @@ namespace SFT::Renderer {
             f32 ui_reference_white_nits = 0.0f;
             bool primary = false;
             bool rhi_swapchain_dirty = true;
+            bool explicit_presentation_change_pending = false;
 
 
             vector<RHI::FenceHandle> active_presentation_completion_fences;
@@ -938,6 +939,11 @@ namespace SFT::Renderer {
             glm::mat4 previous_world_transform{1.0f};
             u64 stable_id = 0;
             u32 sort_key = 0;
+            bool casts_shadows = true;
+            RHI::CullMode cull_mode = RHI::CullMode::Back;
+            RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise;
+            glm::vec3 world_bounds_center{0.0f};
+            f32 world_bounds_radius = 0.0f;
 
 
             u32 object_index = 0;
@@ -1000,6 +1006,8 @@ namespace SFT::Renderer {
         struct InstancedBatch {
             MeshHandle mesh{};
             MaterialInstanceHandle material{};
+            RHI::CullMode cull_mode = RHI::CullMode::Back;
+            RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise;
 
 
             u32 first_object_index = 0;
@@ -1034,6 +1042,8 @@ namespace SFT::Renderer {
         struct InstancedPipelineVariant {
             vector<RHI::Format> color_formats;
             RHI::Format depth_format = RHI::Format::Undefined;
+            RHI::CullMode cull_mode = RHI::CullMode::Back;
+            RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise;
             RHI::SampleCount samples = RHI::SampleCount::X1;
             RHI::RenderPipelineHandle pipeline{};
         };
@@ -1055,6 +1065,8 @@ namespace SFT::Renderer {
             vector<RHI::Format> color_formats;
             RHI::Format depth_format = RHI::Format::Undefined;
             bool standard_depth_test = false;
+            RHI::CullMode cull_mode = RHI::CullMode::Back;
+            RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise;
             RHI::SampleCount samples = RHI::SampleCount::X1;
             RHI::RenderPipelineHandle pipeline{};
         };
@@ -1116,7 +1128,8 @@ namespace SFT::Renderer {
             vector<u32> bind_group_layout_sets;
             RHI::PipelineLayoutHandle pipeline_layout{};
             RHI::SamplerHandle gbuffer_sampler{};
-            RHI::SamplerHandle shadow_sampler{};
+            RHI::SamplerHandle shadow_depth_sampler{};
+            RHI::SamplerHandle shadow_compare_sampler{};
 
 
             RHI::SamplerHandle atmosphere_sampler{};
@@ -1810,13 +1823,17 @@ namespace SFT::Renderer {
         /// @param material_template `material_template` value used by the operation.
         /// @param color_formats Format used for the resource, render target, or conversion.
         /// @param depth_format Format used for the resource, render target, or conversion.
-        /// @param samples `samples` value used by the operation.
+        /// @param cull_mode Face-culling mode used for the pipeline variant.
+    /// @param front_face Authored front-face winding used for the pipeline variant.
+    /// @param samples `samples` value used by the operation.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> instanced_pipeline_for(
             MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
-            RHI::Format depth_format, RHI::SampleCount samples = RHI::SampleCount::X1);
+            RHI::Format depth_format, RHI::CullMode cull_mode = RHI::CullMode::Back,
+            RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise,
+            RHI::SampleCount samples = RHI::SampleCount::X1);
 
 
         /// Finds or creates the object history resources required by the operation.
@@ -1834,13 +1851,17 @@ namespace SFT::Renderer {
         /// @param color_formats Format used for the resource, render target, or conversion.
         /// @param depth_format Format used for the resource, render target, or conversion.
         /// @param standard_depth_test `standard_depth_test` value used by the operation.
-        /// @param samples `samples` value used by the operation.
+        /// @param cull_mode Face-culling mode used for the pipeline variant.
+    /// @param front_face Authored front-face winding used for the pipeline variant.
+    /// @param samples `samples` value used by the operation.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> history_pipeline_for(
             MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
             RHI::Format depth_format, bool standard_depth_test = false,
+            RHI::CullMode cull_mode = RHI::CullMode::Back,
+            RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise,
             RHI::SampleCount samples = RHI::SampleCount::X1);
 
 
@@ -1994,13 +2015,17 @@ namespace SFT::Renderer {
         /// @param color_formats Format used for the resource, render target, or conversion.
         /// @param depth_format Format used for the resource, render target, or conversion.
         /// @param standard_depth_test `standard_depth_test` value used by the operation.
-        /// @param samples `samples` value used by the operation.
+        /// @param cull_mode Face-culling mode used for the pipeline variant.
+    /// @param front_face Authored front-face winding used for the pipeline variant.
+    /// @param samples `samples` value used by the operation.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> material_pipeline_for(
             MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format,
-            bool standard_depth_test = false, RHI::SampleCount samples = RHI::SampleCount::X1);
+            bool standard_depth_test = false, RHI::CullMode cull_mode = RHI::CullMode::Back,
+            RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise,
+            RHI::SampleCount samples = RHI::SampleCount::X1);
 
 
         /// Resolves the depth only pipeline associated with the supplied key, handle, or resource.
@@ -2010,13 +2035,17 @@ namespace SFT::Renderer {
         /// @param shadow_map `shadow_map` value used by the operation.
         /// @param depth_bias `depth_bias` value used by the operation.
         /// @param slope_bias `slope_bias` value used by the operation.
-        /// @param samples `samples` value used by the operation.
+        /// @param cull_mode Face-culling mode used for the pipeline variant.
+    /// @param front_face Authored front-face winding used for the pipeline variant.
+    /// @param samples `samples` value used by the operation.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> depth_only_pipeline_for(
             MaterialTemplateResource &material_template, RHI::Format depth_format,
             bool shadow_map = false, f32 depth_bias = 0.0f, f32 slope_bias = 0.0f,
+            RHI::CullMode cull_mode = RHI::CullMode::Back,
+            RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise,
             RHI::SampleCount samples = RHI::SampleCount::X1);
 
 

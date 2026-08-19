@@ -309,6 +309,7 @@ namespace SFT::Renderer {
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = sampled_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "deferred MSAA reconstruction bind group",
         });
         if (!bind_group) {

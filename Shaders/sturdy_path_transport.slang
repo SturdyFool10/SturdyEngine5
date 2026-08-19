@@ -2,6 +2,7 @@
 // exact routines.
 
 import sturdy_common;
+import sturdy_pbr;
 import sturdy_spectral_common;
 
 struct SpectralRayHit {
@@ -122,8 +123,10 @@ float evaluateOpaquePbr(
     float fresnel = schlickFresnel(vDotH, f0);
     float specular = distribution * geometryV * geometryL * fresnel
                    / max(4.0 * nDotV * nDotL, 1.0e-6);
-    float diffuse = (1.0 - fresnel) * (1.0 - saturate(metallic))
-                  * max(baseReflectance, 0.0) * SFT_INV_PI;
+    float diffuseBrdf = evaluateEonDiffuse(
+        max(baseReflectance, 0.0), perceptualRoughness,
+        normal, lightDirection, viewDirection);
+    float diffuse = (1.0 - fresnel) * (1.0 - saturate(metallic)) * diffuseBrdf;
     return max(diffuse + specular, 0.0) * nDotL;
 }
 
@@ -188,7 +191,10 @@ OpaquePbrScatter sampleOpaquePbrDirection(
         scatter.throughputWeight = f0 / specularProbability;
     } else {
         scatter.direction = cosineHemisphere(normal, rng);
-        scatter.throughputWeight = max(baseReflectance, 0.0) * (1.0 - saturate(metallic))
+        float diffuseBrdf = evaluateEonDiffuse(
+            max(baseReflectance, 0.0), perceptualRoughness,
+            normal, scatter.direction, -incident);
+        scatter.throughputWeight = diffuseBrdf * SFT_PI * (1.0 - saturate(metallic))
                                 / max(1.0 - specularProbability, 1.0e-4);
     }
     return scatter;

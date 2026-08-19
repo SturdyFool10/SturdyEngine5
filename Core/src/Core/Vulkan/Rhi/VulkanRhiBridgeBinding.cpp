@@ -41,11 +41,14 @@ namespace SFT::Core::Vulkan {
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] RendererExpected<VulkanDescriptorPool> create_descriptor_pool_chunk(VkDevice device) {
+        [[nodiscard]] RendererExpected<VulkanDescriptorPool> create_descriptor_pool_chunk(VkDevice device, bool frame_transient) {
 
 
-            Foundation::log_info("Vulkan: creating a new shared descriptor pool chunk ({} sets, {} descriptors/type capacity).",
-                                 kDescriptorPoolChunkMaxSets, kDescriptorPoolChunkTypeCapacity);
+            if (!frame_transient) {
+                Foundation::log_info(
+                    "Vulkan: creating a new persistent descriptor pool chunk ({} sets, {} descriptors/type capacity).",
+                    kDescriptorPoolChunkMaxSets, kDescriptorPoolChunkTypeCapacity);
+            }
             const array<VkDescriptorPoolSize, 7> sizes{
                 VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = kDescriptorPoolChunkTypeCapacity},
                 VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = kDescriptorPoolChunkTypeCapacity},
@@ -55,8 +58,9 @@ namespace SFT::Core::Vulkan {
                 VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = kDescriptorPoolChunkTypeCapacity},
                 VkDescriptorPoolSize{.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, .descriptorCount = kDescriptorPoolChunkTypeCapacity},
             };
-            return VulkanDescriptorPool::create_from_sizes(device, sizes, kDescriptorPoolChunkMaxSets,
-                                                            VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT);
+            return VulkanDescriptorPool::create_from_sizes(
+                device, sizes, kDescriptorPoolChunkMaxSets,
+                frame_transient ? 0u : static_cast<VkDescriptorPoolCreateFlags>(VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT));
         }
 
     } // namespace
@@ -185,6 +189,26 @@ namespace SFT::Core::Vulkan {
                                   "create_bind_group: variable-count binding must be the highest binding in its set.");
         }
 
+        for (const rhi::BindGroupEntry &entry : desc.entries) {
+            const rhi::BindGroupLayoutEntry *layout_entry = nullptr;
+            for (const rhi::BindGroupLayoutEntry &candidate : layout_record->entries) {
+                if (candidate.binding == entry.binding) {
+                    layout_entry = &candidate;
+                    break;
+                }
+            }
+            if (layout_entry == nullptr) {
+                return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                      "create_bind_group: entry binding is not present in the bind group's layout.");
+            }
+            const u32 descriptor_count = has_variable_count && entry.binding == variable_binding
+                ? variable_count : layout_entry->count;
+            if (entry.array_element >= descriptor_count) {
+                return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
+                                      "create_bind_group: descriptor array element is outside the allocated binding range.");
+            }
+        }
+
         VulkanDescriptorPool dedicated_pool;
         VkDescriptorSet set = VK_NULL_HANDLE;
         i32 shared_chunk_index = -1;
@@ -232,29 +256,52 @@ namespace SFT::Core::Vulkan {
         } else {
 
 
+            const bool frame_transient = desc.lifetime == rhi::BindGroupLifetime::FrameTransient;
             auto chunks = descriptor_pool_chunks_.lock();
-            if (chunks->empty()) {
-                auto pool = create_descriptor_pool_chunk(logical_device_->vk_handle());
-                if (!pool) {
-                    return rhi_error_from_graphics(pool.error());
+            for (usize index = 0; index < chunks->size(); ++index) {
+                DescriptorPoolChunk &chunk = (*chunks)[index];
+                if (chunk.frame_transient != frame_transient || chunk.live_sets >= kDescriptorPoolChunkMaxSets) {
+                    continue;
                 }
-                chunks->push_back(DescriptorPoolChunk{.pool = std::move(*pool)});
-            }
-            auto allocated = chunks->back().pool.allocate_one(layout_record->layout.vk_handle());
-            if (!allocated) {
-                auto pool = create_descriptor_pool_chunk(logical_device_->vk_handle());
-                if (!pool) {
-                    return rhi_error_from_graphics(pool.error());
+
+                if (frame_transient && chunk.live_sets == 0) {
+                    if (!chunk.pool.reset().has_value()) {
+                        continue;
+                    }
                 }
-                chunks->push_back(DescriptorPoolChunk{.pool = std::move(*pool)});
-                allocated = chunks->back().pool.allocate_one(layout_record->layout.vk_handle());
+
+                auto allocated = chunk.pool.allocate_one(layout_record->layout.vk_handle());
+                if (!allocated && !frame_transient && chunk.live_sets == 0) {
+                    if (chunk.pool.reset().has_value()) {
+                        allocated = chunk.pool.allocate_one(layout_record->layout.vk_handle());
+                    }
+                }
                 if (!allocated) {
+                    continue;
+                }
+
+                shared_chunk_index = static_cast<i32>(index);
+                ++chunk.live_sets;
+                set = *allocated;
+                break;
+            }
+
+            if (set == VK_NULL_HANDLE) {
+                auto pool = create_descriptor_pool_chunk(logical_device_->vk_handle(), frame_transient);
+                if (!pool) {
+                    return rhi_error_from_graphics(pool.error());
+                }
+                chunks->push_back(DescriptorPoolChunk{.pool = std::move(*pool), .live_sets = 0, .frame_transient = frame_transient});
+                DescriptorPoolChunk &chunk = chunks->back();
+                auto allocated = chunk.pool.allocate_one(layout_record->layout.vk_handle());
+                if (!allocated) {
+                    chunks->pop_back();
                     return rhi_error_from_graphics(allocated.error());
                 }
+                shared_chunk_index = static_cast<i32>(chunks->size() - 1);
+                ++chunk.live_sets;
+                set = *allocated;
             }
-            shared_chunk_index = static_cast<i32>(chunks->size() - 1);
-            ++(*chunks)[static_cast<usize>(shared_chunk_index)].live_sets;
-            set = *allocated;
         }
 
 
@@ -350,8 +397,18 @@ namespace SFT::Core::Vulkan {
             if (shared_chunk_index >= 0) {
                 auto chunks = descriptor_pool_chunks_.lock();
                 DescriptorPoolChunk &chunk = (*chunks)[static_cast<usize>(shared_chunk_index)];
-                (void)chunk.pool.free(span<const VkDescriptorSet>{&set, 1});
-                --chunk.live_sets;
+                if (chunk.frame_transient) {
+                    if (chunk.live_sets > 0) {
+                        --chunk.live_sets;
+                    }
+                    if (chunk.live_sets == 0) {
+                        (void)chunk.pool.reset();
+                    }
+                } else if (chunk.pool.free(span<const VkDescriptorSet>{&set, 1}).has_value()) {
+                    if (chunk.live_sets > 0) {
+                        --chunk.live_sets;
+                    }
+                }
             }
             return std::unexpected(write_result.error());
         }
@@ -374,8 +431,24 @@ namespace SFT::Core::Vulkan {
         if (record->shared_chunk_index >= 0) {
             auto chunks = descriptor_pool_chunks_.lock();
             DescriptorPoolChunk &chunk = (*chunks)[static_cast<usize>(record->shared_chunk_index)];
-            (void)chunk.pool.free(span<const VkDescriptorSet>{&record->set, 1});
-            --chunk.live_sets;
+            if (chunk.frame_transient) {
+                if (chunk.live_sets > 0) {
+                    --chunk.live_sets;
+                }
+                if (chunk.live_sets == 0) {
+                    if (auto reset = chunk.pool.reset(); !reset.has_value()) {
+                        Foundation::log_warn("Vulkan: failed to reset an empty frame-transient descriptor pool chunk.");
+                    }
+                }
+            } else {
+                if (auto freed = chunk.pool.free(span<const VkDescriptorSet>{&record->set, 1}); freed.has_value()) {
+                    if (chunk.live_sets > 0) {
+                        --chunk.live_sets;
+                    }
+                } else {
+                    Foundation::log_warn("Vulkan: failed to free a persistent descriptor set; retaining pool occupancy accounting.");
+                }
+            }
         }
         bind_groups_.erase(handle);
     }

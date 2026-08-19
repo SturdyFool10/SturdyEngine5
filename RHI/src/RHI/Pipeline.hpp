@@ -41,15 +41,9 @@ namespace SFT::RHI {
         Back,
     };
 
-    // Winding of a front-facing triangle, in clip space — +Y up, D3D12's native convention (see
-    // RHI::Viewport). Set it as if every backend rasterized that convention directly; backends
-    // reconcile it themselves where their own native convention differs.
-    //
-    // Backends do NOT all receive this verbatim. Vulkan reconciles the RHI's clip-space convention
-    // with its own native +Y-down NDC via a negative-height viewport (VulkanRhiBridgeCommands.cpp's
-    // to_vk_viewport), and that mirror reverses how its rasterizer classifies winding, so the Vulkan
-    // backend inverts this value on the way in (VulkanRhiConvert.hpp's to_vk(rhi::FrontFace)). D3D12
-    // needs no such inversion — its viewport is never touched.
+    // Winding considered front-facing by the RHI rasterizer. Backends map this state 1:1; any
+    // coordinate-system reconciliation belongs to viewport/projection plumbing rather than being
+    // applied a second time to the raster state.
     enum class FrontFace : u32 {
         CounterClockwise,
         Clockwise,

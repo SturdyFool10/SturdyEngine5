@@ -510,6 +510,8 @@ namespace SFT::D3D12 {
 
 
             .full_screen_exclusive_active = full_screen_exclusive_active,
+            .effective_format = desc.format,
+            .effective_color_space = record.effective_color_space,
         };
         (void)desc.allow_present_from_compute;
         (void)desc.clipped;

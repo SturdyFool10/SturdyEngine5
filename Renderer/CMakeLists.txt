@@ -52,6 +52,12 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     add_test(NAME RendererRenderGraphTest COMMAND RendererRenderGraphTest)
     set_tests_properties(RendererRenderGraphTest PROPERTIES TIMEOUT 10)
 
+    add_executable(RendererReflectionBindingTest tests/ReflectionBindingTest.cpp)
+    target_link_libraries(RendererReflectionBindingTest PRIVATE Sturdy::Renderer)
+    sturdy_enable_warnings(RendererReflectionBindingTest)
+    add_test(NAME RendererReflectionBindingTest COMMAND RendererReflectionBindingTest)
+    set_tests_properties(RendererReflectionBindingTest PROPERTIES TIMEOUT 10)
+
     add_executable(RendererTextDocumentTest tests/Text/DocumentTest.cpp)
     target_link_libraries(RendererTextDocumentTest PRIVATE Sturdy::Renderer)
     sturdy_enable_warnings(RendererTextDocumentTest)

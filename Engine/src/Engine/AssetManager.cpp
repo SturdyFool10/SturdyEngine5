@@ -7,6 +7,7 @@
 #include <Core/Core.hpp>
 #include <Core/Slang/EmbeddedShaders.hpp>
 #include <Renderer/Renderer.hpp>
+#include <RHI/RHI.hpp>
 
 #include <miniaudio.h>
 
@@ -141,6 +142,7 @@ namespace SFT::Engine {
             SFT::Renderer::MaterialInstanceHandle material{};
             Asset shader{};
             std::vector<Asset> textures;
+            bool double_sided = false;
         };
 
         struct ModelData {
@@ -907,6 +909,7 @@ namespace SFT::Engine {
                 .mesh = *mesh,
                 .material = *material,
                 .shader = primitive.shader,
+                .double_sided = primitive.double_sided,
             };
             created.textures.reserve(primitive.textures.size());
             for (const ModelTextureBinding &binding : primitive.textures) {
@@ -1311,6 +1314,7 @@ namespace SFT::Engine {
                 .stable_id = combine_stable_id(stable_id, primitive_index),
                 .visibility_mask = visibility_mask,
                 .sort_key = sort_key + static_cast<u32>(primitive_index),
+                .cull_mode = primitive.double_sided ? RHI::CullMode::None : RHI::CullMode::Back,
             });
         }
         return true;

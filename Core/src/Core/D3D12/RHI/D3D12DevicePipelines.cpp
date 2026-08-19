@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <bit>
 #include <cwchar>
+#include <cmath>
 #include <limits>
 #include <string>
 #include <utility>
@@ -218,14 +219,10 @@ namespace SFT::D3D12 {
         CD3DX12_RASTERIZER_DESC rasterizer{D3D12_DEFAULT};
         rasterizer.FillMode = to_d3d12(desc.rasterization.polygon_mode);
         rasterizer.CullMode = to_d3d12(desc.rasterization.cull_mode);
-        // Plain 1:1 mapping — D3D12's viewport is never Y-flipped (unlike Vulkan's, which negates
-        // height to reconcile its native +Y-down NDC against the RHI's +Y-up convention — see
-        // VulkanRhiBridgeCommands.cpp's to_vk_viewport doc comment), so D3D12's rasterizer already
-        // classifies winding exactly as authored and needs no compensating inversion here (contrast
-        // Vulkan's to_vk(rhi::FrontFace) in VulkanRhiConvert.hpp, which does invert).
+        // FrontFace is an RHI raster-state convention and maps directly at backend boundaries.
         rasterizer.FrontCounterClockwise =
             desc.rasterization.front_face == rhi::FrontFace::CounterClockwise ? TRUE : FALSE;
-        rasterizer.DepthBias = static_cast<INT>(desc.rasterization.depth_bias_constant);
+        rasterizer.DepthBias = static_cast<INT>(std::lround(desc.rasterization.depth_bias_constant));
         rasterizer.DepthBiasClamp = desc.rasterization.depth_bias_clamp;
         rasterizer.SlopeScaledDepthBias = desc.rasterization.depth_bias_slope_scale;
 

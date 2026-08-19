@@ -261,6 +261,7 @@ namespace SFT::Renderer {
         auto group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = bind_group_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "custom post-process bind group",
         });
         if (!group) return unexpected(graphics_error_from_rhi(group.error(), "create custom post-process bind group"));

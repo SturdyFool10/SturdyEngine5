@@ -132,6 +132,7 @@ namespace SFT::Renderer {
         }
         record->presentation = settings;
         record->rhi_swapchain_dirty = true;
+        record->explicit_presentation_change_pending = true;
         return {};
     }
 

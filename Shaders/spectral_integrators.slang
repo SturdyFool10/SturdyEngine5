@@ -2,6 +2,7 @@
 // that replaces primary raster visibility; its first hit writes the canonical deferred G-buffer ABI.
 
 import sturdy_common;
+import sturdy_pbr;
 import sturdy_spectral_common;
 import sturdy_path_transport;
 import sturdy_spectral_scene;
@@ -290,8 +291,10 @@ void reflectionOnlyMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
             surface.position + surface.shadingNormal * 0.001,
             lightDirection, 1.0e6, frame.instanceMask);
         float cosine = saturate(dot(surface.shadingNormal, lightDirection));
-        float3 diffuse = surface.material.baseColor.rgb
-                       * (1.0 - surface.material.surface.y) * cosine * SFT_INV_PI;
+        float3 diffuseBrdf = evaluateEonDiffuse(
+            surface.material.baseColor.rgb, surface.material.surface.x,
+            surface.shadingNormal, lightDirection, -direction);
+        float3 diffuse = diffuseBrdf * (1.0 - surface.material.surface.y) * cosine;
         radiance = surface.material.emissiveAndStrength.rgb * surface.material.emissiveAndStrength.a
                  + frame.sunRadiance.rgb * diffuse * visibility
                  + surface.material.baseColor.rgb * 0.03;
@@ -339,7 +342,8 @@ void fullPathTracingMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
     if (frame.causticGatherControl.z != 0u && primary.valid) {
         caustics = gatherSpectralCausticsRgb(
             causticPhotons, causticPhotonCount, causticPhotonHashHeads,
-            primary, frame.causticGatherParameters.x, frame.causticGatherParameters.y,
+            primary, safeNormalizeOr(frame.cameraPosition.xyz - primary.position, primary.shadingNormal),
+            frame.causticGatherParameters.x, frame.causticGatherParameters.y,
             frame.causticGatherControl.w, frame.causticGatherControl.x,
             frame.causticGatherControl.y);
     }

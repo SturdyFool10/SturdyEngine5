@@ -49,9 +49,9 @@ namespace SFT::Renderer {
 
         constexpr u32 kAtlasGridSize = 8;
         constexpr f32 kMinimumLightRange = 0.05f;
+        constexpr f32 kDirectionalFilterGuardTexels = 24.0f;
 
-
-        constexpr f32 kPointShadowFaceFovRadians = 1.6057029f;
+        constexpr f32 kPointShadowFaceFovRadians = 1.8151424f;
 
         /// Creates an error result describing the supplied shadow failure.
         ///
@@ -99,6 +99,69 @@ namespace SFT::Renderer {
                                                  : glm::vec3{0.0f, 0.0f, 1.0f};
         }
 
+        /// Computes a rotation-invariant bounding sphere for a perspective-frustum slice.
+        ///
+        /// @param projection Camera projection matrix defining the frustum.
+        /// @param near_depth Positive view-space distance to the slice near plane.
+        /// @param far_depth Positive view-space distance to the slice far plane.
+        ///
+        /// @return Returns the sphere center in camera view space followed by its radius in world units.
+        /// @note Symmetric perspective projections use the analytic minimum sphere; other projections use a conservative corner fit.
+        [[nodiscard]] std::pair<glm::vec3, f32> stable_frustum_slice_sphere(
+            const glm::mat4 &projection, f32 near_depth, f32 far_depth) noexcept {
+            const bool perspective = std::abs(projection[2][3]) > 0.5f &&
+                                     std::abs(projection[3][3]) <= 1.0e-6f;
+            const bool symmetric = std::abs(projection[2][0]) <= 1.0e-6f &&
+                                   std::abs(projection[2][1]) <= 1.0e-6f;
+            if (perspective && symmetric) {
+                const f32 tan_half_x = 1.0f / std::max(std::abs(projection[0][0]), 1.0e-6f);
+                const f32 tan_half_y = 1.0f / std::max(std::abs(projection[1][1]), 1.0e-6f);
+                const f32 diagonal_slope_squared = tan_half_x * tan_half_x + tan_half_y * tan_half_y;
+                const f32 depth_span = std::max(far_depth - near_depth, 1.0e-6f);
+                const f32 depth_sum = far_depth + near_depth;
+
+                f32 center_depth = far_depth;
+                f32 radius = far_depth * std::sqrt(diagonal_slope_squared);
+                if (diagonal_slope_squared < depth_span / std::max(depth_sum, 1.0e-6f)) {
+                    center_depth = 0.5f * depth_sum * (1.0f + diagonal_slope_squared);
+                    const f32 axial = center_depth - near_depth;
+                    radius = std::sqrt(axial * axial +
+                                       near_depth * near_depth * diagonal_slope_squared);
+                }
+                return {glm::vec3{0.0f, 0.0f, -center_depth}, std::max(radius, 0.25f)};
+            }
+
+            const glm::mat4 inverse_projection = glm::inverse(projection);
+            const array<glm::vec2, 4> ndc_xy{
+                glm::vec2{-1.0f, -1.0f}, glm::vec2{1.0f, -1.0f},
+                glm::vec2{1.0f, 1.0f}, glm::vec2{-1.0f, 1.0f},
+            };
+            array<glm::vec3, 8> corners{};
+            glm::vec3 center{0.0f};
+            for (usize corner = 0; corner < ndc_xy.size(); ++corner) {
+                glm::vec4 point_h = inverse_projection * glm::vec4{ndc_xy[corner], 1.0f, 1.0f};
+                if (std::abs(point_h.w) > 1.0e-6f) {
+                    point_h /= point_h.w;
+                }
+                const glm::vec3 point = glm::vec3{point_h};
+                if (perspective) {
+                    const f32 inverse_abs_z = 1.0f / std::max(std::abs(point.z), 1.0e-6f);
+                    corners[corner] = point * (near_depth * inverse_abs_z);
+                    corners[corner + 4] = point * (far_depth * inverse_abs_z);
+                } else {
+                    corners[corner] = glm::vec3{point.x, point.y, -near_depth};
+                    corners[corner + 4] = glm::vec3{point.x, point.y, -far_depth};
+                }
+                center += corners[corner] + corners[corner + 4];
+            }
+            center *= 1.0f / 8.0f;
+            f32 radius = 0.25f;
+            for (const glm::vec3 corner : corners) {
+                radius = std::max(radius, glm::distance(center, corner));
+            }
+            return {center, radius};
+        }
+
         /// Performs the luminance operation for `Renderer` using the supplied arguments.
         ///
         /// @param radiance `radiance` value used by the operation.
@@ -124,6 +187,38 @@ namespace SFT::Renderer {
             const f32 safe_range = std::max(range, kMinimumLightRange);
             return luminance(radiance) * safe_range * safe_range /
                    (1.0f + distance_squared / (safe_range * safe_range));
+        }
+
+
+        /// Selects a positional-light shadow tile size from projected screen coverage.
+        ///
+        /// @param position World-space light position.
+        /// @param range Effective light range in world units.
+        /// @param camera_position World-space camera position.
+        /// @param projection Camera projection matrix.
+        /// @param render_extent Current render resolution.
+        /// @param atlas_size Shadow atlas edge size in texels.
+        ///
+        /// @return Returns the requested atlas-grid width in cells.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] u32 positional_shadow_tile_cells(
+            glm::vec3 position, f32 range, glm::vec3 camera_position, const glm::mat4 &projection,
+            Core::Extent2D render_extent, u32 atlas_size) noexcept {
+            if (atlas_size < kAtlasGridSize * 2u) {
+                return 1u;
+            }
+            const f32 distance = glm::distance(position, camera_position);
+            if (distance <= std::max(range, kMinimumLightRange)) {
+                return 2u;
+            }
+            const f32 projection_scale = std::abs(projection[1][1]);
+            const f32 radius_pixels =
+                std::max(range, kMinimumLightRange) * projection_scale /
+                std::max(distance, kMinimumLightRange) *
+                (0.5f * static_cast<f32>(std::max(render_extent.y, 1u)));
+            const f32 diameter_pixels = radius_pixels * 2.0f;
+            const f32 cell_pixels = static_cast<f32>(atlas_size / kAtlasGridSize);
+            return diameter_pixels > cell_pixels * 0.75f ? 2u : 1u;
         }
 
         struct AtlasTile {
@@ -440,9 +535,24 @@ namespace SFT::Renderer {
         };
 
         AtlasAllocator allocator;
+        const auto has_shadow_caster_in_sphere = [&](glm::vec3 position, f32 range) noexcept {
+            const f32 safe_range = std::max(range, kMinimumLightRange);
+            for (const RenderItem &item : submission.draws) {
+                if (!item.casts_shadows || !std::isfinite(item.world_bounds_radius)) {
+                    continue;
+                }
+                const glm::vec3 delta = item.world_bounds_center - position;
+                const f32 combined_radius = safe_range + std::max(item.world_bounds_radius, 0.0f);
+                if (glm::dot(delta, delta) <= combined_radius * combined_radius) {
+                    return true;
+                }
+            }
+            return false;
+        };
         auto append_shadow_view = [&](const glm::mat4 &matrix, AtlasTile tile, f32 near_plane,
                                       f32 far_plane, bool perspective, f32 light_radius_uv,
-                                      f32 world_span_at_unit_depth) -> i32 {
+                                      f32 world_span_at_unit_depth, f32 max_filter_radius_local,
+                                      f32 max_search_radius_local) -> i32 {
             if (!tile || prepared.render_views.size() >= max_shadow_views) {
                 return -1;
             }
@@ -458,13 +568,18 @@ namespace SFT::Renderer {
                 .atlas_scale_bias = tile_scale_bias(tile),
                 .depth_params = glm::vec4{near_plane, far_plane, perspective ? 1.0f : 0.0f, std::max(light_radius_uv, 0.0f)},
                 .filter_params = glm::vec4{world_span_at_unit_depth,
-                                           static_cast<f32>(viewport.width), 0.0f, 0.0f},
+                                           static_cast<f32>(viewport.width),
+                                           std::max(max_filter_radius_local, 0.0f),
+                                           std::max(max_search_radius_local, 0.0f)},
             };
             return static_cast<i32>(index);
         };
 
 
-        if (shadows_enabled && sun.casts_shadows && luminance(sun.radiance) > 0.0f) {
+        const bool has_any_shadow_caster = std::any_of(
+            submission.draws.begin(), submission.draws.end(),
+            [](const RenderItem &item) noexcept { return item.casts_shadows; });
+        if (shadows_enabled && has_any_shadow_caster && sun.casts_shadows && luminance(sun.radiance) > 0.0f) {
             const u32 cascade_count = std::clamp(submission.render_graph.shadow_cascade_count,
                                                  1u,
                                                  max_directional_shadow_cascades);
@@ -481,76 +596,55 @@ namespace SFT::Renderer {
                 const f32 p = static_cast<f32>(cascade + 1) / static_cast<f32>(cascade_count);
                 const f32 logarithmic = camera_near * std::pow(camera_far / camera_near, p);
                 const f32 uniform = camera_near + (camera_far - camera_near) * p;
-                splits[cascade] = glm::mix(uniform, logarithmic, split_lambda);
+                splits[cascade] = cascade + 1u == cascade_count
+                                      ? camera_far
+                                      : glm::mix(uniform, logarithmic, split_lambda);
                 gpu.sun.cascade_splits[cascade] = splits[cascade];
             }
 
-            array<glm::vec3, 4> camera_near_corners{};
-            array<glm::vec3, 4> camera_far_corners{};
-            const array<glm::vec2, 4> ndc_xy{
-                glm::vec2{-1.0f, -1.0f},
-                glm::vec2{1.0f, -1.0f},
-                glm::vec2{1.0f, 1.0f},
-                glm::vec2{-1.0f, 1.0f},
-            };
-            for (usize corner = 0; corner < ndc_xy.size(); ++corner) {
-                glm::vec4 a = gpu.inverse_view_projection * glm::vec4{ndc_xy[corner], 0.0f, 1.0f};
-                glm::vec4 b = gpu.inverse_view_projection * glm::vec4{ndc_xy[corner], 1.0f, 1.0f};
-                a /= a.w;
-                b /= b.w;
-                const f32 a_depth = std::abs((submission.camera.view * a).z);
-                const f32 b_depth = std::abs((submission.camera.view * b).z);
-                camera_near_corners[corner] = glm::vec3{a_depth <= b_depth ? a : b};
-                camera_far_corners[corner] = glm::vec3{a_depth <= b_depth ? b : a};
-            }
-
-            const f32 inverse_camera_span = 1.0f / std::max(submission.camera.far_plane - submission.camera.near_plane,
-                                                            0.0001f);
-            f32 previous_split = camera_near;
+            const glm::mat4 camera_world = glm::inverse(submission.camera.view);
+            const f32 cascade_blend = std::clamp(
+                finite_or(submission.render_graph.shadow_cascade_blend, 0.10f), 0.0f, 0.5f);
             i32 first_cascade_view = -1;
             u32 emitted_cascades = 0;
             for (u32 cascade = 0; cascade < cascade_count; ++cascade) {
-                const AtlasTile tile = allocator.allocate(cascade < 2 ? 3u : 2u);
+                const array<u32, max_directional_shadow_cascades> cascade_tile_cells{4u, 2u, 2u, 1u};
+                const AtlasTile tile = allocator.allocate(cascade_tile_cells[cascade]);
                 if (!tile) {
                     break;
                 }
-                const f32 near_t = glm::clamp((previous_split - submission.camera.near_plane) * inverse_camera_span,
-                                              0.0f,
-                                              1.0f);
-                const f32 far_t = glm::clamp((splits[cascade] - submission.camera.near_plane) * inverse_camera_span,
-                                             0.0f,
-                                             1.0f);
-                array<glm::vec3, 8> corners{};
-                glm::vec3 center{0.0f};
-                for (usize corner = 0; corner < 4; ++corner) {
-                    corners[corner] = glm::mix(camera_near_corners[corner], camera_far_corners[corner], near_t);
-                    corners[corner + 4] = glm::mix(camera_near_corners[corner], camera_far_corners[corner], far_t);
-                    center += corners[corner] + corners[corner + 4];
-                }
-                center *= 1.0f / 8.0f;
-                f32 radius = 0.0f;
-                for (glm::vec3 corner : corners) {
-                    radius = std::max(radius, glm::distance(center, corner));
-                }
-                radius = std::ceil(std::max(radius, 0.25f) * 16.0f) / 16.0f;
 
+                const f32 nominal_near = cascade == 0 ? camera_near : splits[cascade - 1];
+                const f32 nominal_far = splits[cascade];
+                f32 fit_near = nominal_near;
+                if (cascade > 0) {
+                    const f32 previous_near = cascade == 1 ? camera_near : splits[cascade - 2];
+                    const f32 previous_blend_width = (nominal_near - previous_near) * cascade_blend;
+                    fit_near = std::max(camera_near, nominal_near - previous_blend_width);
+                }
+
+                const auto [sphere_center_view, receiver_radius] =
+                    stable_frustum_slice_sphere(submission.camera.projection, fit_near, nominal_far);
+                const glm::vec3 center = glm::vec3{
+                    camera_world * glm::vec4{sphere_center_view, 1.0f}};
+
+                const RHI::Rect2D cascade_viewport = tile_viewport(tile, atlas_size);
+                const f32 cascade_resolution = static_cast<f32>(std::max(cascade_viewport.width, 1u));
+                const f32 guard_texels = std::min(kDirectionalFilterGuardTexels, cascade_resolution * 0.125f);
+                const f32 usable_resolution = std::max(cascade_resolution - guard_texels * 2.0f, 1.0f);
+                const f32 radius = receiver_radius * cascade_resolution / usable_resolution;
+                const f32 max_filter_radius_local = guard_texels / cascade_resolution;
 
                 const glm::mat4 orientation_view =
                     glm::lookAtRH(center - sun_direction, center, light_up(sun_direction));
                 f32 minimum_along_light = -radius;
                 f32 maximum_along_light = radius;
                 for (const RenderItem &item : submission.draws) {
-                    const MeshResource *mesh_resource = mesh(item.mesh);
-                    if (mesh_resource == nullptr) {
+                    if (!item.casts_shadows) {
                         continue;
                     }
-                    const f32 scale_x = glm::length(glm::vec3{item.world_transform[0]});
-                    const f32 scale_y = glm::length(glm::vec3{item.world_transform[1]});
-                    const f32 scale_z = glm::length(glm::vec3{item.world_transform[2]});
-                    const f32 maximum_scale = std::max({scale_x, scale_y, scale_z});
-                    const f32 world_radius = mesh_resource->bounds_radius * maximum_scale;
-                    const glm::vec3 world_center =
-                        glm::vec3{item.world_transform * glm::vec4{mesh_resource->bounds_center, 1.0f}};
+                    const f32 world_radius = item.world_bounds_radius;
+                    const glm::vec3 world_center = item.world_bounds_center;
                     if (!std::isfinite(world_radius) ||
                         !std::isfinite(world_center.x) || !std::isfinite(world_center.y) ||
                         !std::isfinite(world_center.z)) {
@@ -567,9 +661,7 @@ namespace SFT::Renderer {
                     maximum_along_light = std::max(maximum_along_light, along_light + world_radius);
                 }
 
-                const f32 cascade_resolution =
-                    static_cast<f32>(tile_viewport(tile, atlas_size).width);
-                const f32 world_texel = (2.0f * radius) / std::max(cascade_resolution, 1.0f);
+                const f32 world_texel = (2.0f * radius) / cascade_resolution;
                 const f32 depth_margin = std::max(0.05f, world_texel * 4.0f);
                 const f32 eye_distance = -minimum_along_light + depth_margin;
                 const glm::vec3 eye = center - sun_direction * eye_distance;
@@ -578,12 +670,17 @@ namespace SFT::Renderer {
                     0.01f, eye_distance + minimum_along_light - depth_margin * 0.5f);
                 const f32 shadow_far = std::max(
                     shadow_near + 0.01f, eye_distance + maximum_along_light + depth_margin);
-                glm::mat4 light_projection = glm::orthoRH_ZO(-radius, radius, -radius, radius, shadow_near, shadow_far);
-                light_projection = stabilize_directional_projection(light_projection, light_view, tile_viewport(tile, atlas_size).width);
+                glm::mat4 light_projection =
+                    glm::orthoRH_ZO(-radius, radius, -radius, radius, shadow_near, shadow_far);
+                light_projection = stabilize_directional_projection(
+                    light_projection, light_view, cascade_viewport.width);
                 const glm::mat4 light_view_projection = light_projection * light_view;
                 const f32 local_radius_per_world = std::tan(gpu.sun.direction_angular_radius.w) /
                                                    std::max(2.0f * radius, 0.001f);
-                const i32 view_index = append_shadow_view(light_view_projection, tile, shadow_near, shadow_far, false, local_radius_per_world, radius * 2.0f);
+                const i32 view_index = append_shadow_view(
+                    light_view_projection, tile, shadow_near, shadow_far, false,
+                    local_radius_per_world, radius * 2.0f,
+                    max_filter_radius_local, max_filter_radius_local);
                 if (view_index < 0) {
                     break;
                 }
@@ -591,13 +688,12 @@ namespace SFT::Renderer {
                     first_cascade_view = view_index;
                 }
                 ++emitted_cascades;
-                previous_split = splits[cascade];
             }
             if (emitted_cascades > 0) {
                 gpu.sun.radiance_shadow.w = 1.0f;
                 gpu.sun.cascade_params = glm::vec4{
                     static_cast<f32>(emitted_cascades),
-                    std::clamp(finite_or(submission.render_graph.shadow_cascade_blend, 0.10f), 0.0f, 0.5f),
+                    cascade_blend,
                     static_cast<f32>(first_cascade_view),
                     0.0f,
                 };
@@ -627,10 +723,17 @@ namespace SFT::Renderer {
             output.shadow_params = glm::vec4{-1.0f, std::max(light.source_radius, 0.0f), 0.0f, 0.0f};
             if (!shadows_enabled || !light.casts_shadows ||
                 shadowed_spots >= std::min(submission.render_graph.max_shadowed_spot_lights,
-                                           max_lighting_spot_lights)) {
+                                           max_lighting_spot_lights) ||
+                !has_shadow_caster_in_sphere(light.position, range)) {
                 continue;
             }
-            const AtlasTile tile = allocator.allocate(1);
+            const u32 desired_cells = positional_shadow_tile_cells(
+                light.position, range, submission.camera.world_position, submission.camera.projection,
+                render_extent, atlas_size);
+            AtlasTile tile = allocator.allocate(desired_cells);
+            if (!tile && desired_cells > 1u) {
+                tile = allocator.allocate(1u);
+            }
             if (!tile) {
                 continue;
             }
@@ -643,7 +746,7 @@ namespace SFT::Renderer {
                                         std::max(2.0f * std::tan(outer_angle), 0.001f);
             const i32 view_index = append_shadow_view(
                 matrix, tile, shadow_near, range, true, radius_uv_world,
-                2.0f * std::tan(outer_angle));
+                2.0f * std::tan(outer_angle), 0.10f, 0.075f);
             if (view_index >= 0) {
                 output.shadow_params.x = static_cast<f32>(view_index);
                 ++shadowed_spots;
@@ -686,17 +789,29 @@ namespace SFT::Renderer {
             output.shadow_params = glm::vec4{-1.0f, 0.0f, 0.0f, 0.0f};
             if (!shadows_enabled || !light.casts_shadows ||
                 shadowed_points >= std::min(submission.render_graph.max_shadowed_point_lights,
-                                            max_shadowed_point_lights)) {
+                                            max_shadowed_point_lights) ||
+                !has_shadow_caster_in_sphere(light.position, range)) {
                 continue;
             }
 
 
+            const u32 desired_cells = positional_shadow_tile_cells(
+                light.position, range, submission.camera.world_position, submission.camera.projection,
+                render_extent, atlas_size);
             AtlasAllocator candidate_allocator = allocator;
             array<AtlasTile, 6> tiles{};
             bool allocated = true;
             for (AtlasTile &tile : tiles) {
-                tile = candidate_allocator.allocate(1);
+                tile = candidate_allocator.allocate(desired_cells);
                 allocated &= static_cast<bool>(tile);
+            }
+            if (!allocated && desired_cells > 1u) {
+                candidate_allocator = allocator;
+                allocated = true;
+                for (AtlasTile &tile : tiles) {
+                    tile = candidate_allocator.allocate(1u);
+                    allocated &= static_cast<bool>(tile);
+                }
             }
             if (!allocated || prepared.render_views.size() + 6 > max_shadow_views) {
                 continue;
@@ -711,7 +826,7 @@ namespace SFT::Renderer {
             for (usize face = 0; face < face_directions.size(); ++face) {
                 const glm::mat4 view = glm::lookAtRH(light.position, light.position + face_directions[face], face_ups[face]);
                 (void)append_shadow_view(projection * view, tiles[face], shadow_near, range,
-                                         true, radius_uv_world, face_span_at_unit_depth);
+                                         true, radius_uv_world, face_span_at_unit_depth, 0.10f, 0.075f);
             }
             output.shadow_params.x = static_cast<f32>(first_view);
             ++shadowed_points;
@@ -769,7 +884,11 @@ namespace SFT::Renderer {
         auto create_module = [&](string_view entry, const char *label) -> Core::RendererExpected<RHI::ShaderModuleHandle> {
             auto code = guard->shader.entry_point_code(entry, shader_target->slang_target.format);
             if (!code) {
-                return unexpected(shadow_error(string{"generate shadow lighting bytecode failed: "} + code.error().message));
+                string message = string{"generate shadow lighting bytecode failed: "} + code.error().message;
+                if (!code.error().diagnostics.empty()) {
+                    message += "\n" + code.error().diagnostics;
+                }
+                return unexpected(shadow_error(std::move(message)));
             }
             auto module = device->create_shader_module(RHI::ShaderModuleDesc{
                 .language = shader_target->module_language,
@@ -825,7 +944,7 @@ namespace SFT::Renderer {
         }
         guard->pipeline_layout = *pipeline_layout;
 
-        const RHI::SamplerDesc sampler_desc{
+        const RHI::SamplerDesc nearest_sampler_desc{
             .min_filter = RHI::Filter::Nearest,
             .mag_filter = RHI::Filter::Nearest,
             .mipmap_mode = RHI::MipmapMode::Nearest,
@@ -835,18 +954,40 @@ namespace SFT::Renderer {
             .max_lod = 0.0f,
             .label = "shadow lighting nearest sampler",
         };
-        auto gbuffer_sampler = device->create_sampler(sampler_desc);
+        auto gbuffer_sampler = device->create_sampler(nearest_sampler_desc);
         if (!gbuffer_sampler) {
             destroy_shadow_lighting_resources_locked(*guard);
             return unexpected(graphics_error_from_rhi(gbuffer_sampler.error(), "create G-buffer sampler"));
         }
         guard->gbuffer_sampler = *gbuffer_sampler;
-        auto shadow_sampler = device->create_sampler(sampler_desc);
-        if (!shadow_sampler) {
+
+        RHI::SamplerDesc shadow_depth_sampler_desc = nearest_sampler_desc;
+        shadow_depth_sampler_desc.label = "shadow blocker depth sampler";
+        auto shadow_depth_sampler = device->create_sampler(shadow_depth_sampler_desc);
+        if (!shadow_depth_sampler) {
             destroy_shadow_lighting_resources_locked(*guard);
-            return unexpected(graphics_error_from_rhi(shadow_sampler.error(), "create shadow atlas sampler"));
+            return unexpected(graphics_error_from_rhi(shadow_depth_sampler.error(), "create raw shadow depth sampler"));
         }
-        guard->shadow_sampler = *shadow_sampler;
+        guard->shadow_depth_sampler = *shadow_depth_sampler;
+
+        const RHI::SamplerDesc shadow_compare_sampler_desc{
+            .min_filter = RHI::Filter::Linear,
+            .mag_filter = RHI::Filter::Linear,
+            .mipmap_mode = RHI::MipmapMode::Nearest,
+            .address_u = RHI::AddressMode::ClampToEdge,
+            .address_v = RHI::AddressMode::ClampToEdge,
+            .address_w = RHI::AddressMode::ClampToEdge,
+            .max_lod = 0.0f,
+            .compare_enable = true,
+            .compare = RHI::CompareOp::LessEqual,
+            .label = "shadow hardware PCF comparison sampler",
+        };
+        auto shadow_compare_sampler = device->create_sampler(shadow_compare_sampler_desc);
+        if (!shadow_compare_sampler) {
+            destroy_shadow_lighting_resources_locked(*guard);
+            return unexpected(graphics_error_from_rhi(shadow_compare_sampler.error(), "create shadow comparison sampler"));
+        }
+        guard->shadow_compare_sampler = *shadow_compare_sampler;
         const RHI::SamplerDesc atmosphere_sampler_desc{
             .min_filter = RHI::Filter::Linear,
             .mag_filter = RHI::Filter::Linear,
@@ -970,7 +1111,8 @@ namespace SFT::Renderer {
 
         vector<ReflectedResource> resources;
         RHI::SamplerHandle gbuffer_sampler{};
-        RHI::SamplerHandle shadow_sampler{};
+        RHI::SamplerHandle shadow_depth_sampler{};
+        RHI::SamplerHandle shadow_compare_sampler{};
         RHI::SamplerHandle atmosphere_sampler{};
         vector<u32> bind_group_layout_sets;
         vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
@@ -978,7 +1120,8 @@ namespace SFT::Renderer {
             auto guard = shadow_lighting_.lock();
             resources = collect_resource_bindings(guard->shader.reflection());
             gbuffer_sampler = guard->gbuffer_sampler;
-            shadow_sampler = guard->shadow_sampler;
+            shadow_depth_sampler = guard->shadow_depth_sampler;
+            shadow_compare_sampler = guard->shadow_compare_sampler;
             atmosphere_sampler = guard->atmosphere_sampler;
             bind_group_layout_sets = guard->bind_group_layout_sets;
             bind_group_layouts = guard->bind_group_layouts;
@@ -1022,8 +1165,10 @@ namespace SFT::Renderer {
                 entry.texture_view = sky_view_lut_view;
             } else if (resource.name == "gbufferSampler") {
                 entry.sampler = gbuffer_sampler;
-            } else if (resource.name == "shadowSampler") {
-                entry.sampler = shadow_sampler;
+            } else if (resource.name == "shadowDepthSampler") {
+                entry.sampler = shadow_depth_sampler;
+            } else if (resource.name == "shadowCompareSampler") {
+                entry.sampler = shadow_compare_sampler;
             } else if (resource.name == "atmosphereSampler") {
                 entry.sampler = atmosphere_sampler;
             } else {
@@ -1038,6 +1183,7 @@ namespace SFT::Renderer {
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = bind_group_layouts[layout_index],
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "deferred shadow lighting bind group",
         });
         if (!bind_group) {
@@ -1080,8 +1226,10 @@ namespace SFT::Renderer {
                 device->destroy_render_pipeline(variant.pipeline);
             }
         }
-        if (resources.shadow_sampler)
-            device->destroy_sampler(resources.shadow_sampler);
+        if (resources.shadow_compare_sampler)
+            device->destroy_sampler(resources.shadow_compare_sampler);
+        if (resources.shadow_depth_sampler)
+            device->destroy_sampler(resources.shadow_depth_sampler);
         if (resources.gbuffer_sampler)
             device->destroy_sampler(resources.gbuffer_sampler);
         if (resources.atmosphere_sampler)

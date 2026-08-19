@@ -169,14 +169,15 @@ namespace SFT::Renderer {
                 reflection.global_constant_buffer_size == slang::shader_unknown_size) {
                 return {};
             }
+            const u32 binding = reflection.global_constant_buffer_binding;
             for (const slang::ShaderDescriptorSetReflection &set : reflection.descriptor_sets) {
                 for (const slang::ShaderDescriptorRangeReflection &range : set.ranges) {
-                    if (range.type == slang::ShaderBindingType::ConstantBuffer) {
-                        return UniformLocation{.present = true, .set = set.space, .binding = range.binding};
+                    if (range.type == slang::ShaderBindingType::ConstantBuffer && range.binding == binding) {
+                        return UniformLocation{.present = true, .set = set.space, .binding = binding};
                     }
                 }
             }
-            return UniformLocation{.present = true, .set = 0, .binding = reflection.global_constant_buffer_binding};
+            return UniformLocation{.present = true, .set = 0, .binding = binding};
         }
 
 
@@ -590,13 +591,16 @@ namespace SFT::Renderer {
     /// @param color_formats Format used for the resource, render target, or conversion.
     /// @param depth_format Format used for the resource, render target, or conversion.
     /// @param standard_depth_test `standard_depth_test` value used by the operation.
+    /// @param cull_mode Face-culling mode used for the pipeline variant.
+    /// @param front_face Authored front-face winding used for the pipeline variant.
     /// @param samples `samples` value used by the operation.
     ///
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::material_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats, RHI::Format depth_format,
-        bool standard_depth_test, RHI::SampleCount samples) {
+        bool standard_depth_test, RHI::CullMode cull_mode, RHI::FrontFace front_face,
+        RHI::SampleCount samples) {
         ZoneScopedN("Renderer::material_pipeline_for");
         if (color_formats.empty()) {
             return unexpected(material_error("Cannot build a material pipeline without at least one color target."));
@@ -607,7 +611,7 @@ namespace SFT::Renderer {
         vector<MaterialPipelineVariant> &pipeline_variants = (*variants_by_template)[material_template.handle.value];
         for (const MaterialPipelineVariant &variant : pipeline_variants) {
             if (variant.depth_format == depth_format && variant.standard_depth_test == standard_depth_test &&
-                variant.samples == samples &&
+                variant.cull_mode == cull_mode && variant.front_face == front_face && variant.samples == samples &&
                 variant.color_formats.size() == color_formats.size() &&
                 std::equal(variant.color_formats.begin(), variant.color_formats.end(), color_formats.begin())) {
                 return variant.pipeline;
@@ -661,7 +665,7 @@ namespace SFT::Renderer {
             .topology = RHI::PrimitiveTopology::TriangleList,
 
 
-            .rasterization = RHI::RasterizationState{},
+            .rasterization = RHI::RasterizationState{.cull_mode = cull_mode, .front_face = front_face},
             .multisample = RHI::MultisampleState{.samples = samples},
             .depth_stencil = depth_stencil,
             .color_targets = span<const RHI::ColorTargetState>{color_targets.data(), color_targets.size()},
@@ -675,6 +679,8 @@ namespace SFT::Renderer {
             .color_formats = vector<RHI::Format>{color_formats.begin(), color_formats.end()},
             .depth_format = depth_format,
             .standard_depth_test = standard_depth_test,
+            .cull_mode = cull_mode,
+            .front_face = front_face,
             .samples = samples,
             .pipeline = *pipeline,
         });
@@ -688,13 +694,16 @@ namespace SFT::Renderer {
     /// @param shadow_map `shadow_map` value used by the operation.
     /// @param depth_bias `depth_bias` value used by the operation.
     /// @param slope_bias `slope_bias` value used by the operation.
+    /// @param cull_mode Face-culling mode used for the pipeline variant.
+    /// @param front_face Authored front-face winding used for the pipeline variant.
     /// @param samples `samples` value used by the operation.
     ///
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::depth_only_pipeline_for(
         MaterialTemplateResource &material_template, RHI::Format depth_format, bool shadow_map,
-        f32 depth_bias, f32 slope_bias, RHI::SampleCount samples) {
+        f32 depth_bias, f32 slope_bias, RHI::CullMode cull_mode, RHI::FrontFace front_face,
+        RHI::SampleCount samples) {
         ZoneScopedN("Renderer::depth_only_pipeline_for");
         if (depth_format == RHI::Format::Undefined) {
             return unexpected(material_error("Cannot build a depth-only pipeline without a depth format."));
@@ -704,7 +713,7 @@ namespace SFT::Renderer {
         for (const DepthOnlyPipelineVariant &variant : pipeline_variants) {
             if (variant.depth_format == depth_format && variant.shadow_map == shadow_map &&
                 variant.depth_bias == depth_bias && variant.slope_bias == slope_bias &&
-                variant.samples == samples) {
+                variant.cull_mode == cull_mode && variant.front_face == front_face && variant.samples == samples) {
                 return variant.pipeline;
             }
         }
@@ -733,13 +742,12 @@ namespace SFT::Renderer {
             .topology = RHI::PrimitiveTopology::TriangleList,
             .rasterization = shadow_map
                 ? RHI::RasterizationState{
-
-
-                      .cull_mode = RHI::CullMode::None,
+                      .cull_mode = cull_mode,
+                      .front_face = front_face,
                       .depth_bias_constant = depth_bias,
                       .depth_bias_slope_scale = slope_bias,
                   }
-                : RHI::RasterizationState{},
+                : RHI::RasterizationState{.cull_mode = cull_mode, .front_face = front_face},
             .multisample = RHI::MultisampleState{.samples = samples},
             .depth_stencil = RHI::DepthStencilState{
                 .format = depth_format,
@@ -759,6 +767,8 @@ namespace SFT::Renderer {
             .shadow_map = shadow_map,
             .depth_bias = depth_bias,
             .slope_bias = slope_bias,
+            .cull_mode = cull_mode,
+            .front_face = front_face,
             .samples = samples,
             .pipeline = *pipeline,
         });

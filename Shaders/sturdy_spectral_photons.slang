@@ -2,6 +2,7 @@
 // descriptor globals so both the emission kernels and camera integrator can import it safely.
 
 import sturdy_common;
+import sturdy_pbr;
 import sturdy_spectral_common;
 import sturdy_spectral_scene;
 
@@ -48,6 +49,7 @@ float3 gatherSpectralCausticsRgb(
     StructuredBuffer<uint> validPhotonCount,
     StructuredBuffer<uint> photonHashHeads,
     SurfaceSample receiver,
+    float3 viewDirection,
     float radius,
     float voxelSize,
     uint requestedPhotonCapacity,
@@ -87,7 +89,7 @@ float3 gatherSpectralCausticsRgb(
     float radiusSquared = radius * radius;
     int cellRadius = int(ceil(radius / safeVoxelSize));
     int3 centerCell = int3(floor(receiver.position / safeVoxelSize));
-    float diffuseScale = (1.0 - metallic) * (1.0 - transmission) * SFT_INV_PI;
+    float diffuseScale = (1.0 - metallic) * (1.0 - transmission);
 
     for (int z = -cellRadius; z <= cellRadius; ++z) {
         for (int y = -cellRadius; y <= cellRadius; ++y) {
@@ -116,9 +118,14 @@ float3 gatherSpectralCausticsRgb(
                             float reflectance = rgbReflectanceAtWavelength(
                                 receiver.material.baseColor.rgb,
                                 photon.positionAndWavelength.w);
+                            float diffuseBrdf = evaluateEonDiffuse(
+                                reflectance, receiver.material.surface.x,
+                                receiver.shadingNormal,
+                                -photon.incomingDirectionAndPower.xyz,
+                                viewDirection);
                             radiance += wavelengthToLinearRgb(photon.positionAndWavelength.w)
                                       * (photon.incomingDirectionAndPower.w
-                                         * kernel * diffuseScale * reflectance);
+                                         * kernel * diffuseScale * diffuseBrdf);
                         }
                     }
                     photonIndex = nextPhoton;

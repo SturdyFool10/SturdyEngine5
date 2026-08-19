@@ -357,6 +357,7 @@ namespace SFT::Renderer {
         auto group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = guard->sampled_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "transient bloom source bind group",
         });
         if (!group) return unexpected(graphics_error_from_rhi(group.error(), "create transient bloom source bind group"));
@@ -579,6 +580,7 @@ namespace SFT::Renderer {
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = bind_group_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "bloom composite bind group",
         });
         if (!bind_group) return unexpected(graphics_error_from_rhi(bind_group.error(), "create bloom composite bind group"));

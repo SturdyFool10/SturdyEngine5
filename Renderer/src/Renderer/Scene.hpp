@@ -48,6 +48,9 @@ namespace SFT::Renderer {
         u64 stable_id = 0;
         u32 visibility_mask = ~0u;
         u32 sort_key = 0;
+        bool casts_shadows = true;
+        RHI::CullMode cull_mode = RHI::CullMode::Back;
+        RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise;
     };
 
     struct SceneLighting {

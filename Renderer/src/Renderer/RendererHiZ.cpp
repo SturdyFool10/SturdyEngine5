@@ -350,7 +350,8 @@ namespace SFT::Renderer {
                     auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
                         .layout = bind_group_layout,
                         .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
-                        .label = "hiz build bind group",
+                        .lifetime = RHI::BindGroupLifetime::FrameTransient,
+            .label = "hiz build bind group",
                     });
                     if (!bind_group) return unexpected(graphics_error_from_rhi(bind_group.error(), "create hiz build bind group"));
 

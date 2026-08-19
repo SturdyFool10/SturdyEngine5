@@ -31,6 +31,22 @@ namespace SFT::Runtime {
     };
 
 
+    enum class RuntimeRenderingMode : u8 {
+        NativeRaster,
+        SpectralPathTracing,
+    };
+
+    struct RuntimeRenderingState {
+        RuntimeRenderingMode mode = RuntimeRenderingMode::NativeRaster;
+        u32 raster_msaa_samples = 4;
+        bool spectral_path_tracing_available = false;
+    };
+
+    struct RuntimeRenderingSettingsChanged {
+        RuntimeRenderingMode mode = RuntimeRenderingMode::NativeRaster;
+        u32 raster_msaa_samples = 4;
+    };
+
     struct SpectralPathTracingKeyboardControls {
         u32 sample_step = 1;
         u32 bounce_step = 1;
@@ -134,8 +150,7 @@ namespace SFT::Runtime {
 
         Engine::EngineConfig engine_config_{};
         Engine::Asset gltf_shader_{};
-        Engine::Asset spectral_floor_model_{};
-        Engine::Asset spectral_glass_model_{};
+        Engine::Asset reference_floor_model_{};
         std::vector<Engine::GltfNodeInstance> gltf_instances_{};
         std::vector<Engine::GltfLightInstance> gltf_lights_{};
         Engine::Camera camera_{};
@@ -143,8 +158,10 @@ namespace SFT::Runtime {
         Ecs::Entity bloom_controls_entity_{};
         Ecs::Entity camera_control_entity_{};
         Ecs::Entity hdr_controls_entity_{};
+        Ecs::Entity runtime_rendering_entity_{};
         Ecs::Entity spectral_path_tracing_controls_entity_{};
         Ecs::EventModule<BloomThresholdChanged> bloom_threshold_events_{};
+        Ecs::EventModule<RuntimeRenderingSettingsChanged> runtime_rendering_events_{};
         Ecs::EventModule<SpectralPathTracingSettingsChanged> spectral_path_tracing_events_{};
     };
 
@@ -161,6 +178,8 @@ SFT_ECS_COMPONENT(SFT::Runtime::BloomTuningState, "sturdy.runtime.bloom_tuning_s
 SFT_ECS_COMPONENT(SFT::Runtime::HdrToggleState, "sturdy.runtime.hdr_toggle_state");
 SFT_ECS_EVENT(SFT::Runtime::BloomThresholdChanged, "sturdy.runtime.bloom_threshold_changed");
 SFT_ECS_COMPONENT(SFT::Runtime::FlyCameraState, "sturdy.runtime.fly_camera_state");
+SFT_ECS_COMPONENT(SFT::Runtime::RuntimeRenderingState, "sturdy.runtime.rendering_state");
+SFT_ECS_EVENT(SFT::Runtime::RuntimeRenderingSettingsChanged, "sturdy.runtime.rendering_settings_changed");
 SFT_ECS_COMPONENT(SFT::Runtime::SpectralPathTracingKeyboardControls, "sturdy.runtime.spectral_path_tracing_keyboard_controls");
 SFT_ECS_COMPONENT(SFT::Runtime::SpectralPathTracingTuningState, "sturdy.runtime.spectral_path_tracing_tuning_state");
 SFT_ECS_EVENT(SFT::Runtime::SpectralPathTracingSettingsChanged, "sturdy.runtime.spectral_path_tracing_settings_changed");

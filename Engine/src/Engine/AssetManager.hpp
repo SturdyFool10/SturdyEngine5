@@ -108,6 +108,7 @@ namespace SFT::Engine {
         Asset shader{};
         std::optional<glm::vec4> vertex_color;
         std::vector<ModelTextureBinding> textures;
+        bool double_sided = false;
     };
 
     struct ModelAssetDesc {

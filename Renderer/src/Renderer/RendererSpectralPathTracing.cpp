@@ -1367,6 +1367,7 @@ namespace SFT::Renderer {
             .layout = resources->photon_bind_group_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .variable_descriptor_count = static_cast<u32>(slot.spectral_material_textures.size()),
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = label,
         });
         if (!bind_group) {
@@ -1562,6 +1563,7 @@ namespace SFT::Renderer {
             .layout = resources->bind_group_layouts.front(),
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
             .variable_descriptor_count = static_cast<u32>(slot.spectral_material_textures.size()),
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "spectral integrator bind group",
         });
         if (!bind_group) {
@@ -1606,6 +1608,7 @@ namespace SFT::Renderer {
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = resources->depth_commit_bind_group_layout,
             .entries = span<const RHI::BindGroupEntry>{&entry, 1},
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "spectral depth commit bind group",
         });
         if (!bind_group) {

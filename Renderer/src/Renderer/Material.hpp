@@ -67,6 +67,8 @@ namespace SFT::Renderer {
 
 
         bool standard_depth_test = false;
+        RHI::CullMode cull_mode = RHI::CullMode::Back;
+        RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise;
         RHI::SampleCount samples = RHI::SampleCount::X1;
         RHI::RenderPipelineHandle pipeline{};
     };
@@ -77,6 +79,8 @@ namespace SFT::Renderer {
         bool shadow_map = false;
         f32 depth_bias = 0.0f;
         f32 slope_bias = 0.0f;
+        RHI::CullMode cull_mode = RHI::CullMode::Back;
+        RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise;
         RHI::SampleCount samples = RHI::SampleCount::X1;
         RHI::RenderPipelineHandle pipeline{};
     };

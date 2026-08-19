@@ -402,17 +402,34 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
 [[nodiscard]] RendererExpected<vector<VkSurfaceFormatKHR>>
         VulkanPhysicalDevice::surface_formats(VkSurfaceKHR surface) const {
             ZoneScopedN("VulkanPhysicalDevice::surface_formats");
-            u32 count = 0;
-            if (vkGetPhysicalDeviceSurfaceFormatsKHR(device_, surface, &count, nullptr) != VK_SUCCESS || count == 0) {
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "vkGetPhysicalDeviceSurfaceFormatsKHR failed or returned no formats.");
-            }
-            vector<VkSurfaceFormatKHR> formats(count);
-            if (vkGetPhysicalDeviceSurfaceFormatsKHR(device_, surface, &count, formats.data()) != VK_SUCCESS) {
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
+            constexpr u32 maximum_attempts = 4;
+            for (u32 attempt = 0; attempt < maximum_attempts; ++attempt) {
+                u32 count = 0;
+                const VkResult count_result = vkGetPhysicalDeviceSurfaceFormatsKHR(device_, surface, &count, nullptr);
+                if (count_result == VK_INCOMPLETE || (count_result == VK_SUCCESS && count == 0)) {
+                    continue;
+                }
+                if (count_result != VK_SUCCESS) {
+                    return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
+                                      "vkGetPhysicalDeviceSurfaceFormatsKHR (count) failed.");
+                }
+                vector<VkSurfaceFormatKHR> formats(count);
+                const VkResult populate_result =
+                    vkGetPhysicalDeviceSurfaceFormatsKHR(device_, surface, &count, formats.data());
+                if (populate_result == VK_INCOMPLETE) {
+                    continue;
+                }
+                if (populate_result != VK_SUCCESS) {
+                    return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetPhysicalDeviceSurfaceFormatsKHR (populate) failed.");
+                }
+                formats.resize(count);
+                if (!formats.empty()) {
+                    return formats;
+                }
             }
-            return formats;
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
+                                  "vkGetPhysicalDeviceSurfaceFormatsKHR remained unstable across retries.");
         }
 
 /// Performs the surface present modes operation for `Vulkan` using the supplied arguments.
@@ -425,17 +442,34 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
 [[nodiscard]] RendererExpected<vector<VkPresentModeKHR>>
         VulkanPhysicalDevice::surface_present_modes(VkSurfaceKHR surface) const {
             ZoneScopedN("VulkanPhysicalDevice::surface_present_modes");
-            u32 count = 0;
-            if (vkGetPhysicalDeviceSurfacePresentModesKHR(device_, surface, &count, nullptr) != VK_SUCCESS || count == 0) {
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "vkGetPhysicalDeviceSurfacePresentModesKHR failed or returned no present modes.");
-            }
-            vector<VkPresentModeKHR> modes(count);
-            if (vkGetPhysicalDeviceSurfacePresentModesKHR(device_, surface, &count, modes.data()) != VK_SUCCESS) {
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
+            constexpr u32 maximum_attempts = 4;
+            for (u32 attempt = 0; attempt < maximum_attempts; ++attempt) {
+                u32 count = 0;
+                const VkResult count_result = vkGetPhysicalDeviceSurfacePresentModesKHR(device_, surface, &count, nullptr);
+                if (count_result == VK_INCOMPLETE || (count_result == VK_SUCCESS && count == 0)) {
+                    continue;
+                }
+                if (count_result != VK_SUCCESS) {
+                    return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
+                                      "vkGetPhysicalDeviceSurfacePresentModesKHR (count) failed.");
+                }
+                vector<VkPresentModeKHR> modes(count);
+                const VkResult populate_result =
+                    vkGetPhysicalDeviceSurfacePresentModesKHR(device_, surface, &count, modes.data());
+                if (populate_result == VK_INCOMPLETE) {
+                    continue;
+                }
+                if (populate_result != VK_SUCCESS) {
+                    return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkGetPhysicalDeviceSurfacePresentModesKHR (populate) failed.");
+                }
+                modes.resize(count);
+                if (!modes.empty()) {
+                    return modes;
+                }
             }
-            return modes;
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
+                                  "vkGetPhysicalDeviceSurfacePresentModesKHR remained unstable across retries.");
         }
 
 /// Finds queue family with in the available state.

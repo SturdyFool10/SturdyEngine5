@@ -76,7 +76,9 @@ namespace SFT::Renderer {
         while (i < sorted_draws.size()) {
             usize j = i + 1;
             while (j < sorted_draws.size() && sorted_draws[j].mesh == sorted_draws[i].mesh &&
-                   sorted_draws[j].material == sorted_draws[i].material) {
+                   sorted_draws[j].material == sorted_draws[i].material &&
+                   sorted_draws[j].cull_mode == sorted_draws[i].cull_mode &&
+                   sorted_draws[j].front_face == sorted_draws[i].front_face) {
                 ++j;
             }
             const usize count = j - i;
@@ -84,6 +86,8 @@ namespace SFT::Renderer {
                 batches.push_back(InstancedBatch{
                     .mesh = sorted_draws[i].mesh,
                     .material = sorted_draws[i].material,
+                    .cull_mode = sorted_draws[i].cull_mode,
+                    .front_face = sorted_draws[i].front_face,
                     .first_object_index = static_cast<u32>(i),
                     .instance_count = static_cast<u32>(count),
                 });
@@ -240,13 +244,16 @@ namespace SFT::Renderer {
     /// @param material_template `material_template` value used by the operation.
     /// @param color_formats Format used for the resource, render target, or conversion.
     /// @param depth_format Format used for the resource, render target, or conversion.
+    /// @param cull_mode Face-culling mode used for the pipeline variant.
+    /// @param front_face Authored front-face winding used for the pipeline variant.
     /// @param samples `samples` value used by the operation.
     ///
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RHI::RenderPipelineHandle> Renderer::instanced_pipeline_for(
         MaterialTemplateResource &material_template, span<const RHI::Format> color_formats,
-        RHI::Format depth_format, RHI::SampleCount samples) {
+        RHI::Format depth_format, RHI::CullMode cull_mode, RHI::FrontFace front_face,
+        RHI::SampleCount samples) {
         ZoneScopedN("Renderer::instanced_pipeline_for");
         if (color_formats.empty()) {
             return unexpected(instance_cull_error("Cannot build an instanced pipeline without at least one color target."));
@@ -263,7 +270,8 @@ namespace SFT::Renderer {
         InstancedTemplateResources &template_resources = (*templates)[material_template.handle.value];
 
         for (const InstancedPipelineVariant &variant : template_resources.pipeline_variants) {
-            if (variant.depth_format == depth_format && variant.samples == samples &&
+            if (variant.depth_format == depth_format && variant.cull_mode == cull_mode &&
+                variant.front_face == front_face && variant.samples == samples &&
                 variant.color_formats.size() == color_formats.size() &&
                 std::equal(variant.color_formats.begin(), variant.color_formats.end(), color_formats.begin())) {
                 return variant.pipeline;
@@ -333,7 +341,7 @@ namespace SFT::Renderer {
                             : RHI::ShaderEntry{},
             .vertex_buffers = span<const RHI::VertexBufferLayout>{&vertex_layout, 1},
             .topology = RHI::PrimitiveTopology::TriangleList,
-            .rasterization = RHI::RasterizationState{},
+            .rasterization = RHI::RasterizationState{.cull_mode = cull_mode, .front_face = front_face},
             .multisample = RHI::MultisampleState{.samples = samples},
             .depth_stencil = depth_stencil,
             .color_targets = span<const RHI::ColorTargetState>{color_targets.data(), color_targets.size()},
@@ -346,6 +354,8 @@ namespace SFT::Renderer {
         template_resources.pipeline_variants.push_back(InstancedPipelineVariant{
             .color_formats = vector<RHI::Format>{color_formats.begin(), color_formats.end()},
             .depth_format = depth_format,
+            .cull_mode = cull_mode,
+            .front_face = front_face,
             .samples = samples,
             .pipeline = *pipeline,
         });
@@ -487,6 +497,7 @@ namespace SFT::Renderer {
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = cull_bind_group_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "instance cull bind group",
         });
         if (!bind_group) {
@@ -585,6 +596,7 @@ namespace SFT::Renderer {
         auto instance_bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = instance_data_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
+            .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "instance data bind group",
         });
         if (!instance_bind_group) {
@@ -612,7 +624,8 @@ namespace SFT::Renderer {
             if (material_template_resource == nullptr) {
                 return unexpected(instance_cull_error("Instanced batch material references an unknown material template."));
             }
-            auto pipeline = instanced_pipeline_for(*material_template_resource, color_formats, depth_format, samples);
+            auto pipeline = instanced_pipeline_for(*material_template_resource, color_formats, depth_format,
+                                                   batch.cull_mode, batch.front_face, samples);
             if (!pipeline) {
                 return unexpected(pipeline.error());
             }

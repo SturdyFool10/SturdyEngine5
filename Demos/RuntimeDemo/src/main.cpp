@@ -20,13 +20,10 @@ namespace {
         config.application.engine.app_name = "Sturdy Engine 5 Runtime Demo";
         config.application.engine.shaders_directory = "Shaders";
         config.application.engine.features.raytracing = true;
-        config.application.engine.features.required_rhi_features
-            .set(SFT::RHI::Feature::RayQuery)
-            .set(SFT::RHI::Feature::AccelerationStructures)
-            .set(SFT::RHI::Feature::BufferDeviceAddress)
-            .set(SFT::RHI::Feature::BindlessResources);
         config.application.engine.features.presentation.vsync = SFT::Core::VSyncMode::Adaptive;
+        config.application.engine.features.presentation.variable_refresh = SFT::Core::VariableRefreshMode::Preferred;
         config.application.engine.features.presentation.latency = SFT::Core::LatencyMode::Ultra;
+        config.application.engine.features.presentation.preference = SFT::Core::PresentationPreference::LowestLatency;
         config.application.primary_window_title_update_interval_seconds = 0.25;
         config.primary_window_title = UString{"SturdyEngine 5 Runtime Demo"};
         return config;

@@ -114,12 +114,19 @@ namespace SFT::RHI {
 
                                                                                                  
                                                          
+    /// Describes the expected lifetime/allocation behavior of a bind group.
+    enum class BindGroupLifetime : u8 {
+        Persistent,
+        FrameTransient,
+    };
+
     struct BindGroupDesc {
         BindGroupLayoutHandle layout{};
         span<const BindGroupEntry> entries;
                                                                                                         
                                                                                                      
         u32 variable_descriptor_count = 0;
+        BindGroupLifetime lifetime = BindGroupLifetime::Persistent;
         const char *label = nullptr;
     };
 

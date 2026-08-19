@@ -191,6 +191,49 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
                              : RHI::BindingFlags::None,
             });
         }
+        const bool has_global_constant_buffer =
+            reflection.global_constant_buffer_size != 0 &&
+            reflection.global_constant_buffer_size != slang::shader_unbounded_size &&
+            reflection.global_constant_buffer_size != slang::shader_unknown_size;
+        if (has_global_constant_buffer) {
+            u32 uniform_set = 0;
+            const u32 uniform_binding = reflection.global_constant_buffer_binding;
+            for (const slang::ShaderDescriptorSetReflection &descriptor_set : reflection.descriptor_sets) {
+                const bool contains_global_constant_buffer = std::ranges::any_of(
+                    descriptor_set.ranges,
+                    [uniform_binding](const slang::ShaderDescriptorRangeReflection &range) {
+                        return range.type == slang::ShaderBindingType::ConstantBuffer &&
+                               range.binding == uniform_binding;
+                    });
+                if (contains_global_constant_buffer) {
+                    uniform_set = descriptor_set.space;
+                    break;
+                }
+            }
+
+            auto layout = std::ranges::find(layouts, uniform_set, &GeneratedBindGroupLayout::set);
+            if (layout == layouts.end()) {
+                layouts.push_back(GeneratedBindGroupLayout{.set = uniform_set});
+                layout = std::prev(layouts.end());
+            }
+
+            auto existing = std::ranges::find(layout->entries, uniform_binding, &RHI::BindGroupLayoutEntry::binding);
+            if (existing == layout->entries.end()) {
+                layout->entries.push_back(RHI::BindGroupLayoutEntry{
+                    .binding = uniform_binding,
+                    .shader_register = uniform_binding,
+                    .type = RHI::BindingType::UniformBuffer,
+                    .visibility = visibility,
+                    .count = 1,
+                    .flags = RHI::BindingFlags::None,
+                });
+            } else if (existing->type != RHI::BindingType::UniformBuffer) {
+                Foundation::log_warn(
+                    "ReflectionBinding: global constant buffer collides with reflected set {} binding {} of another descriptor type.",
+                    uniform_set, uniform_binding);
+            }
+        }
+
         std::ranges::sort(layouts, {}, &GeneratedBindGroupLayout::set);
         for (GeneratedBindGroupLayout &layout : layouts) {
             std::ranges::sort(layout.entries, {}, &RHI::BindGroupLayoutEntry::binding);

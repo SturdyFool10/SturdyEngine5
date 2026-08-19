@@ -66,10 +66,8 @@ namespace SFT::Core::Vulkan {
         ///         since 1.1 (VK_KHR_maintenance1, promoted; this engine requires 1.4 unconditionally
         ///         — see VulkanConstants.hpp), specifically meant for D3D-convention interop, so no
         ///         shader ever needs to know this happened.
-        /// @note The mirrored viewport also reverses how the rasterizer classifies a triangle's
-        ///       winding — see to_vk(rhi::FrontFace) below, which inverts instead of mapping 1:1 for
-        ///       exactly that reason (D3D12's equivalent conversion does not, since D3D12's viewport
-        ///       is never touched).
+        /// @note Front-face raster state is kept independent from this coordinate conversion and is
+        ///       mapped 1:1 at the Vulkan pipeline boundary.
         /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr VkViewport to_vk_viewport(const rhi::Viewport &viewport) noexcept {
             return VkViewport{

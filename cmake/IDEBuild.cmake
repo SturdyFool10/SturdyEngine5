@@ -93,7 +93,10 @@ foreach(_profile IN LISTS _profiles)
         # sample-texture-backed UI demo tile) — a "full run" from an editor launch profile should
         # show the real demo, not a degraded one. CI configures presets directly (never through this
         # script), so it's unaffected and still never fetches the sample-assets repo.
-        COMMAND "${CMAKE_COMMAND}" --preset "${_preset}" -DSTURDY_FETCH_SAMPLE_ASSETS=ON
+        COMMAND "${CMAKE_COMMAND}" --preset "${_preset}"
+            -DSTURDY_FETCH_SAMPLE_ASSETS=ON
+            -DSTURDY_GLOB_CONFIGURE_DEPENDS=OFF
+            -DCMAKE_SUPPRESS_REGENERATION=ON
         WORKING_DIRECTORY "${_root}"
         RESULT_VARIABLE _configure_result
     )

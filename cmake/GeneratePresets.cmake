@@ -100,7 +100,9 @@ set(_json "{
       \"cacheVariables\": {
         \"CMAKE_C_COMPILER\": \"clang\",
         \"CMAKE_CXX_COMPILER\": \"clang++\",
-        \"CMAKE_EXPORT_COMPILE_COMMANDS\": \"ON\"
+        \"CMAKE_EXPORT_COMPILE_COMMANDS\": \"ON\",
+        \"STURDY_GLOB_CONFIGURE_DEPENDS\": \"OFF\",
+        \"CMAKE_SUPPRESS_REGENERATION\": \"ON\"
       }
     },
     {
@@ -111,7 +113,9 @@ set(_json "{
       \"cacheVariables\": {
         \"CMAKE_C_COMPILER\": \"gcc\",
         \"CMAKE_CXX_COMPILER\": \"g++\",
-        \"CMAKE_EXPORT_COMPILE_COMMANDS\": \"ON\"
+        \"CMAKE_EXPORT_COMPILE_COMMANDS\": \"ON\",
+        \"STURDY_GLOB_CONFIGURE_DEPENDS\": \"OFF\",
+        \"CMAKE_SUPPRESS_REGENERATION\": \"ON\"
       }
     },
     {
@@ -122,6 +126,8 @@ set(_json "{
       \"toolchainFile\": \"\$env{STURDY_EMSCRIPTEN_ROOT}/cmake/Modules/Platform/Emscripten.cmake\",
       \"cacheVariables\": {
         \"CMAKE_EXPORT_COMPILE_COMMANDS\": \"ON\",
+        \"STURDY_GLOB_CONFIGURE_DEPENDS\": \"OFF\",
+        \"CMAKE_SUPPRESS_REGENERATION\": \"ON\",
         \"CMAKE_CXX_FLAGS\": \"\",
         \"CMAKE_C_FLAGS\": \"\",
         \"CMAKE_EXE_LINKER_FLAGS\": \"\",
