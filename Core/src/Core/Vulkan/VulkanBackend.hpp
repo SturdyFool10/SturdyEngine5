@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 #include <RHI/Threading.hpp>
 #pragma region Imports
 #include <memory>
@@ -18,11 +18,11 @@
 #include <Core/Vulkan/VulkanQueue.hpp>
 #include <Core/Vulkan/VulkanSurface.hpp>
 #include <Core/Vulkan/VulkanPhysicalDevice.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 #include <RHI/RHI.hpp>
 
-using SFT::Platform::Windowing::Window;
-using SFT::Platform::Windowing::WindowId;
+using SFT::WindowManager::Window;
+using SFT::WindowManager::WindowId;
 using std::optional;
 using std::unordered_map;
 

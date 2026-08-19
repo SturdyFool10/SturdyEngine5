@@ -14,7 +14,7 @@
 #pragma GCC diagnostic pop
 #endif
 
-#include "ImageDecode.hpp"
+#include <Engine/ImageDecode.hpp>
 
 #include <cstring>
 #include <limits>

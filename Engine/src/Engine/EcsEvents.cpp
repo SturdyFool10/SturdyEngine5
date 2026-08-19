@@ -1,4 +1,4 @@
-#include <Engine/src/Engine/EcsEvents.hpp>
+#include <Engine/EcsEvents.hpp>
 
 
 namespace SFT::Engine {
@@ -22,7 +22,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void PlatformEventInbox::push(Platform::Windowing::WindowId window, Platform::Windowing::WindowEvent event) {
+    void PlatformEventInbox::push(WindowManager::WindowId window, WindowManager::WindowEvent event) {
         pending_.push_back(WindowEvent{.window = window, .event = std::move(event)});
     }
 

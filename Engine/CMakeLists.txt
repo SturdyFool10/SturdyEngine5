@@ -1,9 +1,4 @@
-set(_sturdy_engine_inventory_deps)
-if(STURDY_OS STREQUAL "Windows")
-    list(APPEND _sturdy_engine_inventory_deps Sturdy::D3D12)
-endif()
-
-sturdy_add_package(EngineComponents
+sturdy_add_package(Engine
     EXCLUDE_SOURCE_DIRS
         tests
 
@@ -13,8 +8,7 @@ sturdy_add_package(EngineComponents
         Sturdy::Ecs
         Sturdy::Core
         Sturdy::Renderer
-        Sturdy::Platform
-        Sturdy::UI
+        Sturdy::WindowManager
 
     PRIVATE_DEPS
         Sturdy::StbImage
@@ -22,12 +16,10 @@ sturdy_add_package(EngineComponents
         Sturdy::miniaudio
         Sturdy::bc7enc
         Sturdy::Tracy
-        ${_sturdy_engine_inventory_deps}
 
     DEBUG_PUBLIC_DEPS
 )
 
-add_library(Sturdy::Engine ALIAS EngineComponents)
 
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     add_executable(EngineRenderGraphTest tests/RenderGraphTest.cpp)

@@ -1,4 +1,4 @@
-#include "Error.hpp"
+#include <RHI/Error.hpp>
 
 namespace SFT::RHI {
 

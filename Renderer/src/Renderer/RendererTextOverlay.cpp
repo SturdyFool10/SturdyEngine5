@@ -1,4 +1,4 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -19,8 +19,9 @@
 #include <Renderer/RendererModule.hpp>
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
-#include <Platform/Platform.hpp>
-#include <Text/Text.hpp>
+#include <WindowManager/WindowManager.hpp>
+#include <Renderer/Text/Text.hpp>
+#include <Renderer/Text/PlatformFonts.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -68,7 +69,7 @@ namespace SFT::Renderer {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] Text::FontDatabase build_font_database() {
             vector<string> search_dirs{"Fonts"};
-            const vector<string> platform_dirs = Platform::font_search_directories();
+            const vector<string> platform_dirs = Text::font_search_directories();
             search_dirs.insert(search_dirs.end(), platform_dirs.begin(), platform_dirs.end());
             return Text::FontDatabase::create(span<const string>{search_dirs.data(), search_dirs.size()});
         }

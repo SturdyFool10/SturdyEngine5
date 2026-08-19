@@ -1,9 +1,9 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Runtime/Runtime.hpp>
 #include <UiWorkbenchGameLogic/UiWorkbenchGameLogic.hpp>
 
-#include "CrashHandler.hpp"
+#include <CrashHandler.hpp>
 
 using SFT::Foundation::CliArgs;
 
@@ -21,7 +21,7 @@ namespace {
 
         config.application.primary_window.transparent = true;
         config.application.primary_window.graphics_api =
-            SFT::Platform::Windowing::WindowGraphicsApi::Vulkan;
+            SFT::WindowManager::WindowGraphicsApi::Vulkan;
         config.application.enable_runtime_window_management = true;
         config.application.engine.app_name = "Sturdy Engine 5 UI Workbench";
         config.application.engine.shaders_directory = "Shaders";

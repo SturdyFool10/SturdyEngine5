@@ -1,8 +1,8 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 #include <glm/vec2.hpp>
 
@@ -48,14 +48,14 @@ namespace SFT::Core {
 
 
     struct RenderSurfaceHandle {
-        Platform::Windowing::WindowId window_id = Platform::Windowing::invalid_window_id;
+        WindowManager::WindowId window_id = WindowManager::invalid_window_id;
 
         /// Reports whether valid holds for this `RenderSurfaceHandle`.
         ///
         /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
         /// @note This function does not throw exceptions.
         [[nodiscard]] constexpr bool is_valid() const noexcept {
-            return window_id != Platform::Windowing::invalid_window_id;
+            return window_id != WindowManager::invalid_window_id;
         }
 
         /// Compares the operands for equality.

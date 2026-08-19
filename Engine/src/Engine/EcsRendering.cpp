@@ -1,6 +1,5 @@
-#include <Engine/src/Engine/EcsRendering.hpp>
-#include "EcsRendering.hpp"
-#include "AssetManager.hpp"
+#include <Engine/EcsRendering.hpp>
+#include <Engine/AssetManager.hpp>
 
 #include <algorithm>
 #include <glm/geometric.hpp>

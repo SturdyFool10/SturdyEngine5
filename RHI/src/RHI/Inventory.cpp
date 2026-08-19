@@ -1,4 +1,4 @@
-#include "Inventory.hpp"
+#include <RHI/Inventory.hpp>
 
 namespace SFT::RHI {
 

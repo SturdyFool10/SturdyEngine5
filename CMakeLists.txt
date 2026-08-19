@@ -23,7 +23,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # std::float_denorm_style and numeric_limits::has_denorm(_loss) are deprecated (not yet removed) as of
-# C++23; Foundation/src/WideTraits.hpp's numeric_limits specializations for the wide numeric types still
+# C++23; Foundation/WideTraits.hpp's numeric_limits specializations for the wide numeric types still
 # populate them for compatibility with existing generic code. Must be set here rather than in that
 # header: the deprecation attribute attaches to the enum's declaration the first time any translation
 # unit includes <limits>, so a leaf header's #define is too late once something upstream of it has
@@ -158,15 +158,11 @@ set(STURDY_ENGINE_OPTIMIZED_TARGETS
     Foundation
     Async
     Ecs
-    Text
-    graphicsPlatform
+    WindowManager
     RHI
-    D3D12
-    Platform
     Core
     Renderer
-    UI
-    EngineComponents
+    Engine
 )
 
 sturdy_configure_dependencies()
@@ -176,21 +172,13 @@ sturdy_generate_shader_embeds()
 add_subdirectory(Foundation)
 add_subdirectory(Async)
 add_subdirectory(Ecs)
-add_subdirectory(Text)
-add_subdirectory(graphicsPlatform)
+add_subdirectory(WindowManager)
 add_subdirectory(RHI)
-# D3D12's public headers require the Windows SDK and DirectX-Headers, so it is intentionally absent
-# from non-Windows source views as well as non-Windows target builds.
-if(WIN32 AND STURDY_OS STREQUAL "Windows")
-    add_subdirectory(D3D12)
-endif()
-add_subdirectory(Platform)
 add_subdirectory(Core)
 add_subdirectory(Renderer)
-add_subdirectory(UI)
 add_subdirectory(Engine)
 if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
-    add_subdirectory(GlfwWindowProvider)
+    add_subdirectory(WindowManager/Providers/GLFW)
 endif()
 # Reusable host infrastructure is always available. Demonstration content and executable composition
 # live in separate top-level packages and are the only targets gated by STURDY_BUILD_RUNTIME_DEMO.

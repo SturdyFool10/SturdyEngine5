@@ -14,7 +14,7 @@
 
 #define VK_USE_PLATFORM_WIN32_KHR
 #endif
-#include "VulkanRhiBridgeFullScreenExclusive.hpp"
+#include <Core/Vulkan/Rhi/VulkanRhiBridgeFullScreenExclusive.hpp>
 #pragma endregion
 
 using SFT::Core::graphics_backend_error;

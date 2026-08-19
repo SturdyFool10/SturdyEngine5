@@ -1,4 +1,4 @@
-#include <Engine/src/Engine/TimeScale.hpp>
+#include <Engine/TimeScale.hpp>
 
 
 namespace SFT::Engine {

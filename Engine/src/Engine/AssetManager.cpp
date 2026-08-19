@@ -1,8 +1,8 @@
-#include "AssetManager.hpp"
-#include "ImageDecode.hpp"
-#include "TextureCompression.hpp"
-#include "TextureMipChain.hpp"
-#include "TextureStreamer.hpp"
+#include <Engine/AssetManager.hpp>
+#include <Engine/ImageDecode.hpp>
+#include <Engine/TextureCompression.hpp>
+#include <Engine/TextureMipChain.hpp>
+#include <Engine/TextureStreamer.hpp>
 
 #include <Core/Core.hpp>
 #include <Core/Slang/EmbeddedShaders.hpp>

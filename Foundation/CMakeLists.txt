@@ -10,9 +10,9 @@ sturdy_add_package(Foundation
 )
 
 # Cli.hpp's Windows command-line tokenizer needs STURDY_PLATFORM_WINDOWS, but Foundation deliberately
-# depends on nothing (not even Platform) — same rationale as Async's own STURDY_PLATFORM_WEB
+# depends on nothing (not even WindowManager) — same rationale as Async's own STURDY_PLATFORM_WEB
 # definition below Async's sturdy_add_package() call: re-derive just the one platform bit actually
-# needed here rather than pulling in the whole Platform package for it.
+# needed here rather than pulling in the whole WindowManager package for it.
 if(STURDY_OS STREQUAL "Windows")
     target_compile_definitions(Foundation PUBLIC STURDY_PLATFORM_WINDOWS=1)
 endif()

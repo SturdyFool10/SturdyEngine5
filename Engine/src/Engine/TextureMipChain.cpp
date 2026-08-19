@@ -1,4 +1,4 @@
-#include "TextureMipChain.hpp"
+#include <Engine/TextureMipChain.hpp>
 
 #include <algorithm>
 #include <cmath>

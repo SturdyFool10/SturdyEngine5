@@ -1,4 +1,4 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <slang-com-ptr.h>
@@ -18,7 +18,7 @@
 #include <vector>
 #pragma endregion
 
-#include <Async/src/Mutex.hpp>
+#include <Async/Mutex.hpp>
 #include <Core/Slang/EmbeddedShaders.hpp>
 #include <Core/Slang/Shader.hpp>
 #include <Core/Slang/ShaderError.hpp>

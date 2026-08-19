@@ -1,6 +1,6 @@
 
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Renderer/ShaderTarget.hpp>
 

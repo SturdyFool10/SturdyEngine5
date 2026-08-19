@@ -13,7 +13,7 @@ int main() {
     using namespace SFT;
     using namespace Engine;
     using namespace UI::Docking;
-    using Platform::Windowing::WindowId;
+    using WindowManager::WindowId;
 
     DockWorkspace origin{UString{"origin"}};
     DockWorkspace target{UString{"target"}};
@@ -33,7 +33,7 @@ int main() {
     assert(origin.accept_panel(*returned));
 
     WindowRequests requests;
-    Platform::Windowing::WindowConfig config{.title = "Inspector"};
+    WindowManager::WindowConfig config{.title = "Inspector"};
     const WindowRequestId request_id = coordinator.request_tear_off(
         WindowId{1},
         DockTearOffRequest{.panel = UString{"inspector"}, .workspace_local_drop_position = {50.0f, 50.0f}},

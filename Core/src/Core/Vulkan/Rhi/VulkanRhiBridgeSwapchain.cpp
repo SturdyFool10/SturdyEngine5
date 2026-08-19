@@ -1,3 +1,4 @@
+#include <Core/GraphicsPlatform/RhiBridge.hpp>
 
 #pragma region Imports
 #if defined(__clang__)
@@ -45,7 +46,7 @@
 #include <vector>
 #pragma endregion
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Core/Vulkan/VulkanDevice.hpp>
 #include <Core/Vulkan/VulkanImage.hpp>
@@ -627,7 +628,7 @@ namespace SFT::Core::Vulkan {
                 (usage & ~static_cast<VkImageUsageFlags>(VK_IMAGE_USAGE_STORAGE_BIT)) | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
             const u32 composition_image_count = choose_image_count(*caps, desc.image_count);
             const GraphicsPlatform::NativeSurfaceHandle platform_surface{
-                .system = rhi::to_graphics_platform(surface->desc.system),
+                .system = ::SFT::Core::to_graphics_platform(surface->desc.system),
                 .display = surface->desc.display,
                 .window = surface->desc.window,
                 .label = surface->desc.label != nullptr ? std::string_view{surface->desc.label} : std::string_view{},
@@ -771,7 +772,7 @@ namespace SFT::Core::Vulkan {
         std::unique_ptr<FullScreenExclusiveRequest> full_screen_exclusive_request;
         if (desc.request_full_screen_exclusive && enabled_features_.has(rhi::Feature::FullScreenExclusive)) {
             full_screen_exclusive_request = build_full_screen_exclusive_request(GraphicsPlatform::NativeSurfaceHandle{
-                .system = rhi::to_graphics_platform(surface->desc.system),
+                .system = ::SFT::Core::to_graphics_platform(surface->desc.system),
                 .display = surface->desc.display,
                 .window = surface->desc.window,
                 .label = surface->desc.label != nullptr ? std::string_view{surface->desc.label} : std::string_view{},
@@ -836,7 +837,7 @@ namespace SFT::Core::Vulkan {
         VkHdrMetadataEXT initial_hdr_metadata{};
         bool initial_hdr_metadata_set = false;
         if (desc.color_space == rhi::ColorSpace::Hdr10St2084 && hdr_metadata_enabled_ && vkSetHdrMetadataEXT != nullptr) {
-            const rhi::SurfaceHdrCapabilityQuery hdr_query = rhi::query_platform_hdr_display_capabilities(surface->desc);
+            const rhi::SurfaceHdrCapabilityQuery hdr_query = ::SFT::Core::query_platform_hdr_display_capabilities(surface->desc);
             if (!hdr_query || !hdr_query.capabilities.display_metadata.has_value()) {
                 Foundation::log_info(
                     "HDR metadata: no real display metadata available for this surface ({}); using conservative "
@@ -936,7 +937,7 @@ namespace SFT::Core::Vulkan {
         if (surface == nullptr) {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "query_hdr_capabilities: unknown surface handle.");
         }
-        return rhi::query_platform_hdr_display_capabilities(surface->desc);
+        return ::SFT::Core::query_platform_hdr_display_capabilities(surface->desc);
     }
 
     /// Updates HDR content light level from the supplied values.

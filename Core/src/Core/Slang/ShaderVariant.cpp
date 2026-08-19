@@ -1,5 +1,4 @@
-#include <Core/src/Core/Slang/ShaderVariant.hpp>
-#include "ShaderVariant.hpp"
+#include <Core/Slang/ShaderVariant.hpp>
 
 namespace SFT::Core::Slang {
 

@@ -1,6 +1,6 @@
 #include <Runtime/Runtime.hpp>
 
-#include <ApplicationHost/src/EntryPoint.hpp>
+#include <ApplicationHost/EntryPoint.hpp>
 
 #include <memory>
 #include <optional>

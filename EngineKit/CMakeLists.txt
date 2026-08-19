@@ -22,7 +22,7 @@ sturdy_add_package(EngineKit
         Sturdy::Ecs
         Sturdy::Core
         Sturdy::Renderer
-        Sturdy::EngineComponents
+        Sturdy::Engine
         Sturdy::Runtime
         Sturdy::GLM
 
@@ -40,7 +40,7 @@ foreach(_sturdy_engine_kit_required_dependency IN ITEMS
     Sturdy::Ecs
     Sturdy::Core
     Sturdy::Renderer
-    Sturdy::EngineComponents
+    Sturdy::Engine
     Sturdy::Runtime
     Sturdy::GLM
 )

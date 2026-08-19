@@ -1,18 +1,18 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #include <format>
 #include <vulkan/vulkan_core.h>
 #pragma endregion
 
 #include <Core/RenderSurface.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 using SFT::Core::SurfaceProvider;
 using SFT::Core::SurfaceSystem;
-using SFT::Platform::Windowing::NativeWindowSystem;
-using SFT::Platform::Windowing::WindowBackendKind;
+using SFT::WindowManager::NativeWindowSystem;
+using SFT::WindowManager::WindowBackendKind;
 
 namespace SFT::Core::Vulkan {
 

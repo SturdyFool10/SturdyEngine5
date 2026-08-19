@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <memory>
@@ -11,9 +11,9 @@
 #include <vector>
 #pragma endregion
 
-#include "Error.hpp"
-#include "Device.hpp"
-#include "Adapter.hpp"
+#include <RHI/Error.hpp>
+#include <RHI/Device.hpp>
+#include <RHI/Adapter.hpp>
 
 using std::optional;
 using std::span;

@@ -1,13 +1,15 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <glm/vec3.hpp>
 
 #include <Core/RenderSurface.hpp>
 #include <Core/GraphicsBackendError.hpp>
+#include <Core/BackendInventory.hpp>
 #include <Core/Licenses.hpp>
 #include <Core/Renderer.hpp>
+#include <Core/StreamingIo.hpp>
 #include <Core/EngineBackend.hpp>
 
 

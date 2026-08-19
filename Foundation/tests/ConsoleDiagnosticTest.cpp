@@ -1,4 +1,4 @@
-#include <Foundation/src/ConsoleDiagnostic.hpp>
+#include <Foundation/ConsoleDiagnostic.hpp>
 
 #include <iostream>
 #include <string>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -14,7 +14,7 @@
 #include <vector>
 #pragma endregion
 
-#include <Text/Text.hpp>
+#include <Renderer/Text/Text.hpp>
 
 using std::span;
 using std::vector;

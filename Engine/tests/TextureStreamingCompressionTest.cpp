@@ -2,7 +2,7 @@
 #include <Engine/TextureCompression.hpp>
 #include <Engine/TextureMipChain.hpp>
 
-#include <Core/src/Core/Decompression.hpp>
+#include <Core/Decompression.hpp>
 
 #include <RHI/RHI.hpp>
 

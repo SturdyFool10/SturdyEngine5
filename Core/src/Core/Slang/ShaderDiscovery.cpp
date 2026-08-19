@@ -1,4 +1,4 @@
-#include "ShaderDiscovery.hpp"
+#include <Core/Slang/ShaderDiscovery.hpp>
 
 #include <Core/Slang/EmbeddedShaders.hpp>
 #include <Core/Slang/ShaderCache.hpp>

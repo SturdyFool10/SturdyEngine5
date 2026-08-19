@@ -1,5 +1,5 @@
-#include <Foundation/src/Cpu/CoreMap.hpp>
-#include <Foundation/src/Cpu/Extensions.hpp>
+#include <Foundation/Cpu/CoreMap.hpp>
+#include <Foundation/Cpu/Extensions.hpp>
 
 #include <iostream>
 

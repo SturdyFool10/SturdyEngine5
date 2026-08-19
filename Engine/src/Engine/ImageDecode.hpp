@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset.hpp"
+#include <Engine/Asset.hpp>
 
 #include <cstddef>
 #include <filesystem>

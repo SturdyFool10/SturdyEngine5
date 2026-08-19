@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Ecs/src/Resource.hpp>
-#include <Platform/Platform.hpp>
+#include <Ecs/Resource.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 #include <optional>
 #include <span>
@@ -12,10 +12,10 @@ namespace SFT::Engine {
 
 
     struct WindowSnapshot {
-        Platform::Windowing::WindowId id{};
-        Platform::Windowing::WindowExtent size{};
-        Platform::Windowing::WindowExtent framebuffer_size{};
-        Platform::Windowing::WindowPosition position{};
+        WindowManager::WindowId id{};
+        WindowManager::WindowExtent size{};
+        WindowManager::WindowExtent framebuffer_size{};
+        WindowManager::WindowPosition position{};
         f32 opacity = 1.0f;
         bool mouse_locked = false;
 
@@ -32,7 +32,7 @@ namespace SFT::Engine {
         /// @param primary `primary` value used by the operation.
         ///
         /// @note This function does not throw exceptions.
-        void sync(std::vector<WindowSnapshot> windows, std::optional<Platform::Windowing::WindowId> primary) noexcept;
+        void sync(std::vector<WindowSnapshot> windows, std::optional<WindowManager::WindowId> primary) noexcept;
 
         /// Returns the current or globally available windows value.
         ///
@@ -47,7 +47,7 @@ namespace SFT::Engine {
         /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
         /// @note Absence is represented by a null pointer rather than an exception.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] const WindowSnapshot *find(Platform::Windowing::WindowId id) const noexcept;
+        [[nodiscard]] const WindowSnapshot *find(WindowManager::WindowId id) const noexcept;
 
         /// Returns the current or globally available primary value.
         ///
@@ -57,7 +57,7 @@ namespace SFT::Engine {
 
       private:
         std::vector<WindowSnapshot> windows_;
-        std::optional<Platform::Windowing::WindowId> primary_;
+        std::optional<WindowManager::WindowId> primary_;
     };
 
 } // namespace SFT::Engine

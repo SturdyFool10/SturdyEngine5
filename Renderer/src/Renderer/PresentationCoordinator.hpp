@@ -1,11 +1,11 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <atomic>
 #include <string>
 
-#include <Async/src/Async.hpp>
+#include <Async/Async.hpp>
 #include <RHI/RHI.hpp>
 
 namespace SFT::Renderer {

@@ -1,4 +1,4 @@
-#include <Core/src/Core/Vulkan/Rhi/VulkanRhiBridge.hpp>
+#include <Core/Vulkan/Rhi/VulkanRhiBridge.hpp>
 
 
 namespace SFT::Core::Vulkan {

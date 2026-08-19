@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <span>
@@ -9,9 +9,9 @@
 
 #include <RHI/RHI.hpp>
 #include <Core/Core.hpp>
-#include <Text/Text.hpp>
-#include "TextAtlas.hpp"
-#include "TextInstance.hpp"
+#include <Renderer/Text/Text.hpp>
+#include <Renderer/TextAtlas.hpp>
+#include <Renderer/TextInstance.hpp>
 
 using std::span;
 using std::vector;

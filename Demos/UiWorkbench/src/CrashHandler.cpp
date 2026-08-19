@@ -1,8 +1,8 @@
-#include "CrashHandler.hpp"
+#include <CrashHandler.hpp>
 
 #if defined(STURDY_PLATFORM_WINDOWS)
 
-#include <Foundation/src/Log.hpp>
+#include <Foundation/Log.hpp>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -132,7 +132,7 @@ namespace SFT::UiWorkbench {
 
 #elif defined(STURDY_PLATFORM_LINUX) || defined(STURDY_PLATFORM_FREEBSD) || defined(STURDY_PLATFORM_MACOS)
 
-#include <Foundation/src/Log.hpp>
+#include <Foundation/Log.hpp>
 
 #include <cstddef>
 #include <execinfo.h>

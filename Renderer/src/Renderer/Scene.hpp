@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <cstddef>
@@ -17,11 +17,11 @@
 
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
-#include "SpectralPathTracing.hpp"
-#include "Handles.hpp"
-#include "RenderTarget.hpp"
-#include "Light.hpp"
-#include "TextAtlas.hpp"
+#include <Renderer/SpectralPathTracing.hpp>
+#include <Renderer/Handles.hpp>
+#include <Renderer/RenderTarget.hpp>
+#include <Renderer/Light.hpp>
+#include <Renderer/TextAtlas.hpp>
 
 using std::span;
 

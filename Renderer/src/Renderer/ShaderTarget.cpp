@@ -1,4 +1,4 @@
-#include <Renderer/src/Renderer/ShaderTarget.hpp>
+#include <Renderer/ShaderTarget.hpp>
 
 
 namespace SFT::Renderer {

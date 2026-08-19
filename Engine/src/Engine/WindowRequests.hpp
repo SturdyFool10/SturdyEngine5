@@ -1,11 +1,11 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
-#include <Async/src/Mutex.hpp>
+#include <Async/Mutex.hpp>
 #include <Core/Core.hpp>
-#include <Ecs/src/Resource.hpp>
-#include <Platform/Platform.hpp>
+#include <Ecs/Resource.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 #include <optional>
 #include <variant>
@@ -34,7 +34,7 @@ namespace SFT::Engine {
 
     struct OwnedWindowConfig {
         UString title{"Sturdy Engine"};
-        Platform::Windowing::WindowConfig config{};
+        WindowManager::WindowConfig config{};
 
         /// Constructs a `OwnedWindowConfig` in its default state.
         ///
@@ -45,73 +45,73 @@ namespace SFT::Engine {
         /// @param source Source value or resource.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        explicit OwnedWindowConfig(const Platform::Windowing::WindowConfig &source);
+        explicit OwnedWindowConfig(const WindowManager::WindowConfig &source);
 
         /// Returns the current or globally available view value.
         ///
         /// @return Returns the current view value.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] Platform::Windowing::WindowConfig view() const noexcept;
+        [[nodiscard]] WindowManager::WindowConfig view() const noexcept;
     };
 
     struct SpawnWindowRequest {
         WindowRequestId id{};
         OwnedWindowConfig window{};
 
-        Platform::Windowing::WindowFactory factory = nullptr;
+        WindowManager::WindowFactory factory = nullptr;
     };
 
 
     struct RecreatePrimaryWindowRequest {
         WindowRequestId id{};
         OwnedWindowConfig window{};
-        Platform::Windowing::WindowFactory factory = nullptr;
+        WindowManager::WindowFactory factory = nullptr;
     };
 
     struct CloseWindowRequest {
         WindowRequestId id{};
-        Platform::Windowing::WindowId window{};
+        WindowManager::WindowId window{};
     };
 
 
     struct SetCursorIconRequest {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::CursorIcon icon = Platform::Windowing::CursorIcon::Default;
+        WindowManager::WindowId window{};
+        WindowManager::CursorIcon icon = WindowManager::CursorIcon::Default;
     };
 
 
     struct SetFullscreenRequest {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::WindowMode mode = Platform::Windowing::WindowMode::Windowed;
+        WindowManager::WindowId window{};
+        WindowManager::WindowMode mode = WindowManager::WindowMode::Windowed;
     };
 
     struct SetDecoratedRequest {
-        Platform::Windowing::WindowId window{};
+        WindowManager::WindowId window{};
         bool decorated = true;
     };
 
 
     struct SetTransparentRequest {
-        Platform::Windowing::WindowId window{};
+        WindowManager::WindowId window{};
         bool transparent = false;
     };
 
 
     struct SetBlurRequest {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::WindowEffectKind kind = Platform::Windowing::WindowEffectKind::Blur;
+        WindowManager::WindowId window{};
+        WindowManager::WindowEffectKind kind = WindowManager::WindowEffectKind::Blur;
         bool enabled = false;
     };
 
 
     struct SetTextInputAreaRequest {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::TextInputArea area{};
+        WindowManager::WindowId window{};
+        WindowManager::TextInputArea area{};
     };
 
 
     struct SetTextInputActiveRequest {
-        Platform::Windowing::WindowId window{};
+        WindowManager::WindowId window{};
         bool active = true;
     };
 
@@ -127,7 +127,7 @@ namespace SFT::Engine {
         WindowRequestKind kind = WindowRequestKind::Spawn;
         bool accepted = false;
         optional<Core::RenderSurfaceHandle> surface;
-        Platform::Windowing::WindowId window{};
+        WindowManager::WindowId window{};
         UString message;
     };
 
@@ -141,8 +141,8 @@ namespace SFT::Engine {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] WindowRequestId spawn(const Platform::Windowing::WindowConfig &config,
-                                            Platform::Windowing::WindowFactory factory = nullptr);
+        [[nodiscard]] WindowRequestId spawn(const WindowManager::WindowConfig &config,
+                                            WindowManager::WindowFactory factory = nullptr);
 
         /// Closes the supplied or associated value/state using the supplied arguments and current state.
         ///
@@ -150,7 +150,7 @@ namespace SFT::Engine {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] WindowRequestId close(Platform::Windowing::WindowId window);
+        [[nodiscard]] WindowRequestId close(WindowManager::WindowId window);
 
         /// Recreates primary window using the supplied arguments and current state.
         ///
@@ -159,8 +159,8 @@ namespace SFT::Engine {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] WindowRequestId recreate_primary_window(const Platform::Windowing::WindowConfig &config,
-                                                               Platform::Windowing::WindowFactory factory = nullptr);
+        [[nodiscard]] WindowRequestId recreate_primary_window(const WindowManager::WindowConfig &config,
+                                                               WindowManager::WindowFactory factory = nullptr);
 
 
         /// Sets the cursor icon for this `WindowRequests`.
@@ -169,7 +169,7 @@ namespace SFT::Engine {
         /// @param icon `icon` value used by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void set_cursor_icon(Platform::Windowing::WindowId window, Platform::Windowing::CursorIcon icon);
+        void set_cursor_icon(WindowManager::WindowId window, WindowManager::CursorIcon icon);
 
 
         /// Sets the fullscreen for this `WindowRequests`.
@@ -178,7 +178,7 @@ namespace SFT::Engine {
         /// @param mode Mode controlling how the operation is performed.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void set_fullscreen(Platform::Windowing::WindowId window, Platform::Windowing::WindowMode mode);
+        void set_fullscreen(WindowManager::WindowId window, WindowManager::WindowMode mode);
 
 
         /// Sets the decorated for this `WindowRequests`.
@@ -187,7 +187,7 @@ namespace SFT::Engine {
         /// @param decorated `decorated` value used by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void set_decorated(Platform::Windowing::WindowId window, bool decorated);
+        void set_decorated(WindowManager::WindowId window, bool decorated);
 
         /// Sets the transparent for this `WindowRequests`.
         ///
@@ -195,7 +195,7 @@ namespace SFT::Engine {
         /// @param transparent `transparent` value used by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void set_transparent(Platform::Windowing::WindowId window, bool transparent);
+        void set_transparent(WindowManager::WindowId window, bool transparent);
 
         /// Sets the blur for this `WindowRequests`.
         ///
@@ -204,7 +204,7 @@ namespace SFT::Engine {
         /// @param enabled Whether the associated behavior is enabled.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void set_blur(Platform::Windowing::WindowId window, Platform::Windowing::WindowEffectKind kind, bool enabled);
+        void set_blur(WindowManager::WindowId window, WindowManager::WindowEffectKind kind, bool enabled);
 
 
         /// Sets the text input area for this `WindowRequests`.
@@ -213,7 +213,7 @@ namespace SFT::Engine {
         /// @param area `area` value used by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void set_text_input_area(Platform::Windowing::WindowId window, Platform::Windowing::TextInputArea area);
+        void set_text_input_area(WindowManager::WindowId window, WindowManager::TextInputArea area);
 
         /// Sets the text input active for this `WindowRequests`.
         ///
@@ -221,7 +221,7 @@ namespace SFT::Engine {
         /// @param active `active` value used by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void set_text_input_active(Platform::Windowing::WindowId window, bool active);
+        void set_text_input_active(WindowManager::WindowId window, bool active);
 
         /// Drains the supplied or associated value/state using the supplied arguments and current state.
         ///

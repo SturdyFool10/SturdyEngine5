@@ -1,4 +1,4 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -14,14 +14,8 @@
 #pragma endregion
 
 #include <Core/Core.hpp>
-#if !defined(STURDY_PLATFORM_WEB)
-#include <Core/Vulkan/VulkanInventory.hpp>
-#endif
-#if defined(STURDY_PLATFORM_WINDOWS)
-#include <D3D12/D3D12Adapter.hpp>
-#endif
 #include <Engine/EngineModule.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 #include <RHI/RHI.hpp>
 #include <Renderer/Renderer.hpp>
 
@@ -149,44 +143,44 @@ namespace SFT::Engine {
                 const vector<WindowEvent> pending = inbox->drain();
                 for (const WindowEvent &queued : pending) {
                     window_events.send(queued);
-                    const Platform::Windowing::WindowEvent &event = queued.event;
+                    const WindowManager::WindowEvent &event = queued.event;
                     switch (event.kind) {
-                        case Platform::Windowing::WindowEventKind::KeyPressed:
-                        case Platform::Windowing::WindowEventKind::KeyReleased:
+                        case WindowManager::WindowEventKind::KeyPressed:
+                        case WindowManager::WindowEventKind::KeyReleased:
                             keyboard_events.send(KeyboardEvent{
                                 .window = queued.window,
                                 .key = event.keyboard.key,
                                 .scancode = event.keyboard.scancode,
                                 .modifiers = event.keyboard.modifiers,
                                 .key_code = event.keyboard.key_code,
-                                .action = event.kind == Platform::Windowing::WindowEventKind::KeyPressed
+                                .action = event.kind == WindowManager::WindowEventKind::KeyPressed
                                               ? ButtonAction::Pressed
                                               : ButtonAction::Released,
                                 .repeat = event.keyboard.repeat,
                                 .timestamp_ns = event.timestamp_ns,
                             });
                             break;
-                        case Platform::Windowing::WindowEventKind::TextInput:
+                        case WindowManager::WindowEventKind::TextInput:
                             text_events.send(TextInputEvent{.window = queued.window, .text = event.text, .timestamp_ns = event.timestamp_ns});
                             break;
-                        case Platform::Windowing::WindowEventKind::TextEditing:
+                        case WindowManager::WindowEventKind::TextEditing:
                             text_editing_events.send(TextEditingEvent{.window = queued.window, .text = event.editing, .timestamp_ns = event.timestamp_ns});
                             break;
-                        case Platform::Windowing::WindowEventKind::MouseMoved:
+                        case WindowManager::WindowEventKind::MouseMoved:
                             mouse_move_events.send(MouseMoveEvent{.window = queued.window, .mouse = event.mouse_move, .timestamp_ns = event.timestamp_ns});
                             break;
-                        case Platform::Windowing::WindowEventKind::MouseButtonPressed:
-                        case Platform::Windowing::WindowEventKind::MouseButtonReleased:
+                        case WindowManager::WindowEventKind::MouseButtonPressed:
+                        case WindowManager::WindowEventKind::MouseButtonReleased:
                             mouse_button_events.send(MouseButtonEvent{
                                 .window = queued.window,
                                 .mouse = event.mouse_button,
-                                .action = event.kind == Platform::Windowing::WindowEventKind::MouseButtonPressed
+                                .action = event.kind == WindowManager::WindowEventKind::MouseButtonPressed
                                               ? ButtonAction::Pressed
                                               : ButtonAction::Released,
                                 .timestamp_ns = event.timestamp_ns,
                             });
                             break;
-                        case Platform::Windowing::WindowEventKind::MouseWheel:
+                        case WindowManager::WindowEventKind::MouseWheel:
                             mouse_wheel_events.send(MouseWheelEvent{.window = queued.window, .wheel = event.mouse_wheel, .timestamp_ns = event.timestamp_ns});
                             break;
                         default:
@@ -212,7 +206,7 @@ namespace SFT::Engine {
                     pointer->set_position({event.mouse.x, event.mouse.y});
                 }
                 for (const MouseButtonEvent &event : mouse_button.read()) {
-                    if (event.mouse.button_code == Platform::Windowing::MouseButton::Left) {
+                    if (event.mouse.button_code == WindowManager::MouseButton::Left) {
                         pointer->set_position({event.mouse.x, event.mouse.y});
                         pointer->set_down(event.action == ButtonAction::Pressed);
                     }
@@ -294,7 +288,7 @@ namespace SFT::Engine {
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::InitializationFailed`.
-    Core::RendererExpected<Core::RenderSurfaceHandle> Engine::initialize(Platform::Windowing::Window &window,
+    Core::RendererExpected<Core::RenderSurfaceHandle> Engine::initialize(WindowManager::Window &window,
                                                                          const EngineConfig &config) {
         if (initialized_) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
@@ -304,13 +298,7 @@ namespace SFT::Engine {
         const Foundation::Stopwatch stopwatch;
 
 #if !defined(STURDY_PLATFORM_WEB)
-        RHI::BackendRegistry inventory_backends;
-        inventory_backends.register_backend(Core::Vulkan::vulkan_inventory_backend_registration());
-#if defined(STURDY_PLATFORM_WINDOWS)
-        inventory_backends.register_backend(D3D12::d3d12_backend_registration());
-#endif
-        gpu_inventory_ = RHI::enumerate_gpu_inventory(
-            inventory_backends,
+        gpu_inventory_ = Core::enumerate_gpu_inventory(
             RHI::InstanceDesc{.application_name = config.app_name, .engine_name = "SturdyEngine5", .headless = true});
         for (const RHI::BackendDiscoveryFailure &failure : gpu_inventory_.failures) {
             Foundation::log_warn("GPU discovery through {} failed: {}", RHI::backend_type_name(failure.backend), failure.message);
@@ -334,25 +322,12 @@ namespace SFT::Engine {
             Core::Slang::ShaderCompileOptions{},
             config.enable_shader_disk_cache);
 
-        vector<const char *> wsi_extensions;
-        if (config.graphics_backend == RHI::BackendType::Vulkan) {
-            auto queried_extensions = window.required_vulkan_instance_extensions();
-            if (!queried_extensions) {
-                return unexpected(Core::GraphicsBackendError{
-                    Core::GraphicsBackendErrorCode::InitializationFailed,
-                    format("Failed to query Vulkan WSI extensions from window: {}", queried_extensions.error().message),
-                });
-            }
-            wsi_extensions = std::move(*queried_extensions);
-        }
-
         Core::RendererCreateInfo renderer_info{};
         renderer_info.backend = config.graphics_backend;
         renderer_info.physical_device_id = config.graphics_physical_device_id;
         renderer_info.features = config.features;
         renderer_info.app_name = config.app_name;
         renderer_info.window = &window;
-        renderer_info.wsi_extensions = std::move(wsi_extensions);
 
 
         renderer_info.uncompiled_shaders = shaders_;
@@ -379,7 +354,7 @@ namespace SFT::Engine {
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
-    Core::RendererExpected<Core::RenderSurfaceHandle> Engine::add_window(Platform::Windowing::Window &window,
+    Core::RendererExpected<Core::RenderSurfaceHandle> Engine::add_window(WindowManager::Window &window,
                                                                          u32 desired_frames_in_flight) {
         if (!initialized_) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
@@ -467,7 +442,7 @@ namespace SFT::Engine {
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::recreate_window(Core::RenderSurfaceHandle old_surface,
-                                                                              Platform::Windowing::Window &new_window,
+                                                                              WindowManager::Window &new_window,
                                                                               u32 desired_frames_in_flight) {
         remove_window(old_surface);
         return add_window(new_window, desired_frames_in_flight);
@@ -614,18 +589,6 @@ namespace SFT::Engine {
         }
 
         if (backend_features_changed || app_name_changed || config_.shaders_directory != settings.shaders_directory) {
-            vector<const char *> wsi_extensions;
-            if (settings.graphics_backend == RHI::BackendType::Vulkan) {
-                auto queried_extensions = primary_window_->required_vulkan_instance_extensions();
-                if (!queried_extensions) {
-                    return unexpected(Core::GraphicsBackendError{
-                        Core::GraphicsBackendErrorCode::InitializationFailed,
-                        format("Failed to query Vulkan WSI extensions while applying runtime settings: {}", queried_extensions.error().message),
-                    });
-                }
-                wsi_extensions = std::move(*queried_extensions);
-            }
-
             if (config_.shaders_directory != settings.shaders_directory) {
                 shaders_ = Core::Slang::discover_shaders(
                     settings.shaders_directory,
@@ -640,7 +603,6 @@ namespace SFT::Engine {
             renderer_info.features = settings.features;
             renderer_info.app_name = settings.app_name;
             renderer_info.window = primary_window_;
-            renderer_info.wsi_extensions = std::move(wsi_extensions);
             renderer_info.uncompiled_shaders = shaders_;
             renderer_info.enable_shader_disk_cache = settings.enable_shader_disk_cache;
 

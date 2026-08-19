@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Engine.hpp>
-#include <Ecs/src/Module.hpp>
+#include <Ecs/Module.hpp>
 
 #include <optional>
 #include <vector>

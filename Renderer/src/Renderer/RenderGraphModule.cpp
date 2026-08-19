@@ -1,4 +1,4 @@
-#include <Renderer/src/Renderer/RenderGraphModule.hpp>
+#include <Renderer/RenderGraphModule.hpp>
 
 
 namespace SFT::Renderer {

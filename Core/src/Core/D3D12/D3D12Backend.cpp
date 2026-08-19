@@ -1,6 +1,6 @@
 #include <Core/D3D12/D3D12Backend.hpp>
 
-#include <D3D12/D3D12Adapter.hpp>
+#include <Core/D3D12/RHI/D3D12Adapter.hpp>
 
 #pragma region Imports
 #include <expected>
@@ -21,8 +21,8 @@ namespace SFT::Core::D3D12 {
         ///
         /// @return Returns the value converted to RHI window system representation.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] RHI::WindowSystem to_rhi_window_system(Platform::Windowing::NativeWindowSystem system) noexcept {
-            return system == Platform::Windowing::NativeWindowSystem::Win32
+        [[nodiscard]] RHI::WindowSystem to_rhi_window_system(WindowManager::NativeWindowSystem system) noexcept {
+            return system == WindowManager::NativeWindowSystem::Win32
                 ? RHI::WindowSystem::Win32
                 : RHI::WindowSystem::Unknown;
         }
@@ -196,7 +196,7 @@ namespace SFT::Core::D3D12 {
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::InitializationFailed`, `GraphicsBackendErrorCode::Unsupported`.
-    RendererExpected<RenderSurfaceHandle> D3D12Backend::create_surface(Platform::Windowing::Window &window) {
+    RendererExpected<RenderSurfaceHandle> D3D12Backend::create_surface(WindowManager::Window &window) {
         if (!initialized_ || !device_) [[unlikely]] {
             return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
                                           "D3D12 backend must be initialized before creating a surface.");
@@ -211,7 +211,7 @@ namespace SFT::Core::D3D12 {
                                           "D3D12 backend only supports Win32 window surfaces.");
         }
 
-        const Platform::Windowing::WindowId window_id = window.id();
+        const WindowManager::WindowId window_id = window.id();
         if (surfaces_.contains(window_id)) [[unlikely]] {
             return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
                                           "A D3D12 surface already exists for this window.");
@@ -238,7 +238,7 @@ namespace SFT::Core::D3D12 {
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     RendererExpected<RenderSurfaceHandle> D3D12Backend::create_window_surface(
-        Platform::Windowing::Window &window,
+        WindowManager::Window &window,
         u32 desired_frames_in_flight) {
         (void)desired_frames_in_flight;
         return create_surface(window);

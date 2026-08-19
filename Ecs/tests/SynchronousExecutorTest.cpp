@@ -1,4 +1,4 @@
-#include <Ecs/src/System.hpp>
+#include <Ecs/System.hpp>
 
 #include <cstdint>
 #include <iostream>

@@ -1,8 +1,8 @@
 
 
-#include <Foundation/src/Foundation.hpp>
-#include <Async/src/Async.hpp>
-#include <Ecs/src/World.hpp>
+#include <Foundation/Foundation.hpp>
+#include <Async/Async.hpp>
+#include <Ecs/World.hpp>
 #include <Core/Core.hpp>
 #include <Renderer/Renderer.hpp>
 #include <Engine/Engine.hpp>

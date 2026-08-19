@@ -1,16 +1,23 @@
 # Interactive UI showcase kept as reusable game logic so Runtime and future editor hosts can
 # launch the same workbench without owning its widget or docking state.
+set(_sturdy_ui_workbench_optional_deps)
+set(_sturdy_ui_workbench_defines)
+if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
+    list(APPEND _sturdy_ui_workbench_optional_deps Sturdy::WindowManagerGLFW)
+    list(APPEND _sturdy_ui_workbench_defines STURDY_UI_WORKBENCH_HAS_GLFW=1)
+endif()
+
 sturdy_add_package(UiWorkbenchGameLogic
     EXCLUDE_SOURCE_DIRS
         tests
 
     PUBLIC_DEPS
         Sturdy::Engine
-        Sturdy::Text
-        Sturdy::UI
-        # For the Composition panel's runtime "Window Type" dropdown, which switches the primary
-        # OS window between Platform's built-in SDL3 provider and this optional GLFW provider.
-        Sturdy::GlfwWindowProvider
+        Sturdy::Renderer
+        ${_sturdy_ui_workbench_optional_deps}
+
+    PRIVATE_DEFINES
+        ${_sturdy_ui_workbench_defines}
 
     DEBUG_PUBLIC_DEPS
 )

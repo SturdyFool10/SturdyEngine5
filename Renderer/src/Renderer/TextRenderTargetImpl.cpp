@@ -1,4 +1,4 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #if defined(__clang__)
@@ -16,7 +16,7 @@
 #include <Renderer/TextInstance.hpp>
 #include <RHI/RHI.hpp>
 #include <Core/Core.hpp>
-#include <Text/Text.hpp>
+#include <Renderer/Text/Text.hpp>
 
 #include <tracy/Tracy.hpp>
 

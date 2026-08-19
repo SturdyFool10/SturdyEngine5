@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <expected>
@@ -9,11 +9,11 @@
 #include <vector>
 #pragma endregion
 
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 #include <RHI/RHI.hpp>
-#include "Slang/ShaderDiscovery.hpp"
+#include <Core/Slang/ShaderDiscovery.hpp>
 
-using SFT::Platform::Windowing::Window;
+using SFT::WindowManager::Window;
 using std::expected;
 using std::span;
 using std::string;
@@ -178,8 +178,6 @@ namespace SFT::Core {
 
         Window *window = nullptr;
 
-
-        vector<const char *> wsi_extensions;
 
 
         span<const Slang::UnCompiledShader> uncompiled_shaders;

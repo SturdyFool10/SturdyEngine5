@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <vector>
@@ -9,8 +9,8 @@
 #include <glm/vec3.hpp>
 
 #include <RHI/RHI.hpp>
-#include "Handles.hpp"
-#include "Geometry.hpp"
+#include <Renderer/Handles.hpp>
+#include <Renderer/Geometry.hpp>
 
 using std::vector;
 

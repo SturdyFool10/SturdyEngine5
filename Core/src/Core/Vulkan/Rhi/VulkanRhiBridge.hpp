@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -16,7 +16,7 @@
 #include <vector>
 #pragma endregion
 
-#include <Async/src/Mutex.hpp>
+#include <Async/Mutex.hpp>
 #include <Core/GraphicsBackendError.hpp>
 #include <Core/Vulkan/VulkanAccelerationStructure.hpp>
 #include <Core/Vulkan/VulkanAllocator.hpp>

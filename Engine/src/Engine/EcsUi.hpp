@@ -1,18 +1,18 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
-#include "AssetManager.hpp"
+#include <Engine/AssetManager.hpp>
 
-#include <Async/src/Mutex.hpp>
+#include <Async/Mutex.hpp>
 #include <Core/Core.hpp>
-#include <Ecs/src/Resource.hpp>
+#include <Ecs/Resource.hpp>
 #include <RHI/RHI.hpp>
 #include <Renderer/Renderer.hpp>
-#include <UI/UI.hpp>
+#include <Renderer/UI/UI.hpp>
 
-#include "EcsEvents.hpp"
-#include "WindowRequests.hpp"
+#include <Engine/EcsEvents.hpp>
+#include <Engine/WindowRequests.hpp>
 
 #include <filesystem>
 #include <functional>
@@ -155,7 +155,7 @@ namespace SFT::Engine {
     /// @param focus `focus` value used by the operation.
     ///
     /// @note This function does not throw exceptions.
-    void forward_text_input_state(WindowRequests &requests, Platform::Windowing::WindowId window,
+    void forward_text_input_state(WindowRequests &requests, WindowManager::WindowId window,
                                    std::optional<TextInputFocusInfo> focus) noexcept;
 
 

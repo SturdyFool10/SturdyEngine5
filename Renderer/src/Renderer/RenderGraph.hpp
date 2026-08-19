@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <expected>
@@ -10,7 +10,7 @@
 #include <vector>
 #pragma endregion
 
-#include <Async/src/Async.hpp>
+#include <Async/Async.hpp>
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 

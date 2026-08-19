@@ -12,13 +12,13 @@
 #include <vector>
 #pragma endregion
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Core/Vulkan/VulkanBackend.hpp>
 #include <Core/Vulkan/VulkanConstants.hpp>
 #include <Core/GraphicsBackendError.hpp>
 #include <Core/Renderer.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -89,19 +89,17 @@ namespace SFT::Core::Vulkan {
             .apiVersion = VULKAN_API_VERSION,
         };
 
-        vector<const char *> extensions = init.wsi_extensions;
-        if (extensions.empty()) {
-            if (init.window == nullptr) [[unlikely]] {
-                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
-                                      "Vulkan instance creation requires WSI extensions or a live window.");
-            }
-            auto extension_res = init.window->required_vulkan_instance_extensions();
-            if (!extension_res) [[unlikely]] {
-                return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
-                                      "Failed to get Window extensions list for Vulkan");
-            }
-            extensions = std::move(extension_res.value());
+        if (init.window == nullptr) [[unlikely]] {
+            return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed,
+                                          "Vulkan instance creation requires a live window.");
         }
+        auto extension_res = init.window->required_vulkan_instance_extensions();
+        if (!extension_res) [[unlikely]] {
+            return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
+                                          "Failed to query Vulkan WSI extensions from the window provider: " +
+                                              extension_res.error().message);
+        }
+        vector<const char *> extensions = std::move(extension_res.value());
         vector<const char *> requestedLayers{};
 
 

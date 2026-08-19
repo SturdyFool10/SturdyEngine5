@@ -196,7 +196,7 @@ function(sturdy_generate_license_embeds)
 #endif
 #include <span>
 #include <string_view>
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Core/Licenses.hpp>
 

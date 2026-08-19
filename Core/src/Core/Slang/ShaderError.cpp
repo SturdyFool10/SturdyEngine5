@@ -1,4 +1,4 @@
-#include "ShaderError.hpp"
+#include <Core/Slang/ShaderError.hpp>
 
 namespace SFT::Core::Slang {
 

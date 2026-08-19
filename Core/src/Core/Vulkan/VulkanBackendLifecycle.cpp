@@ -12,7 +12,7 @@
 #include <optional>
 #pragma endregion
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 #include <RHI/Threading.hpp>
 
 #include <Core/Vulkan/VulkanAllocator.hpp>
@@ -24,7 +24,7 @@
 #include <Core/GraphicsBackendError.hpp>
 #include <Core/Renderer.hpp>
 #include <Core/RenderSurface.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 #include <tracy/Tracy.hpp>
 

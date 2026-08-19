@@ -1,12 +1,12 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <type_traits>
 #pragma endregion
 
-#include "Flags.hpp"
+#include <RHI/Flags.hpp>
 
 namespace SFT::RHI {
 

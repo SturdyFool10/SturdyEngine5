@@ -1,9 +1,9 @@
 #pragma once
 
-#include "EcsEvents.hpp"
+#include <Engine/EcsEvents.hpp>
 
-#include <Ecs/src/Resource.hpp>
-#include <Platform/Platform.hpp>
+#include <Ecs/Resource.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -91,7 +91,7 @@ namespace SFT::Engine {
         ///
         /// @return Returns the current modifiers value.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] Platform::Windowing::KeyModifiers modifiers() const noexcept;
+        [[nodiscard]] WindowManager::KeyModifiers modifiers() const noexcept;
 
         /// Returns the current or globally available text this tick value.
         ///
@@ -117,21 +117,21 @@ namespace SFT::Engine {
         ///
         /// @return Returns the boolean result of the operation.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] bool mouse_down(Platform::Windowing::MouseButton button) const noexcept;
+        [[nodiscard]] bool mouse_down(WindowManager::MouseButton button) const noexcept;
         /// Performs the mouse just pressed operation for `InputState` using the supplied arguments.
         ///
         /// @param button `button` value used by the operation.
         ///
         /// @return Returns the boolean result of the operation.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] bool mouse_just_pressed(Platform::Windowing::MouseButton button) const noexcept;
+        [[nodiscard]] bool mouse_just_pressed(WindowManager::MouseButton button) const noexcept;
         /// Performs the mouse just released operation for `InputState` using the supplied arguments.
         ///
         /// @param button `button` value used by the operation.
         ///
         /// @return Returns the boolean result of the operation.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] bool mouse_just_released(Platform::Windowing::MouseButton button) const noexcept;
+        [[nodiscard]] bool mouse_just_released(WindowManager::MouseButton button) const noexcept;
 
         /// Returns the current or globally available mouse x value.
         ///
@@ -182,7 +182,7 @@ namespace SFT::Engine {
         ///
         /// @return Returns the boolean result of the operation.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] static bool get(const std::vector<bool> &bits, Platform::Windowing::MouseButton button) noexcept;
+        [[nodiscard]] static bool get(const std::vector<bool> &bits, WindowManager::MouseButton button) noexcept;
 
 
         static constexpr usize key_count = 0x407;

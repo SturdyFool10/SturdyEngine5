@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <cstddef>
@@ -8,15 +8,15 @@
 #include <span>
 #pragma endregion
 
-#include "Error.hpp"
-#include "Types.hpp"
-#include "Handles.hpp"
-#include "Shader.hpp"
-#include "Resources.hpp"
-#include "Queues.hpp"
-#include "Barrier.hpp"
-#include "Queries.hpp"
-#include "RayTracing.hpp"
+#include <RHI/Error.hpp>
+#include <RHI/Types.hpp>
+#include <RHI/Handles.hpp>
+#include <RHI/Shader.hpp>
+#include <RHI/Resources.hpp>
+#include <RHI/Queues.hpp>
+#include <RHI/Barrier.hpp>
+#include <RHI/Queries.hpp>
+#include <RHI/RayTracing.hpp>
 
 using std::span;
 using std::unique_ptr;

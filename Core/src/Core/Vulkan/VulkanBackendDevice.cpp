@@ -24,7 +24,7 @@
 #include <vector>
 #pragma endregion
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <tracy/Tracy.hpp>
 

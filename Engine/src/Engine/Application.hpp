@@ -1,10 +1,10 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 #include <RHI/Threading.hpp>
 
 #pragma region Imports
-#include <Async/src/Async.hpp>
+#include <Async/Async.hpp>
 #include <atomic>
 #include <chrono>
 #include <deque>
@@ -13,11 +13,11 @@
 #include <vector>
 #pragma endregion
 
-#include "EngineModule.hpp"
-#include "GameLogic.hpp"
-#include "WindowState.hpp"
+#include <Engine/EngineModule.hpp>
+#include <Engine/GameLogic.hpp>
+#include <Engine/WindowState.hpp>
 #include <Core/Core.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 using std::atomic;
 using std::optional;
@@ -28,10 +28,10 @@ using std::vector;
 namespace SFT::Engine {
 
     struct ApplicationConfig {
-        Platform::Windowing::WindowConfig primary_window;
+        WindowManager::WindowConfig primary_window;
 
 
-        Platform::Windowing::WindowFactory primary_window_factory = nullptr;
+        WindowManager::WindowFactory primary_window_factory = nullptr;
         EngineConfig engine;
 
         optional<f64> primary_window_title_update_interval_seconds;
@@ -109,8 +109,8 @@ namespace SFT::Engine {
         ///
         /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         [[nodiscard]] optional<Core::RenderSurfaceHandle> spawn_secondary_window(
-            const Platform::Windowing::WindowConfig &config,
-            Platform::Windowing::WindowFactory factory = nullptr);
+            const WindowManager::WindowConfig &config,
+            WindowManager::WindowFactory factory = nullptr);
 
 
         /// Recreates primary window using the supplied arguments and current state.
@@ -120,8 +120,8 @@ namespace SFT::Engine {
         ///
         /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         [[nodiscard]] optional<Core::RenderSurfaceHandle> recreate_primary_window(
-            const Platform::Windowing::WindowConfig &config,
-            Platform::Windowing::WindowFactory factory = nullptr);
+            const WindowManager::WindowConfig &config,
+            WindowManager::WindowFactory factory = nullptr);
 
 
         /// Requests close window using the supplied arguments and current state.
@@ -129,7 +129,7 @@ namespace SFT::Engine {
         /// @param id Identifier of the target object or resource.
         ///
         /// @note This function does not throw exceptions.
-        void request_close_window(Platform::Windowing::WindowId id) noexcept;
+        void request_close_window(WindowManager::WindowId id) noexcept;
 
       private:
 
@@ -140,14 +140,14 @@ namespace SFT::Engine {
             /// @param extent `extent` value used by the operation.
             ///
             /// @note This function does not throw exceptions.
-            void publish(Platform::Windowing::WindowExtent extent) noexcept;
+            void publish(WindowManager::WindowExtent extent) noexcept;
 
             /// Returns the current or globally available consume value.
             ///
             /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
             /// @note Normal inability to produce a value is represented by an empty optional.
             /// @note This function does not throw exceptions.
-            [[nodiscard]] optional<Platform::Windowing::WindowExtent> consume() noexcept;
+            [[nodiscard]] optional<WindowManager::WindowExtent> consume() noexcept;
 
           private:
             atomic<u64> pending_extent{0};
@@ -155,7 +155,7 @@ namespace SFT::Engine {
 
 
         struct ManagedWindow {
-            Platform::Windowing::WindowId window_id{};
+            WindowManager::WindowId window_id{};
             optional<Core::RenderSurfaceHandle> surface;
             bool primary = false;
             bool closing = false;
@@ -165,18 +165,18 @@ namespace SFT::Engine {
             WindowSnapshot window_snapshot{};
 
 
-            optional<Platform::Windowing::CursorIcon> applied_cursor_icon;
+            optional<WindowManager::CursorIcon> applied_cursor_icon;
 
 
             atomic<u64> pending_resize_extent{0};
             shared_ptr<LiveResizeState> live_resize;
-            optional<Platform::Windowing::WindowExtent> pending_live_resize;
+            optional<WindowManager::WindowExtent> pending_live_resize;
 
 
-            optional<Platform::Windowing::WindowExtent> submitted_live_resize;
+            optional<WindowManager::WindowExtent> submitted_live_resize;
 
 
-            optional<Platform::Windowing::WindowExtent> attempted_live_resize;
+            optional<WindowManager::WindowExtent> attempted_live_resize;
             std::chrono::high_resolution_clock::time_point next_live_resize_submission{};
 
 
@@ -196,7 +196,7 @@ namespace SFT::Engine {
             // discarded along with the window itself on teardown), so this is what lets
             // recreate_primary_window() below carry a window's current effects forward onto its
             // replacement instead of silently dropping them.
-            vector<Platform::Windowing::WindowEffect> applied_effects;
+            vector<WindowManager::WindowEffect> applied_effects;
             // Each window gets its own dedicated render thread (rather than every window sharing one
             // Application-wide thread) so recording/submitting/presenting for separate OS windows —
             // most commonly several torn-off docking panels — actually runs concurrently instead of
@@ -227,7 +227,7 @@ namespace SFT::Engine {
         ///
         /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] ManagedWindow *find_managed_window(Platform::Windowing::WindowId id) noexcept;
+        [[nodiscard]] ManagedWindow *find_managed_window(WindowManager::WindowId id) noexcept;
         /// Performs the process window requests operation for `Application` using the supplied arguments.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
@@ -243,7 +243,7 @@ namespace SFT::Engine {
         /// @note This is the only place that record is written — see ManagedWindow::applied_effects'
         ///       own doc comment for why it exists.
         /// @note This function does not throw exceptions.
-        void record_applied_effect(Platform::Windowing::WindowId id, Platform::Windowing::WindowEffect effect) noexcept;
+        void record_applied_effect(WindowManager::WindowId id, WindowManager::WindowEffect effect) noexcept;
 
         /// Spawns one window through an explicitly supplied optional provider factory, or SDL3 when
         /// `factory` is null, then registers it with the engine's render-surface set and repaint path.
@@ -258,8 +258,8 @@ namespace SFT::Engine {
         /// @return true on success; false if window creation or render-surface registration failed.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         bool spawn_managed_window(
-            const Platform::Windowing::WindowConfig &config,
-            Platform::Windowing::WindowFactory factory,
+            const WindowManager::WindowConfig &config,
+            WindowManager::WindowFactory factory,
             bool is_primary);
 
 
@@ -273,7 +273,7 @@ namespace SFT::Engine {
         /// @return Returns the boolean result of the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] bool render_managed_window(ManagedWindow &managed,
-                                                 Platform::Windowing::WindowExtent extent,
+                                                 WindowManager::WindowExtent extent,
                                                  bool resized,
                                                  bool coalesce_if_backpressured = false);
         /// Performs the report frame result operation for `Application` using the supplied arguments.
@@ -290,10 +290,10 @@ namespace SFT::Engine {
         /// @param window_events Window used or affected by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void sync_window_state(const vector<Platform::Windowing::ManagedWindowEvents> &window_events);
+        void sync_window_state(const vector<WindowManager::ManagedWindowEvents> &window_events);
 
-        Platform::Windowing::WindowManager window_manager_{
-            Platform::Windowing::WindowManagerPolicy{.event_pump_mode = Platform::Windowing::WindowEventPumpMode::DedicatedEventThread,
+        WindowManager::WindowManager window_manager_{
+            WindowManager::WindowManagerPolicy{.event_pump_mode = WindowManager::WindowEventPumpMode::DedicatedEventThread,
                                                      .platform_allows_threads = true}};
         vector<unique_ptr<ManagedWindow>> windows_;
         unique_ptr<Engine> engine_;

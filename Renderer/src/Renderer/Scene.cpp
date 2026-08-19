@@ -1,4 +1,4 @@
-#include <Renderer/src/Renderer/Scene.hpp>
+#include <Renderer/Scene.hpp>
 
 
 namespace SFT::Renderer {

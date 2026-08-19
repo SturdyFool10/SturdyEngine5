@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #include "volk.h"
 #include <algorithm>
@@ -15,13 +15,13 @@
 #include <Core/Vulkan/VulkanSync.hpp>
 #include <Core/Vulkan/VulkanCommandPool.hpp>
 #include <Core/Vulkan/VulkanCommandBuffer.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 #include <RHI/RHI.hpp>
 
 using SFT::Core::Extent2D;
 using SFT::Core::RenderSurfaceDescriptor;
-using SFT::Platform::Windowing::Window;
-using SFT::Platform::Windowing::WindowId;
+using SFT::WindowManager::Window;
+using SFT::WindowManager::WindowId;
 using std::vector;
 
 namespace SFT::Core::Vulkan {

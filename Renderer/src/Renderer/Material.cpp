@@ -1,4 +1,4 @@
-#include <Renderer/src/Renderer/Material.hpp>
+#include <Renderer/Material.hpp>
 
 
 namespace SFT::Renderer {

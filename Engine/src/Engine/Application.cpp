@@ -1,4 +1,4 @@
-#include <Engine/src/Engine/Application.hpp>
+#include <Engine/Application.hpp>
 
 
 namespace SFT::Engine {
@@ -9,7 +9,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    void Application::LiveResizeState::publish(Platform::Windowing::WindowExtent extent) noexcept {
+    void Application::LiveResizeState::publish(WindowManager::WindowExtent extent) noexcept {
         const u64 packed = (static_cast<u64>(extent.x) << 32U) | static_cast<u64>(extent.y);
         pending_extent.store(packed, std::memory_order_release);
     }
@@ -19,12 +19,12 @@ namespace SFT::Engine {
     /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     /// @note Normal inability to produce a value is represented by an empty optional.
     /// @note This function does not throw exceptions.
-    optional<Platform::Windowing::WindowExtent> Application::LiveResizeState::consume() noexcept {
+    optional<WindowManager::WindowExtent> Application::LiveResizeState::consume() noexcept {
         const u64 packed = pending_extent.exchange(0, std::memory_order_acq_rel);
         if (packed == 0) {
             return std::nullopt;
         }
-        return Platform::Windowing::WindowExtent{
+        return WindowManager::WindowExtent{
             static_cast<u32>(packed >> 32U),
             static_cast<u32>(packed & 0xFFFFFFFFU),
         };

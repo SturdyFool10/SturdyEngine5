@@ -1,4 +1,4 @@
-#include <Engine/src/Engine/WindowRequests.hpp>
+#include <Engine/WindowRequests.hpp>
 
 
 namespace SFT::Engine {
@@ -7,8 +7,8 @@ namespace SFT::Engine {
     ///
     /// @return Returns the current view value.
     /// @note This function does not throw exceptions.
-    Platform::Windowing::WindowConfig OwnedWindowConfig::view() const noexcept {
-        Platform::Windowing::WindowConfig result = config;
+    WindowManager::WindowConfig OwnedWindowConfig::view() const noexcept {
+        WindowManager::WindowConfig result = config;
         result.title = title.c_str();
         return result;
     }
@@ -20,8 +20,8 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    WindowRequestId WindowRequests::spawn(const Platform::Windowing::WindowConfig &config,
-                                        Platform::Windowing::WindowFactory factory) {
+    WindowRequestId WindowRequests::spawn(const WindowManager::WindowConfig &config,
+                                        WindowManager::WindowFactory factory) {
         auto guard = state_.lock();
         const WindowRequestId id{guard->next_id++};
         guard->pending.emplace_back(SpawnWindowRequest{id, OwnedWindowConfig{config}, factory});
@@ -34,7 +34,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    WindowRequestId WindowRequests::close(Platform::Windowing::WindowId window) {
+    WindowRequestId WindowRequests::close(WindowManager::WindowId window) {
         auto guard = state_.lock();
         const WindowRequestId id{guard->next_id++};
         guard->pending.emplace_back(CloseWindowRequest{id, window});
@@ -48,8 +48,8 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    WindowRequestId WindowRequests::recreate_primary_window(const Platform::Windowing::WindowConfig &config,
-                                                           Platform::Windowing::WindowFactory factory) {
+    WindowRequestId WindowRequests::recreate_primary_window(const WindowManager::WindowConfig &config,
+                                                           WindowManager::WindowFactory factory) {
         auto guard = state_.lock();
         const WindowRequestId id{guard->next_id++};
         guard->pending.emplace_back(RecreatePrimaryWindowRequest{id, OwnedWindowConfig{config}, factory});
@@ -63,7 +63,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void WindowRequests::set_cursor_icon(Platform::Windowing::WindowId window, Platform::Windowing::CursorIcon icon) {
+    void WindowRequests::set_cursor_icon(WindowManager::WindowId window, WindowManager::CursorIcon icon) {
         auto guard = state_.lock();
         guard->pending.emplace_back(SetCursorIconRequest{window, icon});
     }
@@ -75,7 +75,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void WindowRequests::set_fullscreen(Platform::Windowing::WindowId window, Platform::Windowing::WindowMode mode) {
+    void WindowRequests::set_fullscreen(WindowManager::WindowId window, WindowManager::WindowMode mode) {
         auto guard = state_.lock();
         guard->pending.emplace_back(SetFullscreenRequest{window, mode});
     }
@@ -87,7 +87,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void WindowRequests::set_decorated(Platform::Windowing::WindowId window, bool decorated) {
+    void WindowRequests::set_decorated(WindowManager::WindowId window, bool decorated) {
         auto guard = state_.lock();
         guard->pending.emplace_back(SetDecoratedRequest{window, decorated});
     }
@@ -99,7 +99,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void WindowRequests::set_transparent(Platform::Windowing::WindowId window, bool transparent) {
+    void WindowRequests::set_transparent(WindowManager::WindowId window, bool transparent) {
         auto guard = state_.lock();
         guard->pending.emplace_back(SetTransparentRequest{window, transparent});
     }
@@ -112,7 +112,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void WindowRequests::set_blur(Platform::Windowing::WindowId window, Platform::Windowing::WindowEffectKind kind, bool enabled) {
+    void WindowRequests::set_blur(WindowManager::WindowId window, WindowManager::WindowEffectKind kind, bool enabled) {
         auto guard = state_.lock();
         guard->pending.emplace_back(SetBlurRequest{window, kind, enabled});
     }
@@ -124,7 +124,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void WindowRequests::set_text_input_area(Platform::Windowing::WindowId window, Platform::Windowing::TextInputArea area) {
+    void WindowRequests::set_text_input_area(WindowManager::WindowId window, WindowManager::TextInputArea area) {
         auto guard = state_.lock();
         guard->pending.emplace_back(SetTextInputAreaRequest{window, area});
     }
@@ -136,7 +136,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void WindowRequests::set_text_input_active(Platform::Windowing::WindowId window, bool active) {
+    void WindowRequests::set_text_input_active(WindowManager::WindowId window, bool active) {
         auto guard = state_.lock();
         guard->pending.emplace_back(SetTextInputActiveRequest{window, active});
     }
@@ -204,7 +204,7 @@ namespace SFT::Engine {
     /// @param source Source value or resource.
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    OwnedWindowConfig::OwnedWindowConfig(const Platform::Windowing::WindowConfig &source)
+    OwnedWindowConfig::OwnedWindowConfig(const WindowManager::WindowConfig &source)
         : title(source.title != nullptr ? source.title : ""), config(source) {
         config.title = nullptr;
     }

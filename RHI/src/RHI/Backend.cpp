@@ -1,5 +1,4 @@
-#include <RHI/src/RHI/Backend.hpp>
-#include "Backend.hpp"
+#include <RHI/Backend.hpp>
 
 namespace SFT::RHI {
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <filesystem>
@@ -8,20 +8,20 @@
 #include <vector>
 #pragma endregion
 
-#include "AssetManager.hpp"
-#include "EcsEvents.hpp"
-#include "EcsRendering.hpp"
-#include "EcsUi.hpp"
-#include "FrameTime.hpp"
-#include "InputState.hpp"
-#include "RenderTarget.hpp"
-#include "TimeScale.hpp"
-#include "WindowRequests.hpp"
-#include "WindowState.hpp"
+#include <Engine/AssetManager.hpp>
+#include <Engine/EcsEvents.hpp>
+#include <Engine/EcsRendering.hpp>
+#include <Engine/EcsUi.hpp>
+#include <Engine/FrameTime.hpp>
+#include <Engine/InputState.hpp>
+#include <Engine/RenderTarget.hpp>
+#include <Engine/TimeScale.hpp>
+#include <Engine/WindowRequests.hpp>
+#include <Engine/WindowState.hpp>
 #include <Core/Core.hpp>
-#include <Ecs/src/System.hpp>
-#include <Ecs/src/World.hpp>
-#include <Platform/Platform.hpp>
+#include <Ecs/System.hpp>
+#include <Ecs/World.hpp>
+#include <WindowManager/WindowManager.hpp>
 #include <RHI/RHI.hpp>
 #include <Renderer/Renderer.hpp>
 
@@ -73,7 +73,7 @@ namespace SFT::Engine {
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        Core::RendererExpected<Core::RenderSurfaceHandle> initialize(Platform::Windowing::Window &window,
+        Core::RendererExpected<Core::RenderSurfaceHandle> initialize(WindowManager::Window &window,
                                                                      const EngineConfig &config = {});
 
 
@@ -84,7 +84,7 @@ namespace SFT::Engine {
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        Core::RendererExpected<Core::RenderSurfaceHandle> add_window(Platform::Windowing::Window &window,
+        Core::RendererExpected<Core::RenderSurfaceHandle> add_window(WindowManager::Window &window,
                                                                      u32 desired_frames_in_flight = 2);
 
 
@@ -140,7 +140,7 @@ namespace SFT::Engine {
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         Core::RendererExpected<Core::RenderSurfaceHandle> recreate_window(Core::RenderSurfaceHandle old_surface,
-                                                                          Platform::Windowing::Window &new_window,
+                                                                          WindowManager::Window &new_window,
                                                                           u32 desired_frames_in_flight = 2);
 
 
@@ -259,8 +259,8 @@ namespace SFT::Engine {
         /// @param event Event used or affected by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void queue_window_event(Platform::Windowing::WindowId window,
-                                const Platform::Windowing::WindowEvent &event);
+        void queue_window_event(WindowManager::WindowId window,
+                                const WindowManager::WindowEvent &event);
 
 
         /// Returns the current or globally available ECS world value.
@@ -402,7 +402,7 @@ namespace SFT::Engine {
         ///
         /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] Platform::Windowing::Window *primary_window() noexcept;
+        [[nodiscard]] WindowManager::Window *primary_window() noexcept;
 
 
         /// Sets the primary window for this `Engine`.
@@ -410,7 +410,7 @@ namespace SFT::Engine {
         /// @param window Window used or affected by the operation.
         ///
         /// @note This function does not throw exceptions.
-        void set_primary_window(Platform::Windowing::Window &window) noexcept;
+        void set_primary_window(WindowManager::Window &window) noexcept;
 
         /// Returns the current or globally available config value.
         ///
@@ -502,7 +502,7 @@ namespace SFT::Engine {
         Core::Slang::ShaderCompiler shader_compiler_;
         vector<Core::Slang::UnCompiledShader> shaders_;
         EngineConfig config_{};
-        Platform::Windowing::Window *primary_window_ = nullptr;
+        WindowManager::Window *primary_window_ = nullptr;
         bool initialized_ = false;
     };
 

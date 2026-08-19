@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -9,9 +9,9 @@
 #include <string_view>
 #pragma endregion
 
-#include "Types.hpp"
-#include "Handles.hpp"
-#include "Resources.hpp"
+#include <RHI/Types.hpp>
+#include <RHI/Handles.hpp>
+#include <RHI/Resources.hpp>
 
 namespace SFT::RHI {
 

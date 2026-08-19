@@ -1,15 +1,15 @@
 #pragma once
 
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <string>
 #include <vector>
 #pragma endregion
 
-#include "Adapter.hpp"
-#include "Backend.hpp"
+#include <RHI/Adapter.hpp>
+#include <RHI/Backend.hpp>
 
 using std::string;
 using std::vector;

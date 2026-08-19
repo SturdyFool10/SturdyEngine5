@@ -1,12 +1,12 @@
 #pragma once
 
-#include <Ecs/src/Entity.hpp>
-#include <Ecs/src/Resource.hpp>
+#include <Ecs/Entity.hpp>
+#include <Ecs/Resource.hpp>
 #include <Renderer/Scene.hpp>
 
-#include "Asset.hpp"
-#include "Camera.hpp"
-#include "RenderGraph.hpp"
+#include <Engine/Asset.hpp>
+#include <Engine/Camera.hpp>
+#include <Engine/RenderGraph.hpp>
 
 #include <memory>
 #include <optional>

@@ -1,5 +1,4 @@
-#include <Core/src/Core/Vulkan/VulkanRenderTargets.hpp>
-#include "VulkanRenderTargets.hpp"
+#include <Core/Vulkan/VulkanRenderTargets.hpp>
 
 #include <tracy/Tracy.hpp>
 

@@ -1,4 +1,4 @@
-#include <Core/src/Core/Renderer.hpp>
+#include <Core/Renderer.hpp>
 
 
 namespace SFT::Core {

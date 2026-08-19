@@ -21,7 +21,7 @@
 #include <utility>
 #pragma endregion
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Core/GraphicsBackendError.hpp>
 #include <Core/Vulkan/VulkanAllocator.hpp>

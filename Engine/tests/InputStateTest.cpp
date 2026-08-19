@@ -11,7 +11,7 @@
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
     using namespace SFT::Engine;
-    using namespace SFT::Platform::Windowing;
+    using namespace SFT::WindowManager;
 
     InputState input;
 

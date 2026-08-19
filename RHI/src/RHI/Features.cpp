@@ -1,5 +1,4 @@
-#include <RHI/src/RHI/Features.hpp>
-#include "Features.hpp"
+#include <RHI/Features.hpp>
 
 namespace SFT::RHI {
 

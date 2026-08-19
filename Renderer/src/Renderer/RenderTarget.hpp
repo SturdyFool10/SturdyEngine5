@@ -1,10 +1,10 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Core/Core.hpp>
 
-#include "Handles.hpp"
+#include <Renderer/Handles.hpp>
 
 namespace SFT::Renderer {
 

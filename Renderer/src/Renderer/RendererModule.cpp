@@ -1,5 +1,4 @@
-#include <Renderer/src/Renderer/RendererModule.hpp>
-#include "RendererModule.hpp"
+#include <Renderer/RendererModule.hpp>
 
 namespace SFT::Renderer {
 

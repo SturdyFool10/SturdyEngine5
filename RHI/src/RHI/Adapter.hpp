@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <memory>
@@ -9,11 +9,11 @@
 #include <vector>
 #pragma endregion
 
-#include "Error.hpp"
-#include "Features.hpp"
-#include "Extensions.hpp"
-#include "Queues.hpp"
-#include "Device.hpp"
+#include <RHI/Error.hpp>
+#include <RHI/Features.hpp>
+#include <RHI/Extensions.hpp>
+#include <RHI/Queues.hpp>
+#include <RHI/Device.hpp>
 
 using std::span;
 using std::string_view;

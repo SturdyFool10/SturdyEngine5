@@ -1,4 +1,4 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <expected>
@@ -7,7 +7,7 @@
 #pragma endregion
 
 #include <Core/Core.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 #include <RHI/RHI.hpp>
 #include <Renderer/RendererModule.hpp>
 

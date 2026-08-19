@@ -1,4 +1,4 @@
-#include "TextCanvas.hpp"
+#include <Renderer/TextCanvas.hpp>
 
 namespace SFT::Renderer {
 

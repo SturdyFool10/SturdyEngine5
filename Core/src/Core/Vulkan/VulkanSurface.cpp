@@ -1,4 +1,4 @@
-#include "VulkanSurface.hpp"
+#include <Core/Vulkan/VulkanSurface.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -154,7 +154,7 @@ void VulkanSurface::clear_rhi_surface() noexcept { rhi_surface_ = {}; }
 ///
 /// @return Returns the current window ID value.
 /// @note This function does not throw exceptions.
-[[nodiscard]] WindowId VulkanSurface::window_id() const noexcept { return window_ ? window_->id() : Platform::Windowing::invalid_window_id; }
+[[nodiscard]] WindowId VulkanSurface::window_id() const noexcept { return window_ ? window_->id() : WindowManager::invalid_window_id; }
 
 /// Returns the current or globally available swapchain value.
 ///

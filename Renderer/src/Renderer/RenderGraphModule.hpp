@@ -1,13 +1,13 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <string_view>
 #include <vector>
 
 #include <Core/Core.hpp>
 
-#include "RenderGraph.hpp"
+#include <Renderer/RenderGraph.hpp>
 
 namespace SFT::Renderer {
 

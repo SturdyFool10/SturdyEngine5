@@ -1,6 +1,6 @@
-#include <Async/src/ParIter.hpp>
-#include <Async/src/Scheduler.hpp>
-#include <Async/src/Runtime.hpp>
+#include <Async/ParIter.hpp>
+#include <Async/Scheduler.hpp>
+#include <Async/Runtime.hpp>
 
 #include <atomic>
 #include <barrier>

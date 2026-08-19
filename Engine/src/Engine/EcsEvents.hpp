@@ -1,14 +1,14 @@
 #pragma once
 
-#include <Ecs/src/Event.hpp>
-#include <Platform/Platform.hpp>
+#include <Ecs/Event.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 #include <utility>
 #include <vector>
 
 namespace SFT::Engine {
 
-    using KeyboardKey = Platform::Windowing::KeyboardKey;
+    using KeyboardKey = WindowManager::KeyboardKey;
 
     enum class ButtonAction : u8 {
         Pressed,
@@ -17,12 +17,12 @@ namespace SFT::Engine {
 
 
     struct WindowEvent {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::WindowEvent event{};
+        WindowManager::WindowId window{};
+        WindowManager::WindowEvent event{};
     };
 
     struct KeyboardEvent {
-        Platform::Windowing::WindowId window{};
+        WindowManager::WindowId window{};
         i32 key = 0;
         i32 scancode = 0;
         u32 modifiers = 0;
@@ -46,42 +46,42 @@ namespace SFT::Engine {
     };
 
     struct TextInputEvent {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::WindowTextInputEvent text{};
+        WindowManager::WindowId window{};
+        WindowManager::WindowTextInputEvent text{};
         u64 timestamp_ns = 0;
     };
 
 
     struct TextEditingEvent {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::WindowTextEditingEvent text{};
+        WindowManager::WindowId window{};
+        WindowManager::WindowTextEditingEvent text{};
         u64 timestamp_ns = 0;
     };
 
     struct MouseMoveEvent {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::WindowMouseMoveEvent mouse{};
+        WindowManager::WindowId window{};
+        WindowManager::WindowMouseMoveEvent mouse{};
         u64 timestamp_ns = 0;
     };
 
     struct MouseButtonEvent {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::WindowMouseButtonEvent mouse{};
+        WindowManager::WindowId window{};
+        WindowManager::WindowMouseButtonEvent mouse{};
         ButtonAction action = ButtonAction::Pressed;
         u64 timestamp_ns = 0;
     };
 
     struct MouseWheelEvent {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::WindowMouseWheelEvent wheel{};
+        WindowManager::WindowId window{};
+        WindowManager::WindowMouseWheelEvent wheel{};
         u64 timestamp_ns = 0;
     };
 
     struct WindowStateEvent {
-        Platform::Windowing::WindowId window{};
-        Platform::Windowing::WindowEventKind kind = Platform::Windowing::WindowEventKind::CloseRequested;
-        Platform::Windowing::WindowPosition position{};
-        Platform::Windowing::WindowResize resize{};
+        WindowManager::WindowId window{};
+        WindowManager::WindowEventKind kind = WindowManager::WindowEventKind::CloseRequested;
+        WindowManager::WindowPosition position{};
+        WindowManager::WindowResize resize{};
         u64 timestamp_ns = 0;
     };
 
@@ -94,7 +94,7 @@ namespace SFT::Engine {
         /// @param event Event used or affected by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void push(Platform::Windowing::WindowId window, Platform::Windowing::WindowEvent event);
+        void push(WindowManager::WindowId window, WindowManager::WindowEvent event);
 
         /// Drains the supplied or associated value/state using the supplied arguments and current state.
         ///

@@ -1,4 +1,4 @@
-#include "VulkanImage.hpp"
+#include <Core/Vulkan/VulkanImage.hpp>
 
 #include <tracy/Tracy.hpp>
 

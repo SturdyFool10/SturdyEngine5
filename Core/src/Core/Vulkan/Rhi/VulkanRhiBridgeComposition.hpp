@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 #pragma region Imports
 #if defined(__clang__)
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -14,7 +14,7 @@
 #include <Core/Vulkan/VulkanImage.hpp>
 #include <Core/Vulkan/VulkanSync.hpp>
 
-#include <graphicsPlatform/src/CompositionPresent.hpp>
+#include <Core/GraphicsPlatform/CompositionPresent.hpp>
 
 using SFT::Core::RendererExpected;
 

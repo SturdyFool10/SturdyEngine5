@@ -1,11 +1,11 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <memory>
 
 #include <Renderer/RendererModule.hpp>
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -22,7 +22,7 @@ namespace SFT::Renderer {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<Core::RenderSurfaceHandle> Renderer::create_window_surface(
-        Platform::Windowing::Window &window,
+        WindowManager::Window &window,
         u32 desired_frames_in_flight) {
         ZoneScopedN("Renderer::create_window_surface");
         if (!graphics_backend_ || !initialized_) {

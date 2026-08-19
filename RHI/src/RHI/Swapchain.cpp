@@ -1,4 +1,4 @@
-#include <RHI/src/RHI/Swapchain.hpp>
+#include <RHI/Swapchain.hpp>
 
 namespace SFT::RHI {
 

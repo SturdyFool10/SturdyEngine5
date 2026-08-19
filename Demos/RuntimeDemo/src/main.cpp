@@ -1,4 +1,4 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Runtime/Runtime.hpp>
 #include <RuntimeDemoGameLogic/RuntimeDemoGameLogic.hpp>
@@ -16,7 +16,7 @@ namespace {
         config.application.primary_window.title = "Sturdy Engine 5 Runtime Demo";
         config.application.primary_window.extent = {1280, 720};
         config.application.primary_window.graphics_api =
-            SFT::Platform::Windowing::WindowGraphicsApi::Vulkan;
+            SFT::WindowManager::WindowGraphicsApi::Vulkan;
         config.application.engine.app_name = "Sturdy Engine 5 Runtime Demo";
         config.application.engine.shaders_directory = "Shaders";
         config.application.engine.features.raytracing = true;

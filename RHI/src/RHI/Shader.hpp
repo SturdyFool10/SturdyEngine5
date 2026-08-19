@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <cstddef>
@@ -8,8 +8,8 @@
 #include <type_traits>
 #pragma endregion
 
-#include "Flags.hpp"
-#include "Handles.hpp"
+#include <RHI/Flags.hpp>
+#include <RHI/Handles.hpp>
 
 using std::span;
 

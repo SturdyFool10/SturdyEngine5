@@ -1,4 +1,4 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -26,7 +26,7 @@
 #include <Renderer/RenderGraph.hpp>
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -132,7 +132,7 @@ namespace SFT::Renderer {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] Core::Extent2D framebuffer_extent(Platform::Windowing::Window &window) {
+        [[nodiscard]] Core::Extent2D framebuffer_extent(WindowManager::Window &window) {
             if (auto size = window.framebuffer_size()) {
                 return *size;
             }
@@ -1072,7 +1072,7 @@ namespace SFT::Renderer {
 
             .request_full_screen_exclusive =
                 record.window != nullptr &&
-                record.window->fullscreen_mode() == Platform::Windowing::WindowMode::ExclusiveFullscreen,
+                record.window->fullscreen_mode() == WindowManager::WindowMode::ExclusiveFullscreen,
             .label = "renderer swapchain",
         };
         auto swapchain = device->create_swapchain(swapchain_desc);
@@ -1634,7 +1634,7 @@ namespace SFT::Renderer {
         f32 ui_reference_white_nits = submission.render_graph.tone_mapping_hdr_paper_white_nits;
         bool platform_reference_white = false;
         if (hdr_output && record.window != nullptr) {
-            if (const optional<Platform::Windowing::WindowHdrProperties> properties =
+            if (const optional<WindowManager::WindowHdrProperties> properties =
                     record.window->hdr_properties();
                 properties && properties->hdr_enabled && properties->sdr_white_level > 0.0f) {
 

@@ -1,12 +1,12 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <expected>
 #include <memory>
 #include <optional>
 
-#include "EngineModule.hpp"
+#include <Engine/EngineModule.hpp>
 #include <Core/Core.hpp>
 
 namespace SFT::Engine {

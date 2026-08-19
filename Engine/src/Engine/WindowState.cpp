@@ -1,4 +1,4 @@
-#include <Engine/src/Engine/WindowState.hpp>
+#include <Engine/WindowState.hpp>
 
 
 namespace SFT::Engine {
@@ -10,7 +10,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     /// @note This function does not throw exceptions.
-    void WindowState::sync(std::vector<WindowSnapshot> windows, std::optional<Platform::Windowing::WindowId> primary) noexcept {
+    void WindowState::sync(std::vector<WindowSnapshot> windows, std::optional<WindowManager::WindowId> primary) noexcept {
         windows_ = std::move(windows);
         primary_ = primary;
     }
@@ -28,7 +28,7 @@ namespace SFT::Engine {
     /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
     /// @note Absence is represented by a null pointer rather than an exception.
     /// @note This function does not throw exceptions.
-    const WindowSnapshot *WindowState::find(Platform::Windowing::WindowId id) const noexcept {
+    const WindowSnapshot *WindowState::find(WindowManager::WindowId id) const noexcept {
         for (const WindowSnapshot &snapshot : windows_) {
             if (snapshot.id == id) {
                 return &snapshot;

@@ -1,19 +1,14 @@
-#include <Engine/src/Engine/TextureStreamer.hpp>
-#include "TextureStreamer.hpp"
-#include "ImageDecode.hpp"
-#include "TextureCompression.hpp"
-#include "TextureMipChain.hpp"
+#include <Engine/TextureStreamer.hpp>
+#include <Engine/ImageDecode.hpp>
+#include <Engine/TextureCompression.hpp>
+#include <Engine/TextureMipChain.hpp>
 
-#include <Async/src/Affinity.hpp>
-#include <Async/src/Mutex.hpp>
+#include <Async/Affinity.hpp>
+#include <Async/Mutex.hpp>
 #include <Renderer/Renderer.hpp>
 
 
-#if defined(_WIN32)
-    #include <Core/src/Core/Vulkan/DirectStorage/DirectStorageBackend.hpp>
-#elif defined(__linux__)
-    #include <Core/src/Core/IoUring/IoUringBackend.hpp>
-#endif
+#include <Core/StreamingIo.hpp>
 
 #include <array>
 #include <atomic>
@@ -44,15 +39,9 @@ namespace SFT::Engine {
         [[nodiscard]] AssetExpected<vector<std::byte>> read_binary_file_streamed(const std::filesystem::path &source) {
 
 
-#if defined(_WIN32)
-            if (auto bytes = Core::read_file_direct_storage(source)) {
+            if (auto bytes = Core::read_file_accelerated(source)) {
                 return std::move(*bytes);
             }
-#elif defined(__linux__)
-            if (auto bytes = Core::read_file_io_uring(source)) {
-                return std::move(*bytes);
-            }
-#endif
             std::ifstream file(source, std::ios::binary | std::ios::ate);
             if (!file.is_open()) {
                 const AssetErrorCode code =

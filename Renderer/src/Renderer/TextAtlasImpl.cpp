@@ -1,7 +1,7 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
-#include <Async/src/ParIter.hpp>
+#include <Async/ParIter.hpp>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -21,7 +21,7 @@
 #include <Renderer/TextAtlas.hpp>
 #include <RHI/RHI.hpp>
 #include <Core/Core.hpp>
-#include <Text/Text.hpp>
+#include <Renderer/Text/Text.hpp>
 
 #include <tracy/Tracy.hpp>
 

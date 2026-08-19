@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <span>
@@ -12,8 +12,8 @@
 #pragma endregion
 
 #include <Core/Core.hpp>
-#include "Handles.hpp"
-#include "Geometry.hpp"
+#include <Renderer/Handles.hpp>
+#include <Renderer/Geometry.hpp>
 
 using std::span;
 using std::vector;

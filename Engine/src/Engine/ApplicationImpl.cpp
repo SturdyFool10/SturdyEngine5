@@ -1,8 +1,8 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 #include <RHI/Threading.hpp>
 
 #pragma region Imports
-#include <Async/src/Async.hpp>
+#include <Async/Async.hpp>
 #include <algorithm>
 #include <chrono>
 #include <memory>
@@ -13,8 +13,8 @@
 
 #include <Core/Core.hpp>
 #include <Engine/Application.hpp>
-#include <Platform/Platform.hpp>
-#include <Platform/Window/SDL3/SDL3.hpp>
+#include <WindowManager/WindowManager.hpp>
+#include <WindowManager/Providers/SDL3/SDL3.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -85,7 +85,7 @@ namespace SFT::Engine {
     /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
     /// @note Absence is represented by a null pointer rather than an exception.
     /// @note This function does not throw exceptions.
-    Application::ManagedWindow *Application::find_managed_window(Platform::Windowing::WindowId id) noexcept {
+    Application::ManagedWindow *Application::find_managed_window(WindowManager::WindowId id) noexcept {
         for (auto &managed : windows_) {
             if (managed->window_id == id) {
                 return managed.get();
@@ -101,13 +101,13 @@ namespace SFT::Engine {
     /// @param effect Window effect to record.
     ///
     /// @note This function does not throw exceptions.
-    void Application::record_applied_effect(Platform::Windowing::WindowId id,
-                                            Platform::Windowing::WindowEffect effect) noexcept {
+    void Application::record_applied_effect(WindowManager::WindowId id,
+                                            WindowManager::WindowEffect effect) noexcept {
         ManagedWindow *managed = find_managed_window(id);
         if (managed == nullptr) {
             return;
         }
-        for (Platform::Windowing::WindowEffect &existing : managed->applied_effects) {
+        for (WindowManager::WindowEffect &existing : managed->applied_effects) {
             if (existing.kind == effect.kind) {
                 existing = effect;
                 return;
@@ -153,8 +153,8 @@ namespace SFT::Engine {
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool Application::spawn_managed_window(
-        const Platform::Windowing::WindowConfig &config,
-        Platform::Windowing::WindowFactory factory,
+        const WindowManager::WindowConfig &config,
+        WindowManager::WindowFactory factory,
         bool is_primary) {
         using namespace Platform::Windowing;
 
@@ -250,12 +250,12 @@ namespace SFT::Engine {
     /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
     /// @note Normal inability to produce a value is represented by an empty optional.
     optional<Core::RenderSurfaceHandle> Application::spawn_secondary_window(
-        const Platform::Windowing::WindowConfig &config,
-        Platform::Windowing::WindowFactory factory) {
+        const WindowManager::WindowConfig &config,
+        WindowManager::WindowFactory factory) {
         if (!engine_ || !client_->application_config().enable_runtime_window_management) {
             return std::nullopt;
         }
-        const Platform::Windowing::WindowFactory effective_factory =
+        const WindowManager::WindowFactory effective_factory =
             factory != nullptr ? factory : client_->application_config().primary_window_factory;
         if (!spawn_managed_window(config, effective_factory, false)) {
             return std::nullopt;
@@ -277,7 +277,7 @@ namespace SFT::Engine {
     ///       graphics-API/provider change (the actual reason this function exists) would silently
     ///       drop blur/transparency/HDR and revert to plain opaque SDR.
     optional<Core::RenderSurfaceHandle> Application::recreate_primary_window(
-        const Platform::Windowing::WindowConfig &config, Platform::Windowing::WindowFactory factory) {
+        const WindowManager::WindowConfig &config, WindowManager::WindowFactory factory) {
         if (!engine_ || !client_->application_config().enable_runtime_window_management) {
             return std::nullopt;
         }
@@ -299,11 +299,11 @@ namespace SFT::Engine {
         // presentation_settings's doc comment for why this surface's live policy is the source of
         // truth rather than, say, client_->application_config() (which is only ever the *initial*
         // config, not whatever set_presentation_settings() calls have changed it to since).
-        const vector<Platform::Windowing::WindowEffect> effects_to_restore = old_managed->applied_effects;
+        const vector<WindowManager::WindowEffect> effects_to_restore = old_managed->applied_effects;
         const optional<Core::PresentationSettings> presentation_to_restore =
             old_managed->surface ? optional{engine_->presentation_settings(*old_managed->surface)} : std::nullopt;
 
-        const Platform::Windowing::WindowFactory effective_factory =
+        const WindowManager::WindowFactory effective_factory =
             factory != nullptr ? factory : client_->application_config().primary_window_factory;
 
         if (!spawn_managed_window(config, effective_factory, false)) {
@@ -314,7 +314,7 @@ namespace SFT::Engine {
         new_managed->primary = true;
         old_managed->primary = false;
 
-        window_manager_.with_window(new_managed->window_id, [this](Platform::Windowing::Window &window) -> bool {
+        window_manager_.with_window(new_managed->window_id, [this](WindowManager::Window &window) -> bool {
             engine_->set_primary_window(window);
             return true;
         });
@@ -333,8 +333,8 @@ namespace SFT::Engine {
                     applied.error().message);
             }
         }
-        for (const Platform::Windowing::WindowEffect &effect : effects_to_restore) {
-            window_manager_.post_to_window(new_managed->window_id, [effect](Platform::Windowing::Window &w) {
+        for (const WindowManager::WindowEffect &effect : effects_to_restore) {
+            window_manager_.post_to_window(new_managed->window_id, [effect](WindowManager::Window &w) {
                 return w.set_effect(effect);
             });
         }
@@ -354,7 +354,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    void Application::request_close_window(Platform::Windowing::WindowId id) noexcept {
+    void Application::request_close_window(WindowManager::WindowId id) noexcept {
         if (ManagedWindow *managed = find_managed_window(id)) {
             managed->closing = true;
         }
@@ -370,21 +370,21 @@ namespace SFT::Engine {
         }
         for (WindowRequest &request : engine_->window_requests().drain()) {
             if (auto *spawn = std::get_if<SpawnWindowRequest>(&request)) {
-                const Platform::Windowing::WindowConfig config = spawn->window.view();
+                const WindowManager::WindowConfig config = spawn->window.view();
                 const optional<Core::RenderSurfaceHandle> surface = spawn_secondary_window(config, spawn->factory);
                 engine_->window_requests().complete(WindowRequestCompletion{
                     .id = spawn->id,
                     .kind = WindowRequestKind::Spawn,
                     .accepted = surface.has_value(),
                     .surface = surface,
-                    .window = surface ? surface->window_id : Platform::Windowing::WindowId{},
+                    .window = surface ? surface->window_id : WindowManager::WindowId{},
                     .message = surface ? UString{} : UString{"Runtime window management is disabled or window creation failed."},
                 });
                 continue;
             }
 
             if (auto *recreate_primary = std::get_if<RecreatePrimaryWindowRequest>(&request)) {
-                const Platform::Windowing::WindowConfig config = recreate_primary->window.view();
+                const WindowManager::WindowConfig config = recreate_primary->window.view();
                 const optional<Core::RenderSurfaceHandle> surface =
                     recreate_primary_window(config, recreate_primary->factory);
                 engine_->window_requests().complete(WindowRequestCompletion{
@@ -392,7 +392,7 @@ namespace SFT::Engine {
                     .kind = WindowRequestKind::RecreatePrimary,
                     .accepted = surface.has_value(),
                     .surface = surface,
-                    .window = surface ? surface->window_id : Platform::Windowing::WindowId{},
+                    .window = surface ? surface->window_id : WindowManager::WindowId{},
                     .message = surface ? UString{} : UString{"Runtime window management is disabled, there is no current primary window, or window creation failed."},
                 });
                 continue;
@@ -409,21 +409,21 @@ namespace SFT::Engine {
                 if (managed != nullptr) {
                     managed->applied_cursor_icon = cursor->icon;
                 }
-                window_manager_.post_to_window(cursor->window, [icon = cursor->icon](Platform::Windowing::Window &w) {
+                window_manager_.post_to_window(cursor->window, [icon = cursor->icon](WindowManager::Window &w) {
                     return w.set_cursor_icon(icon);
                 });
                 continue;
             }
 
             if (auto *fullscreen = std::get_if<SetFullscreenRequest>(&request)) {
-                window_manager_.post_to_window(fullscreen->window, [mode = fullscreen->mode](Platform::Windowing::Window &w) {
+                window_manager_.post_to_window(fullscreen->window, [mode = fullscreen->mode](WindowManager::Window &w) {
                     return w.set_fullscreen(mode);
                 });
                 continue;
             }
 
             if (auto *decorated = std::get_if<SetDecoratedRequest>(&request)) {
-                window_manager_.post_to_window(decorated->window, [enabled = decorated->decorated](Platform::Windowing::Window &w) {
+                window_manager_.post_to_window(decorated->window, [enabled = decorated->decorated](WindowManager::Window &w) {
                     return w.set_decorated(enabled);
                 });
                 continue;
@@ -431,30 +431,30 @@ namespace SFT::Engine {
 
             if (auto *transparent = std::get_if<SetTransparentRequest>(&request)) {
                 record_applied_effect(transparent->window,
-                                      Platform::Windowing::WindowEffect::transparent(transparent->transparent));
-                window_manager_.post_to_window(transparent->window, [enabled = transparent->transparent](Platform::Windowing::Window &w) {
+                                      WindowManager::WindowEffect::transparent(transparent->transparent));
+                window_manager_.post_to_window(transparent->window, [enabled = transparent->transparent](WindowManager::Window &w) {
                     return w.set_transparent(enabled);
                 });
                 continue;
             }
 
             if (auto *blur = std::get_if<SetBlurRequest>(&request)) {
-                record_applied_effect(blur->window, Platform::Windowing::WindowEffect{blur->kind, blur->enabled});
-                window_manager_.post_to_window(blur->window, [kind = blur->kind, enabled = blur->enabled](Platform::Windowing::Window &w) {
-                    return w.set_effect(Platform::Windowing::WindowEffect{kind, enabled});
+                record_applied_effect(blur->window, WindowManager::WindowEffect{blur->kind, blur->enabled});
+                window_manager_.post_to_window(blur->window, [kind = blur->kind, enabled = blur->enabled](WindowManager::Window &w) {
+                    return w.set_effect(WindowManager::WindowEffect{kind, enabled});
                 });
                 continue;
             }
 
             if (auto *area = std::get_if<SetTextInputAreaRequest>(&request)) {
-                window_manager_.post_to_window(area->window, [value = area->area](Platform::Windowing::Window &w) {
+                window_manager_.post_to_window(area->window, [value = area->area](WindowManager::Window &w) {
                     return w.set_text_input_area(value);
                 });
                 continue;
             }
 
             if (auto *active = std::get_if<SetTextInputActiveRequest>(&request)) {
-                window_manager_.post_to_window(active->window, [enabled = active->active](Platform::Windowing::Window &w) {
+                window_manager_.post_to_window(active->window, [enabled = active->active](WindowManager::Window &w) {
                     return enabled ? w.start_text_input() : w.stop_text_input();
                 });
                 continue;
@@ -499,7 +499,7 @@ namespace SFT::Engine {
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool Application::render_managed_window(ManagedWindow &managed,
-                                             Platform::Windowing::WindowExtent extent,
+                                             WindowManager::WindowExtent extent,
                                              bool resized,
                                              bool coalesce_if_backpressured) {
         if (extent.x == 0 || extent.y == 0 || !managed.surface) {
@@ -592,7 +592,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void Application::sync_window_state(const vector<Platform::Windowing::ManagedWindowEvents> &window_events) {
+    void Application::sync_window_state(const vector<WindowManager::ManagedWindowEvents> &window_events) {
         using namespace Platform::Windowing;
 
         for (const ManagedWindowEvents &events : window_events) {
@@ -607,7 +607,7 @@ namespace SFT::Engine {
             if (events.framebuffer_size && !managed->live_resize_active) {
                 snapshot.framebuffer_size = *events.framebuffer_size;
             }
-            for (const Platform::Windowing::WindowEvent &event : events.events) {
+            for (const WindowManager::WindowEvent &event : events.events) {
                 switch (event.kind) {
                     case WindowEventKind::FocusGained:
                         managed->focused = true;
@@ -764,7 +764,7 @@ namespace SFT::Engine {
             }
 
             for (const ManagedWindowEvents &events : window_events) {
-                for (const Platform::Windowing::WindowEvent &event : events.events) {
+                for (const WindowManager::WindowEvent &event : events.events) {
                     engine_->queue_window_event(events.window_id, event);
                 }
             }

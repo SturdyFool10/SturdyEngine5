@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <cstddef>
 #include <filesystem>
@@ -9,7 +9,7 @@
 #include <type_traits>
 #include <vector>
 
-#include "RenderTarget.hpp"
+#include <Engine/RenderTarget.hpp>
 
 namespace SFT::Engine {
 

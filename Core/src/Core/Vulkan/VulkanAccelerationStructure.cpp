@@ -1,4 +1,4 @@
-#include "VulkanAccelerationStructure.hpp"
+#include <Core/Vulkan/VulkanAccelerationStructure.hpp>
 
 #include <tracy/Tracy.hpp>
 

@@ -4,7 +4,7 @@ include_guard(GLOBAL)
 # shaders_directory's own "Shaders" default). Every *.slang file directly inside it (flat, no
 # subdirectories -- matches how discover_shaders()/ShaderWatcher already assume a flat tree keyed by
 # file stem) gets #embed-ed into the binary at configure time, so a shipped build works with no
-# Shaders/ folder sitting next to the executable at all -- see Core/src/Core/Slang/
+# Shaders/ folder sitting next to the executable at all -- see Core/Slang/
 # EmbeddedShaders.hpp's own doc comment for exactly which code paths fall back to this table and when.
 set(STURDY_SHADERS_DIR "${CMAKE_SOURCE_DIR}/Shaders" CACHE PATH
     "Directory of engine-shipped .slang shader sources to embed into the binary at compile time."
@@ -63,7 +63,7 @@ function(sturdy_generate_shader_embeds)
 #endif
 #include <span>
 #include <string_view>
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Core/Slang/EmbeddedShaders.hpp>
 

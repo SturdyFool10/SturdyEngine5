@@ -1,4 +1,4 @@
-#include "TextAtlas.hpp"
+#include <Renderer/TextAtlas.hpp>
 
 #include <tracy/Tracy.hpp>
 

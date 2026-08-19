@@ -1,5 +1,5 @@
 
-#include "EcsUi.hpp"
+#include <Engine/EcsUi.hpp>
 
 #include <algorithm>
 
@@ -110,7 +110,7 @@ namespace SFT::Engine {
     /// @param focus `focus` value used by the operation.
     ///
     /// @note This function does not throw exceptions.
-    void forward_text_input_state(WindowRequests &requests, Platform::Windowing::WindowId window,
+    void forward_text_input_state(WindowRequests &requests, WindowManager::WindowId window,
                                    std::optional<TextInputFocusInfo> focus) noexcept {
         if (!focus || !focus->ime_enabled) {
             requests.set_text_input_active(window, false);
@@ -120,7 +120,7 @@ namespace SFT::Engine {
         const UI::ElementBounds &caret = focus->caret_bounds;
         requests.set_text_input_area(
             window,
-            Platform::Windowing::TextInputArea{
+            WindowManager::TextInputArea{
                 .x = field.position.x,
                 .y = field.position.y,
 

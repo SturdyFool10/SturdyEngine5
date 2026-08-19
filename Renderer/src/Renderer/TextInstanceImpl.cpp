@@ -1,4 +1,4 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Renderer/ShaderTarget.hpp>
 
@@ -26,7 +26,7 @@
 #include <Renderer/ReflectionBinding.hpp>
 #include <RHI/RHI.hpp>
 #include <Core/Core.hpp>
-#include <Text/Text.hpp>
+#include <Renderer/Text/Text.hpp>
 
 #include <tracy/Tracy.hpp>
 

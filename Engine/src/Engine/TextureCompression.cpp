@@ -1,8 +1,8 @@
-#include "TextureCompression.hpp"
+#include <Engine/TextureCompression.hpp>
 
-#include "AssetManager.hpp"
+#include <Engine/AssetManager.hpp>
 
-#include <Core/src/Core/Decompression.hpp>
+#include <Core/Decompression.hpp>
 
 #include <RHI/RHI.hpp>
 

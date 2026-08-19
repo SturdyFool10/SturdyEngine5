@@ -1,8 +1,8 @@
 #pragma once
 
 #include <Engine/Engine.hpp>
-#include <Text/Text.hpp>
-#include <UI/UI.hpp>
+#include <Renderer/Text/Text.hpp>
+#include <Renderer/UI/UI.hpp>
 
 #include <array>
 #include <memory>
@@ -70,7 +70,7 @@ namespace SFT::UiWorkbench {
         ///
         /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] Surface *find_surface(Platform::Windowing::WindowId window) noexcept;
+        [[nodiscard]] Surface *find_surface(WindowManager::WindowId window) noexcept;
         /// Finds or creates the surface required by the operation.
         ///
         /// @param engine `engine` value used by the operation.
@@ -140,7 +140,7 @@ namespace SFT::UiWorkbench {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void build_color_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
-        /// Builds composition panel.
+        /// Builds settings panel.
         ///
         /// @param engine `engine` value used by the operation.
         /// @param surface Surface used or affected by the operation.
@@ -148,7 +148,7 @@ namespace SFT::UiWorkbench {
         /// @param delta_seconds `delta_seconds` value used by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void build_composition_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds);
+        void build_settings_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds);
         /// Builds text panel.
         ///
         /// @param engine `engine` value used by the operation.
@@ -208,8 +208,8 @@ namespace SFT::UiWorkbench {
         Text::Font cjk_font_{};
         Engine::RenderGraph render_graph_{};
         Engine::DockWindowCoordinator dock_coordinator_{};
-        std::unordered_map<Platform::Windowing::WindowId, std::unique_ptr<Surface>> surfaces_;
-        std::optional<Platform::Windowing::WindowId> primary_window_;
+        std::unordered_map<WindowManager::WindowId, std::unique_ptr<Surface>> surfaces_;
+        std::optional<WindowManager::WindowId> primary_window_;
 
         UI::SliderState exposure_slider_state_{};
         UI::SliderState rotation_slider_state_{};
@@ -256,7 +256,7 @@ namespace SFT::UiWorkbench {
         bool swapchain_transparent_ = false;
 
 
-        std::unordered_set<Platform::Windowing::WindowId> legacy_window_transparency_applied_{};
+        std::unordered_set<WindowManager::WindowId> legacy_window_transparency_applied_{};
         f64 ui_background_opacity_ = 0.78;
         UI::SliderState ui_background_opacity_slider_state_{};
 
@@ -281,7 +281,7 @@ namespace SFT::UiWorkbench {
         UI::DropdownState blur_dropdown_state_{};
 
 
-        std::vector<Platform::Windowing::WindowEffectKind> supported_blur_kinds_;
+        std::vector<WindowManager::WindowEffectKind> supported_blur_kinds_;
 
 
         bool scroll_click_drag_ = false;

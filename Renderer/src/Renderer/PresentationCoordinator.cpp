@@ -1,5 +1,4 @@
-#include <Renderer/src/Renderer/PresentationCoordinator.hpp>
-#include "PresentationCoordinator.hpp"
+#include <Renderer/PresentationCoordinator.hpp>
 
 #include <tracy/Tracy.hpp>
 

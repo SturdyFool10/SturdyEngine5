@@ -13,11 +13,11 @@
 #pragma GCC diagnostic pop
 #endif
 
-#include "GltfImport.hpp"
+#include <Engine/GltfImport.hpp>
 
-#include "AssetManager.hpp"
-#include "ImageDecode.hpp"
-#include "TextureCompression.hpp"
+#include <Engine/AssetManager.hpp>
+#include <Engine/ImageDecode.hpp>
+#include <Engine/TextureCompression.hpp>
 
 #include <Renderer/Mesh.hpp>
 

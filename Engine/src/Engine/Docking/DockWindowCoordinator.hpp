@@ -1,9 +1,9 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Engine/WindowRequests.hpp>
-#include <UI/Docking/Docking.hpp>
+#include <Renderer/UI/Docking/Docking.hpp>
 
 #include <functional>
 #include <optional>
@@ -38,7 +38,7 @@ namespace SFT::Engine {
         ///
         /// @return Returns the boolean result of the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        bool register_workspace(Platform::Windowing::WindowId window, DockWorkspace &workspace,
+        bool register_workspace(WindowManager::WindowId window, DockWorkspace &workspace,
                                 bool primary = false, bool close_when_empty = true);
 
         /// Unregisters workspace using the supplied arguments and current state.
@@ -46,7 +46,7 @@ namespace SFT::Engine {
         /// @param window Window used or affected by the operation.
         ///
         /// @note This function does not throw exceptions.
-        void unregister_workspace(Platform::Windowing::WindowId window) noexcept;
+        void unregister_workspace(WindowManager::WindowId window) noexcept;
 
         /// Performs the workspace operation for `DockWindowCoordinator` using the supplied arguments.
         ///
@@ -54,7 +54,7 @@ namespace SFT::Engine {
         ///
         /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] DockWorkspace *workspace(Platform::Windowing::WindowId window) const noexcept;
+        [[nodiscard]] DockWorkspace *workspace(WindowManager::WindowId window) const noexcept;
 
 
         /// Performs the transfer panel operation for `DockWindowCoordinator` using the supplied arguments.
@@ -65,8 +65,8 @@ namespace SFT::Engine {
         /// @param placement `placement` value used by the operation.
         ///
         /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
-        bool transfer_panel(Platform::Windowing::WindowId origin_window,
-                            Platform::Windowing::WindowId target_window,
+        bool transfer_panel(WindowManager::WindowId origin_window,
+                            WindowManager::WindowId target_window,
                             const DockPanelId &panel,
                             std::optional<DockPlacement> placement = std::nullopt);
 
@@ -82,11 +82,11 @@ namespace SFT::Engine {
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] WindowRequestId request_tear_off(
-            Platform::Windowing::WindowId origin_window,
+            WindowManager::WindowId origin_window,
             const UI::Docking::DockTearOffRequest &request,
-            const Platform::Windowing::WindowConfig &window_config,
+            const WindowManager::WindowConfig &window_config,
             WindowRequests &window_requests,
-            Platform::Windowing::WindowFactory factory = nullptr);
+            WindowManager::WindowFactory factory = nullptr);
 
 
         /// Resolves completion into the concrete value used by the engine.
@@ -115,13 +115,13 @@ namespace SFT::Engine {
 
       private:
         struct PendingSpawn {
-            Platform::Windowing::WindowId origin_window{};
+            WindowManager::WindowId origin_window{};
             DockPanelId panel;
         };
 
-        std::unordered_map<Platform::Windowing::WindowId, WorkspaceRegistration> workspaces_;
+        std::unordered_map<WindowManager::WindowId, WorkspaceRegistration> workspaces_;
         std::unordered_map<u64, PendingSpawn> pending_spawns_;
-        std::unordered_map<Platform::Windowing::WindowId, WindowRequestId> close_requests_;
+        std::unordered_map<WindowManager::WindowId, WindowRequestId> close_requests_;
     };
 
 } // namespace SFT::Engine

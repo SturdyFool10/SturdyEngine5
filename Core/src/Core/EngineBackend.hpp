@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 #include <RHI/Threading.hpp>
 
 #pragma region Imports
@@ -10,11 +10,11 @@
 #include <utility>
 #pragma endregion
 
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 #include <RHI/RHI.hpp>
-#include "GraphicsBackendError.hpp"
-#include "Renderer.hpp"
-#include "RenderSurface.hpp"
+#include <Core/GraphicsBackendError.hpp>
+#include <Core/Renderer.hpp>
+#include <Core/RenderSurface.hpp>
 
 using std::derived_from;
 using std::optional;
@@ -85,7 +85,7 @@ namespace SFT::Core {
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         virtual RendererExpected<RenderSurfaceHandle> create_window_surface(
-            Platform::Windowing::Window &window,
+            WindowManager::Window &window,
             u32 desired_frames_in_flight = 2) = 0;
 
 

@@ -1,4 +1,4 @@
-#include <Renderer/src/Renderer/Culling.hpp>
+#include <Renderer/Culling.hpp>
 
 
 namespace SFT::Renderer {

@@ -2,7 +2,7 @@
   {
     "label": "Compile Engine (Debug)",
     "command": "cmake",
-    "args": ["-DSTURDY_TARGET=EngineComponents", "-DSTURDY_PROFILE=Debug", "-P", "cmake/IDEBuild.cmake"],
+    "args": ["-DSTURDY_TARGET=Engine", "-DSTURDY_PROFILE=Debug", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -13,7 +13,7 @@
   {
     "label": "Compile Engine (RelWithDebInfo)",
     "command": "cmake",
-    "args": ["-DSTURDY_TARGET=EngineComponents", "-DSTURDY_PROFILE=RelWithDebInfo", "-P", "cmake/IDEBuild.cmake"],
+    "args": ["-DSTURDY_TARGET=Engine", "-DSTURDY_PROFILE=RelWithDebInfo", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -24,7 +24,7 @@
   {
     "label": "Compile Engine (Release)",
     "command": "cmake",
-    "args": ["-DSTURDY_TARGET=EngineComponents", "-DSTURDY_PROFILE=Release", "-P", "cmake/IDEBuild.cmake"],
+    "args": ["-DSTURDY_TARGET=Engine", "-DSTURDY_PROFILE=Release", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",
@@ -35,7 +35,7 @@
   {
     "label": "Compile Engine (Dist)",
     "command": "cmake",
-    "args": ["-DSTURDY_TARGET=EngineComponents", "-DSTURDY_PROFILE=Dist", "-P", "cmake/IDEBuild.cmake"],
+    "args": ["-DSTURDY_TARGET=Engine", "-DSTURDY_PROFILE=Dist", "-P", "cmake/IDEBuild.cmake"],
     "cwd": "$ZED_WORKTREE_ROOT",
     "reveal": "always",
     "hide": "never",

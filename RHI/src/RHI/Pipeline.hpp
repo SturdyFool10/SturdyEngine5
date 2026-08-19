@@ -1,17 +1,17 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <span>
 #include <type_traits>
 #pragma endregion
 
-#include "Flags.hpp"
-#include "Types.hpp"
-#include "Handles.hpp"
-#include "Shader.hpp"
-#include "Resources.hpp" // CompareOp
+#include <RHI/Flags.hpp>
+#include <RHI/Types.hpp>
+#include <RHI/Handles.hpp>
+#include <RHI/Shader.hpp>
+#include <RHI/Resources.hpp> // CompareOp
 
 using std::span;
 

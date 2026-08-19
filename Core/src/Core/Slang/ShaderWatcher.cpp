@@ -1,4 +1,4 @@
-#include "ShaderWatcher.hpp"
+#include <Core/Slang/ShaderWatcher.hpp>
 
 namespace SFT::Core::Slang {
 

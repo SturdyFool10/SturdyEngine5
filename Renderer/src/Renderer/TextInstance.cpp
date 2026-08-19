@@ -1,4 +1,4 @@
-#include <Renderer/src/Renderer/TextInstance.hpp>
+#include <Renderer/TextInstance.hpp>
 
 
 namespace SFT::Renderer {

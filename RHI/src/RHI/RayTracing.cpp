@@ -1,4 +1,4 @@
-#include <RHI/src/RHI/RayTracing.hpp>
+#include <RHI/RayTracing.hpp>
 
 
 namespace SFT::RHI {

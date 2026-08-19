@@ -260,23 +260,15 @@ function(sturdy_add_package package_name)
 
     target_include_directories("${package_name}"
             PUBLIC
-                "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
-                "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>"
-                # Some packages colocate headers and .cpp under src/<Package>/... instead of the
-                # separate Include/<Package>/... tree (both conventions currently coexist across
-                # the codebase) - add it too so #include <Package/Foo.hpp> resolves either way.
                 "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
                 "$<INSTALL_INTERFACE:include>"
             PRIVATE
                 "${CMAKE_CURRENT_SOURCE_DIR}"
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source"
         )
   else()
     add_library("${package_name}" INTERFACE)
     target_include_directories("${package_name}"
             INTERFACE
-                "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
-                "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Include>"
                 "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
                 "$<INSTALL_INTERFACE:include>"
         )

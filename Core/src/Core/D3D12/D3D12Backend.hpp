@@ -33,7 +33,7 @@ namespace SFT::Core::D3D12 {
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         RendererExpected<RenderSurfaceHandle> create_window_surface(
-            Platform::Windowing::Window &window,
+            WindowManager::Window &window,
             u32 desired_frames_in_flight = 2) override;
         /// Destroys the window surface identified by the supplied parameters.
         ///
@@ -100,7 +100,7 @@ namespace SFT::Core::D3D12 {
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] RendererExpected<RenderSurfaceHandle> create_surface(
-            Platform::Windowing::Window &window);
+            WindowManager::Window &window);
         /// Destroys the resources identified by the supplied parameters.
         ///
         /// @note This function does not throw exceptions.
@@ -114,7 +114,7 @@ namespace SFT::Core::D3D12 {
 
         RendererCapabilities capabilities_{};
         optional<RHI::AdapterInfo> adapter_info_{};
-        std::unordered_map<Platform::Windowing::WindowId, RHI::SurfaceHandle> surfaces_;
+        std::unordered_map<WindowManager::WindowId, RHI::SurfaceHandle> surfaces_;
         std::unique_ptr<RHI::RhiInstance> instance_;
         std::unique_ptr<RHI::RhiDevice> device_;
         bool initialized_ = false;

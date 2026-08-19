@@ -1,17 +1,17 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <span>
 #include <type_traits>
 #pragma endregion
 
-#include "Flags.hpp"
-#include "Handles.hpp"
-#include "Queues.hpp"
-#include "Barrier.hpp"
-#include "Swapchain.hpp"
+#include <RHI/Flags.hpp>
+#include <RHI/Handles.hpp>
+#include <RHI/Queues.hpp>
+#include <RHI/Barrier.hpp>
+#include <RHI/Swapchain.hpp>
 
 using std::span;
 

@@ -1,4 +1,4 @@
-#include "EngineModule.hpp"
+#include <Engine/EngineModule.hpp>
 
 namespace SFT::Engine {
 
@@ -45,8 +45,8 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void Engine::queue_window_event(Platform::Windowing::WindowId window,
-                                    const Platform::Windowing::WindowEvent &event) {
+    void Engine::queue_window_event(WindowManager::WindowId window,
+                                    const WindowManager::WindowEvent &event) {
         platform_event_inbox_.push(window, event);
     }
 
@@ -186,7 +186,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
     /// @note This function does not throw exceptions.
-    [[nodiscard]] Platform::Windowing::Window *Engine::primary_window() noexcept { return primary_window_; }
+    [[nodiscard]] WindowManager::Window *Engine::primary_window() noexcept { return primary_window_; }
 
     /// Sets the primary window for this `Engine`.
     ///
@@ -194,7 +194,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    void Engine::set_primary_window(Platform::Windowing::Window &window) noexcept { primary_window_ = &window; }
+    void Engine::set_primary_window(WindowManager::Window &window) noexcept { primary_window_ = &window; }
 
     /// Returns the current or globally available shaders value.
     ///

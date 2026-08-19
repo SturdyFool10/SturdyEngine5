@@ -1,4 +1,4 @@
-#include "Spline.hpp"
+#include <Renderer/Spline.hpp>
 
 namespace SFT::Renderer {
 

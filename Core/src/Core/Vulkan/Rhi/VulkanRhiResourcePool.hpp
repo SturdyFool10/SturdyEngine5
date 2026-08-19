@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <atomic>
@@ -8,7 +8,7 @@
 #include <utility>
 #pragma endregion
 
-#include <Async/src/Mutex.hpp>
+#include <Async/Mutex.hpp>
 
 namespace SFT::Core::Vulkan {
 

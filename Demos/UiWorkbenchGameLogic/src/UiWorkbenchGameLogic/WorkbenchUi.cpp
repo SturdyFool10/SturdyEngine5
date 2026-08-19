@@ -1,7 +1,8 @@
-#include <Demos/UiWorkbenchGameLogic/src/UiWorkbenchGameLogic/WorkbenchUi.hpp>
 #include <UiWorkbenchGameLogic/WorkbenchUi.hpp>
 
-#include <Platform/Window/GLFW/GLFW.hpp>
+#if defined(STURDY_UI_WORKBENCH_HAS_GLFW)
+#include <WindowManager/Providers/GLFW/GLFW.hpp>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -46,31 +47,31 @@ namespace SFT::UiWorkbench {
         ///
         /// @return Returns the value converted to platform cursor icon representation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] Platform::Windowing::CursorIcon to_platform_cursor_icon(UI::CursorIcon icon) {
+        [[nodiscard]] WindowManager::CursorIcon to_platform_cursor_icon(UI::CursorIcon icon) {
             switch (icon) {
                 case UI::CursorIcon::Auto:
                 case UI::CursorIcon::Default:
-                    return Platform::Windowing::CursorIcon::Default;
+                    return WindowManager::CursorIcon::Default;
                 case UI::CursorIcon::Pointer:
-                    return Platform::Windowing::CursorIcon::Pointer;
+                    return WindowManager::CursorIcon::Pointer;
                 case UI::CursorIcon::Text:
-                    return Platform::Windowing::CursorIcon::Text;
+                    return WindowManager::CursorIcon::Text;
                 case UI::CursorIcon::Grab:
-                    return Platform::Windowing::CursorIcon::Grab;
+                    return WindowManager::CursorIcon::Grab;
                 case UI::CursorIcon::Grabbing:
-                    return Platform::Windowing::CursorIcon::Grabbing;
+                    return WindowManager::CursorIcon::Grabbing;
                 case UI::CursorIcon::ResizeHorizontal:
-                    return Platform::Windowing::CursorIcon::ResizeHorizontal;
+                    return WindowManager::CursorIcon::ResizeHorizontal;
                 case UI::CursorIcon::ResizeVertical:
-                    return Platform::Windowing::CursorIcon::ResizeVertical;
+                    return WindowManager::CursorIcon::ResizeVertical;
                 case UI::CursorIcon::ResizeNwse:
-                    return Platform::Windowing::CursorIcon::ResizeNwse;
+                    return WindowManager::CursorIcon::ResizeNwse;
                 case UI::CursorIcon::ResizeNesw:
-                    return Platform::Windowing::CursorIcon::ResizeNesw;
+                    return WindowManager::CursorIcon::ResizeNesw;
                 case UI::CursorIcon::NotAllowed:
-                    return Platform::Windowing::CursorIcon::NotAllowed;
+                    return WindowManager::CursorIcon::NotAllowed;
             }
-            return Platform::Windowing::CursorIcon::Default;
+            return WindowManager::CursorIcon::Default;
         }
 
 
@@ -351,7 +352,7 @@ namespace SFT::UiWorkbench {
 
         UI::ScrollAreaState controls_scroll{};
         UI::ScrollAreaState color_scroll{};
-        UI::ScrollAreaState composition_scroll{};
+        UI::ScrollAreaState settings_scroll{};
         UI::ScrollAreaState text_scroll{};
         UI::ScrollAreaState docking_scroll{};
         UI::ScrollAreaState metrics_scroll{};
@@ -435,15 +436,15 @@ namespace SFT::UiWorkbench {
                                                "Plain paragraphs render as body text."});
 
 
-        static constexpr std::array<Platform::Windowing::WindowEffectKind, 5> candidate_blur_kinds{
-            Platform::Windowing::WindowEffectKind::Blur,
-            Platform::Windowing::WindowEffectKind::Acrylic,
-            Platform::Windowing::WindowEffectKind::Mica,
-            Platform::Windowing::WindowEffectKind::MicaAlt,
-            Platform::Windowing::WindowEffectKind::Tabbed,
+        static constexpr std::array<WindowManager::WindowEffectKind, 5> candidate_blur_kinds{
+            WindowManager::WindowEffectKind::Blur,
+            WindowManager::WindowEffectKind::Acrylic,
+            WindowManager::WindowEffectKind::Mica,
+            WindowManager::WindowEffectKind::MicaAlt,
+            WindowManager::WindowEffectKind::Tabbed,
         };
-        for (Platform::Windowing::WindowEffectKind kind : candidate_blur_kinds) {
-            if (Platform::Windowing::operating_system_may_support_window_effect(kind)) {
+        for (WindowManager::WindowEffectKind kind : candidate_blur_kinds) {
+            if (WindowManager::operating_system_may_support_window_effect(kind)) {
                 supported_blur_kinds_.push_back(kind);
             }
         }
@@ -459,7 +460,7 @@ namespace SFT::UiWorkbench {
     /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
     /// @note This function does not throw exceptions.
     WorkbenchUi::Surface *WorkbenchUi::find_surface(
-        Platform::Windowing::WindowId window) noexcept {
+        WindowManager::WindowId window) noexcept {
         const auto found = surfaces_.find(window);
         return found != surfaces_.end() ? found->second.get() : nullptr;
     }
@@ -521,40 +522,19 @@ namespace SFT::UiWorkbench {
         dock_coordinator_.register_workspace(handle.window_id, result->workspace, primary, !primary);
 
         if (primary) {
+            // Seed every workbench panel into the same leaf so the initial state is one tab strip.
             (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
-                .id = UString{"composition"},
-                .title = UString{"Composition"},
-                .closable = true});
+                .id = UString{"settings"}, .title = UString{"Settings"}, .closable = true});
             (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
-                .id = UString{"controls"},
-                .title = UString{"Slider Lab"},
-                .closable = true});
-            const UI::Docking::DockNodeId controls_leaf = *result->workspace.focused_leaf();
-            (void)result->workspace.add_panel(
-                UI::Docking::DockPanelDesc{
-                    .id = UString{"color"},
-                    .title = UString{"Color Studio"},
-                    .closable = true},
-                UI::Docking::DockPlacement{
-                    .target_node = controls_leaf,
-                    .zone = UI::Docking::DockDropZone::Right});
-            const UI::Docking::DockNodeId color_leaf = *result->workspace.focused_leaf();
-            (void)result->workspace.add_panel(
-                UI::Docking::DockPanelDesc{
-                    .id = UString{"docking"},
-                    .title = UString{"Docking Guide"},
-                    .closable = false},
-                UI::Docking::DockPlacement{
-                    .target_node = color_leaf,
-                    .zone = UI::Docking::DockDropZone::Bottom});
+                .id = UString{"controls"}, .title = UString{"Slider Lab"}, .closable = true});
             (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
-                .id = UString{"text"},
-                .title = UString{"Text Lab"},
-                .closable = true});
+                .id = UString{"color"}, .title = UString{"Color Studio"}, .closable = true});
             (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
-                .id = UString{"metrics"},
-                .title = UString{"Performance"},
-                .closable = true});
+                .id = UString{"docking"}, .title = UString{"Docking Guide"}, .closable = false});
+            (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
+                .id = UString{"text"}, .title = UString{"Text Lab"}, .closable = true});
+            (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
+                .id = UString{"metrics"}, .title = UString{"Performance"}, .closable = true});
         }
         return result;
     }
@@ -634,7 +614,7 @@ namespace SFT::UiWorkbench {
                     }
                 }
                 for (const Engine::MouseButtonEvent &event : buttons.read()) {
-                    if (event.mouse.button_code != Platform::Windowing::MouseButton::Left) {
+                    if (event.mouse.button_code != WindowManager::MouseButton::Left) {
                         continue;
                     }
                     if (Surface *surface = find_surface(event.window)) {
@@ -658,8 +638,8 @@ namespace SFT::UiWorkbench {
                     }
                 }
                 for (const Engine::WindowStateEvent &event : window_events.read()) {
-                    if (event.kind == Platform::Windowing::WindowEventKind::FocusLost ||
-                        event.kind == Platform::Windowing::WindowEventKind::MouseLeft) {
+                    if (event.kind == WindowManager::WindowEventKind::FocusLost ||
+                        event.kind == WindowManager::WindowEventKind::MouseLeft) {
                         if (Surface *surface = find_surface(event.window)) {
                             surface->pointer.cancelled = surface->pointer.down;
                             surface->pointer.down = false;
@@ -961,6 +941,11 @@ namespace SFT::UiWorkbench {
 
         const glm::vec2 workspace_size{std::max(viewport.x - 36.0f, 1.0f),
                                        std::max(viewport.y - 72.0f, 1.0f)};
+        surface.context.set_scroll_settings(UI::ScrollSettings{
+            .click_and_drag_scroll = scroll_click_drag_,
+            .smooth_scrolling = scroll_smooth_,
+            .smoothing_rate = static_cast<f32>(scroll_smoothing_rate_),
+        });
         surface.workspace.set_content_background(
             background_with_opacity(canvas, effective_background_opacity()));
         surface.workspace.begin_frame(
@@ -979,9 +964,9 @@ namespace SFT::UiWorkbench {
                 build_color_panel(surface, ctx, delta_seconds);
             });
         }
-        if (auto decl = surface.workspace.panel_content_region(UString{"composition"})) {
-            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.composition_scroll, delta_seconds, [&](UI::Context &ctx) {
-                build_composition_panel(engine, surface, ctx, delta_seconds);
+        if (auto decl = surface.workspace.panel_content_region(UString{"settings"})) {
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.settings_scroll, delta_seconds, [&](UI::Context &ctx) {
+                build_settings_panel(engine, surface, ctx, delta_seconds);
             });
         }
         if (auto decl = surface.workspace.panel_content_region(UString{"text"})) {
@@ -1308,7 +1293,7 @@ namespace SFT::UiWorkbench {
         }
     }
 
-    /// Builds composition panel.
+    /// Builds settings panel.
     ///
     /// @param engine `engine` value used by the operation.
     /// @param surface Surface used or affected by the operation.
@@ -1317,15 +1302,15 @@ namespace SFT::UiWorkbench {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void WorkbenchUi::build_composition_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds) {
+    void WorkbenchUi::build_settings_panel(Engine::Engine &engine, Surface &surface, UI::Context &ctx, f32 delta_seconds) {
         auto body = ctx.element(UI::ElementDecl{
             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
             .padding = UI::Padding::all(22),
             .child_gap = 15,
             .direction = UI::LayoutDirection::TopToBottom,
-            .id = UString{"workbench-composition-body"},
+            .id = UString{"workbench-settings-body"},
         });
-        panel_heading(ctx, font_id_, "PART SLOTS", "Composition", "Enable, disable, hide or replace widget internals without forking interaction logic.");
+        panel_heading(ctx, font_id_, "SETTINGS", "Settings", "Graphics, window, scrolling, and widget-composition controls for the workbench.");
 
         const auto apply_presentation_config = [&](const Engine::EngineConfig &config) {
             Surface *primary_surface = primary_window_ ? find_surface(*primary_window_) : nullptr;
@@ -1481,7 +1466,11 @@ namespace SFT::UiWorkbench {
             window_type_dropdown_style.arrow_font_id = font_id_;
 
             section_label(ctx, font_id_, "Window Type");
+#if defined(STURDY_UI_WORKBENCH_HAS_GLFW)
             static constexpr std::array<const char *, 2> window_type_labels = {"SDL3", "GLFW"};
+#else
+            static constexpr std::array<const char *, 1> window_type_labels = {"SDL3"};
+#endif
             std::vector<UI::DropdownOption> window_type_options;
             for (const char *label : window_type_labels) {
                 window_type_options.push_back({.build = [label](UI::Context &option_ctx) {
@@ -1518,7 +1507,7 @@ namespace SFT::UiWorkbench {
                 if (primary_snapshot == nullptr) {
                     status_message_ = "Cannot recreate the primary window: no live window snapshot yet.";
                 } else {
-                    const Platform::Windowing::WindowConfig config{
+                    const WindowManager::WindowConfig config{
                         .title = "Sturdy UI Workbench",
                         .extent = primary_snapshot->size,
                         .position = primary_snapshot->position,
@@ -1532,14 +1521,18 @@ namespace SFT::UiWorkbench {
                         // not silently switch on. Presentation settings (HDR/transparent-composition)
                         // and any active blur effect survive recreation on their own now
                         // (Application::recreate_primary_window() carries a window's current
-                        // Core::PresentationSettings and Platform::Windowing::WindowEffects forward
+                        // Core::PresentationSettings and WindowManager::WindowEffects forward
                         // onto its replacement), so nothing else needs reapplying here.
                         .transparent = swapchain_transparent_,
-                        .mode = Platform::Windowing::WindowMode::Windowed,
-                        .graphics_api = Platform::Windowing::WindowGraphicsApi::Vulkan,
+                        .mode = WindowManager::WindowMode::Windowed,
+                        .graphics_api = WindowManager::WindowGraphicsApi::Vulkan,
                     };
-                    const Platform::Windowing::WindowFactory factory =
-                        selected_window_type_index_ == 1 ? &Platform::Windowing::GLFW::create_window : nullptr;
+                    WindowManager::WindowFactory factory = nullptr;
+#if defined(STURDY_UI_WORKBENCH_HAS_GLFW)
+                    if (selected_window_type_index_ == 1) {
+                        factory = &WindowManager::GLFW::create_window;
+                    }
+#endif
                     (void)engine.window_requests().recreate_primary_window(config, factory);
                     status_message_ = "Requesting primary window recreation...";
                 }
@@ -1740,8 +1733,8 @@ namespace SFT::UiWorkbench {
         });
 
 
-        if (Platform::Windowing::operating_system_may_support_window_effect(
-                Platform::Windowing::WindowEffectKind::Transparent)) {
+        if (WindowManager::operating_system_may_support_window_effect(
+                WindowManager::WindowEffectKind::Transparent)) {
             for (const auto &[window, other_surface] : surfaces_) {
                 const bool wants_legacy_effect =
                     swapchain_transparent_ &&
@@ -1835,7 +1828,7 @@ namespace SFT::UiWorkbench {
                 selected_fullscreen_mode_index_ = fullscreen_result.selected_index;
                 engine.window_requests().set_fullscreen(
                     surface.handle.window_id,
-                    static_cast<Platform::Windowing::WindowMode>(selected_fullscreen_mode_index_));
+                    static_cast<WindowManager::WindowMode>(selected_fullscreen_mode_index_));
             }
         }
         toggle_row(7, "Window decorated", "Disable to remove the OS title bar/border", window_decorated_, [&] {
@@ -1848,10 +1841,10 @@ namespace SFT::UiWorkbench {
         } else {
             std::vector<UI::DropdownOption> blur_options;
             blur_options.reserve(supported_blur_kinds_.size());
-            for (Platform::Windowing::WindowEffectKind kind : supported_blur_kinds_) {
+            for (WindowManager::WindowEffectKind kind : supported_blur_kinds_) {
                 blur_options.push_back(dropdown_option(
                     font_id_,
-                    Platform::Windowing::window_effect_kind_name(kind).data(),
+                    WindowManager::window_effect_kind_name(kind).data(),
                     accent));
             }
 
@@ -1974,6 +1967,82 @@ namespace SFT::UiWorkbench {
             composition);
         selected_preset_ = dropdown_result.selected_index;
 
+        section_label(ctx, font_id_, "SCROLLING");
+
+        const auto scroll_toggle_row = [&](usize index, const char *label, const char *description, bool &value) {
+            auto row = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+                .padding = UI::Padding::all(12),
+                .child_gap = 12,
+                .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                .background_color = background_with_opacity(panel, effective_background_opacity()),
+                .corner_radius = UI::CornerRadius::all(11.0f),
+                .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
+            });
+            {
+                auto copy = ctx.element(UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+                    .child_gap = 3,
+                    .direction = UI::LayoutDirection::TopToBottom,
+                });
+                draw_text(ctx, label, text_style(font_id_, text_primary, 13));
+                draw_text(ctx, description, text_style(font_id_, text_secondary, 10));
+            }
+            const UI::ToggleResult result = UI::switch_toggle(
+                ctx,
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
+                    .id = UString{"workbench-scroll-toggle-" + std::to_string(index)},
+                },
+                toggle_style(),
+                toggle_states_[index],
+                delta_seconds,
+                value);
+            if (result.clicked) {
+                value = !value;
+            }
+        };
+
+        scroll_toggle_row(6, "Click-and-drag scroll", "Off by default — dragging this body's content no longer competes with widget drags.", scroll_click_drag_);
+        scroll_toggle_row(7, "Smooth wheel scrolling", "Eases wheel deltas across frames instead of snapping the offset instantly.", scroll_smooth_);
+
+        {
+            auto row = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+                .padding = UI::Padding::all(12),
+                .child_gap = 10,
+                .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                .background_color = background_with_opacity(panel, effective_background_opacity()),
+                .corner_radius = UI::CornerRadius::all(11.0f),
+                .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
+            });
+            draw_text(ctx, "Smoothing rate", text_style(font_id_, text_primary, 13));
+            const UI::SliderConfig rate_config{.min = 2.0, .max = 60.0, .step = 1.0};
+            UI::SliderStyle rate_style{
+                .track = UI::Color{0.115, 0.130, 0.180, 1.0},
+                .fill = accent,
+                .thumb = text_primary,
+                .thumb_hovered = UI::Color{1.0, 1.0, 1.0, 1.0},
+                .thumb_dragging = accent_hot,
+                .track_thickness = 6.0f,
+                .thumb_size = 16.0f,
+                .focused_border = UI::BorderStyle{},
+            };
+            const UI::SliderResult rate_result = UI::slider(
+                ctx,
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(28.0f)},
+                    .id = UString{"workbench-scroll-smoothing-rate"},
+                },
+                rate_config,
+                rate_style,
+                scroll_smoothing_rate_state_,
+                scroll_smoothing_rate_,
+                UI::SliderInput{},
+                scroll_smooth_);
+            scroll_smoothing_rate_ = rate_result.value;
+        }
+
         const UI::ButtonResult reset = UI::button(
             ctx,
             UI::ElementDecl{
@@ -1985,7 +2054,7 @@ namespace SFT::UiWorkbench {
             action_button_style(),
             reset_button_state_,
             delta_seconds);
-        draw_text(ctx, "Reset composition", text_style(font_id_, text_primary, 12));
+        draw_text(ctx, "Reset widget composition", text_style(font_id_, text_primary, 12));
         if (reset.clicked) {
             slider_enabled_ = true;
             show_slider_markers_ = true;
@@ -2015,7 +2084,7 @@ namespace SFT::UiWorkbench {
         });
         panel_heading(ctx, font_id_, "TEXT INPUT", "Text Lab", "One-line, masked, and multiline markdown editing on the shared TextEdit engine.");
 
-        Platform::Windowing::Window *clipboard_window = engine.primary_window();
+        WindowManager::Window *clipboard_window = engine.primary_window();
         const UI::TextEditInput edit_input = surface.text_input.frame_input(
             [clipboard_window]() { return clipboard_window != nullptr ? UString{clipboard_window->clipboard_text()} : UString{}; },
             [clipboard_window](const UString &text) {
@@ -2300,87 +2369,7 @@ namespace SFT::UiWorkbench {
             draw_text(ctx, status_message_, text_style(font_id_, text_primary, 11));
         }
 
-        section_label(ctx, font_id_, "SCROLLING");
 
-        const auto scroll_toggle_row = [&](usize index, const char *label, const char *description, bool &value) {
-            auto row = ctx.element(UI::ElementDecl{
-                .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
-                .padding = UI::Padding::all(12),
-                .child_gap = 12,
-                .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
-                .background_color = background_with_opacity(panel, effective_background_opacity()),
-                .corner_radius = UI::CornerRadius::all(11.0f),
-                .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
-            });
-            {
-                auto copy = ctx.element(UI::ElementDecl{
-                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
-                    .child_gap = 3,
-                    .direction = UI::LayoutDirection::TopToBottom,
-                });
-                draw_text(ctx, label, text_style(font_id_, text_primary, 13));
-                draw_text(ctx, description, text_style(font_id_, text_secondary, 10));
-            }
-            const UI::ToggleResult result = UI::switch_toggle(
-                ctx,
-                UI::ElementDecl{
-                    .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
-                    .id = UString{"workbench-scroll-toggle-" + std::to_string(index)},
-                },
-                toggle_style(),
-                toggle_states_[index],
-                delta_seconds,
-                value);
-            if (result.clicked) {
-                value = !value;
-            }
-        };
-
-        scroll_toggle_row(6, "Click-and-drag scroll", "Off by default — dragging this body's content no longer competes with widget drags.", scroll_click_drag_);
-        scroll_toggle_row(7, "Smooth wheel scrolling", "Eases wheel deltas across frames instead of snapping the offset instantly.", scroll_smooth_);
-
-        {
-            auto row = ctx.element(UI::ElementDecl{
-                .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
-                .padding = UI::Padding::all(12),
-                .child_gap = 10,
-                .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
-                .background_color = background_with_opacity(panel, effective_background_opacity()),
-                .corner_radius = UI::CornerRadius::all(11.0f),
-                .border = UI::BorderStyle{.color = outline, .width = UI::BorderWidth::all(1)},
-            });
-            draw_text(ctx, "Smoothing rate", text_style(font_id_, text_primary, 13));
-            const UI::SliderConfig rate_config{.min = 2.0, .max = 60.0, .step = 1.0};
-            UI::SliderStyle rate_style{
-                .track = UI::Color{0.115, 0.130, 0.180, 1.0},
-                .fill = accent,
-                .thumb = text_primary,
-                .thumb_hovered = UI::Color{1.0, 1.0, 1.0, 1.0},
-                .thumb_dragging = accent_hot,
-                .track_thickness = 6.0f,
-                .thumb_size = 16.0f,
-                .focused_border = UI::BorderStyle{},
-            };
-            const UI::SliderResult rate_result = UI::slider(
-                ctx,
-                UI::ElementDecl{
-                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(28.0f)},
-                    .id = UString{"workbench-scroll-smoothing-rate"},
-                },
-                rate_config,
-                rate_style,
-                scroll_smoothing_rate_state_,
-                scroll_smoothing_rate_,
-                UI::SliderInput{},
-                scroll_smooth_);
-            scroll_smoothing_rate_ = rate_result.value;
-        }
-
-        ctx.set_scroll_settings(UI::ScrollSettings{
-            .click_and_drag_scroll = scroll_click_drag_,
-            .smooth_scrolling = scroll_smooth_,
-            .smoothing_rate = static_cast<f32>(scroll_smoothing_rate_),
-        });
     }
 
     /// Builds metrics panel.
@@ -2451,7 +2440,7 @@ namespace SFT::UiWorkbench {
                                                           ? logical_size / framebuffer_size
                                                           : glm::vec2{1.0f};
                 const glm::vec2 global_drop = glm::vec2{origin_window->position} + physical_local * physical_to_logical;
-                std::optional<Platform::Windowing::WindowId> redock_target;
+                std::optional<WindowManager::WindowId> redock_target;
                 for (const Engine::WindowSnapshot &candidate : engine.window_state().windows()) {
                     if (candidate.id == surface.handle.window_id) {
                         continue;
@@ -2471,7 +2460,7 @@ namespace SFT::UiWorkbench {
                 }
             }
 
-            const Platform::Windowing::WindowConfig config{
+            const WindowManager::WindowConfig config{
                 .title = "Sturdy UI — Detached Panel",
                 .extent = {720, 620},
                 .position = {0, 0},
@@ -2481,8 +2470,8 @@ namespace SFT::UiWorkbench {
                 .decorated = true,
                 .high_dpi = true,
                 .transparent = true,
-                .mode = Platform::Windowing::WindowMode::Windowed,
-                .graphics_api = Platform::Windowing::WindowGraphicsApi::Vulkan,
+                .mode = WindowManager::WindowMode::Windowed,
+                .graphics_api = WindowManager::WindowGraphicsApi::Vulkan,
             };
             const Engine::WindowRequestId request_id = dock_coordinator_.request_tear_off(
                 surface.handle.window_id,

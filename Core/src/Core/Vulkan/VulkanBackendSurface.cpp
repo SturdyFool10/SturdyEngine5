@@ -13,7 +13,7 @@
 #include <ranges>
 #pragma endregion
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Core/Vulkan/VulkanBackend.hpp>
 #include <Core/Vulkan/VulkanConstants.hpp>
@@ -24,12 +24,12 @@
 #include <Core/GraphicsBackendError.hpp>
 #include <Core/Renderer.hpp>
 #include <Core/RenderSurface.hpp>
-#include <Platform/Platform.hpp>
+#include <WindowManager/WindowManager.hpp>
 
 #include <tracy/Tracy.hpp>
 
-using SFT::Platform::Windowing::Window;
-using SFT::Platform::Windowing::WindowId;
+using SFT::WindowManager::Window;
+using SFT::WindowManager::WindowId;
 using std::bad_alloc;
 using std::format;
 using std::unexpected;

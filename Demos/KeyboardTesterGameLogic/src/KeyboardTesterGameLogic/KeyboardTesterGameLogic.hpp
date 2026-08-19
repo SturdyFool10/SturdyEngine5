@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Engine.hpp>
-#include <Ecs/src/Resource.hpp>
+#include <Ecs/Resource.hpp>
 
 #include <memory>
 #include <optional>

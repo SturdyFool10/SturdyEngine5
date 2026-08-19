@@ -1,4 +1,4 @@
-#include <Engine/src/Engine/Docking/DockWindowCoordinator.hpp>
+#include <Engine/Docking/DockWindowCoordinator.hpp>
 
 
 namespace SFT::Engine {
@@ -12,7 +12,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    bool DockWindowCoordinator::register_workspace(Platform::Windowing::WindowId window, DockWorkspace &workspace,
+    bool DockWindowCoordinator::register_workspace(WindowManager::WindowId window, DockWorkspace &workspace,
                             bool primary, bool close_when_empty) {
         return workspaces_.insert_or_assign(window, WorkspaceRegistration{&workspace, primary, close_when_empty})
             .second;
@@ -24,7 +24,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    void DockWindowCoordinator::unregister_workspace(Platform::Windowing::WindowId window) noexcept {
+    void DockWindowCoordinator::unregister_workspace(WindowManager::WindowId window) noexcept {
         workspaces_.erase(window);
         close_requests_.erase(window);
     }
@@ -35,7 +35,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
     /// @note This function does not throw exceptions.
-    DockWindowCoordinator::DockWorkspace *DockWindowCoordinator::workspace(Platform::Windowing::WindowId window) const noexcept {
+    DockWindowCoordinator::DockWorkspace *DockWindowCoordinator::workspace(WindowManager::WindowId window) const noexcept {
         const auto found = workspaces_.find(window);
         return found != workspaces_.end() ? found->second.workspace : nullptr;
     }
@@ -48,8 +48,8 @@ namespace SFT::Engine {
     /// @param placement `placement` value used by the operation.
     ///
     /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
-    bool DockWindowCoordinator::transfer_panel(Platform::Windowing::WindowId origin_window,
-                        Platform::Windowing::WindowId target_window,
+    bool DockWindowCoordinator::transfer_panel(WindowManager::WindowId origin_window,
+                        WindowManager::WindowId target_window,
                         const DockPanelId &panel,
                         std::optional<DockPlacement> placement) {
         DockWorkspace *origin = workspace(origin_window);
@@ -76,11 +76,11 @@ namespace SFT::Engine {
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     WindowRequestId DockWindowCoordinator::request_tear_off(
-        Platform::Windowing::WindowId origin_window,
+        WindowManager::WindowId origin_window,
         const UI::Docking::DockTearOffRequest &request,
-        const Platform::Windowing::WindowConfig &window_config,
+        const WindowManager::WindowConfig &window_config,
         WindowRequests &window_requests,
-        Platform::Windowing::WindowFactory factory) {
+        WindowManager::WindowFactory factory) {
         DockWorkspace *origin = workspace(origin_window);
         if (origin == nullptr || origin->panel_desc(request.panel) == nullptr) {
             return {};

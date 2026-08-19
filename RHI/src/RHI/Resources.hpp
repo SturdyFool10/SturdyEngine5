@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <optional>
@@ -8,10 +8,10 @@
 #include <type_traits>
 #pragma endregion
 
-#include "Flags.hpp"
-#include "Types.hpp"
-#include "Handles.hpp"
-#include "Queues.hpp"
+#include <RHI/Flags.hpp>
+#include <RHI/Types.hpp>
+#include <RHI/Handles.hpp>
+#include <RHI/Queues.hpp>
 
 using std::optional;
 using std::span;

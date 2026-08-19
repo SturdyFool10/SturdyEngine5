@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <cstddef>
@@ -10,8 +10,8 @@
 
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
-#include "Handles.hpp"
-#include "ReflectionBinding.hpp"
+#include <Renderer/Handles.hpp>
+#include <Renderer/ReflectionBinding.hpp>
 
 using std::string;
 using std::vector;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <chrono>
@@ -18,25 +18,25 @@
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
-#include <Async/src/Async.hpp>
+#include <Async/Async.hpp>
 #pragma endregion
 
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
-#include <Platform/Platform.hpp>
-#include <Text/Text.hpp>
-#include "Culling.hpp"
-#include "Mesh.hpp"
-#include "Material.hpp"
-#include "Scene.hpp"
-#include "ReflectionBinding.hpp"
-#include "Resources.hpp"
-#include "RenderGraph.hpp"
-#include "RenderGraphModule.hpp"
-#include "TileGrid.hpp"
-#include "TextAtlas.hpp"
-#include "TextInstance.hpp"
-#include "PresentationCoordinator.hpp"
+#include <WindowManager/WindowManager.hpp>
+#include <Renderer/Text/Text.hpp>
+#include <Renderer/Culling.hpp>
+#include <Renderer/Mesh.hpp>
+#include <Renderer/Material.hpp>
+#include <Renderer/Scene.hpp>
+#include <Renderer/ReflectionBinding.hpp>
+#include <Renderer/Resources.hpp>
+#include <Renderer/RenderGraph.hpp>
+#include <Renderer/RenderGraphModule.hpp>
+#include <Renderer/TileGrid.hpp>
+#include <Renderer/TextAtlas.hpp>
+#include <Renderer/TextInstance.hpp>
+#include <Renderer/PresentationCoordinator.hpp>
 
 using std::chrono::steady_clock;
 using std::optional;
@@ -95,7 +95,7 @@ namespace SFT::Renderer {
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<Core::RenderSurfaceHandle> create_window_surface(
-            Platform::Windowing::Window &window,
+            WindowManager::Window &window,
             u32 desired_frames_in_flight = 2);
 
         /// Destroys the window surface identified by the supplied parameters.
@@ -883,7 +883,7 @@ namespace SFT::Renderer {
         };
 
         struct WindowSurfaceRecord {
-            Platform::Windowing::Window *window = nullptr;
+            WindowManager::Window *window = nullptr;
             Core::RenderSurfaceHandle surface{};
             RHI::SurfaceHandle rhi_surface{};
             RHI::SwapchainHandle rhi_swapchain{};

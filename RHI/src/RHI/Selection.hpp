@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -15,13 +15,13 @@
 #include <vector>
 #pragma endregion
 
-#include "Error.hpp"
-#include "Flags.hpp"
-#include "Features.hpp"
-#include "Extensions.hpp"
-#include "Device.hpp"
-#include "Adapter.hpp"
-#include "Backend.hpp"
+#include <RHI/Error.hpp>
+#include <RHI/Flags.hpp>
+#include <RHI/Features.hpp>
+#include <RHI/Extensions.hpp>
+#include <RHI/Device.hpp>
+#include <RHI/Adapter.hpp>
+#include <RHI/Backend.hpp>
 
 using std::optional;
 using std::span;

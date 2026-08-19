@@ -1,4 +1,4 @@
-#include <Engine/src/Engine/GameLogic.hpp>
+#include <Engine/GameLogic.hpp>
 
 
 namespace SFT::Engine {

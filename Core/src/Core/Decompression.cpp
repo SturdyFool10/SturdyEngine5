@@ -1,6 +1,6 @@
-#include "Decompression.hpp"
+#include <Core/Decompression.hpp>
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 
 #include <GDeflate.h>

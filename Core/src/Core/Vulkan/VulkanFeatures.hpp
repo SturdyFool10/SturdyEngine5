@@ -8,7 +8,7 @@
 #include <span>
 #include <string_view>
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 using std::array;
 using std::span;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <cstddef>
@@ -9,22 +9,22 @@
 #include <string>
 #pragma endregion
 
-#include "Binding.hpp"
-#include "Command.hpp"
-#include "Error.hpp"
-#include "Execution.hpp"
-#include "Extensions.hpp"
-#include "Features.hpp"
-#include "Handles.hpp"
-#include "HdrDisplay.hpp"
-#include "Pipeline.hpp"
-#include "Queries.hpp"
-#include "Queues.hpp"
-#include "RayTracing.hpp"
-#include "Resources.hpp"
-#include "Shader.hpp"
-#include "Swapchain.hpp"
-#include "Types.hpp"
+#include <RHI/Binding.hpp>
+#include <RHI/Command.hpp>
+#include <RHI/Error.hpp>
+#include <RHI/Execution.hpp>
+#include <RHI/Extensions.hpp>
+#include <RHI/Features.hpp>
+#include <RHI/Handles.hpp>
+#include <RHI/HdrDisplay.hpp>
+#include <RHI/Pipeline.hpp>
+#include <RHI/Queries.hpp>
+#include <RHI/Queues.hpp>
+#include <RHI/RayTracing.hpp>
+#include <RHI/Resources.hpp>
+#include <RHI/Shader.hpp>
+#include <RHI/Swapchain.hpp>
+#include <RHI/Types.hpp>
 
 using std::span;
 using std::string;

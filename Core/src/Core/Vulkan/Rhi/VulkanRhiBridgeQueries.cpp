@@ -6,7 +6,7 @@
 #include <utility>
 #pragma endregion
 
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #include <Core/Vulkan/VulkanDevice.hpp>
 #include <Core/Vulkan/VulkanQueryPool.hpp>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset.hpp"
+#include <Engine/Asset.hpp>
 
 #include <Renderer/Handles.hpp>
 #include <Renderer/Mesh.hpp>

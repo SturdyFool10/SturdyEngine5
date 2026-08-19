@@ -1,4 +1,4 @@
-#include <Foundation/src/Foundation.hpp>
+#include <Foundation/Foundation.hpp>
 
 #pragma region Imports
 #include <algorithm>
@@ -7,7 +7,7 @@
 #include <span>
 #include <vector>
 #include <glm/vec4.hpp>
-#include <Async/src/Async.hpp>
+#include <Async/Async.hpp>
 #pragma endregion
 
 #include <Renderer/RendererModule.hpp>

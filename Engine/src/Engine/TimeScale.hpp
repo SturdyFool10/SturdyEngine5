@@ -1,7 +1,7 @@
 #pragma once
 
-#include <Ecs/src/Resource.hpp>
-#include <Foundation/src/Foundation.hpp>
+#include <Ecs/Resource.hpp>
+#include <Foundation/Foundation.hpp>
 
 namespace SFT::Engine {
 

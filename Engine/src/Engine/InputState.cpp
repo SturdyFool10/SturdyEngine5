@@ -1,4 +1,4 @@
-#include <Engine/src/Engine/InputState.hpp>
+#include <Engine/InputState.hpp>
 
 
 namespace SFT::Engine {
@@ -97,7 +97,7 @@ namespace SFT::Engine {
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
     void InputState::apply(const MouseButtonEvent &event) noexcept {
-        if (event.mouse.button_code == Platform::Windowing::MouseButton::Unknown) {
+        if (event.mouse.button_code == WindowManager::MouseButton::Unknown) {
             return;
         }
         const usize index = static_cast<usize>(event.mouse.button_code);
@@ -154,8 +154,8 @@ namespace SFT::Engine {
     ///
     /// @return Returns the current modifiers value.
     /// @note This function does not throw exceptions.
-    Platform::Windowing::KeyModifiers InputState::modifiers() const noexcept {
-        using Platform::Windowing::KeyModifiers;
+    WindowManager::KeyModifiers InputState::modifiers() const noexcept {
+        using WindowManager::KeyModifiers;
         KeyModifiers mods = KeyModifiers::None;
         if (key_down(KeyboardKey::LeftShift) || key_down(KeyboardKey::RightShift)) {
             mods |= KeyModifiers::Shift;
@@ -202,7 +202,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    bool InputState::mouse_down(Platform::Windowing::MouseButton button) const noexcept {
+    bool InputState::mouse_down(WindowManager::MouseButton button) const noexcept {
         return get(mouse_pressed_, button);
     }
 
@@ -212,7 +212,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    bool InputState::mouse_just_pressed(Platform::Windowing::MouseButton button) const noexcept {
+    bool InputState::mouse_just_pressed(WindowManager::MouseButton button) const noexcept {
         return get(mouse_just_pressed_, button);
     }
 
@@ -222,7 +222,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    bool InputState::mouse_just_released(Platform::Windowing::MouseButton button) const noexcept {
+    bool InputState::mouse_just_released(WindowManager::MouseButton button) const noexcept {
         return get(mouse_just_released_, button);
     }
 
@@ -281,7 +281,7 @@ namespace SFT::Engine {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    bool InputState::get(const std::vector<bool> &bits, Platform::Windowing::MouseButton button) noexcept {
+    bool InputState::get(const std::vector<bool> &bits, WindowManager::MouseButton button) noexcept {
         const usize index = static_cast<usize>(button);
         return index < bits.size() && bits[index];
     }

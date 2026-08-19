@@ -1,8 +1,8 @@
-#include <Foundation/src/Cpu/CpuId.hpp>
-#include <Foundation/src/Cpu/CpuTopology.hpp>
-#include <Foundation/src/Cpu/SimdMath.hpp>
-#include <Foundation/src/Math.hpp>
-#include <Foundation/src/Wide.hpp>
+#include <Foundation/Cpu/CpuId.hpp>
+#include <Foundation/Cpu/CpuTopology.hpp>
+#include <Foundation/Cpu/SimdMath.hpp>
+#include <Foundation/Math.hpp>
+#include <Foundation/Wide.hpp>
 
 #include <cmath>
 #include <cstdlib>
