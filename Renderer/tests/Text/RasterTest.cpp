@@ -5,8 +5,14 @@
 #include <cassert>
 
 namespace {
-using namespace SFT;
-using namespace SFT::Text;
+using SFT::Text::Contour;
+using SFT::Text::GlyphOutline;
+using SFT::Text::OutlineSegment;
+using SFT::Text::OutlineSegmentKind;
+using SFT::Text::RasterFormat;
+using SFT::Text::RasterParams;
+using SFT::Text::RasterizedGlyph;
+using SFT::Text::rasterize_glyph;
 
 
 /// Creates a square contour value from the supplied arguments.

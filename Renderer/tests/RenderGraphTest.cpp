@@ -5,6 +5,20 @@
 
 namespace {
 
+    using SFT::Renderer::RenderGraph;
+    using SFT::Renderer::RenderGraphBlackboard;
+    using SFT::Renderer::RenderGraphBufferAccessDesc;
+    using SFT::Renderer::RenderGraphBufferHandle;
+    using SFT::Renderer::RenderGraphColorAttachmentDesc;
+    using SFT::Renderer::RenderGraphCompileErrorCode;
+    using SFT::Renderer::RenderGraphCopyDesc;
+    using SFT::Renderer::RenderGraphImportedBufferDesc;
+    using SFT::Renderer::RenderGraphImportedTextureDesc;
+    using SFT::Renderer::RenderGraphSampledTextureReadDesc;
+    using SFT::Renderer::RenderGraphStorageTextureAccessDesc;
+    using SFT::Renderer::RenderGraphTextureDesc;
+    using SFT::Renderer::RenderGraphTextureHandle;
+
     /// Checks the supplied condition and reports the accompanying diagnostic message when it is false.
     ///
     /// @param condition Condition controlling whether the operation proceeds.
@@ -36,7 +50,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool semantic_blackboard_is_typed_and_reusable() {
-        using namespace SFT::Renderer;
 
         RenderGraphBlackboard blackboard;
         const RenderGraphTextureHandle first{3};
@@ -67,7 +80,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool explicit_outputs_control_liveness() {
-        using namespace SFT::Renderer;
 
         RenderGraph graph;
         const RenderGraphTextureHandle unused_cache = graph.import_texture(RenderGraphImportedTextureDesc{
@@ -112,7 +124,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool invalid_buffer_ranges_and_access_intent_are_rejected() {
-        using namespace SFT::Renderer;
 
         const auto compile_invalid_access = [](RenderGraphBufferAccessDesc access) {
             RenderGraph graph;
@@ -156,7 +167,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool imported_buffers_drive_dependencies_and_liveness() {
-        using namespace SFT::Renderer;
 
         RenderGraph graph;
         const RenderGraphBufferHandle culled_instances = graph.import_buffer(RenderGraphImportedBufferDesc{
@@ -211,7 +221,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool compute_copy_branches_and_copy_compatibility_are_validated() {
-        using namespace SFT::Renderer;
 
         const auto build_branch = [](bool mark_output) {
             RenderGraph graph;
@@ -287,7 +296,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool transient_chain_contributes_to_compile_levels() {
-        using namespace SFT::Renderer;
 
         RenderGraph graph;
         const RenderGraphTextureHandle first = graph.create_texture(RenderGraphTextureDesc{

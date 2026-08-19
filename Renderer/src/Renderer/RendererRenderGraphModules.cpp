@@ -40,7 +40,10 @@ namespace SFT::Renderer {
         FrameSubmission &submission,
         RHI::SampleCount samples) {
         ZoneScopedN("Renderer::build_deferred_msaa_module");
-        using namespace RenderGraphSemantics;
+        using RenderGraphSemantics::RasterVisibilityDepth;
+        using RenderGraphSemantics::ResolvedSceneDepth;
+        using RenderGraphSemantics::ReusableSceneHdrScratch;
+        using RenderGraphSemantics::SceneHdrColor;
 
         const RenderGraphTextureHandle scene_color = context.resources.texture<SceneHdrColor>();
         const RenderGraphTextureHandle resolved_depth = context.resources.texture<ResolvedSceneDepth>();
@@ -125,7 +128,8 @@ namespace SFT::Renderer {
         RenderGraphModuleBuildContext &context,
         FrameSubmission &submission) {
         ZoneScopedN("Renderer::build_post_process_aa_module");
-        using namespace RenderGraphSemantics;
+        using RenderGraphSemantics::ReusableSceneHdrScratch;
+        using RenderGraphSemantics::SceneHdrColor;
 
         if (submission.render_graph.post_process_aa == 0) {
             return {};
@@ -203,7 +207,8 @@ namespace SFT::Renderer {
         PostProcessStage stage,
         span<RenderGraphTextureHandle> logical_textures) {
         ZoneScopedN("Renderer::build_custom_graph_stage");
-        using namespace RenderGraphSemantics;
+        using RenderGraphSemantics::ReusableSceneHdrScratch;
+        using RenderGraphSemantics::SceneHdrColor;
 
         RenderGraphTextureHandle source = context.resources.texture<SceneHdrColor>();
         if (!source) {
@@ -405,7 +410,8 @@ namespace SFT::Renderer {
         bool enabled,
         RHI::Format bloom_format) {
         ZoneScopedN("Renderer::build_bloom_module");
-        using namespace RenderGraphSemantics;
+        using RenderGraphSemantics::ReusableSceneHdrScratch;
+        using RenderGraphSemantics::SceneHdrColor;
 
         if (!enabled) {
             return {};
@@ -633,7 +639,8 @@ namespace SFT::Renderer {
         bool hdr_output,
         Core::HdrColorSpaceMode hdr_color_space) {
         ZoneScopedN("Renderer::build_tonemap_module");
-        using namespace RenderGraphSemantics;
+        using RenderGraphSemantics::PresentationTarget;
+        using RenderGraphSemantics::SceneHdrColor;
 
         const RenderGraphTextureHandle source = context.resources.texture<SceneHdrColor>();
         const RenderGraphTextureHandle destination = context.resources.texture<PresentationTarget>();

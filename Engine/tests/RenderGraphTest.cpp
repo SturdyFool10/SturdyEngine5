@@ -6,6 +6,23 @@
 
 namespace {
 
+    using SFT::Engine::ComputeEffectDescription;
+    using SFT::Engine::CopyDescription;
+    using SFT::Engine::FullscreenEffectDescription;
+    using SFT::Engine::RenderGraph;
+    using SFT::Engine::RenderGraphErrorCode;
+    using SFT::Engine::RenderGraphPassHandle;
+    using SFT::Engine::RenderGraphPassKind;
+    using SFT::Engine::RenderGraphResult;
+    using SFT::Engine::RenderGraphTextureFormat;
+    using SFT::Engine::RenderGraphTextureHandle;
+    using SFT::Engine::RenderTargetHandle;
+    using SFT::Engine::SceneIntegrator;
+    using SFT::Renderer::SpectralIntegratorPolicy;
+    using SFT::Renderer::SpectralRenderMode;
+    using SFT::Renderer::spectral_integrator_policy;
+    namespace RenderModules = SFT::Engine::RenderModules;
+
     /// Checks the supplied condition and reports the accompanying diagnostic message when it is false.
     ///
     /// @param condition Condition controlling whether the operation proceeds.
@@ -68,7 +85,6 @@ namespace {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] SFT::Engine::RenderGraphTextureHandle build(
             SFT::Engine::RenderGraph &graph) const {
-            using namespace SFT::Engine;
             RenderGraphTextureHandle output = graph.add_fullscreen_effect(
                 input,
                 FullscreenEffectDescription{
@@ -94,7 +110,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool application_module_can_declare_safe_passes() {
-        using namespace SFT::Engine;
 
         RenderGraph graph = RenderGraph::empty();
         RenderGraphTextureHandle color = graph.compose(RenderModules::DeferredScene{});
@@ -118,7 +133,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool branches_are_valid_and_presentation_lowering_is_reachable_only() {
-        using namespace SFT::Engine;
 
         RenderGraph graph = RenderGraph::empty();
         RenderGraphTextureHandle color = graph.compose(RenderModules::DeferredScene{});
@@ -170,7 +184,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool fullscreen_modules_compose_by_dataflow() {
-        using namespace SFT::Engine;
 
         RenderGraph graph = RenderGraph::empty();
         RenderGraphTextureHandle color = graph.compose(RenderModules::DeferredScene{});
@@ -218,7 +231,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool explicit_compute_copy_outputs_control_execution() {
-        using namespace SFT::Engine;
 
         RenderGraph graph = RenderGraph::empty();
         RenderGraphTextureHandle color = graph.compose(RenderModules::DeferredScene{});
@@ -278,7 +290,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool offscreen_target_survives_graph_copies_without_rebasing() {
-        using namespace SFT::Engine;
 
         constexpr RenderTargetHandle target{.value = 0x1020304050607080ull};
         RenderGraph source = RenderGraph::empty();
@@ -316,7 +327,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool copied_graphs_rebase_graph_local_handles() {
-        using namespace SFT::Engine;
 
         const RenderGraph source = RenderGraph::standard();
         RenderGraph copy = source;
@@ -345,7 +355,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool spectral_integrator_contracts_are_explicit() {
-        using namespace SFT::Renderer;
         const SpectralIntegratorPolicy shadow = spectral_integrator_policy(SpectralRenderMode::ShadowOnly);
         const SpectralIntegratorPolicy reflection = spectral_integrator_policy(SpectralRenderMode::ReflectionOnly);
         const SpectralIntegratorPolicy ao = spectral_integrator_policy(SpectralRenderMode::AmbientOcclusionOnly);
@@ -371,7 +380,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool spectral_settings_validate_and_normalize() {
-        using namespace SFT::Engine;
         RenderGraph graph = RenderGraph::standard();
         graph.scene().integrator = SceneIntegrator::FullPathTracing;
         graph.scene().wavelength_min_nm = 780.0f;
@@ -396,7 +404,6 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool invalid_graph_normalizes_to_safe_standard() {
-        using namespace SFT::Engine;
 
         constexpr RenderTargetHandle target{.value = 77};
         RenderGraph graph = RenderGraph::empty();

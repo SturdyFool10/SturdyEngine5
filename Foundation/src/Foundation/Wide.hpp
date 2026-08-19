@@ -1748,7 +1748,11 @@ namespace SFT::Foundation {
         /// @return Returns the boolean result of the operation.
         /// @note This function does not throw exceptions.
         [[nodiscard]] consteval bool wide_literal_smoke_test() noexcept {
-            using namespace SFT::Foundation::Literals;
+            using SFT::Foundation::Literals::operator""_f128;
+            using SFT::Foundation::Literals::operator""_f256;
+            using SFT::Foundation::Literals::operator""_i128;
+            using SFT::Foundation::Literals::operator""_u128;
+            using SFT::Foundation::Literals::operator""_u256;
             if (static_cast<u64>(255_u128) != 255u || static_cast<u64>(0xFF_u128) != 255u)
                 return false;
             if (static_cast<u64>(1'000_u128) != 1000u)

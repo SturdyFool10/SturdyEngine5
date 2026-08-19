@@ -35,6 +35,10 @@ message(STATUS "WindowManager built-in window provider: SDL3")
 sturdy_add_package(WindowManager
     EXCLUDE_SOURCE_DIRS
         tests
+        # This subtree is a separate optional package/target. sturdy_add_package() recursively
+        # globs the package directory, so without this exclusion its implementation sources are
+        # accidentally compiled into the base WindowManager target as well.
+        Providers/GLFW
         ${_sturdy_window_manager_excluded_source_dirs}
 
     PUBLIC_DEPS
@@ -146,6 +150,16 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT _sturdy_window_manager_eff
     add_test(NAME WindowManagerHighRateInputTest COMMAND WindowManagerHighRateInputTest)
     set_tests_properties(WindowManagerHighRateInputTest PROPERTIES TIMEOUT 30)
 endif()
+
+get_target_property(_sturdy_window_manager_sources WindowManager SOURCES)
+foreach(_sturdy_window_manager_source IN LISTS _sturdy_window_manager_sources)
+    file(TO_CMAKE_PATH "${_sturdy_window_manager_source}" _sturdy_window_manager_source_normalized)
+    if(_sturdy_window_manager_source_normalized MATCHES "(^|/)Providers/GLFW(/|$)")
+        message(FATAL_ERROR
+            "Base WindowManager must not compile optional GLFW provider source: "
+            "${_sturdy_window_manager_source}")
+    endif()
+endforeach()
 
 get_target_property(_sturdy_window_manager_link_interface WindowManager INTERFACE_LINK_LIBRARIES)
 foreach(_sturdy_window_manager_dependency IN LISTS _sturdy_window_manager_link_interface)

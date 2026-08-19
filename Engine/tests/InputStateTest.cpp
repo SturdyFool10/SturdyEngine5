@@ -10,8 +10,17 @@
 /// @pre `!input.key_just_released(KeyboardKey::Space)`; debug builds assert if this precondition is violated.
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
-    using namespace SFT::Engine;
-    using namespace SFT::WindowManager;
+    using SFT::Engine::ButtonAction;
+    using SFT::Engine::InputState;
+    using SFT::Engine::KeyboardEvent;
+    using SFT::Engine::MouseButtonEvent;
+    using SFT::Engine::MouseMoveEvent;
+    using SFT::Engine::TextEditingEvent;
+    using SFT::Engine::TextInputEvent;
+    using SFT::WindowManager::KeyModifiers;
+    using SFT::WindowManager::KeyboardKey;
+    using SFT::WindowManager::MouseButton;
+    using SFT::WindowManager::has_modifier;
 
     InputState input;
 

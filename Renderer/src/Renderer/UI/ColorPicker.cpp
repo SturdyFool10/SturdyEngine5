@@ -99,7 +99,20 @@ namespace SFT::UI {
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
     array<f64, 4> color_picker_component_values(const ColorPickerValue &value) noexcept {
-        using namespace Foundation::Color;
+        using Foundation::Color::AdobeRgb;
+        using Foundation::Color::DisplayP3;
+        using Foundation::Color::Hsl;
+        using Foundation::Color::Hsv;
+        using Foundation::Color::Hwb;
+        using Foundation::Color::Lab;
+        using Foundation::Color::Lch;
+        using Foundation::Color::Linear;
+        using Foundation::Color::Luv;
+        using Foundation::Color::Oklab;
+        using Foundation::Color::Oklch;
+        using Foundation::Color::Rec2020;
+        using Foundation::Color::Srgb;
+        using Foundation::Color::Xyz;
         return std::visit(
             [](const auto &typed) -> array<f64, 4> {
                 using T = std::decay_t<decltype(typed)>;
@@ -1473,7 +1486,21 @@ namespace SFT::UI::Detail {
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
     Color color_from_components(ColorPickerColorSpace color_space, f64 c0, f64 c1, f64 c2, f64 alpha) noexcept {
-        using namespace Foundation::Color;
+        using Foundation::Color::AdobeRgb;
+        using Foundation::Color::DisplayP3;
+        using Foundation::Color::Hsl;
+        using Foundation::Color::Hsv;
+        using Foundation::Color::Hwb;
+        using Foundation::Color::Lab;
+        using Foundation::Color::Lch;
+        using Foundation::Color::Linear;
+        using Foundation::Color::Luv;
+        using Foundation::Color::Oklab;
+        using Foundation::Color::Oklch;
+        using Foundation::Color::Rec2020;
+        using Foundation::Color::Srgb;
+        using Foundation::Color::Xyz;
+        using Foundation::Color::convert_to;
         switch (color_space) {
             case ColorPickerColorSpace::Srgb:
                 return Color{c0, c1, c2, alpha};

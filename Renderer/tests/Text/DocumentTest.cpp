@@ -9,8 +9,26 @@
 #include <utility>
 
 namespace {
-using namespace SFT;
-using namespace SFT::Text;
+using SFT::Text::AnchorBias;
+using SFT::Text::AnchorRange;
+using SFT::Text::Bias;
+using SFT::Text::ByteOffset;
+using SFT::Text::CharClass;
+using SFT::Text::Document;
+using SFT::Text::DocumentError;
+using SFT::Text::DocumentMemoryStats;
+using SFT::Text::DocumentSnapshot;
+using SFT::Text::EditKind;
+using SFT::Text::EditTransaction;
+using SFT::Text::IndentKind;
+using SFT::Text::IndentStyle;
+using SFT::Text::LineEnding;
+using SFT::Text::LineIndent;
+using SFT::Text::LongestLine;
+using SFT::Text::TextPoint;
+using SFT::Text::TextRange;
+using SFT::Text::TextSlice;
+using SFT::Text::Utf16Point;
 
 /// Performs the coordinates and snapshots operation using the supplied arguments.
 ///

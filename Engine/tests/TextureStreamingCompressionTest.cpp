@@ -20,8 +20,12 @@
 /// @pre `srgb_mips->data.size() == checker.size() + 4`; debug builds assert if this precondition is violated.
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
-    using namespace SFT;
-
+    namespace Core = SFT::Core;
+    namespace Engine = SFT::Engine;
+    namespace RHI = SFT::RHI;
+    using SFT::u8;
+    using SFT::u32;
+    using SFT::usize;
 
     std::vector<std::byte> source(64 * 1024);
     for (usize i = 0; i < source.size(); ++i) {

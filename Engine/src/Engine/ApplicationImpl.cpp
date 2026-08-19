@@ -156,11 +156,16 @@ namespace SFT::Engine {
         const WindowManager::WindowConfig &config,
         WindowManager::WindowFactory factory,
         bool is_primary) {
-        using namespace Platform::Windowing;
+        using WindowManager::Window;
+        using WindowManager::WindowError;
+        using WindowManager::WindowExtent;
+        using WindowManager::WindowId;
+        using WindowManager::window_error_code_name;
+        using SDL3Window = WindowManager::SDL3::SDL3Window;
 
         expected<WindowId, WindowError> id = factory != nullptr
             ? window_manager_.spawn_window(config, factory)
-            : window_manager_.spawn_window<SDL3::SDL3Window>(config);
+            : window_manager_.spawn_window<SDL3Window>(config);
         if (!id) {
             Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
                 .code = "engine.window.spawn",
@@ -593,7 +598,9 @@ namespace SFT::Engine {
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Application::sync_window_state(const vector<WindowManager::ManagedWindowEvents> &window_events) {
-        using namespace Platform::Windowing;
+        using WindowManager::ManagedWindowEvents;
+        using WindowManager::WindowEventKind;
+        using WindowManager::WindowId;
 
         for (const ManagedWindowEvents &events : window_events) {
             ManagedWindow *managed = find_managed_window(events.window_id);
@@ -658,8 +665,6 @@ namespace SFT::Engine {
     /// @return Returns the current initialize value.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool Application::initialize() {
-        using namespace Platform::Windowing;
-
         const Foundation::Stopwatch stopwatch;
         client_initialized_ = false;
         client_shutdown_ = false;
@@ -731,7 +736,10 @@ namespace SFT::Engine {
     /// @return Returns the current run value.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Application::run() {
-        using namespace Platform::Windowing;
+        using WindowManager::ManagedWindowEvents;
+        using WindowManager::WindowEventKind;
+        using WindowManager::WindowExtent;
+        using WindowManager::window_error_code_name;
 
         if (windows_.empty() || !engine_) {
             return;

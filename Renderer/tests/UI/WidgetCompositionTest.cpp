@@ -16,6 +16,48 @@
 
 namespace {
 
+    using SFT::UI::BorderStyle;
+    using SFT::UI::BorderWidth;
+    using SFT::UI::Color;
+    using SFT::UI::ColorPickerComposition;
+    using SFT::UI::ColorPickerConfig;
+    using SFT::UI::ColorPickerInput;
+    using SFT::UI::ColorPickerPartContext;
+    using SFT::UI::ColorPickerResult;
+    using SFT::UI::ColorPickerState;
+    using SFT::UI::ColorPickerStyle;
+    using SFT::UI::ColorPickerVisualPart;
+    using SFT::UI::Context;
+    using SFT::UI::CornerRadius;
+    using SFT::UI::DropdownComposition;
+    using SFT::UI::DropdownOption;
+    using SFT::UI::DropdownPartContext;
+    using SFT::UI::DropdownResult;
+    using SFT::UI::DropdownState;
+    using SFT::UI::DropdownStyle;
+    using SFT::UI::DropdownVisualPart;
+    using SFT::UI::ElementDecl;
+    using SFT::UI::PartVisualState;
+    using SFT::UI::PartVisualStyle;
+    using SFT::UI::PointerState;
+    using SFT::UI::SizingAxis;
+    using SFT::UI::SliderComposition;
+    using SFT::UI::SliderConfig;
+    using SFT::UI::SliderInput;
+    using SFT::UI::SliderPartContext;
+    using SFT::UI::SliderResult;
+    using SFT::UI::SliderState;
+    using SFT::UI::SliderStyle;
+    using SFT::UI::SliderTick;
+    using SFT::UI::SliderVisualPart;
+    using SFT::UI::apply_part_visual;
+    using SFT::UI::color_picker;
+    using SFT::UI::color_picker_part_id;
+    using SFT::UI::dropdown;
+    using SFT::UI::dropdown_part_id;
+    using SFT::UI::slider;
+    using SFT::UI::slider_part_id;
+
     SFT::UI::Context make_context() {
         auto created = SFT::UI::Context::create(SFT::UI::Context::Config{});
         assert(created.has_value());
@@ -27,7 +69,6 @@ namespace {
     }
 
     void visual_patches_compose_in_documented_order() {
-        using namespace SFT::UI;
         const Color generated{0.1, 0.2, 0.3, 1.0};
         const Color selected{0.2, 0.3, 0.4, 1.0};
         const Color hovered{0.3, 0.4, 0.5, 1.0};
@@ -58,7 +99,6 @@ namespace {
     }
 
     void legacy_overloads_remain_callable() {
-        using namespace SFT::UI;
         Context context = make_context();
         SliderState slider_state;
         DropdownState dropdown_state;
@@ -100,7 +140,6 @@ namespace {
     }
 
     void slider_parts_have_stable_ids_hooks_and_builders() {
-        using namespace SFT::UI;
         Context context = make_context();
         SliderState state;
         const std::array ticks{SliderTick{.value = 25.0}};
@@ -171,7 +210,6 @@ namespace {
     }
 
     void slider_track_can_be_disabled_without_hiding_it() {
-        using namespace SFT::UI;
         Context context = make_context();
         SliderState state;
         SliderComposition composition;
@@ -202,7 +240,6 @@ namespace {
     }
 
     void color_picker_parts_can_be_replaced_hidden_and_labeled() {
-        using namespace SFT::UI;
         Context context = make_context();
         ColorPickerState state;
         ColorPickerComposition composition;
@@ -264,7 +301,6 @@ namespace {
     }
 
     void dropdown_composition_reports_states_and_blocks_disabled_options() {
-        using namespace SFT::UI;
         Context context = make_context();
         DropdownState state;
         state.open = true;
@@ -364,7 +400,6 @@ namespace {
     }
 
     void dropdown_empty_slot_builds() {
-        using namespace SFT::UI;
         Context context = make_context();
         DropdownState state;
         state.open = true;

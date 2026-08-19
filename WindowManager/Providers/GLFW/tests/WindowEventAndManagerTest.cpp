@@ -12,7 +12,28 @@
 
 namespace {
 
-    using namespace SFT::WindowManager;
+    using SFT::WindowManager::CursorIcon;
+    using SFT::WindowManager::ManagedWindowEvents;
+    using SFT::WindowManager::MouseButton;
+    using SFT::WindowManager::NativeWindowHandle;
+    using SFT::WindowManager::Window;
+    using SFT::WindowManager::WindowBackendKind;
+    using SFT::WindowManager::WindowConfig;
+    using SFT::WindowManager::WindowEffect;
+    using SFT::WindowManager::WindowEffectResult;
+    using SFT::WindowManager::WindowError;
+    using SFT::WindowManager::WindowErrorCode;
+    using SFT::WindowManager::WindowEvent;
+    using SFT::WindowManager::WindowEventKind;
+    using SFT::WindowManager::WindowExtent;
+    using SFT::WindowManager::WindowId;
+    using SFT::WindowManager::WindowManager;
+    using SFT::WindowManager::WindowManagerPolicy;
+    using SFT::WindowManager::WindowMode;
+    using SFT::WindowManager::WindowMouseButtonEvent;
+    using SFT::WindowManager::WindowPosition;
+    using SFT::WindowManager::WindowResize;
+    using SFT::WindowManager::WindowingSystem;
 
     struct ThreadTrace {
         std::thread::id constructed;

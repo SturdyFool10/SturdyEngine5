@@ -3,7 +3,19 @@
 #include <cmath>
 #include <iostream>
 
-using namespace SFT::UI::Docking;
+using SFT::UI::Docking::DockActiveTabDragSnapshot;
+using SFT::UI::Docking::DockDropZone;
+using SFT::UI::Docking::DockNode;
+using SFT::UI::Docking::DockNodeId;
+using SFT::UI::Docking::DockNodeLayout;
+using SFT::UI::Docking::DockPanelDesc;
+using SFT::UI::Docking::DockPlacement;
+using SFT::UI::Docking::DockRect;
+using SFT::UI::Docking::DockSplitAxis;
+using SFT::UI::Docking::DockTree;
+using SFT::UI::Docking::DockWorkspace;
+using SFT::UI::Docking::DockWorkspaceEvents;
+using SFT::UI::Docking::compute_dock_layout;
 using SFT::Core::RendererExpected;
 using SFT::UI::Context;
 using SFT::UI::DragGestureState;

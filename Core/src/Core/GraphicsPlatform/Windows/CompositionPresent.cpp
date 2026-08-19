@@ -1,4 +1,4 @@
-#include "CompositionPresent.hpp"
+#include <Core/GraphicsPlatform/CompositionPresent.hpp>
 
 #if defined(STURDY_GRAPHICS_PLATFORM_WINDOWS)
 

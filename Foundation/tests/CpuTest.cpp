@@ -206,8 +206,12 @@ namespace {
 /// @return Returns the process/application exit status; zero conventionally indicates successful completion.
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
-    using namespace SFT::Foundation::Cpu;
-
+    using SFT::Foundation::Cpu::CpuFeatures;
+    using SFT::Foundation::Cpu::CurrentCore;
+    using SFT::Foundation::Cpu::SimdLevel;
+    using SFT::Foundation::Cpu::best_simd_level;
+    using SFT::Foundation::Cpu::current_core;
+    using SFT::Foundation::Cpu::features;
 
     const CpuFeatures &f = features();
 #if defined(__x86_64__) || defined(_M_X64)

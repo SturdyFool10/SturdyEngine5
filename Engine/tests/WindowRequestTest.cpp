@@ -13,8 +13,15 @@
 /// @pre `spawn_id != close_id`; debug builds assert if this precondition is violated.
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
-    using namespace SFT::Engine;
-    using namespace SFT::WindowManager;
+    using SFT::Engine::CloseWindowRequest;
+    using SFT::Engine::SpawnWindowRequest;
+    using SFT::Engine::WindowRequest;
+    using SFT::Engine::WindowRequestCompletion;
+    using SFT::Engine::WindowRequestId;
+    using SFT::Engine::WindowRequestKind;
+    using SFT::Engine::WindowRequests;
+    using SFT::WindowManager::WindowConfig;
+    using SFT::WindowManager::WindowId;
     using std::string;
     using std::vector;
 

@@ -5,7 +5,10 @@
 
 namespace {
 
-    using namespace SFT::Foundation::Cpu;
+    using SFT::Foundation::Cpu::CoreCapabilities;
+    using SFT::Foundation::Cpu::CoreMap;
+    using SFT::Foundation::Cpu::CoreType;
+    using SFT::Foundation::Cpu::Extension;
 
     /// Returns a human-readable name for the supplied core type value.
     ///

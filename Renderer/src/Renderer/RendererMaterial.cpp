@@ -539,9 +539,6 @@ namespace SFT::Renderer {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     usize Renderer::poll_shader_hot_reload() {
         ZoneScopedN("Renderer::poll_shader_hot_reload");
-        using namespace std::chrono_literals;
-
-
         auto guard = shader_hot_reload_lock_.lock();
 
         usize reloaded = 0;
@@ -570,7 +567,7 @@ namespace SFT::Renderer {
         const steady_clock::time_point now = steady_clock::now();
         if (!shader_hot_reload_poll_ &&
             (next_shader_hot_reload_poll_ == steady_clock::time_point{} || now >= next_shader_hot_reload_poll_)) {
-            next_shader_hot_reload_poll_ = now + 250ms;
+            next_shader_hot_reload_poll_ = now + std::chrono::milliseconds{250};
             auto watcher = shader_watcher_;
             shader_hot_reload_poll_ = Async::Scheduler::spawn([watcher = std::move(watcher)]() mutable {
                 ShaderHotReloadPollResult result{};

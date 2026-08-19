@@ -87,6 +87,11 @@ Also delete these old source directories before extraction, because their files 
 - `Ecs/src/`
 - `ApplicationHost/src/`
 
+Also remove these obsolete Core implementation directories if applying over a pre-refactor dirty tree; their replacements live under `Core/src/Core/IO/`:
+
+- `Core/src/Core/Vulkan/DirectStorage/`
+- `Core/src/Core/IoUring/`
+
 If present, also remove the dirty-tree temporary file:
 
 - `Core/CMakeLists.txt.tmp.14928.fe21cf84da53`
@@ -97,6 +102,7 @@ Then extract the archive at the repository root and allow replacement of conflic
 
 - Verified every first-party angle-bracket include resolves against a package `src` root: zero missing first-party include paths.
 - Verified no first-party include still contains `/src/`.
+- Verified no first-party source or test contains a `using namespace` directive.
 - Verified no active CMake reference remains to the removed `Sturdy::Text`, `Sturdy::UI`, `Sturdy::Platform`, `Sturdy::graphicsPlatform`, `Sturdy::D3D12`, or `EngineComponents` targets.
 - Verified RHI has no upward dependency on Core/WindowManager/Renderer/Engine.
 - Verified WindowManager has no dependency on RHI/Core/Renderer/Engine.
@@ -104,3 +110,20 @@ Then extract the archive at the repository root and allow replacement of conflic
 - Verified Renderer has no upward dependency on Engine.
 - Verified Engine contains no direct includes/references to concrete Vulkan, D3D12, graphics-platform, DirectStorage, or io_uring implementation headers.
 - A native Linux CMake configure was attempted. It stopped during dependency discovery because the execution environment has the Vulkan runtime library but does not have the Vulkan 1.4 development headers/SDK (`find_package(Vulkan 1.4 REQUIRED)` failed). The configure therefore could not proceed to compilation in this environment.
+## Post-refactor build fix
+
+A Windows build exposed a recursive-glob ownership bug in the first refactor archive: the base
+`WindowManager` target was also collecting `WindowManager/Providers/GLFW` implementation files.
+That caused those translation units to compile without the optional provider's `Sturdy::GLFW`
+dependency and therefore without GLFW's include path. `WindowManager` now explicitly excludes the
+provider subtree, `WindowManagerGLFW` remains its sole owner, and a configure-time guard rejects any
+future regression that places GLFW provider sources back into the base target.
+
+
+## ApplicationImpl namespace migration
+
+`Engine/src/Engine/ApplicationImpl.cpp` no longer relies on the removed `Platform::Windowing` namespace or a broad `WindowManager` namespace import. Window-related symbols are imported explicitly (or namespace-qualified), avoiding the `SFT::WindowManager` namespace / `SFT::WindowManager::WindowManager` class name collision.
+
+## Namespace directive cleanup
+
+All first-party `using namespace ...;` directives were removed from production code, headers, and tests. Call sites now use explicit `using Namespace::Symbol;` declarations, namespace aliases where a namespace name is intentionally shortened, or direct qualification. Literal smoke tests import only the specific user-defined literal operators they exercise, and shader hot-reload timing uses an explicit `std::chrono::milliseconds` value instead of importing `std::chrono_literals`.

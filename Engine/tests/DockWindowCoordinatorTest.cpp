@@ -10,10 +10,20 @@
 /// @pre `coordinator.register_workspace(WindowId{2}, target, false, true)`; debug builds assert if this precondition is violated.
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
-    using namespace SFT;
-    using namespace Engine;
-    using namespace UI::Docking;
-    using WindowManager::WindowId;
+    using SFT::UString;
+    using SFT::Engine::CloseWindowRequest;
+    using SFT::Engine::DockWindowCoordinator;
+    using SFT::Engine::WindowRequest;
+    using SFT::Engine::WindowRequestCompletion;
+    using SFT::Engine::WindowRequestId;
+    using SFT::Engine::WindowRequestKind;
+    using SFT::Engine::WindowRequests;
+    using SFT::UI::Docking::DockPanelDesc;
+    using SFT::UI::Docking::DockTearOffRequest;
+    using SFT::UI::Docking::DockWorkspace;
+    using SFT::WindowManager::WindowId;
+    namespace Core = SFT::Core;
+    namespace WindowManager = SFT::WindowManager;
 
     DockWorkspace origin{UString{"origin"}};
     DockWorkspace target{UString{"target"}};

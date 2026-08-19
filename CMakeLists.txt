@@ -159,6 +159,7 @@ set(STURDY_ENGINE_OPTIMIZED_TARGETS
     Async
     Ecs
     WindowManager
+    WindowManagerGLFW
     RHI
     Core
     Renderer
