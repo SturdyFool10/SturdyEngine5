@@ -1,5 +1,6 @@
 #include <Foundation/Foundation.hpp>
 
+#include <glm/trigonometric.hpp>
 
 #include <Renderer/Renderer.hpp>
 
@@ -189,6 +190,344 @@ namespace SFT::Renderer {
 
         context.resources.publish_texture<SceneHdrColor>(destination);
         return {};
+    }
+
+    /// Builds motion blur module.
+    ///
+    /// @param context Context that supplies state required by the operation.
+    /// @param submission `submission` value used by the operation.
+    /// @param motion_texture Full-resolution per-pixel motion vector render-graph texture (deferred G-buffer's
+    ///     SV_Target4 — see gbuffer_geometry.slang).
+    /// @param depth_texture Full-resolution scene depth render-graph texture.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    Core::RendererResult Renderer::build_motion_blur_module(
+        RenderGraphModuleBuildContext &context,
+        FrameSubmission &submission,
+        RenderGraphTextureHandle motion_texture,
+        RenderGraphTextureHandle depth_texture) {
+        ZoneScopedN("Renderer::build_motion_blur_module");
+        using RenderGraphSemantics::SceneHdrColor;
+
+        if (!submission.render_graph.motion_blur.enabled) {
+            return {};
+        }
+        const RenderGraphTextureHandle source = context.resources.texture<SceneHdrColor>();
+        if (!source) {
+            return missing_module_texture("motion blur"_ustr, "SceneHdrColor"_ustr);
+        }
+        if (!motion_texture || !depth_texture) {
+            return Core::graphics_backend_error(
+                Core::GraphicsBackendErrorCode::OperationFailed,
+                "Motion blur requires both a motion-vector and a depth render-graph texture.");
+        }
+
+        const glm::uvec2 render_extent{context.render_extent.x, context.render_extent.y};
+        const u32 tile_size = std::max(submission.render_graph.motion_blur.tile_size_px, 1u);
+        const glm::uvec2 tile_extent{
+            (render_extent.x + tile_size - 1) / tile_size,
+            (render_extent.y + tile_size - 1) / tile_size,
+        };
+
+        constexpr RHI::TextureUsage velocity_usage =
+            RHI::TextureUsage::Sampled | RHI::TextureUsage::Storage;
+        const RenderGraphTextureHandle tile_max_velocity = context.graph.create_texture(RenderGraphTextureDesc{
+            .format = RHI::Format::RG16Float,
+            .extent = RHI::Extent3D{.width = tile_extent.x, .height = tile_extent.y, .depth_or_layers = 1},
+            .usage = velocity_usage,
+            .label = "motion blur tile-max velocity",
+        });
+        const RenderGraphTextureHandle dilated_velocity = context.graph.create_texture(RenderGraphTextureDesc{
+            .format = RHI::Format::RG16Float,
+            .extent = RHI::Extent3D{.width = tile_extent.x, .height = tile_extent.y, .depth_or_layers = 1},
+            .usage = velocity_usage,
+            .label = "motion blur dilated velocity",
+        });
+        const RenderGraphTextureHandle destination = context.graph.create_texture(RenderGraphTextureDesc{
+            .format = submission.deferred_formats.scene_color,
+            .extent = context.render_texture_extent(),
+            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
+                     RHI::TextureUsage::Storage | RHI::TextureUsage::TransferSrc | RHI::TextureUsage::TransferDst,
+            .label = "motion blur gather target",
+        });
+
+        context.graph.add_compute_pass("motion blur tile max"_ustr)
+            .add_sampled_texture(motion_texture)
+            .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = tile_max_velocity, .read = false, .write = true})
+            .set_execute([this, &submission, motion_texture, tile_max_velocity, render_extent, tile_size](
+                             RenderGraphComputeContext &graph_context) -> Core::RendererResult {
+                return record_motion_blur_tile_max(
+                    graph_context.compute_pass(),
+                    graph_context.texture(motion_texture).default_view,
+                    graph_context.texture(tile_max_velocity).default_view,
+                    render_extent,
+                    tile_size,
+                    submission.transient_bind_groups);
+            });
+
+        context.graph.add_compute_pass("motion blur neighbor max"_ustr)
+            .add_sampled_texture(tile_max_velocity)
+            .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = dilated_velocity, .read = false, .write = true})
+            .set_execute([this, &submission, tile_max_velocity, dilated_velocity, tile_extent](
+                             RenderGraphComputeContext &graph_context) -> Core::RendererResult {
+                return record_motion_blur_neighbor_max(
+                    graph_context.compute_pass(),
+                    graph_context.texture(tile_max_velocity).default_view,
+                    graph_context.texture(dilated_velocity).default_view,
+                    tile_extent,
+                    submission.transient_bind_groups);
+            });
+
+        context.graph.add_compute_pass("motion blur gather"_ustr)
+            .add_sampled_texture(source)
+            .add_sampled_texture(motion_texture)
+            .add_sampled_texture(depth_texture)
+            .add_sampled_texture(dilated_velocity)
+            .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = destination, .read = false, .write = true})
+            .set_execute([this, &submission, source, motion_texture, depth_texture, dilated_velocity, destination,
+                          render_extent](RenderGraphComputeContext &graph_context) -> Core::RendererResult {
+                return record_motion_blur_gather(
+                    graph_context.compute_pass(),
+                    graph_context.texture(source).default_view,
+                    graph_context.texture(motion_texture).default_view,
+                    graph_context.texture(depth_texture).default_view,
+                    graph_context.texture(dilated_velocity).default_view,
+                    graph_context.texture(destination).default_view,
+                    submission.render_graph,
+                    render_extent,
+                    submission.transient_bind_groups);
+            });
+
+        context.resources.publish_texture<SceneHdrColor>(destination);
+        return {};
+    }
+
+    /// Builds the surfel-GI render-graph module: screen-space seed, hash-grid clear/rebuild, ray-trace/
+    /// temporal-accumulation, and screen-space irradiance resolve. When disabled, imports a 1x1 white dummy
+    /// texture instead so the deferred shadow lighting pass's binding layout stays fixed either way.
+    ///
+    /// @param context Context that supplies state required by the operation.
+    /// @param submission `submission` value used by the operation.
+    /// @param slot Frame-in-flight slot (supplies the shared scene TLAS built earlier this frame).
+    /// @param gbuffer_normal Full-resolution encoded G-buffer normal render-graph texture.
+    /// @param depth_texture Full-resolution scene depth render-graph texture.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    Core::RendererExpected<RenderGraphTextureHandle> Renderer::build_surfel_gi_module(
+        RenderGraphModuleBuildContext &context,
+        FrameSubmission &submission,
+        FrameInFlight &slot,
+        RenderGraphTextureHandle gbuffer_normal,
+        RenderGraphTextureHandle depth_texture) {
+        ZoneScopedN("Renderer::build_surfel_gi_module");
+        const SurfelGiSettings &settings = submission.render_graph.surfel_gi;
+
+        if (!settings.enabled) {
+            auto default_texture = ensure_default_white_texture();
+            if (!default_texture) return unexpected(default_texture.error());
+            const TextureResource *white = texture(*default_texture);
+            if (white == nullptr || !white->texture || !white->view) {
+                return unexpected(Core::graphics_backend_error(
+                    Core::GraphicsBackendErrorCode::OperationFailed,
+                    "Surfel GI fallback dummy texture is missing its RHI resources."));
+            }
+            return context.graph.import_texture(RenderGraphImportedTextureDesc{
+                .texture = white->texture,
+                .default_view = white->view,
+                .format = RHI::Format::RGBA8Unorm,
+                .extent = RHI::Extent3D{.width = white->width, .height = white->height, .depth_or_layers = 1},
+                .usage = RHI::TextureUsage::Sampled,
+                .label = "surfel GI disabled dummy irradiance",
+            });
+        }
+
+        if (Core::RendererResult ready = ensure_surfel_gi_resources(settings.max_surfels, settings.hash_grid_bucket_count);
+            !ready.has_value()) {
+            return unexpected(ready.error());
+        }
+        RHI::BufferHandle surfel_buffer{};
+        RHI::BufferHandle grid_buffer{};
+        RHI::BufferHandle alloc_cursor_buffer{};
+        u32 surfel_capacity = 0;
+        u32 grid_bucket_capacity = 0;
+        {
+            auto guard = surfel_gi_.lock();
+            surfel_buffer = guard->surfel_buffer;
+            grid_buffer = guard->grid_buffer;
+            alloc_cursor_buffer = guard->alloc_cursor_buffer;
+            surfel_capacity = guard->surfel_capacity;
+            grid_bucket_capacity = guard->grid_bucket_capacity;
+        }
+
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return unexpected(Core::graphics_backend_error(
+                Core::GraphicsBackendErrorCode::OperationFailed, "Cannot build surfel GI without an RHI device."));
+        }
+
+        const glm::mat4 view_projection = submission.camera.projection * submission.camera.view;
+        const DirectionalLight &sun = submission.lighting.sun;
+        const glm::vec3 sun_direction = glm::length(sun.direction) > 1.0e-5f
+            ? glm::normalize(sun.direction) : glm::vec3{0.0f, -1.0f, 0.0f};
+        const SurfelGiFrameConstants constants{
+            .inverse_view_projection = glm::inverse(view_projection),
+            .camera_position_max_surfels = glm::vec4{submission.camera.world_position, static_cast<f32>(surfel_capacity)},
+            .cascade_distances = settings.cascade_distances,
+            .grid_params = glm::vec4{
+                static_cast<f32>(grid_bucket_capacity),
+                std::max(settings.surfel_radius_near, 0.01f) * 2.0f,
+                settings.surfel_radius_near,
+                settings.surfel_radius_far,
+            },
+            .spawn_params = glm::vec4{
+                static_cast<f32>(settings.max_surfels_spawned_per_frame),
+                settings.screen_coverage_target,
+                static_cast<f32>(settings.rays_per_surfel_per_frame),
+                settings.max_ray_distance,
+            },
+            .temporal_intensity = glm::vec4{
+                settings.temporal_accumulation_alpha,
+                settings.intensity,
+                settings.irradiance_sample_radius_multiplier,
+                static_cast<f32>(settings.cascade_count),
+            },
+            .extent_frame_index = glm::vec4{
+                static_cast<f32>(context.render_extent.x),
+                static_cast<f32>(context.render_extent.y),
+                static_cast<f32>(submission.frame_index),
+                0.0f,
+            },
+            .sun_direction_angular_radius = glm::vec4{
+                sun_direction, glm::radians(std::clamp(sun.angular_radius_degrees, 0.0f, 10.0f))},
+            .sun_radiance = glm::vec4{glm::max(sun.radiance, glm::vec3{0.0f}), 0.0f},
+            .sky_color_intensity = glm::vec4{
+                glm::vec3{submission.render_graph.background_color}, submission.render_graph.background_intensity},
+        };
+        auto constant_buffer = device->create_buffer(RHI::BufferDesc{
+            .size = sizeof(constants),
+            .usage = RHI::BufferUsage::Uniform,
+            .memory = RHI::MemoryLocation::HostUpload,
+            .label = "surfel GI frame constants",
+        });
+        if (!constant_buffer) {
+            return unexpected(graphics_error_from_rhi(constant_buffer.error(), "create surfel GI frame constants"));
+        }
+        if (auto written = device->write_buffer(*constant_buffer, 0, std::as_bytes(span{&constants, 1})); !written) {
+            device->destroy_buffer(*constant_buffer);
+            return unexpected(graphics_error_from_rhi(written.error(), "write surfel GI frame constants"));
+        }
+        slot.transient_buffers.push_back(*constant_buffer);
+        const RHI::BufferHandle constants_buffer = *constant_buffer;
+
+        const RenderGraphBufferHandle surfel_buffer_handle = context.graph.import_buffer(RenderGraphImportedBufferDesc{
+            .buffer = surfel_buffer,
+            .size = static_cast<u64>(surfel_capacity) * sizeof(SurfelGpuData),
+            .label = "surfel GI surfel buffer",
+        });
+        const RenderGraphBufferHandle grid_buffer_handle = context.graph.import_buffer(RenderGraphImportedBufferDesc{
+            .buffer = grid_buffer,
+            .size = static_cast<u64>(grid_bucket_capacity) * sizeof(SurfelGridCellGpuData),
+            .label = "surfel GI grid buffer",
+        });
+        const RenderGraphBufferHandle alloc_cursor_handle = context.graph.import_buffer(RenderGraphImportedBufferDesc{
+            .buffer = alloc_cursor_buffer,
+            .size = sizeof(u32),
+            .label = "surfel GI alloc cursor buffer",
+        });
+
+        const glm::uvec2 render_extent{context.render_extent.x, context.render_extent.y};
+        const RenderGraphTextureHandle irradiance = context.graph.create_texture(RenderGraphTextureDesc{
+            .format = RHI::Format::RGBA16Float,
+            .extent = context.render_texture_extent(),
+            .usage = RHI::TextureUsage::Sampled | RHI::TextureUsage::Storage,
+            .label = "surfel GI irradiance",
+        });
+
+        const auto rw_buffer = [](RenderGraphBufferHandle buffer) {
+            return RenderGraphBufferAccessDesc{
+                .buffer = buffer, .stages = RHI::PipelineStage::ComputeShader,
+                .access = RHI::AccessFlags::ShaderRead | RHI::AccessFlags::ShaderWrite, .read = true, .write = true,
+            };
+        };
+        const auto ro_buffer = [](RenderGraphBufferHandle buffer) {
+            return RenderGraphBufferAccessDesc{
+                .buffer = buffer, .stages = RHI::PipelineStage::ComputeShader,
+                .access = RHI::AccessFlags::ShaderRead, .read = true, .write = false,
+            };
+        };
+
+        context.graph.add_compute_pass("surfel screen seed"_ustr)
+            .add_sampled_texture(gbuffer_normal)
+            .add_sampled_texture(depth_texture)
+            .add_buffer(rw_buffer(surfel_buffer_handle))
+            .add_buffer(ro_buffer(grid_buffer_handle))
+            .add_buffer(rw_buffer(alloc_cursor_handle))
+            .set_side_effect(true)
+            .set_execute([this, &submission, gbuffer_normal, depth_texture, constants_buffer, render_extent](
+                             RenderGraphComputeContext &graph_context) -> Core::RendererResult {
+                return record_surfel_screen_seed(
+                    graph_context.compute_pass(),
+                    graph_context.texture(gbuffer_normal).default_view,
+                    graph_context.texture(depth_texture).default_view,
+                    constants_buffer,
+                    submission.render_graph,
+                    render_extent,
+                    submission.transient_bind_groups);
+            });
+
+        context.graph.add_compute_pass("surfel grid clear"_ustr)
+            .add_buffer(rw_buffer(grid_buffer_handle))
+            .set_side_effect(true)
+            .set_execute([this, &submission, constants_buffer](
+                             RenderGraphComputeContext &graph_context) -> Core::RendererResult {
+                return record_surfel_grid_clear(
+                    graph_context.compute_pass(), constants_buffer, submission.render_graph,
+                    submission.transient_bind_groups);
+            });
+
+        context.graph.add_compute_pass("surfel hash grid build"_ustr)
+            .add_buffer(ro_buffer(surfel_buffer_handle))
+            .add_buffer(rw_buffer(grid_buffer_handle))
+            .set_side_effect(true)
+            .set_execute([this, &submission, constants_buffer](
+                             RenderGraphComputeContext &graph_context) -> Core::RendererResult {
+                return record_surfel_hash_grid_build(
+                    graph_context.compute_pass(), constants_buffer, submission.render_graph,
+                    submission.transient_bind_groups);
+            });
+
+        context.graph.add_compute_pass("surfel ray trace"_ustr)
+            .add_buffer(rw_buffer(surfel_buffer_handle))
+            .set_side_effect(true)
+            .set_execute([this, &submission, &slot, constants_buffer](
+                             RenderGraphComputeContext &graph_context) -> Core::RendererResult {
+                return record_surfel_ray_trace(
+                    graph_context.compute_pass(), slot, constants_buffer, submission.render_graph,
+                    submission.transient_bind_groups);
+            });
+
+        context.graph.add_compute_pass("surfel irradiance resolve"_ustr)
+            .add_sampled_texture(gbuffer_normal)
+            .add_sampled_texture(depth_texture)
+            .add_buffer(ro_buffer(surfel_buffer_handle))
+            .add_buffer(ro_buffer(grid_buffer_handle))
+            .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = irradiance, .read = false, .write = true})
+            .set_execute([this, &submission, gbuffer_normal, depth_texture, irradiance, constants_buffer, render_extent](
+                             RenderGraphComputeContext &graph_context) -> Core::RendererResult {
+                return record_surfel_irradiance_resolve(
+                    graph_context.compute_pass(),
+                    graph_context.texture(gbuffer_normal).default_view,
+                    graph_context.texture(depth_texture).default_view,
+                    graph_context.texture(irradiance).default_view,
+                    constants_buffer,
+                    submission.render_graph,
+                    render_extent,
+                    submission.transient_bind_groups);
+            });
+
+        return irradiance;
     }
 
     /// Builds custom graph stage.

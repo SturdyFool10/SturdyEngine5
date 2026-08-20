@@ -325,6 +325,8 @@ namespace SFT::Renderer {
         destroy_custom_compute_effect_resources();
         destroy_atmosphere_lut_resources();
         destroy_hiz_build_resources();
+        destroy_motion_blur_resources();
+        destroy_surfel_gi_resources();
     }
 
     /// Grows geometry arena using the supplied arguments and current state.

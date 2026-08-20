@@ -415,21 +415,23 @@ namespace SFT::Core::Vulkan {
         if (this->physicalDevice.supports_extension("VK_EXT_sample_locations")) {
             supported_rhi_features.set(RHI::Feature::SampleLocations);
         }
-        // See VulkanRhiBridgeAccelerationStructures.cpp's opacity_micromap_build_sizes() doc comment:
-        // this extension's struct layout is implemented from lower-confidence memory than the rest of
-        // this file's ray-tracing feature detection.
-        if (supportedOpacityMicromapFeatures.micromap) {
+        // The vkGetPhysicalDeviceFeatures2 bit alone isn't sufficient here: unlike every other
+        // extension in this file, these two weren't also gated on supports_extension(), so a driver
+        // that answers the feature query with VK_TRUE for a struct type it doesn't truly implement
+        // (observed on an AMD RX 9070, driver 2.0.395) got the extension requested at vkCreateDevice
+        // time anyway, which Vulkan rejects outright with VK_ERROR_EXTENSION_NOT_PRESENT.
+        if (supportedOpacityMicromapFeatures.micromap &&
+            this->physicalDevice.supports_extension(VK_EXT_OPACITY_MICROMAP_EXTENSION_NAME)) {
             supported_rhi_features.set(RHI::Feature::OpacityMicromap);
         }
-        // VK_EXT_ray_tracing_invocation_reorder (Shader Execution Reordering): struct/field names
-        // here are moderate-, not high-, confidence -- verify against real headers before trusting.
         // Unlike every other feature this session, enabling this bit does not unlock any RHI-level
         // command or pipeline state; it only tells shader code (Slang/HLSL/GLSL) that the
         // HitObject-style reorder intrinsic is safe to call. No Slang stdlib support for that
         // intrinsic exists in this engine yet, so setting this bit is necessary-but-not-sufficient
         // for a shader to actually use SER today -- see Feature::RayTracingInvocationReorder's own
         // doc comment in Features.hpp for the fuller picture.
-        if (supportedInvocationReorderFeatures.rayTracingInvocationReorder) {
+        if (supportedInvocationReorderFeatures.rayTracingInvocationReorder &&
+            this->physicalDevice.supports_extension(VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME)) {
             supported_rhi_features.set(RHI::Feature::RayTracingInvocationReorder);
         }
         const auto probed_gfx_family = this->physicalDevice.findGraphicsQueue(primary_surface);

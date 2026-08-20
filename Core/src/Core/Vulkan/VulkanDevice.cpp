@@ -1,5 +1,7 @@
 #include <Core/Vulkan/VulkanDevice.hpp>
 
+#include <vulkan/vk_enum_string_helper.h>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::Core::Vulkan {
@@ -137,8 +139,21 @@ VulkanDevice &VulkanDevice::operator=(VulkanDevice &&o) noexcept {
             };
 
             VkDevice vk_device = VK_NULL_HANDLE;
-            if (vkCreateDevice(physical, &create_info, nullptr, &vk_device) != VK_SUCCESS)
-                return graphics_backend_error(GraphicsBackendErrorCode::InitializationFailed, "vkCreateDevice failed.");
+            if (const VkResult result = vkCreateDevice(physical, &create_info, nullptr, &vk_device);
+                result != VK_SUCCESS) {
+                return graphics_backend_error(
+                    GraphicsBackendErrorCode::InitializationFailed,
+                    format("vkCreateDevice failed: {} ({} extensions requested: {})",
+                           string_VkResult(result), desc.extensions.size(),
+                           [&] {
+                               string joined;
+                               for (usize i = 0; i < desc.extensions.size(); ++i) {
+                                   if (i > 0) joined += ", ";
+                                   joined += desc.extensions[i];
+                               }
+                               return joined;
+                           }()));
+            }
 
             volkLoadDevice(vk_device);
 

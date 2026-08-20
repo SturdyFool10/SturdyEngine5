@@ -1,12 +1,18 @@
 #include <RuntimeDemoGameLogic/RuntimeDemoGameLogic.hpp>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
+#include <memory>
 #include <optional>
+#include <span>
+#include <string_view>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/geometric.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
+
+using std::span;
 
 namespace RendererApi = SFT::Renderer;
 
@@ -375,6 +381,28 @@ namespace SFT::Runtime {
             });
 
 
+        tweak_panel_entity_ = engine.ecs_world().spawn(
+            TweakPanelState{},
+            SurfelGiTuningState{},
+            MotionBlurTuningState{});
+        engine.update_schedule().add_system(
+            [](Ecs::Entity,
+               TweakPanelState &panel,
+               SurfelGiTuningState &gi,
+               MotionBlurTuningState &blur,
+               Ecs::EventReader<Engine::KeyboardEvent> keyboard) noexcept {
+                for (const Engine::KeyboardEvent &event : keyboard.read()) {
+                    if (!event.pressed() || event.repeat) continue;
+                    if (event.key == 'u' || event.key == 'U') {
+                        panel.visible = !panel.visible;
+                    } else if (event.key == 'g' || event.key == 'G') {
+                        gi.enabled = !gi.enabled;
+                    } else if (event.key == 'v' || event.key == 'V') {
+                        blur.enabled = !blur.enabled;
+                    }
+                }
+            });
+
         const glm::vec3 initial_euler = camera_.euler_degrees();
         camera_control_entity_ = engine.ecs_world().spawn(FlyCameraState{
             .yaw_degrees = initial_euler.y,
@@ -522,6 +550,9 @@ namespace SFT::Runtime {
                 Foundation::log_info("HDR {} — {}",
                                      new_config.features.presentation.hdr_enabled ? "enabled" : "disabled",
                                      applied->message);
+                if (RHI::RhiDevice *device = engine.rhi_device(); device != nullptr) {
+                    engine.ui_context().destroy(*device);
+                }
             } else {
                 Foundation::log_warn("Failed to toggle HDR: {}", applied.error().message);
             }
@@ -567,6 +598,306 @@ namespace SFT::Runtime {
         }
     }
 
+    namespace {
+        constexpr UI::FontId kTweakPanelFontId = 1;
+        constexpr UI::Color kTweakPanelBackground{0.06, 0.07, 0.09, 0.88};
+        constexpr UI::Color kTweakPanelOutline{0.16, 0.18, 0.24, 1.0};
+        constexpr UI::Color kTweakPanelTextPrimary{0.93, 0.95, 1.0, 1.0};
+        constexpr UI::Color kTweakPanelTextSecondary{0.60, 0.64, 0.76, 1.0};
+        constexpr UI::Color kTweakPanelAccent{0.39, 0.57, 1.0, 1.0};
+
+        /// Draws text using the current rendering state.
+        void draw_panel_text(UI::Context &ctx, std::string_view content, UI::Color color, u16 size) {
+            const UI::TextStyle style{.color = color, .font_id = kTweakPanelFontId, .font_size = size};
+            ctx.text(ustr{content}, style);
+        }
+
+        /// Returns the current or globally available tweak panel toggle style value.
+        [[nodiscard]] UI::ToggleStyle tweak_panel_toggle_style() {
+            return UI::ToggleStyle{
+                .idle = UI::Color{0.12, 0.14, 0.19, 1.0},
+                .hovered = UI::Color{0.19, 0.22, 0.30, 1.0},
+                .checked = kTweakPanelAccent,
+                .disabled = UI::Color{0.10, 0.11, 0.13, 0.55},
+                .mark_color = UI::Color{0.99, 0.99, 1.0, 1.0},
+                .transition_seconds = 0.16f,
+            };
+        }
+
+        /// Returns the current or globally available tweak panel slider style value.
+        [[nodiscard]] UI::SliderStyle tweak_panel_slider_style() {
+            return UI::SliderStyle{
+                .track = UI::Color{0.12, 0.13, 0.18, 1.0},
+                .fill = kTweakPanelAccent,
+                .thumb = kTweakPanelTextPrimary,
+                .thumb_hovered = UI::Color{1.0, 1.0, 1.0, 1.0},
+                .thumb_dragging = kTweakPanelAccent,
+                .track_thickness = 6.0f,
+                .thumb_size = 16.0f,
+            };
+        }
+
+        /// Returns the current or globally available tweak panel dropdown style value.
+        [[nodiscard]] UI::DropdownStyle tweak_panel_dropdown_style() {
+            UI::DropdownStyle style{};
+            style.trigger = UI::ButtonStyle{
+                .idle = UI::Color{0.12, 0.14, 0.19, 1.0},
+                .hovered = UI::Color{0.19, 0.22, 0.30, 1.0},
+                .pressed = UI::Color{0.09, 0.11, 0.17, 1.0},
+                .disabled = UI::Color{0.09, 0.10, 0.12, 0.6},
+                .corner_radius = UI::CornerRadius::all(8.0f),
+                .border = UI::BorderStyle{.color = kTweakPanelOutline, .width = UI::BorderWidth::all(1)},
+            };
+            style.list_background = UI::Color{0.09, 0.10, 0.14, 0.98};
+            style.option_hovered = UI::Color{kTweakPanelAccent.r, kTweakPanelAccent.g, kTweakPanelAccent.b, 0.22};
+            style.arrow_font_id = kTweakPanelFontId;
+            return style;
+        }
+
+        UI::DropdownOption tweak_panel_dropdown_option(const char *label) {
+            return UI::DropdownOption{.build = [label](UI::Context &option_ctx) {
+                draw_panel_text(option_ctx, label, kTweakPanelTextPrimary, 12);
+            }};
+        }
+    } // namespace
+
+    /// Builds the top-right tweak panel overlay (surfel GI, motion blur, bloom, tone mapping, shadows).
+    ///
+    /// @param engine `engine` value used by the operation.
+    /// @param surface Surface used or affected by the operation.
+    /// @param frame `frame` value used by the operation.
+    ///
+    /// @return Returns the current build tweak panel overlay value.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    Renderer::UiOverlayHooks RuntimeDemoGameLogic::build_tweak_panel_overlay(
+        Engine::Engine &engine, Core::RenderSurfaceHandle, const Core::FrameInput &frame) {
+        auto panel_state = engine.ecs_world().get_component<TweakPanelState>(tweak_panel_entity_);
+        if (!panel_state || !panel_state->visible) {
+            return {};
+        }
+
+        RHI::RhiDevice *device = engine.rhi_device();
+        if (device == nullptr) {
+            return {};
+        }
+        const RHI::Format color_format = engine_config_.features.presentation.hdr_enabled
+                                              ? RHI::Format::RGBA16Float
+                                              : RHI::Format::BGRA8UnormSrgb;
+        if (!engine.ui_context().ensure_ready(*device, color_format)) {
+            return {};
+        }
+
+        const glm::vec2 viewport{
+            static_cast<f32>(frame.framebuffer_width), static_cast<f32>(frame.framebuffer_height)};
+        engine.ui_context().begin_layout(viewport, engine.ui_pointer_state(), static_cast<f32>(frame.delta_seconds));
+        UI::Context &ctx = engine.ui_context().context();
+
+        auto gi = engine.ecs_world().get_component<SurfelGiTuningState>(tweak_panel_entity_);
+        auto blur = engine.ecs_world().get_component<MotionBlurTuningState>(tweak_panel_entity_);
+        auto bloom = engine.ecs_world().get_component<BloomTuningState>(bloom_controls_entity_);
+        const bool raytracing_available = static_cast<bool>(engine.capabilities().raytracing);
+
+        {
+            auto root = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::fixed(viewport.x), UI::SizingAxis::fixed(viewport.y)},
+                .padding = UI::Padding::all(16),
+                .child_alignment = {UI::AlignX::Right, UI::AlignY::Top},
+            });
+            auto panel = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::fixed(300.0f), UI::SizingAxis::fit()},
+                .padding = UI::Padding::all(14),
+                .child_gap = 12,
+                .direction = UI::LayoutDirection::TopToBottom,
+                .background_color = kTweakPanelBackground,
+                .corner_radius = UI::CornerRadius::all(10.0f),
+                .border = UI::BorderStyle{.color = kTweakPanelOutline, .width = UI::BorderWidth::all(1)},
+            });
+
+            draw_panel_text(ctx, "Render Tweaks (U to hide)", kTweakPanelTextPrimary, 14);
+
+            {
+                draw_panel_text(ctx, "Surfel GI (G)", kTweakPanelTextSecondary, 12);
+                if (gi) {
+                    const bool enabled = raytracing_available && gi->enabled;
+                    const UI::ToggleResult toggle_result = UI::switch_toggle(
+                        ctx,
+                        UI::ElementDecl{
+                            .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
+                            .id = UString{"runtime-tweak-surfel-gi-toggle"_ustr},
+                        },
+                        tweak_panel_toggle_style(), surfel_gi_toggle_state_, static_cast<f32>(frame.delta_seconds),
+                        enabled, raytracing_available);
+                    if (toggle_result.clicked) gi->enabled = !gi->enabled;
+                    if (!raytracing_available) {
+                        draw_panel_text(ctx, "unavailable: no ray tracing support", kTweakPanelTextSecondary, 10);
+                    }
+
+                    f64 intensity = static_cast<f64>(gi->intensity);
+                    const UI::SliderResult intensity_result = UI::slider(
+                        ctx,
+                        UI::ElementDecl{
+                            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
+                            .id = UString{"runtime-tweak-surfel-gi-intensity"_ustr},
+                        },
+                        UI::SliderConfig{.min = 0.0, .max = 4.0, .step = 0.05},
+                        tweak_panel_slider_style(), surfel_gi_intensity_slider_state_, intensity, UI::SliderInput{},
+                        raytracing_available);
+                    gi->intensity = static_cast<f32>(intensity_result.value);
+
+                    std::array<UI::DropdownOption, 3> quality_options{
+                        tweak_panel_dropdown_option("Low"), tweak_panel_dropdown_option("Medium"),
+                        tweak_panel_dropdown_option("High")};
+                    usize quality_index = std::min<usize>(gi->quality, quality_options.size() - 1);
+                    const UI::DropdownResult quality_result = UI::dropdown(
+                        ctx,
+                        UString{"runtime-tweak-surfel-gi-quality"_ustr},
+                        UI::ElementDecl{
+                            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(32.0f)},
+                            .padding = UI::Padding::symmetric(10, 6),
+                            .id = UString{"runtime-tweak-surfel-gi-quality"_ustr},
+                        },
+                        tweak_panel_dropdown_style(), surfel_gi_quality_dropdown_state_,
+                        static_cast<f32>(frame.delta_seconds), quality_index,
+                        span<const UI::DropdownOption>{quality_options.data(), quality_options.size()},
+                        raytracing_available);
+                    gi->quality = static_cast<u32>(quality_result.selected_index);
+                }
+            }
+
+            {
+                draw_panel_text(ctx, "Motion Blur (V)", kTweakPanelTextSecondary, 12);
+                if (blur) {
+                    const UI::ToggleResult toggle_result = UI::switch_toggle(
+                        ctx,
+                        UI::ElementDecl{
+                            .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
+                            .id = UString{"runtime-tweak-motion-blur-toggle"_ustr},
+                        },
+                        tweak_panel_toggle_style(), motion_blur_toggle_state_, static_cast<f32>(frame.delta_seconds),
+                        blur->enabled);
+                    if (toggle_result.clicked) blur->enabled = !blur->enabled;
+
+                    f64 intensity = static_cast<f64>(blur->intensity);
+                    const UI::SliderResult intensity_result = UI::slider(
+                        ctx,
+                        UI::ElementDecl{
+                            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
+                            .id = UString{"runtime-tweak-motion-blur-intensity"_ustr},
+                        },
+                        UI::SliderConfig{.min = 0.0, .max = 2.0, .step = 0.05},
+                        tweak_panel_slider_style(), motion_blur_intensity_slider_state_, intensity);
+                    blur->intensity = static_cast<f32>(intensity_result.value);
+
+                    f64 shutter = static_cast<f64>(blur->shutter_angle_degrees);
+                    const UI::SliderResult shutter_result = UI::slider(
+                        ctx,
+                        UI::ElementDecl{
+                            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
+                            .id = UString{"runtime-tweak-motion-blur-shutter"_ustr},
+                        },
+                        UI::SliderConfig{.min = 0.0, .max = 360.0, .step = 1.0},
+                        tweak_panel_slider_style(), motion_blur_shutter_slider_state_, shutter);
+                    blur->shutter_angle_degrees = static_cast<f32>(shutter_result.value);
+                }
+            }
+
+            {
+                draw_panel_text(ctx, "Bloom", kTweakPanelTextSecondary, 12);
+                if (bloom) {
+                    bool bloom_enabled = !bloom->threshold_view;
+                    const UI::ToggleResult toggle_result = UI::switch_toggle(
+                        ctx,
+                        UI::ElementDecl{
+                            .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
+                            .id = UString{"runtime-tweak-bloom-toggle"_ustr},
+                        },
+                        tweak_panel_toggle_style(), bloom_toggle_state_, static_cast<f32>(frame.delta_seconds),
+                        bloom_enabled);
+                    if (toggle_result.clicked) bloom->threshold_view = !bloom->threshold_view;
+
+                    f64 threshold = static_cast<f64>(bloom->threshold);
+                    const UI::SliderResult threshold_result = UI::slider(
+                        ctx,
+                        UI::ElementDecl{
+                            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
+                            .id = UString{"runtime-tweak-bloom-threshold"_ustr},
+                        },
+                        UI::SliderConfig{.min = 0.0, .max = 8.0, .step = 0.05},
+                        tweak_panel_slider_style(), bloom_threshold_slider_state_, threshold);
+                    bloom->threshold = static_cast<f32>(threshold_result.value);
+                }
+            }
+
+            {
+                draw_panel_text(ctx, "Tone Mapping", kTweakPanelTextSecondary, 12);
+                constexpr std::array<Engine::ToneMappingOperator, 3> kToneMappingOperators{
+                    Engine::ToneMappingOperator::Agx, Engine::ToneMappingOperator::HermiteSpline,
+                    Engine::ToneMappingOperator::PsychoV};
+                std::array<UI::DropdownOption, 3> operator_options{
+                    tweak_panel_dropdown_option("Agx"), tweak_panel_dropdown_option("Hermite"),
+                    tweak_panel_dropdown_option("PsychoV")};
+                usize operator_index = 0;
+                for (usize i = 0; i < kToneMappingOperators.size(); ++i) {
+                    if (kToneMappingOperators[i] == render_graph_.tone_mapping().operation) {
+                        operator_index = i;
+                        break;
+                    }
+                }
+                const UI::DropdownResult operator_result = UI::dropdown(
+                    ctx,
+                    UString{"runtime-tweak-tone-mapping-operator"_ustr},
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(32.0f)},
+                        .padding = UI::Padding::symmetric(10, 6),
+                        .id = UString{"runtime-tweak-tone-mapping-operator"_ustr},
+                    },
+                    tweak_panel_dropdown_style(), tone_mapping_operator_dropdown_state_,
+                    static_cast<f32>(frame.delta_seconds), operator_index,
+                    span<const UI::DropdownOption>{operator_options.data(), operator_options.size()});
+                render_graph_.tone_mapping().operation = kToneMappingOperators[std::min<usize>(
+                    operator_result.selected_index, kToneMappingOperators.size() - 1)];
+
+                f64 exposure = static_cast<f64>(render_graph_.tone_mapping().exposure);
+                const UI::SliderResult exposure_result = UI::slider(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
+                        .id = UString{"runtime-tweak-tone-mapping-exposure"_ustr},
+                    },
+                    UI::SliderConfig{.min = 0.1, .max = 4.0, .step = 0.01},
+                    tweak_panel_slider_style(), tone_mapping_exposure_slider_state_, exposure);
+                render_graph_.tone_mapping().exposure = static_cast<f32>(exposure_result.value);
+            }
+
+            {
+                draw_panel_text(ctx, "Shadows", kTweakPanelTextSecondary, 12);
+                const UI::ToggleResult toggle_result = UI::switch_toggle(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
+                        .id = UString{"runtime-tweak-shadows-toggle"_ustr},
+                    },
+                    tweak_panel_toggle_style(), shadows_toggle_state_, static_cast<f32>(frame.delta_seconds),
+                    render_graph_.shadows().enabled);
+                if (toggle_result.clicked) render_graph_.shadows().enabled = !render_graph_.shadows().enabled;
+
+                f64 max_distance = static_cast<f64>(render_graph_.shadows().max_distance);
+                const UI::SliderResult distance_result = UI::slider(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
+                        .id = UString{"runtime-tweak-shadows-distance"_ustr},
+                    },
+                    UI::SliderConfig{.min = 10.0, .max = 500.0, .step = 1.0},
+                    tweak_panel_slider_style(), shadows_distance_slider_state_, max_distance);
+                render_graph_.shadows().max_distance = static_cast<f32>(distance_result.value);
+            }
+        }
+
+        auto snapshot = std::make_shared<UI::FrameSnapshot>(ctx.finish_frame(viewport));
+        return engine.ui_context().build_overlay_hooks(snapshot, engine.renderer());
+    }
+
     /// Requests render frame using the supplied arguments and current state.
     ///
     /// @param engine `engine` value used by the operation.
@@ -604,6 +935,21 @@ namespace SFT::Runtime {
                 spectral_path_tracing_controls_entity_)) {
             render_graph_.scene().path_samples_per_pixel = spectral->samples_per_pixel;
             render_graph_.scene().path_max_bounces = spectral->max_bounces;
+        }
+
+        if (auto gi = engine.ecs_world().get_component<SurfelGiTuningState>(tweak_panel_entity_)) {
+            const bool raytracing_available = static_cast<bool>(engine.capabilities().raytracing);
+            if (gi->enabled && !raytracing_available) {
+                Foundation::log_warn("Surfel GI is unavailable because this device did not negotiate ray tracing.");
+            }
+            render_graph_.surfel_gi().enabled = gi->enabled && raytracing_available;
+            render_graph_.surfel_gi().intensity = gi->intensity;
+            render_graph_.surfel_gi().quality = static_cast<Engine::SurfelGiQuality>(gi->quality);
+        }
+        if (auto blur = engine.ecs_world().get_component<MotionBlurTuningState>(tweak_panel_entity_)) {
+            render_graph_.motion_blur().enabled = blur->enabled;
+            render_graph_.motion_blur().intensity = blur->intensity;
+            render_graph_.motion_blur().shutter_angle_degrees = blur->shutter_angle_degrees;
         }
 
         Engine::RenderGraph frame_graph = render_graph_;
@@ -669,6 +1015,7 @@ namespace SFT::Runtime {
                 .exposure = 1.0f,
             },
             .render_graph = std::move(frame_graph),
+            .ui_overlay = build_tweak_panel_overlay(engine, surface, frame),
             .debug_label = UString{"Runtime ECS scene"_ustr},
         };
 

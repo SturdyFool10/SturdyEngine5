@@ -758,7 +758,8 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::prepare_spectral_scene_acceleration_structure(
         RHI::CommandEncoder &encoder, FrameInFlight &slot, const FrameSubmission &submission) {
         ZoneScopedN("Renderer::prepare_spectral_scene_acceleration_structure");
-        if (submission.render_graph.spectral_path_tracing.mode == SpectralRenderMode::RasterDeferred) {
+        if (submission.render_graph.spectral_path_tracing.mode == SpectralRenderMode::RasterDeferred &&
+            !submission.render_graph.surfel_gi.enabled) {
             return {};
         }
         RHI::RhiDevice *device = rhi_device();
@@ -1018,7 +1019,7 @@ namespace SFT::Renderer {
         };
         encoder.barrier(span<const RHI::GlobalBarrier>{&ready_for_queries, 1}, {}, {});
 
-        slot.spectral_tlas = *tlas;
+        slot.scene_tlas = *tlas;
         slot.spectral_scene_instances = *scene_instance_buffer;
         slot.spectral_materials = *material_buffer;
         return {};
@@ -1304,7 +1305,7 @@ namespace SFT::Renderer {
         usize pipeline_index, const char *label) {
         ZoneScopedN("Renderer::record_spectral_photon_pass");
         RHI::RhiDevice *device = rhi_device();
-        if (device == nullptr || !slot.spectral_tlas || !slot.spectral_photon_constants ||
+        if (device == nullptr || !slot.scene_tlas || !slot.spectral_photon_constants ||
             pipeline_index >= photon_entry_points.size()) {
             return unexpected(spectral_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                              "Cannot dispatch spectral photons without prepared scene resources."));
@@ -1350,7 +1351,7 @@ namespace SFT::Renderer {
         };
         const bool complete =
             append_buffer("photonSettings", slot.spectral_photon_constants) &&
-            append_acceleration_structure("sceneAccelerationStructure", slot.spectral_tlas) &&
+            append_acceleration_structure("sceneAccelerationStructure", slot.scene_tlas) &&
             append_buffer("geometryVertices", vertex_arena_.buffer) &&
             append_buffer("geometryIndices", index_arena_.buffer) &&
             append_buffer("sceneInstances", slot.spectral_scene_instances) &&
@@ -1427,7 +1428,7 @@ namespace SFT::Renderer {
         const SpectralRenderMode mode = submission.render_graph.spectral_path_tracing.mode;
         if (mode == SpectralRenderMode::RasterDeferred) return {};
         RHI::RhiDevice *device = rhi_device();
-        if (device == nullptr || !slot.spectral_tlas) {
+        if (device == nullptr || !slot.scene_tlas) {
             return unexpected(spectral_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                              "Cannot dispatch a spectral integrator without a prepared TLAS."));
         }
@@ -1531,7 +1532,7 @@ namespace SFT::Renderer {
 
         const bool complete =
             append_buffer("frame", *constant_buffer) &&
-            append_acceleration_structure("sceneAccelerationStructure", slot.spectral_tlas) &&
+            append_acceleration_structure("sceneAccelerationStructure", slot.scene_tlas) &&
             append_buffer("geometryVertices", vertex_arena_.buffer) &&
             append_buffer("geometryIndices", index_arena_.buffer) &&
             append_buffer("sceneInstances", slot.spectral_scene_instances) &&

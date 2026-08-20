@@ -157,6 +157,8 @@ namespace SFT::Engine {
         graph.description_.bloom.enabled = false;
         graph.description_.tone_mapping.enabled = false;
         graph.description_.debug_overlay.enabled = true;
+        graph.description_.surfel_gi.enabled = false;
+        graph.description_.motion_blur.enabled = false;
         return graph;
     }
 
@@ -240,6 +242,26 @@ namespace SFT::Engine {
     /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
     /// @note This function does not throw exceptions.
     DebugOverlayRenderSettings &RenderGraph::debug_overlay() noexcept { return description_.debug_overlay; }
+    /// Returns the current or globally available surfel GI value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
+    const SurfelGiSettings &RenderGraph::surfel_gi() const noexcept { return description_.surfel_gi; }
+    /// Returns the current or globally available surfel GI value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
+    SurfelGiSettings &RenderGraph::surfel_gi() noexcept { return description_.surfel_gi; }
+    /// Returns the current or globally available motion blur value.
+    ///
+    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
+    const MotionBlurSettings &RenderGraph::motion_blur() const noexcept { return description_.motion_blur; }
+    /// Returns the current or globally available motion blur value.
+    ///
+    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+    /// @note This function does not throw exceptions.
+    MotionBlurSettings &RenderGraph::motion_blur() noexcept { return description_.motion_blur; }
     /// Returns the current or globally available execution mode value.
     ///
     /// @return Returns the current execution mode value.
@@ -608,6 +630,10 @@ namespace SFT::Engine {
                 return description_.tone_mapping.enabled;
             case RenderFeature::DebugOverlay:
                 return description_.debug_overlay.enabled;
+            case RenderFeature::SurfelGi:
+                return description_.surfel_gi.enabled;
+            case RenderFeature::MotionBlur:
+                return description_.motion_blur.enabled;
         }
         return false;
     }
@@ -645,6 +671,12 @@ namespace SFT::Engine {
                 break;
             case RenderFeature::DebugOverlay:
                 description_.debug_overlay.enabled = enabled_value;
+                break;
+            case RenderFeature::SurfelGi:
+                description_.surfel_gi.enabled = enabled_value;
+                break;
+            case RenderFeature::MotionBlur:
+                description_.motion_blur.enabled = enabled_value;
                 break;
         }
         return *this;

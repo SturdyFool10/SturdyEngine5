@@ -2,6 +2,7 @@
 
 #include <Engine/Engine.hpp>
 #include <Ecs/Module.hpp>
+#include <Renderer/UI/UI.hpp>
 
 #include <optional>
 #include <vector>
@@ -62,6 +63,22 @@ namespace SFT::Runtime {
         u32 max_bounces = 4;
     };
 
+
+    struct TweakPanelState {
+        bool visible = false;
+    };
+
+    struct SurfelGiTuningState {
+        bool enabled = false;
+        f32 intensity = 1.0f;
+        u32 quality = 1;
+    };
+
+    struct MotionBlurTuningState {
+        bool enabled = false;
+        f32 intensity = 1.0f;
+        f32 shutter_angle_degrees = 180.0f;
+    };
 
     struct FlyCameraState {
         bool move_forward = false;
@@ -148,6 +165,18 @@ namespace SFT::Runtime {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void handle_hdr_controls(Engine::Engine &engine, Core::RenderSurfaceHandle surface);
 
+        /// Builds the top-right tweak panel overlay (surfel GI, motion blur, bloom, tone mapping, shadows).
+        /// Returns empty hooks when the panel is hidden.
+        ///
+        /// @param engine `engine` value used by the operation.
+        /// @param surface Surface used or affected by the operation.
+        /// @param frame `frame` value used by the operation.
+        ///
+        /// @return Returns the current build tweak panel overlay value.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        [[nodiscard]] Renderer::UiOverlayHooks build_tweak_panel_overlay(
+            Engine::Engine &engine, Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
+
         Engine::EngineConfig engine_config_{};
         Engine::Asset gltf_shader_{};
         Engine::Asset reference_floor_model_{};
@@ -160,9 +189,23 @@ namespace SFT::Runtime {
         Ecs::Entity hdr_controls_entity_{};
         Ecs::Entity runtime_rendering_entity_{};
         Ecs::Entity spectral_path_tracing_controls_entity_{};
+        Ecs::Entity tweak_panel_entity_{};
         Ecs::EventModule<BloomThresholdChanged> bloom_threshold_events_{};
         Ecs::EventModule<RuntimeRenderingSettingsChanged> runtime_rendering_events_{};
         Ecs::EventModule<SpectralPathTracingSettingsChanged> spectral_path_tracing_events_{};
+
+        UI::ToggleState surfel_gi_toggle_state_{};
+        UI::SliderState surfel_gi_intensity_slider_state_{};
+        UI::DropdownState surfel_gi_quality_dropdown_state_{};
+        UI::ToggleState motion_blur_toggle_state_{};
+        UI::SliderState motion_blur_intensity_slider_state_{};
+        UI::SliderState motion_blur_shutter_slider_state_{};
+        UI::ToggleState bloom_toggle_state_{};
+        UI::SliderState bloom_threshold_slider_state_{};
+        UI::DropdownState tone_mapping_operator_dropdown_state_{};
+        UI::SliderState tone_mapping_exposure_slider_state_{};
+        UI::ToggleState shadows_toggle_state_{};
+        UI::SliderState shadows_distance_slider_state_{};
     };
 
     /// Creates a runtime demo game logic from the supplied parameters.
@@ -183,3 +226,6 @@ SFT_ECS_EVENT(SFT::Runtime::RuntimeRenderingSettingsChanged, "sturdy.runtime.ren
 SFT_ECS_COMPONENT(SFT::Runtime::SpectralPathTracingKeyboardControls, "sturdy.runtime.spectral_path_tracing_keyboard_controls");
 SFT_ECS_COMPONENT(SFT::Runtime::SpectralPathTracingTuningState, "sturdy.runtime.spectral_path_tracing_tuning_state");
 SFT_ECS_EVENT(SFT::Runtime::SpectralPathTracingSettingsChanged, "sturdy.runtime.spectral_path_tracing_settings_changed");
+SFT_ECS_COMPONENT(SFT::Runtime::TweakPanelState, "sturdy.runtime.tweak_panel_state");
+SFT_ECS_COMPONENT(SFT::Runtime::SurfelGiTuningState, "sturdy.runtime.surfel_gi_tuning_state");
+SFT_ECS_COMPONENT(SFT::Runtime::MotionBlurTuningState, "sturdy.runtime.motion_blur_tuning_state");

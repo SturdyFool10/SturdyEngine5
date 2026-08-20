@@ -28,6 +28,8 @@ namespace SFT::Engine {
         Bloom,
         ToneMapping,
         DebugOverlay,
+        SurfelGi,
+        MotionBlur,
     };
 
     enum class SceneIntegrator : u8 {
@@ -200,6 +202,38 @@ namespace SFT::Engine {
         bool draw_text = true;
     };
 
+    enum class SurfelGiQuality : u8 { Low, Medium, High };
+
+    struct SurfelGiSettings {
+        bool enabled = false;
+        f32 surfel_radius_near = 0.12f;
+        f32 surfel_radius_far = 1.5f;
+        u32 cascade_count = 4;
+        f32 cascade_distances[4] = {4.0f, 12.0f, 32.0f, 80.0f};
+        u32 hash_grid_bucket_count = 1u << 20;
+        u32 max_surfels = 1u << 17;
+        u32 max_surfels_spawned_per_frame = 2048;
+        f32 screen_coverage_target = 0.98f;
+        u32 rays_per_surfel_per_frame = 4;
+        f32 max_ray_distance = 60.0f;
+        f32 temporal_accumulation_alpha = 0.05f;
+        f32 irradiance_sample_radius_multiplier = 1.5f;
+        f32 intensity = 1.0f;
+        SurfelGiQuality quality = SurfelGiQuality::Medium;
+        bool show_debug_surfels = false;
+    };
+
+    struct MotionBlurSettings {
+        bool enabled = false;
+        f32 intensity = 1.0f;
+        f32 shutter_angle_degrees = 180.0f;
+        u32 tile_size_px = 20;
+        u32 sample_count = 8;
+        f32 max_blur_radius_px = 32.0f;
+        f32 background_foreground_weight_bias = 0.5f;
+        bool camera_motion_only = false;
+    };
+
     struct RenderGraphDescription {
         SceneRenderSettings scene{};
         ShadowSettings shadows{};
@@ -208,6 +242,8 @@ namespace SFT::Engine {
         BloomSettings bloom{};
         ToneMappingSettings tone_mapping{};
         DebugOverlayRenderSettings debug_overlay{};
+        SurfelGiSettings surfel_gi{};
+        MotionBlurSettings motion_blur{};
         RenderGraphExecutionMode execution_mode = RenderGraphExecutionMode::FireAndForget;
 
 
@@ -374,6 +410,26 @@ namespace SFT::Engine {
         /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function does not throw exceptions.
         [[nodiscard]] DebugOverlayRenderSettings &debug_overlay() noexcept;
+        /// Returns the current or globally available surfel GI value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] const SurfelGiSettings &surfel_gi() const noexcept;
+        /// Returns the current or globally available surfel GI value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] SurfelGiSettings &surfel_gi() noexcept;
+        /// Returns the current or globally available motion blur value.
+        ///
+        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] const MotionBlurSettings &motion_blur() const noexcept;
+        /// Returns the current or globally available motion blur value.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] MotionBlurSettings &motion_blur() noexcept;
         /// Returns the current or globally available execution mode value.
         ///
         /// @return Returns the current execution mode value.
@@ -594,6 +650,28 @@ namespace SFT::Engine {
             requires std::invocable<Configure, ToneMappingSettings &>
         RenderGraph &configure_tone_mapping(Configure &&configure) {
             std::invoke(std::forward<Configure>(configure), description_.tone_mapping);
+            return *this;
+        }
+
+        /// Configures surfel GI using the supplied arguments and current state.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        template <typename Configure>
+            requires std::invocable<Configure, SurfelGiSettings &>
+        RenderGraph &configure_surfel_gi(Configure &&configure) {
+            std::invoke(std::forward<Configure>(configure), description_.surfel_gi);
+            return *this;
+        }
+
+        /// Configures motion blur using the supplied arguments and current state.
+        ///
+        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        template <typename Configure>
+            requires std::invocable<Configure, MotionBlurSettings &>
+        RenderGraph &configure_motion_blur(Configure &&configure) {
+            std::invoke(std::forward<Configure>(configure), description_.motion_blur);
             return *this;
         }
 

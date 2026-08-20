@@ -1791,7 +1791,8 @@ namespace SFT::Renderer {
             (**encoder).reset_query_set(slot.pregraph_gpu_timing_query_set, 0, kPregraphGpuTimingQueryCount);
         }
         const bool spectral_scene_active = submission.render_graph.spectral_path_tracing.mode !=
-                                           SpectralRenderMode::RasterDeferred;
+                                               SpectralRenderMode::RasterDeferred ||
+                                           submission.render_graph.surfel_gi.enabled;
         if (spectral_scene_active) {
             if (gpu_timing_enabled) {
                 (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 0);
@@ -2788,6 +2789,15 @@ namespace SFT::Renderer {
                 });
         }
 
+        RenderGraphTextureHandle surfel_irradiance{};
+        if (submission.render_graph.render_scene && !full_path_tracing) {
+            auto surfel_gi_texture = build_surfel_gi_module(module_context, submission, slot, gbuffer_normal, depth_texture);
+            if (!surfel_gi_texture.has_value()) {
+                return unexpected(surfel_gi_texture.error());
+            }
+            surfel_irradiance = *surfel_gi_texture;
+        }
+
         if (submission.render_graph.render_scene && !full_path_tracing) {
             const RenderGraphTextureHandle lighting_spectral_effect = hybrid_spectral
                 ? spectral_effect : gbuffer_emissive;
@@ -2809,11 +2819,12 @@ namespace SFT::Renderer {
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = transmittance_lut});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = multi_scattering_lut});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = sky_view_lut});
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = surfel_irradiance});
             lighting_pass
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
                 .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
                               gbuffer_material, gbuffer_emissive, depth_texture, lighting_spectral_effect,
-                              shadow_atlas, &shadow_frame,
+                              shadow_atlas, &shadow_frame, surfel_irradiance,
                               transmittance_lut, multi_scattering_lut, sky_view_lut](
                                  RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
@@ -2841,6 +2852,7 @@ namespace SFT::Renderer {
                         context.texture(transmittance_lut).default_view,
                         context.texture(multi_scattering_lut).default_view,
                         context.texture(sky_view_lut).default_view,
+                        context.texture(surfel_irradiance).default_view,
                         slot.atmosphere_targets.constants_buffer,
                         submission.deferred_formats.scene_color,
                         submission.transient_bind_groups);
@@ -2907,6 +2919,12 @@ namespace SFT::Renderer {
                     }
                     return {};
                 });
+        }
+
+        if (Core::RendererResult motion_blurred = build_motion_blur_module(
+                module_context, submission, gbuffer_motion, depth_texture);
+            !motion_blurred.has_value()) {
+            return motion_blurred;
         }
 
         if (Core::RendererResult anti_aliased = build_post_process_aa_module(module_context, submission);
@@ -3827,7 +3845,7 @@ namespace SFT::Renderer {
             slot.retired_swapchains.clear();
         }
         slot.command_buffers.clear();
-        slot.spectral_tlas = {};
+        slot.scene_tlas = {};
         slot.spectral_scene_instances = {};
         slot.spectral_materials = {};
         slot.spectral_material_textures.clear();

@@ -173,9 +173,41 @@ namespace SFT::Renderer {
         std::vector<std::pair<std::string, f64>> cpu_stage_timings_ms;
     };
 
+    struct SurfelGiSettings {
+        bool enabled = false;
+        f32 surfel_radius_near = 0.12f;
+        f32 surfel_radius_far = 1.5f;
+        u32 cascade_count = 4;
+        glm::vec4 cascade_distances{4.0f, 12.0f, 32.0f, 80.0f};
+        u32 hash_grid_bucket_count = 1u << 20;
+        u32 max_surfels = 1u << 17;
+        u32 max_surfels_spawned_per_frame = 2048;
+        f32 screen_coverage_target = 0.98f;
+        u32 rays_per_surfel_per_frame = 4;
+        f32 max_ray_distance = 60.0f;
+        f32 temporal_accumulation_alpha = 0.05f;
+        f32 irradiance_sample_radius_multiplier = 1.5f;
+        f32 intensity = 1.0f;
+        u32 quality = 1; // 0=Low, 1=Medium, 2=High
+        bool show_debug_surfels = false;
+    };
+
+    struct MotionBlurSettings {
+        bool enabled = false;
+        f32 intensity = 1.0f;
+        f32 shutter_angle_degrees = 180.0f;
+        u32 tile_size_px = 20;
+        u32 sample_count = 8;
+        f32 max_blur_radius_px = 32.0f;
+        f32 background_foreground_weight_bias = 0.5f;
+        bool camera_motion_only = false;
+    };
+
     struct RenderGraphSettings {
         bool render_scene = true;
         SpectralPathTracingSettings spectral_path_tracing{};
+        SurfelGiSettings surfel_gi{};
+        MotionBlurSettings motion_blur{};
         bool shadows = true;
         bool ambient_occlusion = true;
         bool bloom = true;

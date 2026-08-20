@@ -99,6 +99,7 @@ Texture2D<float> shadowAtlas;
 Texture2D<float4> transmittanceLut;
 Texture2D<float4> multiScatteringLut;
 Texture2D<float4> skyViewLut;
+Texture2D<float4> surfelIrradiance;
 SamplerState gbufferSampler;
 SamplerState shadowDepthSampler;
 SamplerComparisonState shadowCompareSampler;
@@ -605,6 +606,11 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
 
     float3 hdr = albedo * lightingData.ambientRadianceExposure.rgb *
                  gtaoMultiBounce(ambientOcclusion, albedo);
+    if (lightingData.spectralParams.y > 0.5) {
+        float3 surfelGi = surfelIrradiance.SampleLevel(gbufferSampler, input.uv, 0.0).rgb *
+                           lightingData.spectralParams.z;
+        hdr += albedo * surfelGi * ambientOcclusion;
+    }
     float3 sunVector = -safeNormalizeOr(lightingData.sun.directionAngularRadius.xyz, float3(0.0, -1.0, 0.0));
     float3 sunVisibility = float3(directionalShadow(worldPosition, normal, sunVector, worldDx, worldDy,
                                                     viewDepth));

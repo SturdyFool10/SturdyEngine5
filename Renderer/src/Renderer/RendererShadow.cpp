@@ -502,6 +502,10 @@ namespace SFT::Renderer {
             std::clamp(finite_or(submission.render_graph.gtao_intensity, 1.0f), 0.0f, 4.0f),
         };
         gpu.spectral_params.x = static_cast<f32>(submission.render_graph.spectral_path_tracing.mode);
+        // .y/.z are repurposed here for surfel GI enable/intensity rather than adding a new packed
+        // vec4 field — spectral_params previously only used .x, leaving these lanes reserved.
+        gpu.spectral_params.y = submission.render_graph.surfel_gi.enabled ? 1.0f : 0.0f;
+        gpu.spectral_params.z = std::max(finite_or(submission.render_graph.surfel_gi.intensity, 1.0f), 0.0f);
         gpu.viewport_params = glm::vec4{
             1.0f / static_cast<f32>(std::max(render_extent.x, 1u)),
             1.0f / static_cast<f32>(std::max(render_extent.y, 1u)),
@@ -1094,6 +1098,7 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle transmittance_lut_view,
         RHI::TextureViewHandle multi_scattering_lut_view,
         RHI::TextureViewHandle sky_view_lut_view,
+        RHI::TextureViewHandle surfel_irradiance_view,
         RHI::BufferHandle atmosphere_buffer,
         RHI::Format color_format,
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
@@ -1105,7 +1110,7 @@ namespace SFT::Renderer {
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !albedo_view || !normal_view || !material_view || !emissive_view || !depth_view ||
             !spectral_effect_view || !shadow_atlas_view || !lighting_buffer || !transmittance_lut_view || !multi_scattering_lut_view ||
-            !sky_view_lut_view || !atmosphere_buffer) {
+            !sky_view_lut_view || !surfel_irradiance_view || !atmosphere_buffer) {
             return unexpected(shadow_error("Deferred shadow lighting received an invalid G-buffer, atlas, or constants resource."));
         }
 
@@ -1163,6 +1168,8 @@ namespace SFT::Renderer {
                 entry.texture_view = multi_scattering_lut_view;
             } else if (resource.name == "skyViewLut") {
                 entry.texture_view = sky_view_lut_view;
+            } else if (resource.name == "surfelIrradiance") {
+                entry.texture_view = surfel_irradiance_view;
             } else if (resource.name == "gbufferSampler") {
                 entry.sampler = gbuffer_sampler;
             } else if (resource.name == "shadowDepthSampler") {

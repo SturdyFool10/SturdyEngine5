@@ -32,6 +32,7 @@
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/Resources.hpp>
 #include <Renderer/RenderGraph.hpp>
+#include <Renderer/SurfelGi.hpp>
 #include <Renderer/RenderGraphModule.hpp>
 #include <Renderer/TileGrid.hpp>
 #include <Renderer/TextAtlas.hpp>
@@ -825,7 +826,7 @@ namespace SFT::Renderer {
 
             RHI::QuerySetHandle pregraph_gpu_timing_query_set{};
             vector<RenderGraph::GpuPassTiming> pregraph_gpu_timing_pending;
-            RHI::AccelerationStructureHandle spectral_tlas{};
+            RHI::AccelerationStructureHandle scene_tlas{};
             RHI::BufferHandle spectral_scene_instances{};
             RHI::BufferHandle spectral_materials{};
 
@@ -1057,6 +1058,65 @@ namespace SFT::Renderer {
             Core::Slang::Shader vertex_shader;
             RHI::ShaderModuleHandle vertex_module{};
             RHI::BindGroupLayoutHandle bind_group_layout{};
+            bool ready = false;
+        };
+
+
+        struct MotionBlurResources {
+            Core::Slang::Shader tile_max_shader;
+            RHI::ShaderModuleHandle tile_max_module{};
+            RHI::BindGroupLayoutHandle tile_max_bind_group_layout{};
+            RHI::PipelineLayoutHandle tile_max_pipeline_layout{};
+            RHI::ComputePipelineHandle tile_max_pipeline{};
+            u32 tile_max_motion_binding = 0;
+            u32 tile_max_output_binding = 0;
+
+            Core::Slang::Shader neighbor_max_shader;
+            RHI::ShaderModuleHandle neighbor_max_module{};
+            RHI::BindGroupLayoutHandle neighbor_max_bind_group_layout{};
+            RHI::PipelineLayoutHandle neighbor_max_pipeline_layout{};
+            RHI::ComputePipelineHandle neighbor_max_pipeline{};
+            u32 neighbor_max_input_binding = 0;
+            u32 neighbor_max_output_binding = 0;
+
+            Core::Slang::Shader gather_shader;
+            RHI::ShaderModuleHandle gather_module{};
+            RHI::BindGroupLayoutHandle gather_bind_group_layout{};
+            RHI::PipelineLayoutHandle gather_pipeline_layout{};
+            RHI::ComputePipelineHandle gather_pipeline{};
+            RHI::SamplerHandle gather_sampler{};
+            u32 gather_scene_color_binding = 0;
+            u32 gather_sampler_binding = 0;
+            u32 gather_motion_binding = 0;
+            u32 gather_depth_binding = 0;
+            u32 gather_dilated_velocity_binding = 0;
+            u32 gather_output_binding = 0;
+
+            bool ready = false;
+        };
+
+        struct SurfelGiComputeVariant {
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle module{};
+            RHI::BindGroupLayoutHandle bind_group_layout{};
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::ComputePipelineHandle pipeline{};
+            vector<ReflectedResource> resources;
+        };
+
+        struct SurfelGiResources {
+            SurfelGiComputeVariant screen_seed;
+            SurfelGiComputeVariant grid_clear;
+            SurfelGiComputeVariant hash_grid_build;
+            SurfelGiComputeVariant ray_trace;
+            SurfelGiComputeVariant irradiance_resolve;
+
+            RHI::BufferHandle surfel_buffer{};
+            RHI::BufferHandle grid_buffer{};
+            RHI::BufferHandle alloc_cursor_buffer{};
+            u32 surfel_capacity = 0;
+            u32 grid_bucket_capacity = 0;
+
             bool ready = false;
         };
 
@@ -2140,6 +2200,7 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle transmittance_lut_view,
             RHI::TextureViewHandle multi_scattering_lut_view,
             RHI::TextureViewHandle sky_view_lut_view,
+            RHI::TextureViewHandle surfel_irradiance_view,
             RHI::BufferHandle atmosphere_buffer,
             RHI::Format color_format,
             vector<RHI::BindGroupHandle> &transient_bind_groups);
@@ -2457,6 +2518,179 @@ namespace SFT::Renderer {
             RHI::Format color_format,
             const RenderGraphSettings &settings,
             vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Finds or creates the motion blur resources required by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult ensure_motion_blur_resources();
+        /// Destroys the motion blur resources identified by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
+        void destroy_motion_blur_resources() noexcept;
+
+        /// Records the motion-blur tile-max reduction pass (FrostBite-style motion blur, stage 1 of 3) using the
+        /// supplied arguments and current state.
+        ///
+        /// @param pass Compute-pass encoder that receives the dispatch.
+        /// @param motion_view Full-resolution per-pixel motion vector view produced by the deferred G-buffer pass.
+        /// @param tile_max_output_view Tile-resolution destination for the per-tile max-magnitude velocity.
+        /// @param render_extent Full render resolution in pixels.
+        /// @param tile_size Tile edge length in pixels (`MotionBlurSettings::tile_size_px`).
+        /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_motion_blur_tile_max(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle motion_view,
+            RHI::TextureViewHandle tile_max_output_view,
+            glm::uvec2 render_extent,
+            u32 tile_size,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Records the motion-blur neighbor-max dilation pass (stage 2 of 3) using the supplied arguments and
+        /// current state.
+        ///
+        /// @param pass Compute-pass encoder that receives the dispatch.
+        /// @param tile_max_view Tile-resolution per-tile max velocity produced by `record_motion_blur_tile_max`.
+        /// @param dilated_output_view Tile-resolution destination for the neighborhood-dilated velocity.
+        /// @param tile_extent Tile-grid resolution (`ceil(render_extent / tile_size)`).
+        /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_motion_blur_neighbor_max(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle tile_max_view,
+            RHI::TextureViewHandle dilated_output_view,
+            glm::uvec2 tile_extent,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Records the motion-blur gather (line-integral reconstruction) pass (stage 3 of 3) using the supplied
+        /// arguments and current state.
+        ///
+        /// @param pass Compute-pass encoder that receives the dispatch.
+        /// @param scene_color_view Full-resolution HDR scene color view to blur.
+        /// @param motion_view Full-resolution per-pixel motion vector view.
+        /// @param depth_view Full-resolution scene depth view, used for the foreground/background tap weighting.
+        /// @param dilated_velocity_view Tile-resolution dilated velocity produced by `record_motion_blur_neighbor_max`.
+        /// @param output_view Full-resolution destination for the blurred scene color.
+        /// @param settings Configuration values controlling the operation.
+        /// @param render_extent Full render resolution in pixels.
+        /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_motion_blur_gather(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle scene_color_view,
+            RHI::TextureViewHandle motion_view,
+            RHI::TextureViewHandle depth_view,
+            RHI::TextureViewHandle dilated_velocity_view,
+            RHI::TextureViewHandle output_view,
+            const RenderGraphSettings &settings,
+            glm::uvec2 render_extent,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Builds motion blur module.
+        ///
+        /// @param context Context that supplies state required by the operation.
+        /// @param submission `submission` value used by the operation.
+        /// @param motion_texture Full-resolution per-pixel motion vector render-graph texture.
+        /// @param depth_texture Full-resolution scene depth render-graph texture.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult build_motion_blur_module(
+            RenderGraphModuleBuildContext &context,
+            FrameSubmission &submission,
+            RenderGraphTextureHandle motion_texture,
+            RenderGraphTextureHandle depth_texture);
+
+        /// Finds or creates the surfel-GI resources required by the operation, (re)allocating the persistent
+        /// surfel/grid buffers if the requested capacity has grown.
+        ///
+        /// @param surfel_capacity Requested surfel ring-buffer capacity (`SurfelGiSettings::max_surfels`).
+        /// @param grid_bucket_capacity Requested hash-grid bucket count (`SurfelGiSettings::hash_grid_bucket_count`).
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult ensure_surfel_gi_resources(u32 surfel_capacity, u32 grid_bucket_capacity);
+        /// Destroys the surfel-GI resources identified by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
+        void destroy_surfel_gi_resources() noexcept;
+
+        /// Records the surfel screen-space seeding pass (spawns new surfels into coverage gaps).
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_surfel_screen_seed(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle gbuffer_normal_view,
+            RHI::TextureViewHandle gbuffer_depth_view,
+            RHI::BufferHandle constants_buffer,
+            const RenderGraphSettings &settings,
+            glm::uvec2 render_extent,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Records the surfel spatial hash-grid clear pass (must run before `record_surfel_hash_grid_build`).
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_surfel_grid_clear(
+            RHI::ComputePassEncoder &pass,
+            RHI::BufferHandle constants_buffer,
+            const RenderGraphSettings &settings,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Records the surfel spatial hash-grid rebuild pass.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_surfel_hash_grid_build(
+            RHI::ComputePassEncoder &pass,
+            RHI::BufferHandle constants_buffer,
+            const RenderGraphSettings &settings,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Records the surfel ray-trace/temporal-accumulation pass.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_surfel_ray_trace(
+            RHI::ComputePassEncoder &pass,
+            FrameInFlight &slot,
+            RHI::BufferHandle constants_buffer,
+            const RenderGraphSettings &settings,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Records the screen-space surfel irradiance resolve pass.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_surfel_irradiance_resolve(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle gbuffer_normal_view,
+            RHI::TextureViewHandle gbuffer_depth_view,
+            RHI::TextureViewHandle output_view,
+            RHI::BufferHandle constants_buffer,
+            const RenderGraphSettings &settings,
+            glm::uvec2 render_extent,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Builds the surfel-GI render-graph module, returning the resolved screen-space irradiance texture (a
+        /// 1x1 white dummy import when surfel GI is disabled, keeping downstream binding layout fixed).
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererExpected<RenderGraphTextureHandle> build_surfel_gi_module(
+            RenderGraphModuleBuildContext &context,
+            FrameSubmission &submission,
+            FrameInFlight &slot,
+            RenderGraphTextureHandle gbuffer_normal,
+            RenderGraphTextureHandle depth_texture);
 
         /// Finds or creates the spectral path tracing resources required by the operation.
         ///
@@ -2840,6 +3074,8 @@ namespace SFT::Renderer {
 
 
         Async::Mutex<std::unordered_map<u64, ObjectHistoryTemplateResources>> object_history_pipeline_variants_;
+        Async::Mutex<MotionBlurResources> motion_blur_;
+        Async::Mutex<SurfelGiResources> surfel_gi_;
 
 
         Async::Mutex<u8> material_frame_prepare_lock_;
