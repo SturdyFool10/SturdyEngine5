@@ -189,9 +189,15 @@ namespace SFT::Renderer {
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::Unsupported`.
-    Core::RendererResult Renderer::ensure_spectral_path_tracing_resources(SpectralRenderMode mode) {
+    Core::RendererResult Renderer::ensure_spectral_path_tracing_resources(
+        SpectralRenderMode mode, bool surfel_gi_enabled) {
         ZoneScopedN("Renderer::ensure_spectral_path_tracing_resources");
-        if (mode == SpectralRenderMode::RasterDeferred) {
+        // Surfel GI's ray-trace shader imports sturdy_spectral_scene.slang and reuses its material
+        // sampling ABI (including the spectralMaterialTextures bindless heap), so it needs this same
+        // resource setup -- most importantly material_texture_capacity, which stays 0 and breaks
+        // material-texture packing in prepare_spectral_scene_acceleration_structure -- even when the
+        // spectral path tracer itself is never toggled on.
+        if (mode == SpectralRenderMode::RasterDeferred && !surfel_gi_enabled) {
             return {};
         }
 

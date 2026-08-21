@@ -1260,11 +1260,12 @@ namespace SFT::Renderer {
                                                 "Renderer RHI device is unavailable.");
         }
         if (Core::RendererResult spectral_ready = ensure_spectral_path_tracing_resources(
-                submission.render_graph.spectral_path_tracing.mode);
+                submission.render_graph.spectral_path_tracing.mode, submission.render_graph.surfel_gi.enabled);
             !spectral_ready.has_value()) {
             return spectral_ready;
         }
-        if (submission.render_graph.spectral_path_tracing.mode != SpectralRenderMode::RasterDeferred) {
+        if (submission.render_graph.spectral_path_tracing.mode != SpectralRenderMode::RasterDeferred ||
+            submission.render_graph.surfel_gi.enabled) {
             if (Core::RendererResult acceleration_ready =
                     ensure_spectral_mesh_acceleration_structures(submission.draws);
                 !acceleration_ready.has_value()) {

@@ -589,9 +589,30 @@ namespace SFT::Renderer {
         if (auto r = bind_buffer("sceneInstances", slot.spectral_scene_instances); !r.has_value()) return r;
         if (auto r = bind_buffer("sceneMaterials", slot.spectral_materials); !r.has_value()) return r;
 
+        // sturdy_spectral_scene.slang's material sampling (used by traceSpectralClosestSurface via
+        // loadSpectralSurface) reads through this bindless heap, so it must be populated the same way
+        // RendererSpectralPathTracing.cpp's append_material_texture_heap() does for the integrator.
+        {
+            auto binding = find_surfel_binding(resources, "spectralMaterialTextures", "surfel ray-trace");
+            if (!binding) return unexpected(binding.error());
+            for (u32 index = 0; index < slot.spectral_material_textures.size(); ++index) {
+                const TextureResource *material_texture = texture(slot.spectral_material_textures[index]);
+                if (material_texture == nullptr || !material_texture->view || !material_texture->sampler) {
+                    return unexpected(surfel_gi_error("Surfel ray-trace material texture heap entry is invalid."));
+                }
+                entries.push_back(RHI::BindGroupEntry{
+                    .binding = *binding,
+                    .array_element = index,
+                    .texture_view = material_texture->view,
+                    .sampler = material_texture->sampler,
+                });
+            }
+        }
+
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
+            .variable_descriptor_count = static_cast<u32>(slot.spectral_material_textures.size()),
             .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "surfel ray-trace bind group",
         });

@@ -2698,7 +2698,8 @@ namespace SFT::Renderer {
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_spectral_path_tracing_resources(SpectralRenderMode mode);
+        [[nodiscard]] Core::RendererResult ensure_spectral_path_tracing_resources(
+            SpectralRenderMode mode, bool surfel_gi_enabled = false);
         /// Finds or creates the spectral mesh acceleration structures required by the operation.
         ///
         /// @param draws Draw descriptions processed in submission order.

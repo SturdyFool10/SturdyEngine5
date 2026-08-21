@@ -211,8 +211,19 @@ float shadowVisibility(uint viewIndex, float3 worldPosition, float3 normal, floa
         receiverNormal = -receiverNormal;
     }
     float nDotL = saturate(dot(receiverNormal, lightVector));
+    // receiverNormal is a flat, per-triangle geometric normal (cross of screen-space position
+    // derivatives), not the smooth shading normal -- correct for biasing against the actual
+    // rasterized triangle plane, but it means nDotL itself is noisy/discontinuous across triangle
+    // edges on curved or tessellated geometry. A curve with an unbounded derivative as nDotL -> 0
+    // (e.g. 1/nDotL) amplifies that per-triangle noise into visibly different bias amounts between
+    // adjacent triangles -- a faceted/triangulated shadow-edge pattern (confirmed empirically: this
+    // is exactly what a 1/nDotL version of this formula produced on Sponza's arches). Keep the
+    // original sqrt(1-nDotL^2) (sin of the angle from the light) curve, which has a bounded
+    // derivative and was never the noisy part -- it was just undersized, topping out at exactly
+    // shadowParams.y (0.75 texels by default) at 90 degrees. Scale that same smooth curve up to a
+    // meaningfully larger maximum instead of changing its shape.
     float grazing = sqrt(saturate(1.0 - nDotL * nDotL));
-    float normalOffsetTexels = min(lightingData.shadowParams.y * grazing, 2.0);
+    float normalOffsetTexels = min(lightingData.shadowParams.y * (1.0 + grazing * 2.5), 3.0);
     float3 biasedPosition = worldPosition + receiverNormal * (worldTexel * normalOffsetTexels);
     float4 clip = mul(float4(biasedPosition, 1.0), view.viewProjection);
     if (clip.w <= SFT_EPSILON) {

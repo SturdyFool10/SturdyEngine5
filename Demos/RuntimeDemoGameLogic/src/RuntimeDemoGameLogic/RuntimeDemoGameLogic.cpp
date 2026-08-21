@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/geometric.hpp>
@@ -659,6 +661,11 @@ namespace SFT::Runtime {
                 draw_panel_text(option_ctx, label, kTweakPanelTextPrimary, 12);
             }};
         }
+
+        /// Draws a "name: value" label above a slider so each control is identifiable on its own.
+        void draw_slider_label(UI::Context &ctx, const char *name, f64 value) {
+            draw_panel_text(ctx, std::format("{}: {:.2f}", name, value), kTweakPanelTextPrimary, 12);
+        }
     } // namespace
 
     /// Builds the top-right tweak panel overlay (surfel GI, motion blur, bloom, tone mapping, shadows).
@@ -685,6 +692,22 @@ namespace SFT::Runtime {
                                               : RHI::Format::BGRA8UnormSrgb;
         if (!engine.ui_context().ensure_ready(*device, color_format)) {
             return {};
+        }
+        if (!tweak_panel_font_registered_) {
+            const std::optional<std::string> font_bytes =
+                Foundation::read_file_to_string("Fonts/MapleMono-NF-Regular.ttf");
+            if (font_bytes) {
+                const std::span<const char> chars{font_bytes->data(), font_bytes->size()};
+                if (auto loaded = Text::Font::load(std::as_bytes(chars))) {
+                    tweak_panel_font_ = std::move(*loaded);
+                    engine.ui_context().context().register_font(kTweakPanelFontId, tweak_panel_font_);
+                    tweak_panel_font_registered_ = true;
+                } else {
+                    Foundation::log_warn("Runtime tweak panel: failed to load font: {}", loaded.error().message);
+                }
+            } else {
+                Foundation::log_warn("Runtime tweak panel: could not read Fonts/MapleMono-NF-Regular.ttf");
+            }
         }
 
         const glm::vec2 viewport{
@@ -732,6 +755,7 @@ namespace SFT::Runtime {
                         draw_panel_text(ctx, "unavailable: no ray tracing support", kTweakPanelTextSecondary, 10);
                     }
 
+                    draw_slider_label(ctx, "Intensity", static_cast<f64>(gi->intensity));
                     f64 intensity = static_cast<f64>(gi->intensity);
                     const UI::SliderResult intensity_result = UI::slider(
                         ctx,
@@ -744,6 +768,7 @@ namespace SFT::Runtime {
                         raytracing_available);
                     gi->intensity = static_cast<f32>(intensity_result.value);
 
+                    draw_panel_text(ctx, "Quality", kTweakPanelTextPrimary, 12);
                     std::array<UI::DropdownOption, 3> quality_options{
                         tweak_panel_dropdown_option("Low"), tweak_panel_dropdown_option("Medium"),
                         tweak_panel_dropdown_option("High")};
@@ -777,6 +802,7 @@ namespace SFT::Runtime {
                         blur->enabled);
                     if (toggle_result.clicked) blur->enabled = !blur->enabled;
 
+                    draw_slider_label(ctx, "Intensity", static_cast<f64>(blur->intensity));
                     f64 intensity = static_cast<f64>(blur->intensity);
                     const UI::SliderResult intensity_result = UI::slider(
                         ctx,
@@ -788,6 +814,7 @@ namespace SFT::Runtime {
                         tweak_panel_slider_style(), motion_blur_intensity_slider_state_, intensity);
                     blur->intensity = static_cast<f32>(intensity_result.value);
 
+                    draw_slider_label(ctx, "Shutter Angle", static_cast<f64>(blur->shutter_angle_degrees));
                     f64 shutter = static_cast<f64>(blur->shutter_angle_degrees);
                     const UI::SliderResult shutter_result = UI::slider(
                         ctx,
@@ -804,7 +831,6 @@ namespace SFT::Runtime {
             {
                 draw_panel_text(ctx, "Bloom", kTweakPanelTextSecondary, 12);
                 if (bloom) {
-                    bool bloom_enabled = !bloom->threshold_view;
                     const UI::ToggleResult toggle_result = UI::switch_toggle(
                         ctx,
                         UI::ElementDecl{
@@ -812,9 +838,10 @@ namespace SFT::Runtime {
                             .id = UString{"runtime-tweak-bloom-toggle"_ustr},
                         },
                         tweak_panel_toggle_style(), bloom_toggle_state_, static_cast<f32>(frame.delta_seconds),
-                        bloom_enabled);
-                    if (toggle_result.clicked) bloom->threshold_view = !bloom->threshold_view;
+                        bloom->enabled);
+                    if (toggle_result.clicked) bloom->enabled = !bloom->enabled;
 
+                    draw_slider_label(ctx, "Threshold", static_cast<f64>(bloom->threshold));
                     f64 threshold = static_cast<f64>(bloom->threshold);
                     const UI::SliderResult threshold_result = UI::slider(
                         ctx,
@@ -830,6 +857,7 @@ namespace SFT::Runtime {
 
             {
                 draw_panel_text(ctx, "Tone Mapping", kTweakPanelTextSecondary, 12);
+                draw_panel_text(ctx, "Operator", kTweakPanelTextPrimary, 12);
                 constexpr std::array<Engine::ToneMappingOperator, 3> kToneMappingOperators{
                     Engine::ToneMappingOperator::Agx, Engine::ToneMappingOperator::HermiteSpline,
                     Engine::ToneMappingOperator::PsychoV};
@@ -857,6 +885,7 @@ namespace SFT::Runtime {
                 render_graph_.tone_mapping().operation = kToneMappingOperators[std::min<usize>(
                     operator_result.selected_index, kToneMappingOperators.size() - 1)];
 
+                draw_slider_label(ctx, "Exposure", static_cast<f64>(render_graph_.tone_mapping().exposure));
                 f64 exposure = static_cast<f64>(render_graph_.tone_mapping().exposure);
                 const UI::SliderResult exposure_result = UI::slider(
                     ctx,
@@ -881,6 +910,7 @@ namespace SFT::Runtime {
                     render_graph_.shadows().enabled);
                 if (toggle_result.clicked) render_graph_.shadows().enabled = !render_graph_.shadows().enabled;
 
+                draw_slider_label(ctx, "Max Distance", static_cast<f64>(render_graph_.shadows().max_distance));
                 f64 max_distance = static_cast<f64>(render_graph_.shadows().max_distance);
                 const UI::SliderResult distance_result = UI::slider(
                     ctx,
@@ -915,8 +945,11 @@ namespace SFT::Runtime {
         if (auto bloom = engine.ecs_world().get_component<BloomTuningState>(bloom_controls_entity_)) {
             render_graph_.bloom().threshold = bloom->threshold;
             threshold_view = bloom->threshold_view;
+            render_graph_.bloom().enabled = bloom->enabled;
         }
-        render_graph_.bloom().enabled = !threshold_view;
+        if (threshold_view) {
+            render_graph_.bloom().enabled = false;
+        }
 
         if (auto rendering = engine.ecs_world().get_component<RuntimeRenderingState>(
                 runtime_rendering_entity_)) {

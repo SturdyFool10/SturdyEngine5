@@ -2,6 +2,7 @@
 
 #include <Engine/Engine.hpp>
 #include <Ecs/Module.hpp>
+#include <Renderer/Text/Text.hpp>
 #include <Renderer/UI/UI.hpp>
 
 #include <optional>
@@ -16,6 +17,7 @@ namespace SFT::Runtime {
     struct BloomTuningState {
         f32 threshold = 1.25f;
         bool threshold_view = false;
+        bool enabled = true;
     };
 
 
@@ -206,6 +208,9 @@ namespace SFT::Runtime {
         UI::SliderState tone_mapping_exposure_slider_state_{};
         UI::ToggleState shadows_toggle_state_{};
         UI::SliderState shadows_distance_slider_state_{};
+
+        Text::Font tweak_panel_font_{};
+        bool tweak_panel_font_registered_ = false;
     };
 
     /// Creates a runtime demo game logic from the supplied parameters.
