@@ -731,6 +731,8 @@ namespace SFT::Engine {
         const bool has_anti_aliasing = path_contains(RenderGraphPassKind::AntiAliasing);
         const bool has_bloom = path_contains(RenderGraphPassKind::Bloom);
         const bool has_tone_mapping = path_contains(RenderGraphPassKind::ToneMapping);
+        // False while a shadow debug view is selected; see the bloom/tone-mapping fields below.
+        const bool shadow_debug_view_off = graph.shadows.debug_view == ShadowDebugView::None;
         const bool has_debug_overlay = path_contains(RenderGraphPassKind::DebugOverlay);
 
         const auto logical = [](RenderGraphTextureHandle handle) {
@@ -913,8 +915,12 @@ namespace SFT::Engine {
             },
             .shadows = has_scene && graph.shadows.enabled,
             .ambient_occlusion = has_scene && graph.ambient_occlusion.enabled,
-            .bloom = has_bloom && graph.bloom.enabled,
-            .tone_mapping = has_tone_mapping && graph.tone_mapping.enabled,
+            // A shadow debug view writes raw diagnostic values (cascade tints, atlas UVs, an
+            // isolated visibility term) into scene colour. Running them through bloom and a tone
+            // curve makes them unreadable as numbers, which defeats the point, so both are bypassed
+            // for as long as a debug view is selected.
+            .bloom = has_bloom && graph.bloom.enabled && shadow_debug_view_off,
+            .tone_mapping = has_tone_mapping && graph.tone_mapping.enabled && shadow_debug_view_off,
             .debug_overlay = has_debug_overlay && graph.debug_overlay.enabled,
             .draw_overlay_text = graph.debug_overlay.draw_text,
             .wait_for_completion = graph.execution_mode == RenderGraphExecutionMode::WaitForCompletion,
@@ -929,6 +935,9 @@ namespace SFT::Engine {
             .shadow_depth_bias = graph.shadows.depth_bias,
             .shadow_slope_bias = graph.shadows.slope_bias,
             .shadow_normal_bias = graph.shadows.normal_bias,
+            .shadow_cascade_resolutions = graph.shadows.cascade_resolutions,
+            .shadow_filter_radius_texels = graph.shadows.filter_radius_texels,
+            .shadow_debug_view = static_cast<u32>(graph.shadows.debug_view),
             .max_shadowed_spot_lights = graph.shadows.max_shadowed_spot_lights,
             .max_shadowed_point_lights = graph.shadows.max_shadowed_point_lights,
             .shadow_contact_hardening = graph.shadows.contact_hardening,
@@ -936,11 +945,16 @@ namespace SFT::Engine {
             .contact_shadow_distance = graph.shadows.contact_shadow_distance,
             .contact_shadow_thickness = graph.shadows.contact_shadow_thickness,
             .contact_shadow_steps = graph.shadows.contact_shadow_steps,
-            .gtao_radius = graph.ambient_occlusion.radius,
-            .gtao_falloff = graph.ambient_occlusion.falloff,
-            .gtao_thickness = graph.ambient_occlusion.thickness,
-            .gtao_intensity = graph.ambient_occlusion.intensity,
-            .gtao_quality = static_cast<u32>(graph.ambient_occlusion.quality),
+            .contact_shadow_intensity = graph.shadows.contact_shadow_intensity,
+            .contact_shadow_fade_distance = graph.shadows.contact_shadow_fade_distance,
+            .ambient_occlusion_radius = graph.ambient_occlusion.radius,
+            .ambient_occlusion_quality = static_cast<u32>(graph.ambient_occlusion.quality),
+            .ambient_occlusion_intensity = graph.ambient_occlusion.intensity,
+            .ambient_occlusion_falloff_range = graph.ambient_occlusion.falloff_range,
+            .ambient_occlusion_thin_occluder_compensation = graph.ambient_occlusion.thin_occluder_compensation,
+            .ambient_occlusion_final_value_power = graph.ambient_occlusion.final_value_power,
+            .ambient_occlusion_sample_distribution_power = graph.ambient_occlusion.sample_distribution_power,
+            .ambient_occlusion_denoise = graph.ambient_occlusion.denoise,
             .msaa_samples = has_anti_aliasing ? graph.anti_aliasing.msaa_samples : 1u,
             .post_process_aa = has_anti_aliasing ? static_cast<u32>(graph.anti_aliasing.post_process) : static_cast<u32>(PostProcessAntiAliasing::None),
             .aa_subpixel_quality = graph.anti_aliasing.subpixel_quality,

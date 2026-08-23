@@ -644,7 +644,17 @@ namespace SFT::Renderer {
         struct alignas(16) DirectionalLightGpuData {
             glm::vec4 direction_angular_radius{};
             glm::vec4 radiance_shadow{};
+
+
+            /// View-space distance at which each cascade ends (its far edge).
             glm::vec4 cascade_splits{};
+
+
+            /// View-space distance at which each cascade starts cross-fading into the next one.
+            ///
+            /// Stored explicitly rather than derived from a ratio so the fade band can be sized
+            /// from the cascade's own extent instead of from an arbitrary percentage.
+            glm::vec4 cascade_fade_starts{};
             glm::vec4 cascade_params{};
         };
 
@@ -672,7 +682,11 @@ namespace SFT::Renderer {
             glm::vec4 shadow_params{};
 
             glm::vec4 contact_shadow_params{};
-            glm::vec4 gtao_params{};
+
+
+            /// Contact-shadow tuning that did not fit `contact_shadow_params`:
+            /// `(max intensity, fade-out view distance, unused, unused)`.
+            glm::vec4 contact_shadow_params_extra{};
             glm::vec4 viewport_params{};
             glm::vec4 spectral_params{};
             DirectionalLightGpuData sun{};
@@ -685,12 +699,71 @@ namespace SFT::Renderer {
             glm::mat4 view_projection{1.0f};
             Frustum frustum{};
             RHI::Rect2D viewport{};
+
+
+            /// Indices into `FrameSubmission::draws` for the casters that can affect this view.
+            ///
+            /// Only populated for directional cascades, where the caster set is computed anyway
+            /// while fitting the cascade depth range. It is a conservative superset (sphere bounds,
+            /// no exact silhouette test): false positives cost a culled draw, false negatives would
+            /// drop a shadow and are not permitted. When `has_caster_list` is false the recorder
+            /// falls back to scanning every submitted draw against `frustum`.
+            vector<u32> caster_indices;
+            bool has_caster_list = false;
+        };
+
+        /// Placement of one directional cascade inside the dedicated directional depth atlas.
+        ///
+        /// Coordinates and `resolution` are in texels of that atlas. Cascade tiles never overlap
+        /// and are never shared with punctual (spot/point) shadows.
+        struct DirectionalCascadeTile {
+            u32 x = 0;
+            u32 y = 0;
+            u32 resolution = 0;
+        };
+
+        /// Deliberate, fully predictable directional-cascade allocation.
+        ///
+        /// Cascade resolutions come from configuration rather than from whatever a generic atlas
+        /// packer happens to have left over, so the far cascade cannot silently collapse to a
+        /// fraction of the near cascade's resolution.
+        struct DirectionalAtlasLayout {
+            std::array<DirectionalCascadeTile, max_directional_shadow_cascades> tiles{};
+            u32 cascade_count = 0;
+            u32 width = 0;
+            u32 height = 0;
+
+            /// Reports whether the layout describes at least one usable cascade tile.
+            ///
+            /// @return Returns true when a directional atlas should be allocated.
+            /// @note This function does not throw exceptions.
+            [[nodiscard]] explicit operator bool() const noexcept {
+                return cascade_count != 0 && width != 0 && height != 0;
+            }
+        };
+
+        /// Frame-to-frame cascade stabilization state, owned per window surface.
+        ///
+        /// Holds the last accepted light-space cascade edge length per cascade so the ladder
+        /// quantization in `stabilize_cascade_extent` can apply hysteresis and never oscillate
+        /// between two rungs while the camera sits on a quantization threshold. Values are in world
+        /// units; zero means "no history yet".
+        struct DirectionalShadowState {
+            std::array<f32, max_directional_shadow_cascades> stable_extent{};
         };
 
         struct PreparedShadowFrame {
             ShadowLightingGpuData gpu{};
-            vector<ShadowRenderView> render_views;
+
+
+            /// Cascade views, rendered into the dedicated directional atlas.
+            vector<ShadowRenderView> directional_views;
+
+
+            /// Spot/point views, rendered into the shared punctual atlas.
+            vector<ShadowRenderView> punctual_views;
             bool atlas_used = false;
+            bool directional_atlas_used = false;
         };
 
         struct FrameShadowTargets {
@@ -699,6 +772,11 @@ namespace SFT::Renderer {
             RHI::TextureHandle atlas{};
             RHI::TextureViewHandle atlas_view{};
             RHI::BufferHandle lighting_buffer{};
+
+
+            DirectionalAtlasLayout directional_layout{};
+            RHI::TextureHandle directional_atlas{};
+            RHI::TextureViewHandle directional_atlas_view{};
         };
 
 
@@ -750,6 +828,35 @@ namespace SFT::Renderer {
         };
 
 
+        /// Persistent linear view-space depth pyramid consumed by the XeGTAO ambient-occlusion
+        /// passes: mip 0 is full-resolution linear depth, mips 1..4 are depth-aware reductions.
+        ///
+        /// Owned per *frame in flight*, not per window. The pyramid is written and consumed entirely
+        /// within one frame, and with `max_frames_in_flight` > 1 two frames' graph submissions can
+        /// overlap on the GPU: a single per-window instance would let frame N+1's prefilter overwrite
+        /// the depth frame N's horizon search is still reading. Every other intra-frame graph
+        /// resource here has per-frame lifetime for the same reason (render-graph transients are
+        /// allocated fresh each frame and handed to the slot for delayed destruction) - `hiz_pyramid`
+        /// is per window only because it is deliberately cross-frame history.
+        ///
+        /// Keeping it persistent per slot rather than making it a graph transient avoids recreating
+        /// five mip storage views every frame; the slot's fence is already waited before recording,
+        /// so reallocating on a resolution change is safe. Sized in `ensure_gtao_depth_pyramid`.
+        struct GtaoDepthPyramid {
+            Core::Extent2D extent{};
+            RHI::TextureHandle texture{};
+
+
+            /// One single-mip storage view per level, in mip order; always `kGtaoDepthMipLevels`
+            /// entries when the pyramid is ready.
+            vector<RHI::TextureViewHandle> mip_views;
+
+
+            /// Full-chain sampled view used by the GTAO main pass's `SampleLevel` taps.
+            RHI::TextureViewHandle full_view{};
+        };
+
+
         struct FrameCompositeTarget {
             Core::Extent2D extent{};
             RHI::Format format = RHI::Format::Undefined;
@@ -796,6 +903,9 @@ namespace SFT::Renderer {
 
         struct FrameInFlight {
             RHI::FenceHandle fence{};
+
+
+            GtaoDepthPyramid gtao_depth_pyramid;
 
 
             vector<RHI::CommandBufferHandle> command_buffers;
@@ -927,6 +1037,9 @@ namespace SFT::Renderer {
 
 
             HiZPyramidTargets hiz_pyramid;
+
+
+            DirectionalShadowState directional_shadow{};
 
 
             unique_ptr<Async::Mutex<FrameTimingSnapshot>> last_frame_timings =
@@ -1116,6 +1229,31 @@ namespace SFT::Renderer {
             RHI::BufferHandle alloc_cursor_buffer{};
             u32 surfel_capacity = 0;
             u32 grid_bucket_capacity = 0;
+
+            bool ready = false;
+        };
+
+
+        struct GtaoComputeVariant {
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle module{};
+            RHI::BindGroupLayoutHandle bind_group_layout{};
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::ComputePipelineHandle pipeline{};
+            vector<ReflectedResource> resources;
+        };
+
+
+        /// Pipelines shared by every window for the three-pass spatial-only XeGTAO implementation.
+        struct GtaoResources {
+            GtaoComputeVariant prefilter_depth;
+            GtaoComputeVariant main_pass;
+            GtaoComputeVariant denoise;
+
+
+            /// Point/clamp sampler for the depth pyramid. Filtering linear depth across a
+            /// silhouette would average two unrelated surfaces into a horizon that exists nowhere.
+            RHI::SamplerHandle point_sampler{};
 
             bool ready = false;
         };
@@ -1563,7 +1701,34 @@ namespace SFT::Renderer {
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_frame_shadow_targets(FrameInFlight &slot, u32 atlas_size);
+        [[nodiscard]] Core::RendererResult ensure_frame_shadow_targets(
+            FrameInFlight &slot, u32 atlas_size, const DirectionalAtlasLayout &directional_layout);
+
+
+        /// Builds the deliberate directional cascade allocation for the supplied settings.
+        ///
+        /// @param requested_resolutions Per-cascade edge resolutions in texels, near cascade first.
+        /// @param cascade_count Number of cascades that will be rendered.
+        /// @param device_max_texture_dimension Largest 2D texture edge the device supports.
+        ///
+        /// @return Returns a packed layout whose atlas fits inside the device limit.
+        /// @note Resolutions are sanitized to powers of two, forced non-increasing, and uniformly
+        ///       halved until the packed atlas fits; the result is therefore always allocatable.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] static DirectionalAtlasLayout build_directional_atlas_layout(
+            span<const u32> requested_resolutions, u32 cascade_count,
+            u32 device_max_texture_dimension) noexcept;
+
+
+        /// Finds or creates the dedicated directional cascade atlas for a frame slot.
+        ///
+        /// @param slot Frame-in-flight slot owning the shadow targets.
+        /// @param layout Directional cascade allocation, or an empty layout to release the atlas.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult ensure_directional_shadow_atlas(
+            FrameInFlight &slot, const DirectionalAtlasLayout &layout);
         /// Destroys the frame shadow targets identified by the supplied parameters.
         ///
         /// @param slot Binding or storage slot addressed by the operation.
@@ -1633,6 +1798,7 @@ namespace SFT::Renderer {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult prepare_shadow_frame(const FrameSubmission &submission,
                                                                  FrameShadowTargets &targets,
+                                                                 DirectionalShadowState &directional_state,
                                                                  PreparedShadowFrame &prepared,
                                                                  Core::Extent2D render_extent);
         /// Finds or creates the frame bloom targets required by the operation.
@@ -2196,11 +2362,13 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle depth_view,
             RHI::TextureViewHandle spectral_effect_view,
             RHI::TextureViewHandle shadow_atlas_view,
+            RHI::TextureViewHandle directional_shadow_atlas_view,
             RHI::BufferHandle lighting_buffer,
             RHI::TextureViewHandle transmittance_lut_view,
             RHI::TextureViewHandle multi_scattering_lut_view,
             RHI::TextureViewHandle sky_view_lut_view,
             RHI::TextureViewHandle surfel_irradiance_view,
+            RHI::TextureViewHandle gtao_ambient_occlusion_view,
             RHI::BufferHandle atmosphere_buffer,
             RHI::Format color_format,
             vector<RHI::BindGroupHandle> &transient_bind_groups);
@@ -2692,6 +2860,101 @@ namespace SFT::Renderer {
             RenderGraphTextureHandle gbuffer_normal,
             RenderGraphTextureHandle depth_texture);
 
+
+        /// Depth mip levels in `GtaoDepthPyramid`, matching `SFT_GTAO_DEPTH_MIP_LEVELS` in
+        /// Shaders/gtao_common.slang. The prefilter shader writes all five in one dispatch, so the
+        /// two definitions must stay in lockstep.
+        static constexpr u32 kGtaoDepthMipLevels = 5;
+
+
+        /// Smallest render extent GTAO will run at. Below this the depth pyramid cannot supply
+        /// `kGtaoDepthMipLevels` levels and the effect is skipped outright.
+        static constexpr u32 kGtaoMinimumRenderExtent = 16;
+
+        /// Finds or creates the XeGTAO compute pipelines (prefilter/main/denoise) and their shared
+        /// point-clamp sampler.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult ensure_gtao_resources();
+        /// Destroys the GTAO pipelines identified by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
+        void destroy_gtao_resources() noexcept;
+
+        /// Finds or creates the per-window GTAO linear-depth pyramid for `render_extent`,
+        /// reallocating it when the render extent changes.
+        ///
+        /// @param pyramid Per-window pyramid to size.
+        /// @param render_extent Full-resolution render extent the AO runs at.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult ensure_gtao_depth_pyramid(GtaoDepthPyramid &pyramid,
+                                                                     Core::Extent2D render_extent);
+        /// Destroys the GTAO depth pyramid identified by the supplied parameters.
+        ///
+        /// @param pyramid `pyramid` value used by the operation.
+        ///
+        /// @note This function does not throw exceptions.
+        void destroy_gtao_depth_pyramid(GtaoDepthPyramid &pyramid) noexcept;
+
+        /// Records the GTAO depth prefilter pass: hardware depth to linear view depth plus the
+        /// five-level depth-aware mip chain.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_gtao_prefilter_depth(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle scene_depth_view,
+            const GtaoDepthPyramid &pyramid,
+            RHI::BufferHandle constants_buffer,
+            Core::Extent2D render_extent,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Records the GTAO horizon-search pass, writing the raw AO term and the depth-edge
+        /// information the denoiser consumes.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_gtao_main(
+            RHI::ComputePassEncoder &pass,
+            const GtaoDepthPyramid &pyramid,
+            RHI::TextureViewHandle gbuffer_normal_view,
+            RHI::TextureViewHandle raw_ao_view,
+            RHI::TextureViewHandle edges_view,
+            RHI::BufferHandle constants_buffer,
+            Core::Extent2D render_extent,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Records the 5x5 edge-aware GTAO spatial denoise pass.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_gtao_denoise(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle raw_ao_view,
+            RHI::TextureViewHandle edges_view,
+            RHI::TextureViewHandle gbuffer_normal_view,
+            RHI::TextureViewHandle output_view,
+            RHI::BufferHandle constants_buffer,
+            Core::Extent2D render_extent,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Builds the GTAO render-graph module, returning the screen-space ambient-occlusion texture
+        /// the deferred lighting pass modulates indirect diffuse with. When AO is disabled (or the
+        /// view cannot support it) this imports a 1x1 white dummy so the lighting bind group's
+        /// layout is identical either way.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererExpected<RenderGraphTextureHandle> build_gtao_module(
+            RenderGraphModuleBuildContext &context,
+            FrameSubmission &submission,
+            FrameInFlight &slot,
+            RenderGraphTextureHandle gbuffer_normal,
+            RenderGraphTextureHandle depth_texture);
+
         /// Finds or creates the spectral path tracing resources required by the operation.
         ///
         /// @param mode Mode controlling how the operation is performed.
@@ -3077,6 +3340,7 @@ namespace SFT::Renderer {
         Async::Mutex<std::unordered_map<u64, ObjectHistoryTemplateResources>> object_history_pipeline_variants_;
         Async::Mutex<MotionBlurResources> motion_blur_;
         Async::Mutex<SurfelGiResources> surfel_gi_;
+        Async::Mutex<GtaoResources> gtao_;
 
 
         Async::Mutex<u8> material_frame_prepare_lock_;

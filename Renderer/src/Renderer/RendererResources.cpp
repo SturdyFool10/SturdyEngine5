@@ -305,6 +305,7 @@ namespace SFT::Renderer {
                     destroy_frame_shadow_targets(slot);
                     destroy_frame_atmosphere_targets(slot);
                     destroy_frame_deferred_targets(slot);
+                    destroy_gtao_depth_pyramid(slot.gtao_depth_pyramid);
                     if (slot.fence) {
                         device->destroy_fence(slot.fence);
                     }
@@ -327,6 +328,7 @@ namespace SFT::Renderer {
         destroy_hiz_build_resources();
         destroy_motion_blur_resources();
         destroy_surfel_gi_resources();
+        destroy_gtao_resources();
     }
 
     /// Grows geometry arena using the supplied arguments and current state.

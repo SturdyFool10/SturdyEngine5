@@ -3,6 +3,7 @@
 #include <Foundation/Foundation.hpp>
 
 #pragma region Imports
+#include <array>
 #include <cstddef>
 #include <functional>
 #include <span>
@@ -232,20 +233,71 @@ namespace SFT::Renderer {
         f32 shadow_depth_bias = 0.75f;
         f32 shadow_slope_bias = 1.0f;
         f32 shadow_normal_bias = 0.75f;
+
+
+        /// Per-cascade directional shadow-map edge resolution, near cascade first.
+        std::array<u32, 4> shadow_cascade_resolutions{2048u, 1024u, 1024u, 1024u};
+
+
+        /// PCF filter radius in shadow texels of the sampled cascade.
+        f32 shadow_filter_radius_texels = 2.0f;
+
+
+        /// Shadow debug visualization selector; see `Engine::ShadowDebugView`.
+        u32 shadow_debug_view = 0;
         u32 max_shadowed_spot_lights = 8;
         u32 max_shadowed_point_lights = 4;
-        bool shadow_contact_hardening = true;
+
+
+        /// Optional PCSS-style contact hardening. Kept opt-in so the production default is the
+        /// stable single-frame PCF path; PCSS is more sensitive to grazing-angle depth disagreement.
+        bool shadow_contact_hardening = false;
 
 
         bool contact_shadows = true;
         f32 contact_shadow_distance = 0.5f;
         f32 contact_shadow_thickness = 0.05f;
         u32 contact_shadow_steps = 8;
-        f32 gtao_radius = 1.0f;
-        f32 gtao_falloff = 0.8f;
-        f32 gtao_thickness = 0.15f;
-        f32 gtao_intensity = 1.0f;
-        u32 gtao_quality = 2;
+        f32 contact_shadow_intensity = 0.85f;
+        f32 contact_shadow_fade_distance = 40.0f;
+        /// World-space radius of the GTAO horizon search. This is a near-field/contact radius, not
+        /// a stand-in for long-range indirect occlusion.
+        f32 ambient_occlusion_radius = 1.0f;
+
+
+        /// 0=Low (1 slice x 3 steps), 1=Medium (2 x 4), 2=High (3 x 6, the paper's practical
+        /// configuration), 3=Ultra (4 x 8).
+        u32 ambient_occlusion_quality = 2;
+
+
+        /// Blend of the AO term toward fully unoccluded. 1 = full strength.
+        f32 ambient_occlusion_intensity = 1.0f;
+
+
+        /// Fraction of the radius over which a tap fades out, so occluders lose influence smoothly
+        /// instead of switching off at the radius edge.
+        f32 ambient_occlusion_falloff_range = 0.615f;
+
+
+        /// Thin-occluder compensation. Screen-space depth is a height field and cannot know how
+        /// thick a surface is; raising this discards taps behind the shaded point sooner. Defaults
+        /// to 0 because over-thick assumptions produce black halos around thin geometry, and
+        /// missing some occlusion reads far better than occlusion that is visibly wrong.
+        f32 ambient_occlusion_thin_occluder_compensation = 0.0f;
+
+
+        /// Contrast curve applied to the visibility term (XeGTAO's FinalValuePower).
+        f32 ambient_occlusion_final_value_power = 2.2f;
+
+
+        /// Exponent of the normalized sample-distance distribution. 2 concentrates taps near the
+        /// shaded pixel, where small crevices and contact occlusion live.
+        f32 ambient_occlusion_sample_distribution_power = 2.0f;
+
+
+        /// Runs the 5x5 edge-aware spatial denoiser. The denoiser is part of the algorithm, not a
+        /// polish step; disabling it exposes the raw horizon-search result for A/B validation.
+        bool ambient_occlusion_denoise = true;
         u32 msaa_samples = 1;
         u32 post_process_aa = 1;
         f32 aa_subpixel_quality = 0.75f;

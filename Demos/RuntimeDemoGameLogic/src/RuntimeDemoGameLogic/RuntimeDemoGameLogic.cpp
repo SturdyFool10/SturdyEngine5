@@ -899,6 +899,100 @@ namespace SFT::Runtime {
             }
 
             {
+                // Exposes the knobs the XeGTAO implementation is meant to be validated against:
+                // radius, thin-occluder thickness, tap budget, and the spatial denoiser on/off (the
+                // last is the raw-vs-denoised A/B, since with it off the lighting pass consumes the
+                // raw horizon-search buffer directly).
+                draw_panel_text(ctx, "Ambient Occlusion", kTweakPanelTextSecondary, 12);
+                Engine::AmbientOcclusionSettings &ao = render_graph_.ambient_occlusion();
+                const UI::ToggleResult ao_toggle_result = UI::switch_toggle(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
+                        .id = UString{"runtime-tweak-ao-toggle"_ustr},
+                    },
+                    tweak_panel_toggle_style(), ambient_occlusion_toggle_state_,
+                    static_cast<f32>(frame.delta_seconds), ao.enabled);
+                if (ao_toggle_result.clicked) ao.enabled = !ao.enabled;
+
+                draw_slider_label(ctx, "Radius", static_cast<f64>(ao.radius));
+                f64 ao_radius = static_cast<f64>(ao.radius);
+                const UI::SliderResult ao_radius_result = UI::slider(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
+                        .id = UString{"runtime-tweak-ao-radius"_ustr},
+                    },
+                    UI::SliderConfig{.min = 0.05, .max = 4.0, .step = 0.01},
+                    tweak_panel_slider_style(), ambient_occlusion_radius_slider_state_, ao_radius);
+                ao.radius = static_cast<f32>(ao_radius_result.value);
+
+                draw_slider_label(ctx, "Intensity", static_cast<f64>(ao.intensity));
+                f64 ao_intensity = static_cast<f64>(ao.intensity);
+                const UI::SliderResult ao_intensity_result = UI::slider(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
+                        .id = UString{"runtime-tweak-ao-intensity"_ustr},
+                    },
+                    UI::SliderConfig{.min = 0.0, .max = 1.0, .step = 0.01},
+                    tweak_panel_slider_style(), ambient_occlusion_intensity_slider_state_, ao_intensity);
+                ao.intensity = static_cast<f32>(ao_intensity_result.value);
+
+                draw_slider_label(ctx, "Thin Occluder", static_cast<f64>(ao.thin_occluder_compensation));
+                f64 ao_thin = static_cast<f64>(ao.thin_occluder_compensation);
+                const UI::SliderResult ao_thin_result = UI::slider(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
+                        .id = UString{"runtime-tweak-ao-thin-occluder"_ustr},
+                    },
+                    UI::SliderConfig{.min = 0.0, .max = 0.7, .step = 0.01},
+                    tweak_panel_slider_style(), ambient_occlusion_thin_occluder_slider_state_, ao_thin);
+                ao.thin_occluder_compensation = static_cast<f32>(ao_thin_result.value);
+
+                draw_panel_text(ctx, "Denoise", kTweakPanelTextPrimary, 12);
+                const UI::ToggleResult ao_denoise_result = UI::switch_toggle(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
+                        .id = UString{"runtime-tweak-ao-denoise-toggle"_ustr},
+                    },
+                    tweak_panel_toggle_style(), ambient_occlusion_denoise_toggle_state_,
+                    static_cast<f32>(frame.delta_seconds), ao.denoise);
+                if (ao_denoise_result.clicked) ao.denoise = !ao.denoise;
+
+                draw_panel_text(ctx, "Quality", kTweakPanelTextPrimary, 12);
+                constexpr std::array<Engine::AmbientOcclusionQuality, 4> kAmbientOcclusionQualities{
+                    Engine::AmbientOcclusionQuality::Low,
+                    Engine::AmbientOcclusionQuality::Medium,
+                    Engine::AmbientOcclusionQuality::High,
+                    Engine::AmbientOcclusionQuality::Ultra,
+                };
+                std::array<UI::DropdownOption, 4> ao_quality_options{
+                    tweak_panel_dropdown_option("Low (1x3)"),
+                    tweak_panel_dropdown_option("Medium (2x4)"),
+                    tweak_panel_dropdown_option("High (3x6)"),
+                    tweak_panel_dropdown_option("Ultra (4x8)"),
+                };
+                usize ao_quality_index = std::min<usize>(
+                    static_cast<usize>(ao.quality), ao_quality_options.size() - 1);
+                const UI::DropdownResult ao_quality_result = UI::dropdown(
+                    ctx,
+                    UString{"runtime-tweak-ao-quality"_ustr},
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(32.0f)},
+                        .padding = UI::Padding::symmetric(10, 6),
+                        .id = UString{"runtime-tweak-ao-quality"_ustr},
+                    },
+                    tweak_panel_dropdown_style(), ambient_occlusion_quality_dropdown_state_,
+                    static_cast<f32>(frame.delta_seconds), ao_quality_index,
+                    span<const UI::DropdownOption>{ao_quality_options.data(), ao_quality_options.size()});
+                ao.quality = kAmbientOcclusionQualities[std::min<usize>(
+                    ao_quality_result.selected_index, kAmbientOcclusionQualities.size() - 1)];
+            }
+
+            {
                 draw_panel_text(ctx, "Shadows", kTweakPanelTextSecondary, 12);
                 const UI::ToggleResult toggle_result = UI::switch_toggle(
                     ctx,
@@ -921,6 +1015,99 @@ namespace SFT::Runtime {
                     UI::SliderConfig{.min = 10.0, .max = 500.0, .step = 1.0},
                     tweak_panel_slider_style(), shadows_distance_slider_state_, max_distance);
                 render_graph_.shadows().max_distance = static_cast<f32>(distance_result.value);
+
+                draw_panel_text(ctx, "Contact", kTweakPanelTextPrimary, 12);
+                const UI::ToggleResult contact_toggle_result = UI::switch_toggle(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
+                        .id = UString{"runtime-tweak-contact-shadows-toggle"_ustr},
+                    },
+                    tweak_panel_toggle_style(), contact_shadows_toggle_state_,
+                    static_cast<f32>(frame.delta_seconds), render_graph_.shadows().contact_shadows);
+                if (contact_toggle_result.clicked) {
+                    render_graph_.shadows().contact_shadows = !render_graph_.shadows().contact_shadows;
+                }
+
+                draw_panel_text(ctx, "Debug View", kTweakPanelTextPrimary, 12);
+                // Ordered in CSM resolve order: projection/bias inputs, depth comparison,
+                // filtering, cascade composition, then the screen-space contact supplement.
+                constexpr std::array<Engine::ShadowDebugView, 26> kShadowDebugViews{
+                    Engine::ShadowDebugView::None,
+                    Engine::ShadowDebugView::CascadeIndex,
+                    Engine::ShadowDebugView::CascadeFade,
+                    Engine::ShadowDebugView::ShadowTexelGrid,
+                    Engine::ShadowDebugView::ShadowUv,
+                    Engine::ShadowDebugView::ReceiverDepth,
+                    Engine::ShadowDebugView::AtlasDepth,
+                    Engine::ShadowDebugView::DepthDelta,
+                    Engine::ShadowDebugView::NormalBias,
+                    Engine::ShadowDebugView::ReceiverPlaneGradient,
+                    Engine::ShadowDebugView::HardComparison,
+                    Engine::ShadowDebugView::Pcf,
+                    Engine::ShadowDebugView::DirectionalCsm,
+                    Engine::ShadowDebugView::ContactShadow,
+                    Engine::ShadowDebugView::CombinedSunVisibility,
+                    Engine::ShadowDebugView::GbufferDepth,
+                    Engine::ShadowDebugView::WorldPosition,
+                    Engine::ShadowDebugView::GbufferNormal,
+                    Engine::ShadowDebugView::GbufferAlbedo,
+                    Engine::ShadowDebugView::GbufferRoughness,
+                    Engine::ShadowDebugView::GbufferMetallic,
+                    Engine::ShadowDebugView::MaterialAmbientOcclusion,
+                    Engine::ShadowDebugView::AmbientLighting,
+                    Engine::ShadowDebugView::SunNdotL,
+                    Engine::ShadowDebugView::UnshadowedSunLighting,
+                    Engine::ShadowDebugView::ScreenSpaceAmbientOcclusion,
+                };
+                std::array<UI::DropdownOption, 26> shadow_debug_options{
+                    tweak_panel_dropdown_option("Off"),
+                    tweak_panel_dropdown_option("Cascade Index"),
+                    tweak_panel_dropdown_option("Cascade Fade"),
+                    tweak_panel_dropdown_option("Texel Grid"),
+                    tweak_panel_dropdown_option("Receiver Atlas UV"),
+                    tweak_panel_dropdown_option("Receiver Depth"),
+                    tweak_panel_dropdown_option("Atlas Depth"),
+                    tweak_panel_dropdown_option("Depth Delta"),
+                    tweak_panel_dropdown_option("Normal Bias"),
+                    tweak_panel_dropdown_option("Receiver Plane Gradient"),
+                    tweak_panel_dropdown_option("Hard Comparison"),
+                    tweak_panel_dropdown_option("PCF"),
+                    tweak_panel_dropdown_option("Directional CSM"),
+                    tweak_panel_dropdown_option("Contact"),
+                    tweak_panel_dropdown_option("Combined Sun Visibility"),
+                    tweak_panel_dropdown_option("GBuffer Depth"),
+                    tweak_panel_dropdown_option("World Position"),
+                    tweak_panel_dropdown_option("GBuffer Normal"),
+                    tweak_panel_dropdown_option("GBuffer Albedo"),
+                    tweak_panel_dropdown_option("GBuffer Roughness"),
+                    tweak_panel_dropdown_option("GBuffer Metallic"),
+                    tweak_panel_dropdown_option("Material AO"),
+                    tweak_panel_dropdown_option("Ambient Lighting"),
+                    tweak_panel_dropdown_option("Sun N dot L"),
+                    tweak_panel_dropdown_option("Unshadowed Sun Lighting"),
+                    tweak_panel_dropdown_option("Screen-Space AO"),
+                };
+                usize shadow_debug_index = 0;
+                for (usize i = 0; i < kShadowDebugViews.size(); ++i) {
+                    if (kShadowDebugViews[i] == render_graph_.shadows().debug_view) {
+                        shadow_debug_index = i;
+                        break;
+                    }
+                }
+                const UI::DropdownResult shadow_debug_result = UI::dropdown(
+                    ctx,
+                    UString{"runtime-tweak-shadow-debug-view"_ustr},
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(32.0f)},
+                        .padding = UI::Padding::symmetric(10, 6),
+                        .id = UString{"runtime-tweak-shadow-debug-view"_ustr},
+                    },
+                    tweak_panel_dropdown_style(), shadow_debug_view_dropdown_state_,
+                    static_cast<f32>(frame.delta_seconds), shadow_debug_index,
+                    span<const UI::DropdownOption>{shadow_debug_options.data(), shadow_debug_options.size()});
+                render_graph_.shadows().debug_view = kShadowDebugViews[std::min<usize>(
+                    shadow_debug_result.selected_index, kShadowDebugViews.size() - 1)];
             }
         }
 

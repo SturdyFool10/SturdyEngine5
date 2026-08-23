@@ -8,6 +8,8 @@
 #endif
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <expected>
@@ -47,11 +49,40 @@ namespace SFT::Renderer {
     namespace {
         namespace slang = Core::Slang;
 
-        constexpr u32 kAtlasGridSize = 8;
+        /// Grid granularity of the shared spot/point ("punctual") shadow atlas.
+        ///
+        /// Directional cascades are not allocated from this grid; they own a dedicated atlas so a
+        /// crowded scene full of shadowed local lights can never shrink the sun cascades.
+        constexpr u32 kPunctualAtlasGridSize = 8;
         constexpr f32 kMinimumLightRange = 0.05f;
-        constexpr f32 kDirectionalFilterGuardTexels = 24.0f;
 
         constexpr f32 kPointShadowFaceFovRadians = 1.8151424f;
+
+        /// Multiplicative step of the cascade-extent quantization ladder (2^(1/4)).
+        ///
+        /// Cascade edge length is snapped up onto powers of this base. A coarse multiplicative
+        /// ladder is what makes the fit stable under rotation: the tight light-space extent of a
+        /// frustum slice varies continuously as the camera turns, but the quantized extent is
+        /// piecewise constant, so the world-space texel size (and therefore every texel-relative
+        /// bias and filter radius) holds still across the vast majority of camera orientations.
+        /// Worst-case waste is one rung, ~19% per axis.
+        constexpr f32 kCascadeExtentLadderBase = 1.18920711500272f;
+
+        /// Extra filter/bias guard reserved inside each cascade tile, in texels.
+        ///
+        /// The receiver region is inset by this many texels on every side so that no PCF/PCSS tap
+        /// and no normal-offset displacement can reach outside the cascade's own tile. Sized from
+        /// the configured PCF radius, the PCSS penumbra cap and the maximum normal offset.
+        constexpr f32 kCascadeGuardSafetyTexels = 2.0f;
+
+        /// Upper bound on the PCSS penumbra radius relative to the base PCF radius.
+        constexpr f32 kCascadePcssRadiusScale = 6.0f;
+
+        /// Largest normal-offset displacement the resolve applies, in shadow texels.
+        ///
+        /// Mirrors the clamp in `deferred_shadow_lighting.slang`; both must move together or the
+        /// guard region stops being a guarantee.
+        constexpr f32 kMaxNormalOffsetTexels = 3.0f;
 
         /// Creates an error result describing the supplied shadow failure.
         ///
@@ -88,15 +119,113 @@ namespace SFT::Renderer {
             return std::isfinite(value) ? value : fallback;
         }
 
-        /// Performs the light up operation for `Renderer` using the supplied arguments.
+        /// Chooses the reference up axis used to build a light basis.
         ///
-        /// @param direction `direction` value used by the operation.
+        /// @param direction Normalized direction the light travels.
         ///
-        /// @return Returns the value produced by the operation.
+        /// @return Returns an axis that is never close to parallel with `direction`.
         /// @note This function does not throw exceptions.
         [[nodiscard]] glm::vec3 light_up(glm::vec3 direction) noexcept {
             return std::abs(direction.y) < 0.98f ? glm::vec3{0.0f, 1.0f, 0.0f}
                                                  : glm::vec3{0.0f, 0.0f, 1.0f};
+        }
+
+        /// Orthonormal basis of a directional light, matching `glm::lookAtRH` exactly.
+        ///
+        /// `forward` is the direction the light travels (increasing light-space depth). `right` and
+        /// `up` span the plane the shadow map rasterizes. Because the basis depends only on the sun
+        /// direction, every cascade shares one light-space lattice, which is what lets texel
+        /// snapping be expressed as a plain quantization of the cascade centre.
+        struct LightBasis {
+            glm::vec3 right{1.0f, 0.0f, 0.0f};
+            glm::vec3 up{0.0f, 1.0f, 0.0f};
+            glm::vec3 forward{0.0f, 0.0f, -1.0f};
+            glm::vec3 reference_up{0.0f, 1.0f, 0.0f};
+        };
+
+        /// Builds the light basis for a directional light.
+        ///
+        /// @param direction Normalized direction the light travels.
+        ///
+        /// @return Returns a right-handed orthonormal basis identical to the one `glm::lookAtRH`
+        ///         derives from the same direction and reference up axis.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] LightBasis make_light_basis(glm::vec3 direction) noexcept {
+            LightBasis basis;
+            basis.forward = direction;
+            basis.reference_up = light_up(direction);
+            basis.right = safe_normalize(glm::cross(direction, basis.reference_up),
+                                         glm::vec3{1.0f, 0.0f, 0.0f});
+            basis.up = glm::cross(basis.right, direction);
+            return basis;
+        }
+
+        /// Transforms a world-space point into light space.
+        ///
+        /// @param basis Light basis produced by `make_light_basis`.
+        /// @param point World-space point.
+        ///
+        /// @return Returns `(right, up, depth)` coordinates; depth grows along the light direction.
+        /// @note The basis is orthonormal and unshifted, so the transform is a pure rotation.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] glm::vec3 to_light_space(const LightBasis &basis, glm::vec3 point) noexcept {
+            return glm::vec3{glm::dot(basis.right, point), glm::dot(basis.up, point),
+                             glm::dot(basis.forward, point)};
+        }
+
+        /// Transforms a light-space point back into world space.
+        ///
+        /// @param basis Light basis produced by `make_light_basis`.
+        /// @param point Light-space point.
+        ///
+        /// @return Returns the corresponding world-space point.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] glm::vec3 from_light_space(const LightBasis &basis, glm::vec3 point) noexcept {
+            return basis.right * point.x + basis.up * point.y + basis.forward * point.z;
+        }
+
+        /// Computes the world-space corners of one camera-frustum depth slice.
+        ///
+        /// @param projection Camera projection matrix defining the frustum.
+        /// @param camera_world Inverse camera view matrix (camera-to-world).
+        /// @param near_depth Positive view-space distance to the slice near plane.
+        /// @param far_depth Positive view-space distance to the slice far plane.
+        ///
+        /// @return Returns the four near corners followed by the four far corners, in world space.
+        /// @note Handles both perspective and orthographic projections. Corners are exact, not
+        ///       conservative: padding for filtering and bias is applied later, by the caller.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] array<glm::vec3, 8> calculate_frustum_slice_corners(
+            const glm::mat4 &projection, const glm::mat4 &camera_world, f32 near_depth,
+            f32 far_depth) noexcept {
+            const bool perspective = std::abs(projection[2][3]) > 0.5f &&
+                                     std::abs(projection[3][3]) <= 1.0e-6f;
+            const glm::mat4 inverse_projection = glm::inverse(projection);
+            const array<glm::vec2, 4> ndc_xy{
+                glm::vec2{-1.0f, -1.0f}, glm::vec2{1.0f, -1.0f},
+                glm::vec2{1.0f, 1.0f}, glm::vec2{-1.0f, 1.0f},
+            };
+            array<glm::vec3, 8> corners{};
+            for (usize corner = 0; corner < ndc_xy.size(); ++corner) {
+                glm::vec4 point_h = inverse_projection * glm::vec4{ndc_xy[corner], 1.0f, 1.0f};
+                if (std::abs(point_h.w) > 1.0e-6f) {
+                    point_h /= point_h.w;
+                }
+                const glm::vec3 point = glm::vec3{point_h};
+                glm::vec3 near_view;
+                glm::vec3 far_view;
+                if (perspective) {
+                    const f32 inverse_abs_z = 1.0f / std::max(std::abs(point.z), 1.0e-6f);
+                    near_view = point * (near_depth * inverse_abs_z);
+                    far_view = point * (far_depth * inverse_abs_z);
+                } else {
+                    near_view = glm::vec3{point.x, point.y, -near_depth};
+                    far_view = glm::vec3{point.x, point.y, -far_depth};
+                }
+                corners[corner] = glm::vec3{camera_world * glm::vec4{near_view, 1.0f}};
+                corners[corner + 4] = glm::vec3{camera_world * glm::vec4{far_view, 1.0f}};
+            }
+            return corners;
         }
 
         /// Computes a rotation-invariant bounding sphere for a perspective-frustum slice.
@@ -107,6 +236,9 @@ namespace SFT::Renderer {
         ///
         /// @return Returns the sphere center in camera view space followed by its radius in world units.
         /// @note Symmetric perspective projections use the analytic minimum sphere; other projections use a conservative corner fit.
+        /// @note The radius depends only on the slice depths and the field of view, never on camera
+        ///       orientation. It is retained purely as the rotation-invariant upper bound that the
+        ///       tight fit is clamped against, so the tight fit can never be the larger of the two.
         [[nodiscard]] std::pair<glm::vec3, f32> stable_frustum_slice_sphere(
             const glm::mat4 &projection, f32 near_depth, f32 far_depth) noexcept {
             const bool perspective = std::abs(projection[2][3]) > 0.5f &&
@@ -162,6 +294,149 @@ namespace SFT::Renderer {
             return {center, radius};
         }
 
+        /// Light-space bounds of the region a cascade must be able to *receive* shadows in.
+        ///
+        /// Derived from the camera frustum slice alone. Caster geometry never widens these bounds;
+        /// it only influences the depth range (see `calculate_caster_depth_range`). All members are
+        /// light-space (see `to_light_space`) and exact, in world units.
+        struct ReceiverBounds {
+            glm::vec2 minimum{0.0f};
+            glm::vec2 maximum{0.0f};
+            f32 minimum_depth = 0.0f;
+            f32 maximum_depth = 0.0f;
+            glm::vec2 center{0.0f};
+            f32 tight_extent = 0.0f;
+        };
+
+        /// Computes the exact light-space receiver bounds of a frustum slice.
+        ///
+        /// @param corners World-space frustum-slice corners.
+        /// @param basis Light basis the cascade rasterizes in.
+        ///
+        /// @return Returns the tight light-space XY bounds and depth range of the slice.
+        /// @note Bounds are exact rather than conservative; `tight_extent` is the larger of the two
+        ///       XY spans so callers can build an isotropic (square-texel) cascade from it.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] ReceiverBounds calculate_receiver_bounds(span<const glm::vec3> corners,
+                                                              const LightBasis &basis) noexcept {
+            ReceiverBounds bounds;
+            bounds.minimum = glm::vec2{std::numeric_limits<f32>::max()};
+            bounds.maximum = glm::vec2{std::numeric_limits<f32>::lowest()};
+            bounds.minimum_depth = std::numeric_limits<f32>::max();
+            bounds.maximum_depth = std::numeric_limits<f32>::lowest();
+            for (const glm::vec3 corner : corners) {
+                const glm::vec3 light_space = to_light_space(basis, corner);
+                bounds.minimum = glm::min(bounds.minimum, glm::vec2{light_space});
+                bounds.maximum = glm::max(bounds.maximum, glm::vec2{light_space});
+                bounds.minimum_depth = std::min(bounds.minimum_depth, light_space.z);
+                bounds.maximum_depth = std::max(bounds.maximum_depth, light_space.z);
+            }
+            bounds.center = (bounds.minimum + bounds.maximum) * 0.5f;
+            bounds.tight_extent = std::max(bounds.maximum.x - bounds.minimum.x,
+                                           bounds.maximum.y - bounds.minimum.y);
+            return bounds;
+        }
+
+        /// Snaps a cascade edge length up onto the quantization ladder.
+        ///
+        /// @param extent Tight light-space edge length in world units.
+        ///
+        /// @return Returns the smallest ladder rung greater than or equal to `extent`.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] f32 quantize_cascade_extent(f32 extent) noexcept {
+            if (!(extent > 0.0f) || !std::isfinite(extent)) {
+                return 0.0f;
+            }
+            const f32 rung = std::ceil(std::log(extent) / std::log(kCascadeExtentLadderBase));
+            return std::pow(kCascadeExtentLadderBase, rung);
+        }
+
+        /// Picks a cascade edge length that is stable under both camera translation and rotation.
+        ///
+        /// @param tight_extent Exact light-space edge length required by the receiver bounds.
+        /// @param conservative_extent Rotation-invariant upper bound (the slice sphere diameter).
+        /// @param persistent Per-cascade edge length accepted on the previous frame; updated here.
+        ///
+        /// @return Returns the edge length to build the cascade projection from, in world units.
+        /// @note Never returns less than `tight_extent`, so receiver coverage is preserved.
+        /// @note The previous value is reused whenever the tight extent still sits within one full
+        ///       ladder rung below it. That deadband is what prevents a camera parked on a
+        ///       quantization threshold from flipping between two rungs (and therefore two texel
+        ///       sizes) on alternating frames.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] f32 stabilize_cascade_extent(f32 tight_extent, f32 conservative_extent,
+                                                   f32 &persistent) noexcept {
+            const f32 clamped_conservative = std::max(conservative_extent, tight_extent);
+            const f32 target = std::min(quantize_cascade_extent(tight_extent), clamped_conservative);
+            const f32 previous = persistent;
+            constexpr f32 deadband = kCascadeExtentLadderBase * kCascadeExtentLadderBase;
+            const bool reuse_previous = std::isfinite(previous) && previous >= tight_extent &&
+                                        previous <= clamped_conservative &&
+                                        previous <= tight_extent * deadband;
+            persistent = reuse_previous ? previous : target;
+            return persistent;
+        }
+
+        /// Light-space depth range that a cascade's shadow map must cover.
+        struct CascadeDepthRange {
+            f32 minimum = 0.0f;
+            f32 maximum = 0.0f;
+        };
+
+        /// Determines the depth range and caster set relevant to one cascade.
+        ///
+        /// @param draws All submitted render items, in submission order.
+        /// @param basis Light basis the cascade rasterizes in.
+        /// @param minimum_xy Light-space lower XY corner of the cascade's rasterized region.
+        /// @param maximum_xy Light-space upper XY corner of the cascade's rasterized region.
+        /// @param receiver_minimum_depth Light-space depth of the nearest receiver in the cascade.
+        /// @param receiver_maximum_depth Light-space depth of the farthest receiver in the cascade.
+        /// @param casters Cleared and filled with indices into `draws` for the relevant casters.
+        ///
+        /// @return Returns the light-space depth interval to build the orthographic projection from.
+        /// @note For a directional light the shadow of a caster is a pure translation along the
+        ///       light direction, so its light-space XY footprint never moves. A caster can
+        ///       therefore only affect this cascade when its bounding sphere overlaps the cascade's
+        ///       XY rectangle *and* it is not entirely behind the last receiver. Casters failing
+        ///       either test are excluded, which is what stops one enormous or distant caster from
+        ///       destroying every cascade's depth precision.
+        /// @note Bounds are conservative (bounding spheres, inflated rectangle): the result may
+        ///       include casters that turn out not to matter, but never excludes one that does.
+        /// @note The returned range always contains the full receiver range, so a receiver can
+        ///       never fall outside the depth clip planes and silently read as unshadowed.
+        /// @note This function does not throw exceptions.
+        template <typename RenderItem>
+        [[nodiscard]] CascadeDepthRange calculate_caster_depth_range(
+            const vector<RenderItem> &draws, const LightBasis &basis, glm::vec2 minimum_xy,
+            glm::vec2 maximum_xy, f32 receiver_minimum_depth, f32 receiver_maximum_depth,
+            vector<u32> &casters) {
+            casters.clear();
+            CascadeDepthRange range{receiver_minimum_depth, receiver_maximum_depth};
+            for (usize index = 0; index < draws.size(); ++index) {
+                const RenderItem &item = draws[index];
+                if (!item.casts_shadows) {
+                    continue;
+                }
+                const f32 world_radius = item.world_bounds_radius;
+                const glm::vec3 world_center = item.world_bounds_center;
+                if (!std::isfinite(world_radius) || !std::isfinite(world_center.x) ||
+                    !std::isfinite(world_center.y) || !std::isfinite(world_center.z)) {
+                    continue;
+                }
+                const f32 radius = std::max(world_radius, 0.0f);
+                const glm::vec3 light_space = to_light_space(basis, world_center);
+                if (light_space.x + radius < minimum_xy.x || light_space.x - radius > maximum_xy.x ||
+                    light_space.y + radius < minimum_xy.y || light_space.y - radius > maximum_xy.y) {
+                    continue;
+                }
+                if (light_space.z - radius > receiver_maximum_depth) {
+                    continue;
+                }
+                casters.push_back(static_cast<u32>(index));
+                range.minimum = std::min(range.minimum, light_space.z - radius);
+            }
+            return range;
+        }
         /// Performs the luminance operation for `Renderer` using the supplied arguments.
         ///
         /// @param radiance `radiance` value used by the operation.
@@ -204,7 +479,7 @@ namespace SFT::Renderer {
         [[nodiscard]] u32 positional_shadow_tile_cells(
             glm::vec3 position, f32 range, glm::vec3 camera_position, const glm::mat4 &projection,
             Core::Extent2D render_extent, u32 atlas_size) noexcept {
-            if (atlas_size < kAtlasGridSize * 2u) {
+            if (atlas_size < kPunctualAtlasGridSize * 2u) {
                 return 1u;
             }
             const f32 distance = glm::distance(position, camera_position);
@@ -217,7 +492,7 @@ namespace SFT::Renderer {
                 std::max(distance, kMinimumLightRange) *
                 (0.5f * static_cast<f32>(std::max(render_extent.y, 1u)));
             const f32 diameter_pixels = radius_pixels * 2.0f;
-            const f32 cell_pixels = static_cast<f32>(atlas_size / kAtlasGridSize);
+            const f32 cell_pixels = static_cast<f32>(atlas_size / kPunctualAtlasGridSize);
             return diameter_pixels > cell_pixels * 0.75f ? 2u : 1u;
         }
 
@@ -241,15 +516,15 @@ namespace SFT::Renderer {
             /// @return Returns the value produced by the operation.
             /// @note This function does not throw exceptions.
             [[nodiscard]] AtlasTile allocate(u32 cells) noexcept {
-                if (cells == 0 || cells > kAtlasGridSize) {
+                if (cells == 0 || cells > kPunctualAtlasGridSize) {
                     return {};
                 }
-                for (u32 y = 0; y + cells <= kAtlasGridSize; ++y) {
-                    for (u32 x = 0; x + cells <= kAtlasGridSize; ++x) {
+                for (u32 y = 0; y + cells <= kPunctualAtlasGridSize; ++y) {
+                    for (u32 x = 0; x + cells <= kPunctualAtlasGridSize; ++x) {
                         bool free = true;
                         for (u32 row = 0; row < cells && free; ++row) {
                             for (u32 column = 0; column < cells; ++column) {
-                                free &= !used_[(y + row) * kAtlasGridSize + x + column];
+                                free &= !used_[(y + row) * kPunctualAtlasGridSize + x + column];
                             }
                         }
                         if (!free) {
@@ -257,7 +532,7 @@ namespace SFT::Renderer {
                         }
                         for (u32 row = 0; row < cells; ++row) {
                             for (u32 column = 0; column < cells; ++column) {
-                                used_[(y + row) * kAtlasGridSize + x + column] = true;
+                                used_[(y + row) * kPunctualAtlasGridSize + x + column] = true;
                             }
                         }
                         return AtlasTile{.x = x, .y = y, .cells = cells};
@@ -267,7 +542,7 @@ namespace SFT::Renderer {
             }
 
           private:
-            array<bool, kAtlasGridSize * kAtlasGridSize> used_{};
+            array<bool, kPunctualAtlasGridSize * kPunctualAtlasGridSize> used_{};
         };
 
         /// Performs the tile viewport operation for `Renderer` using the supplied arguments.
@@ -278,7 +553,7 @@ namespace SFT::Renderer {
         /// @return Returns the value produced by the operation.
         /// @note This function does not throw exceptions.
         [[nodiscard]] RHI::Rect2D tile_viewport(AtlasTile tile, u32 atlas_size) noexcept {
-            const u32 cell_size = atlas_size / kAtlasGridSize;
+            const u32 cell_size = atlas_size / kPunctualAtlasGridSize;
             return RHI::Rect2D{
                 .x = static_cast<i32>(tile.x * cell_size),
                 .y = static_cast<i32>(tile.y * cell_size),
@@ -294,36 +569,13 @@ namespace SFT::Renderer {
         /// @return Returns the value produced by the operation.
         /// @note This function does not throw exceptions.
         [[nodiscard]] glm::vec4 tile_scale_bias(AtlasTile tile) noexcept {
-            const f32 inv_grid = 1.0f / static_cast<f32>(kAtlasGridSize);
+            const f32 inv_grid = 1.0f / static_cast<f32>(kPunctualAtlasGridSize);
             return glm::vec4{
                 static_cast<f32>(tile.cells) * inv_grid,
                 static_cast<f32>(tile.cells) * inv_grid,
                 static_cast<f32>(tile.x) * inv_grid,
                 static_cast<f32>(tile.y) * inv_grid,
             };
-        }
-
-        /// Performs the stabilize directional projection operation for `Renderer` using the supplied arguments.
-        ///
-        /// @param projection `projection` value used by the operation.
-        /// @param view `view` value used by the operation.
-        /// @param resolution `resolution` value used by the operation.
-        ///
-        /// @return Returns the value produced by the operation.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] glm::mat4 stabilize_directional_projection(glm::mat4 projection,
-                                                                 const glm::mat4 &view,
-                                                                 u32 resolution) noexcept {
-
-
-            glm::vec4 origin = projection * view * glm::vec4{0.0f, 0.0f, 0.0f, 1.0f};
-            origin *= static_cast<f32>(resolution) * 0.5f;
-            const glm::vec4 rounded = glm::round(origin);
-            glm::vec4 offset = (rounded - origin) * (2.0f / static_cast<f32>(resolution));
-            offset.z = 0.0f;
-            offset.w = 0.0f;
-            projection[3] += offset;
-            return projection;
         }
 
         /// Binds group layout index for set for subsequent operations.
@@ -343,14 +595,98 @@ namespace SFT::Renderer {
         }
     } // namespace
 
+    /// Builds the deliberate directional cascade allocation for the supplied settings.
+    ///
+    /// @param requested_resolutions Per-cascade edge resolutions in texels, near cascade first.
+    /// @param cascade_count Number of cascades that will be rendered.
+    /// @param device_max_texture_dimension Largest 2D texture edge the device supports.
+    ///
+    /// @return Returns a packed layout whose atlas fits inside the device limit.
+    /// @note Resolutions are sanitized to powers of two and forced non-increasing, then packed into
+    ///       full-height columns beside the near cascade. For power-of-two, non-increasing inputs
+    ///       that packing has no gaps, so atlas utilization is exactly 100%: with the default
+    ///       {2048, 1024, 1024, 1024} the atlas is 4096x2048 with cascade 0 occupying the left half.
+    /// @note If the packed atlas would exceed the device limit every resolution is halved and the
+    ///       packing retried, so the function always returns something allocatable (or an empty
+    ///       layout when no cascades were requested).
+    /// @note This function does not throw exceptions.
+    Renderer::DirectionalAtlasLayout Renderer::build_directional_atlas_layout(
+        span<const u32> requested_resolutions, u32 cascade_count,
+        u32 device_max_texture_dimension) noexcept {
+        DirectionalAtlasLayout layout;
+        const u32 count = std::min({cascade_count, max_directional_shadow_cascades,
+                                    static_cast<u32>(requested_resolutions.size())});
+        if (count == 0) {
+            return layout;
+        }
+        const u32 device_max = std::max(device_max_texture_dimension, 1024u);
+
+        const auto floor_power_of_two = [](u32 value) noexcept {
+            u32 result = 256u;
+            while (result * 2u <= value) {
+                result *= 2u;
+            }
+            return result;
+        };
+
+        array<u32, max_directional_shadow_cascades> resolutions{};
+        for (u32 cascade = 0; cascade < count; ++cascade) {
+            u32 resolution = floor_power_of_two(std::clamp(requested_resolutions[cascade], 256u, 8192u));
+            if (cascade > 0) {
+                resolution = std::min(resolution, resolutions[cascade - 1]);
+            }
+            resolutions[cascade] = resolution;
+        }
+
+        for (u32 attempt = 0; attempt < 8; ++attempt) {
+            const u32 height = resolutions[0];
+            array<DirectionalCascadeTile, max_directional_shadow_cascades> tiles{};
+            tiles[0] = DirectionalCascadeTile{.x = 0, .y = 0, .resolution = resolutions[0]};
+            u32 cursor_x = resolutions[0];
+            u32 cursor_y = 0;
+            u32 column_width = 0;
+            for (u32 cascade = 1; cascade < count; ++cascade) {
+                if (cursor_y + resolutions[cascade] > height) {
+                    cursor_x += column_width;
+                    column_width = 0;
+                    cursor_y = 0;
+                }
+                tiles[cascade] = DirectionalCascadeTile{
+                    .x = cursor_x, .y = cursor_y, .resolution = resolutions[cascade]};
+                cursor_y += resolutions[cascade];
+                column_width = std::max(column_width, resolutions[cascade]);
+            }
+            const u32 width = cursor_x + column_width;
+            if (width <= device_max && height <= device_max) {
+                layout.tiles = tiles;
+                layout.cascade_count = count;
+                layout.width = width;
+                layout.height = height;
+                return layout;
+            }
+            if (resolutions[count - 1] <= 256u) {
+                break;
+            }
+            for (u32 cascade = 0; cascade < count; ++cascade) {
+                resolutions[cascade] = std::max(resolutions[cascade] / 2u, 256u);
+            }
+        }
+        return layout;
+    }
+
     /// Finds or creates the frame shadow targets required by the operation.
     ///
     /// @param slot Binding or storage slot addressed by the operation.
-    /// @param requested_atlas_size Requested or available size for the operation.
+    /// @param requested_atlas_size Edge size requested for the shared spot/point atlas, or zero to release it.
+    /// @param directional_layout Directional cascade allocation, or an empty layout to release that atlas.
     ///
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note The two atlases are separate textures so punctual shadow demand can never reduce
+    ///       directional cascade resolution, and either can be released independently.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-    Core::RendererResult Renderer::ensure_frame_shadow_targets(FrameInFlight &slot, u32 requested_atlas_size) {
+    Core::RendererResult Renderer::ensure_frame_shadow_targets(
+        FrameInFlight &slot, u32 requested_atlas_size,
+        const DirectionalAtlasLayout &directional_layout) {
         ZoneScopedN("Renderer::ensure_frame_shadow_targets");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -361,7 +697,11 @@ namespace SFT::Renderer {
         u32 atlas_size = requested_atlas_size == 0
                              ? 0u
                              : std::clamp(requested_atlas_size, 512u, std::min(16384u, device_max));
-        atlas_size -= atlas_size % kAtlasGridSize;
+        atlas_size -= atlas_size % kPunctualAtlasGridSize;
+        if (Core::RendererResult directional = ensure_directional_shadow_atlas(slot, directional_layout);
+            !directional.has_value()) {
+            return directional;
+        }
         if (!slot.shadow_targets.lighting_buffer) {
             auto buffer = device->create_buffer(RHI::BufferDesc{
                 .size = sizeof(ShadowLightingGpuData),
@@ -427,6 +767,77 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Finds or creates the dedicated directional cascade atlas for a frame slot.
+    ///
+    /// @param slot Frame-in-flight slot owning the shadow targets.
+    /// @param layout Directional cascade allocation, or an empty layout to release the atlas.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Reallocates only when the packed atlas dimensions actually change, so toggling other
+    ///       shadow settings never churns the texture.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    Core::RendererResult Renderer::ensure_directional_shadow_atlas(FrameInFlight &slot,
+                                                                   const DirectionalAtlasLayout &layout) {
+        ZoneScopedN("Renderer::ensure_directional_shadow_atlas");
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return unexpected(shadow_error("Cannot allocate the directional shadow atlas without an RHI device."));
+        }
+        FrameShadowTargets &targets = slot.shadow_targets;
+        const bool matches = static_cast<bool>(targets.directional_atlas) &&
+                             targets.directional_layout.width == layout.width &&
+                             targets.directional_layout.height == layout.height;
+        targets.directional_layout = layout;
+        if (!layout) {
+            if (targets.directional_atlas_view) {
+                device->destroy_texture_view(targets.directional_atlas_view);
+            }
+            if (targets.directional_atlas) {
+                device->destroy_texture(targets.directional_atlas);
+            }
+            targets.directional_atlas = {};
+            targets.directional_atlas_view = {};
+            targets.directional_layout = {};
+            return {};
+        }
+        if (matches) {
+            return {};
+        }
+        if (targets.directional_atlas_view) {
+            device->destroy_texture_view(targets.directional_atlas_view);
+        }
+        if (targets.directional_atlas) {
+            device->destroy_texture(targets.directional_atlas);
+        }
+        targets.directional_atlas = {};
+        targets.directional_atlas_view = {};
+
+        auto atlas = device->create_texture(RHI::TextureDesc{
+            .dimension = RHI::TextureDimension::Dim2D,
+            .format = targets.format,
+            .extent = RHI::Extent3D{.width = layout.width, .height = layout.height, .depth_or_layers = 1},
+            .mip_levels = 1,
+            .samples = RHI::SampleCount::X1,
+            .usage = RHI::TextureUsage::DepthStencilAttachment | RHI::TextureUsage::Sampled,
+            .label = "directional shadow atlas",
+        });
+        if (!atlas) {
+            return unexpected(graphics_error_from_rhi(atlas.error(), "create directional shadow atlas"));
+        }
+        auto atlas_view = device->create_texture_view(RHI::TextureViewDesc{
+            .texture = *atlas,
+            .view_type = RHI::TextureViewType::View2D,
+            .label = "directional shadow atlas view",
+        });
+        if (!atlas_view) {
+            device->destroy_texture(*atlas);
+            return unexpected(graphics_error_from_rhi(atlas_view.error(), "create directional shadow atlas view"));
+        }
+        targets.directional_atlas = *atlas;
+        targets.directional_atlas_view = *atlas_view;
+        return {};
+    }
+
     /// Destroys the frame shadow targets identified by the supplied parameters.
     ///
     /// @param slot Binding or storage slot addressed by the operation.
@@ -443,6 +854,12 @@ namespace SFT::Renderer {
             if (slot.shadow_targets.atlas) {
                 device->destroy_texture(slot.shadow_targets.atlas);
             }
+            if (slot.shadow_targets.directional_atlas_view) {
+                device->destroy_texture_view(slot.shadow_targets.directional_atlas_view);
+            }
+            if (slot.shadow_targets.directional_atlas) {
+                device->destroy_texture(slot.shadow_targets.directional_atlas);
+            }
             if (slot.shadow_targets.lighting_buffer) {
                 device->destroy_buffer(slot.shadow_targets.lighting_buffer);
             }
@@ -452,27 +869,31 @@ namespace SFT::Renderer {
 
     /// Prepares shadow frame for a later operation.
     ///
-    /// @param submission `submission` value used by the operation.
-    /// @param targets `targets` value used by the operation.
-    /// @param prepared `prepared` value used by the operation.
-    /// @param render_extent `render_extent` value used by the operation.
+    /// @param submission Frame submission holding the camera, lighting and draw list.
+    /// @param targets Per-frame shadow atlases and the lighting constant buffer.
+    /// @param directional_state Per-window cascade stabilization history; read and updated here.
+    /// @param prepared Cleared and filled with the shadow views and GPU constants for this frame.
+    /// @param render_extent Current render resolution, used for punctual tile sizing.
     ///
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Directional cascades occupy shadow-view indices `[0, cascade_count)` and sample the
+    ///       dedicated directional atlas; spot/point views follow and sample the punctual atlas.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererResult Renderer::prepare_shadow_frame(const FrameSubmission &submission,
                                                         FrameShadowTargets &targets,
+                                                        DirectionalShadowState &directional_state,
                                                         PreparedShadowFrame &prepared,
                                                         Core::Extent2D render_extent) {
         ZoneScopedN("Renderer::prepare_shadow_frame");
         static_assert(sizeof(ShadowViewGpuData) == 112);
-        static_assert(sizeof(DirectionalLightGpuData) == 64);
+        static_assert(sizeof(DirectionalLightGpuData) == 80);
         static_assert(sizeof(SpotLightGpuData) == 64);
         static_assert(sizeof(PointLightGpuData) == 48);
-        static_assert(sizeof(ShadowLightingGpuData) == 5328);
+        static_assert(sizeof(ShadowLightingGpuData) == 5344);
         static_assert(offsetof(ShadowLightingGpuData, sun) == 336);
-        static_assert(offsetof(ShadowLightingGpuData, spot_lights) == 400);
-        static_assert(offsetof(ShadowLightingGpuData, point_lights) == 912);
-        static_assert(offsetof(ShadowLightingGpuData, shadow_views) == 1296);
+        static_assert(offsetof(ShadowLightingGpuData, spot_lights) == 416);
+        static_assert(offsetof(ShadowLightingGpuData, point_lights) == 928);
+        static_assert(offsetof(ShadowLightingGpuData, shadow_views) == 1312);
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !targets.lighting_buffer) {
             return unexpected(shadow_error("Cannot prepare shadow lighting without its per-frame constant buffer."));
@@ -495,12 +916,6 @@ namespace SFT::Renderer {
                                          submission.render_graph.background_intensity,
                                          submission.render_graph.background_intensity,
                                          1.0f};
-        gpu.gtao_params = glm::vec4{
-            std::max(finite_or(submission.render_graph.gtao_radius, 1.0f), 0.001f),
-            std::clamp(finite_or(submission.render_graph.gtao_falloff, 0.8f), 0.0f, 0.999f),
-            std::max(finite_or(submission.render_graph.gtao_thickness, 0.15f), 0.0f),
-            std::clamp(finite_or(submission.render_graph.gtao_intensity, 1.0f), 0.0f, 4.0f),
-        };
         gpu.spectral_params.x = static_cast<f32>(submission.render_graph.spectral_path_tracing.mode);
         // .y/.z are repurposed here for surfel GI enable/intensity rather than adding a new packed
         // vec4 field — spectral_params previously only used .x, leaving these lanes reserved.
@@ -510,9 +925,7 @@ namespace SFT::Renderer {
             1.0f / static_cast<f32>(std::max(render_extent.x, 1u)),
             1.0f / static_cast<f32>(std::max(render_extent.y, 1u)),
             std::abs(submission.camera.projection[1][1]),
-            submission.render_graph.ambient_occlusion
-                ? static_cast<f32>(std::min(submission.render_graph.gtao_quality, 3u) + 1u)
-                : 0.0f,
+            submission.render_graph.ambient_occlusion ? 1.0f : 0.0f,
         };
 
         const DirectionalLight &sun = submission.lighting.sun;
@@ -523,19 +936,33 @@ namespace SFT::Renderer {
         };
         gpu.sun.radiance_shadow = glm::vec4{glm::max(sun.radiance, glm::vec3{0.0f}), 0.0f};
 
-        const bool shadows_enabled = submission.render_graph.shadows && static_cast<bool>(targets.atlas);
+        const bool shadows_enabled = submission.render_graph.shadows;
+        const bool punctual_shadows_enabled = shadows_enabled && static_cast<bool>(targets.atlas);
+        const bool directional_shadows_enabled =
+            shadows_enabled && static_cast<bool>(targets.directional_atlas) &&
+            static_cast<bool>(targets.directional_layout);
         const u32 atlas_size = targets.atlas_size;
+        const f32 filter_radius_texels = std::clamp(
+            finite_or(submission.render_graph.shadow_filter_radius_texels, 2.0f), 0.5f, 8.0f);
         gpu.shadow_params = glm::vec4{
-            atlas_size > 0 ? 1.0f / static_cast<f32>(atlas_size) : 1.0f,
+            filter_radius_texels,
             std::clamp(finite_or(submission.render_graph.shadow_normal_bias, 0.75f), 0.0f, 4.0f),
             submission.render_graph.shadow_contact_hardening ? 1.0f : 0.0f,
             std::max(finite_or(submission.render_graph.shadow_max_distance, 250.0f), submission.camera.near_plane),
         };
+        // Kept in sync with Engine::ShadowDebugView's final `UnshadowedSunLighting` value.
+        gpu.spectral_params.w = static_cast<f32>(std::min(submission.render_graph.shadow_debug_view, 25u));
         gpu.contact_shadow_params = glm::vec4{
             std::clamp(finite_or(submission.render_graph.contact_shadow_distance, 0.5f), 0.0f, 5.0f),
             std::clamp(finite_or(submission.render_graph.contact_shadow_thickness, 0.05f), 0.0f, 1.0f),
             static_cast<f32>(std::clamp(submission.render_graph.contact_shadow_steps, 2u, 12u)),
-            submission.render_graph.contact_shadows && shadows_enabled && sun.casts_shadows ? 1.0f : 0.0f,
+            submission.render_graph.contact_shadows && directional_shadows_enabled && sun.casts_shadows ? 1.0f : 0.0f,
+        };
+        gpu.contact_shadow_params_extra = glm::vec4{
+            std::clamp(finite_or(submission.render_graph.contact_shadow_intensity, 0.85f), 0.0f, 1.0f),
+            std::max(finite_or(submission.render_graph.contact_shadow_fade_distance, 40.0f), 0.01f),
+            0.0f,
+            0.0f,
         };
 
         AtlasAllocator allocator;
@@ -553,16 +980,18 @@ namespace SFT::Renderer {
             }
             return false;
         };
+        // Punctual (spot/point) views are appended after the directional cascades, so their
+        // shadow-view index is the running total across both atlases.
         auto append_shadow_view = [&](const glm::mat4 &matrix, AtlasTile tile, f32 near_plane,
                                       f32 far_plane, bool perspective, f32 light_radius_uv,
                                       f32 world_span_at_unit_depth, f32 max_filter_radius_local,
                                       f32 max_search_radius_local) -> i32 {
-            if (!tile || prepared.render_views.size() >= max_shadow_views) {
+            const usize index = prepared.directional_views.size() + prepared.punctual_views.size();
+            if (!tile || index >= max_shadow_views) {
                 return -1;
             }
             const RHI::Rect2D viewport = tile_viewport(tile, atlas_size);
-            const usize index = prepared.render_views.size();
-            prepared.render_views.push_back(ShadowRenderView{
+            prepared.punctual_views.push_back(ShadowRenderView{
                 .view_projection = matrix,
                 .frustum = frustum_from_view_projection(matrix),
                 .viewport = viewport,
@@ -583,18 +1012,22 @@ namespace SFT::Renderer {
         const bool has_any_shadow_caster = std::any_of(
             submission.draws.begin(), submission.draws.end(),
             [](const RenderItem &item) noexcept { return item.casts_shadows; });
-        if (shadows_enabled && has_any_shadow_caster && sun.casts_shadows && luminance(sun.radiance) > 0.0f) {
-            const u32 cascade_count = std::clamp(submission.render_graph.shadow_cascade_count,
-                                                 1u,
-                                                 max_directional_shadow_cascades);
+        if (directional_shadows_enabled && has_any_shadow_caster && sun.casts_shadows &&
+            luminance(sun.radiance) > 0.0f) {
+            const DirectionalAtlasLayout &layout = targets.directional_layout;
+            const u32 cascade_count = std::min(
+                std::clamp(submission.render_graph.shadow_cascade_count, 1u, max_directional_shadow_cascades),
+                layout.cascade_count);
             const f32 camera_near = std::max(submission.camera.near_plane, 0.0001f);
             const f32 camera_far = std::max(camera_near + 0.01f,
                                             std::min(submission.camera.far_plane,
                                                      finite_or(submission.render_graph.shadow_max_distance, 250.0f)));
+
+            // Practical split scheme: a blend of uniform and logarithmic distributions. Logarithmic
+            // alone starves the far cascades on a large far plane; uniform alone wastes almost all
+            // of cascade 0 on distant geometry.
             const f32 split_lambda = std::clamp(
-                finite_or(submission.render_graph.shadow_cascade_split_lambda, 0.65f),
-                0.0f,
-                1.0f);
+                finite_or(submission.render_graph.shadow_cascade_split_lambda, 0.65f), 0.0f, 1.0f);
             array<f32, max_directional_shadow_cascades> splits{};
             for (u32 cascade = 0; cascade < cascade_count; ++cascade) {
                 const f32 p = static_cast<f32>(cascade + 1) / static_cast<f32>(cascade_count);
@@ -603,102 +1036,178 @@ namespace SFT::Renderer {
                 splits[cascade] = cascade + 1u == cascade_count
                                       ? camera_far
                                       : glm::mix(uniform, logarithmic, split_lambda);
-                gpu.sun.cascade_splits[cascade] = splits[cascade];
+            }
+
+            // Explicit fade band per cascade, in view-space distance. Cascade `c` is authoritative
+            // from `starts[c]` to `fade_starts[c]` and cross-fades into cascade `c + 1` from there
+            // to `splits[c]`. Cascade `c + 1` is fitted from `fade_starts[c]`, not from `splits[c]`,
+            // so both cascades are valid everywhere in the band.
+            const f32 cascade_blend = std::clamp(
+                finite_or(submission.render_graph.shadow_cascade_blend, 0.10f), 0.0f, 0.5f);
+            array<f32, max_directional_shadow_cascades> starts{};
+            array<f32, max_directional_shadow_cascades> fade_starts{};
+            for (u32 cascade = 0; cascade < cascade_count; ++cascade) {
+                starts[cascade] = cascade == 0 ? camera_near : splits[cascade - 1];
+                fade_starts[cascade] =
+                    splits[cascade] - (splits[cascade] - starts[cascade]) * cascade_blend;
             }
 
             const glm::mat4 camera_world = glm::inverse(submission.camera.view);
-            const f32 cascade_blend = std::clamp(
-                finite_or(submission.render_graph.shadow_cascade_blend, 0.10f), 0.0f, 0.5f);
-            i32 first_cascade_view = -1;
+            const LightBasis basis = make_light_basis(sun_direction);
+            // Only while a shadow debug view is selected, and at most a few times a second, so the
+            // instrumentation can never become a per-frame cost in normal operation.
+            static std::atomic<u64> last_cascade_log_ms{0};
+            bool log_cascade_stats = false;
+            if (submission.render_graph.shadow_debug_view != 0) {
+                const u64 now_ms = static_cast<u64>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch())
+                        .count());
+                u64 previous = last_cascade_log_ms.load(std::memory_order_relaxed);
+                if (now_ms - previous >= 2000 &&
+                    last_cascade_log_ms.compare_exchange_strong(previous, now_ms,
+                                                                std::memory_order_relaxed)) {
+                    log_cascade_stats = true;
+                }
+            }
+            const f32 sun_angular_radius = gpu.sun.direction_angular_radius.w;
             u32 emitted_cascades = 0;
             for (u32 cascade = 0; cascade < cascade_count; ++cascade) {
-                const array<u32, max_directional_shadow_cascades> cascade_tile_cells{4u, 2u, 2u, 1u};
-                const AtlasTile tile = allocator.allocate(cascade_tile_cells[cascade]);
-                if (!tile) {
+                if (prepared.directional_views.size() >= max_shadow_views) {
+                    break;
+                }
+                const DirectionalCascadeTile &tile = layout.tiles[cascade];
+                const f32 resolution = static_cast<f32>(std::max(tile.resolution, 1u));
+
+                // --- Guard region -------------------------------------------------------------
+                // Every tap of every filter, after the receiver has been displaced along its normal,
+                // must land inside this cascade's own tile. Reserving the worst case up front is
+                // what makes "no filter sample may cross into another allocation" an invariant
+                // rather than a hope, and it is why the receiver region is inset rather than the
+                // filter clamped at sample time.
+                const f32 penumbra_cap_texels = filter_radius_texels * kCascadePcssRadiusScale;
+                const f32 guard_texels = std::min(
+                    std::ceil(penumbra_cap_texels + kMaxNormalOffsetTexels + kCascadeGuardSafetyTexels),
+                    resolution * 0.125f);
+                const f32 usable_resolution = std::max(resolution - guard_texels * 2.0f, 1.0f);
+                const f32 max_filter_radius_local = penumbra_cap_texels / resolution;
+
+                // --- Receiver bounds ----------------------------------------------------------
+                const f32 fit_near = cascade == 0 ? camera_near : fade_starts[cascade - 1];
+                const f32 fit_far = splits[cascade];
+                const array<glm::vec3, 8> corners = calculate_frustum_slice_corners(
+                    submission.camera.projection, camera_world, fit_near, fit_far);
+                const ReceiverBounds receiver = calculate_receiver_bounds(
+                    span<const glm::vec3>{corners.data(), corners.size()}, basis);
+
+                // --- Stable extent ------------------------------------------------------------
+                // The tight light-space extent is what we want; the slice's bounding sphere
+                // diameter is the rotation-invariant ceiling we clamp against so the stabilized
+                // value can never exceed the old sphere fit. See `stabilize_cascade_extent` for
+                // why quantizing (rather than using the tight value directly) is what removes
+                // rotational crawl.
+                const auto [sphere_center_view, sphere_radius] =
+                    stable_frustum_slice_sphere(submission.camera.projection, fit_near, fit_far);
+                const f32 extent = stabilize_cascade_extent(
+                    receiver.tight_extent, 2.0f * sphere_radius, directional_state.stable_extent[cascade]);
+                if (!(extent > 0.0f) || !std::isfinite(extent)) {
                     break;
                 }
 
-                const f32 nominal_near = cascade == 0 ? camera_near : splits[cascade - 1];
-                const f32 nominal_far = splits[cascade];
-                f32 fit_near = nominal_near;
-                if (cascade > 0) {
-                    const f32 previous_near = cascade == 1 ? camera_near : splits[cascade - 2];
-                    const f32 previous_blend_width = (nominal_near - previous_near) * cascade_blend;
-                    fit_near = std::max(camera_near, nominal_near - previous_blend_width);
-                }
+                // --- Texel snapping -----------------------------------------------------------
+                // `world_texel` is constant while `extent` sits on the same ladder rung, so
+                // quantizing the cascade centre onto multiples of it in light space locks the
+                // shadow-map lattice to the world. Camera translation below one texel produces a
+                // bit-identical projection matrix, which is exactly the no-swimming condition.
+                const f32 world_texel = extent / usable_resolution;
+                const f32 padded_extent = world_texel * resolution;
+                const f32 half_extent = padded_extent * 0.5f;
+                const glm::vec2 snapped_center{
+                    std::round(receiver.center.x / world_texel) * world_texel,
+                    std::round(receiver.center.y / world_texel) * world_texel,
+                };
+                const glm::vec2 minimum_xy = snapped_center - glm::vec2{half_extent};
+                const glm::vec2 maximum_xy = snapped_center + glm::vec2{half_extent};
 
-                const auto [sphere_center_view, receiver_radius] =
-                    stable_frustum_slice_sphere(submission.camera.projection, fit_near, nominal_far);
-                const glm::vec3 center = glm::vec3{
-                    camera_world * glm::vec4{sphere_center_view, 1.0f}};
+                // --- Caster bounds ------------------------------------------------------------
+                ShadowRenderView view{};
+                const CascadeDepthRange depth_range = calculate_caster_depth_range(
+                    submission.draws, basis, minimum_xy, maximum_xy, receiver.minimum_depth,
+                    receiver.maximum_depth, view.caster_indices);
+                view.has_caster_list = true;
 
-                const RHI::Rect2D cascade_viewport = tile_viewport(tile, atlas_size);
-                const f32 cascade_resolution = static_cast<f32>(std::max(cascade_viewport.width, 1u));
-                const f32 guard_texels = std::min(kDirectionalFilterGuardTexels, cascade_resolution * 0.125f);
-                const f32 usable_resolution = std::max(cascade_resolution - guard_texels * 2.0f, 1.0f);
-                const f32 radius = receiver_radius * cascade_resolution / usable_resolution;
-                const f32 max_filter_radius_local = guard_texels / cascade_resolution;
-
-                const glm::mat4 orientation_view =
-                    glm::lookAtRH(center - sun_direction, center, light_up(sun_direction));
-                f32 minimum_along_light = -radius;
-                f32 maximum_along_light = radius;
-                for (const RenderItem &item : submission.draws) {
-                    if (!item.casts_shadows) {
-                        continue;
-                    }
-                    const f32 world_radius = item.world_bounds_radius;
-                    const glm::vec3 world_center = item.world_bounds_center;
-                    if (!std::isfinite(world_radius) ||
-                        !std::isfinite(world_center.x) || !std::isfinite(world_center.y) ||
-                        !std::isfinite(world_center.z)) {
-                        continue;
-                    }
-                    const glm::vec3 oriented_center =
-                        glm::vec3{orientation_view * glm::vec4{world_center, 1.0f}};
-                    if (std::abs(oriented_center.x) > radius + world_radius ||
-                        std::abs(oriented_center.y) > radius + world_radius) {
-                        continue;
-                    }
-                    const f32 along_light = glm::dot(world_center - center, sun_direction);
-                    minimum_along_light = std::min(minimum_along_light, along_light - world_radius);
-                    maximum_along_light = std::max(maximum_along_light, along_light + world_radius);
-                }
-
-                const f32 world_texel = (2.0f * radius) / cascade_resolution;
                 const f32 depth_margin = std::max(0.05f, world_texel * 4.0f);
-                const f32 eye_distance = -minimum_along_light + depth_margin;
-                const glm::vec3 eye = center - sun_direction * eye_distance;
-                const glm::mat4 light_view = glm::lookAtRH(eye, center, light_up(sun_direction));
-                const f32 shadow_near = std::max(
-                    0.01f, eye_distance + minimum_along_light - depth_margin * 0.5f);
-                const f32 shadow_far = std::max(
-                    shadow_near + 0.01f, eye_distance + maximum_along_light + depth_margin);
-                glm::mat4 light_projection =
-                    glm::orthoRH_ZO(-radius, radius, -radius, radius, shadow_near, shadow_far);
-                light_projection = stabilize_directional_projection(
-                    light_projection, light_view, cascade_viewport.width);
+                const f32 near_depth_light = depth_range.minimum - depth_margin;
+                const f32 depth_span = std::max(
+                    (depth_range.maximum + depth_margin) - near_depth_light, 0.01f);
+
+                const glm::vec3 eye = from_light_space(
+                    basis, glm::vec3{snapped_center.x, snapped_center.y, near_depth_light});
+                const glm::mat4 light_view =
+                    glm::lookAtRH(eye, eye + basis.forward, basis.reference_up);
+                const glm::mat4 light_projection = glm::orthoRH_ZO(
+                    -half_extent, half_extent, -half_extent, half_extent, 0.0f, depth_span);
                 const glm::mat4 light_view_projection = light_projection * light_view;
-                const f32 local_radius_per_world = std::tan(gpu.sun.direction_angular_radius.w) /
-                                                   std::max(2.0f * radius, 0.001f);
-                const i32 view_index = append_shadow_view(
-                    light_view_projection, tile, shadow_near, shadow_far, false,
-                    local_radius_per_world, radius * 2.0f,
-                    max_filter_radius_local, max_filter_radius_local);
-                if (view_index < 0) {
-                    break;
-                }
-                if (first_cascade_view < 0) {
-                    first_cascade_view = view_index;
-                }
+
+                const usize index = prepared.directional_views.size();
+                view.view_projection = light_view_projection;
+                view.frustum = frustum_from_view_projection(light_view_projection);
+                view.viewport = RHI::Rect2D{
+                    .x = static_cast<i32>(tile.x),
+                    .y = static_cast<i32>(tile.y),
+                    .width = tile.resolution,
+                    .height = tile.resolution,
+                };
+                prepared.directional_views.push_back(std::move(view));
+
+                // Sun penumbra half-angle expressed as tile-local UV per world unit of
+                // receiver-to-blocker separation, so PCSS scales with the cascade's own footprint.
+                const f32 local_radius_per_world =
+                    std::tan(sun_angular_radius) / std::max(padded_extent, 0.001f);
+                gpu.shadow_views[index] = ShadowViewGpuData{
+                    .view_projection = light_view_projection,
+                    .atlas_scale_bias = glm::vec4{
+                        static_cast<f32>(tile.resolution) / static_cast<f32>(layout.width),
+                        static_cast<f32>(tile.resolution) / static_cast<f32>(layout.height),
+                        static_cast<f32>(tile.x) / static_cast<f32>(layout.width),
+                        static_cast<f32>(tile.y) / static_cast<f32>(layout.height),
+                    },
+                    .depth_params = glm::vec4{0.0f, depth_span, 0.0f, local_radius_per_world},
+                    .filter_params = glm::vec4{padded_extent, resolution, max_filter_radius_local,
+                                               max_filter_radius_local},
+                };
+                gpu.sun.cascade_splits[cascade] = splits[cascade];
+                gpu.sun.cascade_fade_starts[cascade] = fade_starts[cascade];
                 ++emitted_cascades;
+
+                if (log_cascade_stats) {
+                    // Quantitative counterpart to the cascade debug views: utilization is how much
+                    // of the tight receiver extent survives the ladder quantization and the guard
+                    // band, so a persistently low number means the fit (not the resolution) is what
+                    // is costing shadow detail.
+                    const f32 utilization = receiver.tight_extent / std::max(padded_extent, 1.0e-6f);
+                    Foundation::log_info(
+                        "CSM c{}: view [{:.2f}, {:.2f}] tight {:.2f}m stable {:.2f}m padded {:.2f}m "
+                        "texel {:.4f}m res {} util {:.0f}% casters {}/{} depth {:.2f}m",
+                        cascade, fit_near, fit_far, receiver.tight_extent, extent, padded_extent,
+                        world_texel, tile.resolution, utilization * 100.0f,
+                        prepared.directional_views.back().caster_indices.size(),
+                        submission.draws.size(), depth_span);
+                }
             }
             if (emitted_cascades > 0) {
+                // If the view budget truncated the cascade set, the last surviving cascade has to
+                // own the remaining range and fade out at the shadow distance rather than leaving
+                // a hard edge where the missing cascade would have started.
+                gpu.sun.cascade_splits[emitted_cascades - 1] = camera_far;
+                gpu.sun.cascade_fade_starts[emitted_cascades - 1] = std::min(
+                    gpu.sun.cascade_fade_starts[emitted_cascades - 1],
+                    camera_far - (camera_far - starts[emitted_cascades - 1]) * cascade_blend);
                 gpu.sun.radiance_shadow.w = 1.0f;
                 gpu.sun.cascade_params = glm::vec4{
                     static_cast<f32>(emitted_cascades),
                     cascade_blend,
-                    static_cast<f32>(first_cascade_view),
+                    0.0f,
                     0.0f,
                 };
             }
@@ -725,7 +1234,7 @@ namespace SFT::Renderer {
             output.radiance_inner_cos = glm::vec4{glm::max(light.radiance, glm::vec3{0.0f}),
                                                   std::max(light.inner_cone_cos, output.direction_outer_cos.w + 0.0001f)};
             output.shadow_params = glm::vec4{-1.0f, std::max(light.source_radius, 0.0f), 0.0f, 0.0f};
-            if (!shadows_enabled || !light.casts_shadows ||
+            if (!punctual_shadows_enabled || !light.casts_shadows ||
                 shadowed_spots >= std::min(submission.render_graph.max_shadowed_spot_lights,
                                            max_lighting_spot_lights) ||
                 !has_shadow_caster_in_sphere(light.position, range)) {
@@ -791,7 +1300,7 @@ namespace SFT::Renderer {
             output.radiance_source_radius = glm::vec4{glm::max(light.radiance, glm::vec3{0.0f}),
                                                       std::max(light.source_radius, 0.0f)};
             output.shadow_params = glm::vec4{-1.0f, 0.0f, 0.0f, 0.0f};
-            if (!shadows_enabled || !light.casts_shadows ||
+            if (!punctual_shadows_enabled || !light.casts_shadows ||
                 shadowed_points >= std::min(submission.render_graph.max_shadowed_point_lights,
                                             max_shadowed_point_lights) ||
                 !has_shadow_caster_in_sphere(light.position, range)) {
@@ -817,13 +1326,15 @@ namespace SFT::Renderer {
                     allocated &= static_cast<bool>(tile);
                 }
             }
-            if (!allocated || prepared.render_views.size() + 6 > max_shadow_views) {
+            if (!allocated ||
+                prepared.directional_views.size() + prepared.punctual_views.size() + 6 > max_shadow_views) {
                 continue;
             }
             allocator = candidate_allocator;
             const f32 shadow_near = std::max(0.02f, range * 0.001f);
             const glm::mat4 projection = glm::perspectiveRH_ZO(kPointShadowFaceFovRadians, 1.0f, shadow_near, range);
-            const i32 first_view = static_cast<i32>(prepared.render_views.size());
+            const i32 first_view = static_cast<i32>(prepared.directional_views.size() +
+                                                     prepared.punctual_views.size());
             const f32 face_span_at_unit_depth = 2.0f * std::tan(kPointShadowFaceFovRadians * 0.5f);
             const f32 radius_uv_world = std::max(light.source_radius, 0.0f) /
                                         std::max(face_span_at_unit_depth, 0.001f);
@@ -836,8 +1347,12 @@ namespace SFT::Renderer {
             ++shadowed_points;
         }
 
-        prepared.atlas_used = !prepared.render_views.empty();
-        gpu.counts = glm::vec4{static_cast<f32>(spot_count), static_cast<f32>(point_count), static_cast<f32>(prepared.render_views.size()), prepared.atlas_used ? 1.0f : 0.0f};
+        prepared.atlas_used = !prepared.punctual_views.empty();
+        prepared.directional_atlas_used = !prepared.directional_views.empty();
+        const usize total_views = prepared.directional_views.size() + prepared.punctual_views.size();
+        gpu.counts = glm::vec4{static_cast<f32>(spot_count), static_cast<f32>(point_count),
+                               static_cast<f32>(total_views),
+                               total_views != 0 ? 1.0f : 0.0f};
         const span<const ShadowLightingGpuData> data{&gpu, 1};
         auto written = device->write_buffer(targets.lighting_buffer, 0, std::as_bytes(data));
         if (!written) {
@@ -1074,7 +1589,8 @@ namespace SFT::Renderer {
     /// @param emissive_view `emissive_view` value used by the operation.
     /// @param depth_view `depth_view` value used by the operation.
     /// @param spectral_effect_view `spectral_effect_view` value used by the operation.
-    /// @param shadow_atlas_view `shadow_atlas_view` value used by the operation.
+    /// @param shadow_atlas_view Punctual (spot/point) shadow atlas view.
+    /// @param directional_shadow_atlas_view Dedicated directional cascade atlas view.
     /// @param lighting_buffer Buffer used or affected by the operation.
     /// @param transmittance_lut_view `transmittance_lut_view` value used by the operation.
     /// @param multi_scattering_lut_view `multi_scattering_lut_view` value used by the operation.
@@ -1094,11 +1610,13 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle depth_view,
         RHI::TextureViewHandle spectral_effect_view,
         RHI::TextureViewHandle shadow_atlas_view,
+        RHI::TextureViewHandle directional_shadow_atlas_view,
         RHI::BufferHandle lighting_buffer,
         RHI::TextureViewHandle transmittance_lut_view,
         RHI::TextureViewHandle multi_scattering_lut_view,
         RHI::TextureViewHandle sky_view_lut_view,
         RHI::TextureViewHandle surfel_irradiance_view,
+        RHI::TextureViewHandle gtao_ambient_occlusion_view,
         RHI::BufferHandle atmosphere_buffer,
         RHI::Format color_format,
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
@@ -1109,8 +1627,8 @@ namespace SFT::Renderer {
         }
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !albedo_view || !normal_view || !material_view || !emissive_view || !depth_view ||
-            !spectral_effect_view || !shadow_atlas_view || !lighting_buffer || !transmittance_lut_view || !multi_scattering_lut_view ||
-            !sky_view_lut_view || !surfel_irradiance_view || !atmosphere_buffer) {
+            !spectral_effect_view || !shadow_atlas_view || !directional_shadow_atlas_view || !lighting_buffer || !transmittance_lut_view || !multi_scattering_lut_view ||
+            !sky_view_lut_view || !surfel_irradiance_view || !gtao_ambient_occlusion_view || !atmosphere_buffer) {
             return unexpected(shadow_error("Deferred shadow lighting received an invalid G-buffer, atlas, or constants resource."));
         }
 
@@ -1162,6 +1680,8 @@ namespace SFT::Renderer {
                 entry.texture_view = spectral_effect_view;
             } else if (resource.name == "shadowAtlas") {
                 entry.texture_view = shadow_atlas_view;
+            } else if (resource.name == "directionalShadowAtlas") {
+                entry.texture_view = directional_shadow_atlas_view;
             } else if (resource.name == "transmittanceLut") {
                 entry.texture_view = transmittance_lut_view;
             } else if (resource.name == "multiScatteringLut") {
@@ -1170,6 +1690,8 @@ namespace SFT::Renderer {
                 entry.texture_view = sky_view_lut_view;
             } else if (resource.name == "surfelIrradiance") {
                 entry.texture_view = surfel_irradiance_view;
+            } else if (resource.name == "gtaoAmbientOcclusion") {
+                entry.texture_view = gtao_ambient_occlusion_view;
             } else if (resource.name == "gbufferSampler") {
                 entry.sampler = gbuffer_sampler;
             } else if (resource.name == "shadowDepthSampler") {

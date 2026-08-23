@@ -190,17 +190,40 @@ namespace SFT::UI {
             const UString list_id = dropdown_part_id(id, DropdownVisualPart::List);
             PartVisualState list_visual{.enabled = anchor_enabled && composition.list.enabled, .active = true};
             DropdownPartContext list_context = make_context(DropdownVisualPart::List, list_id, list_visual);
+
+            // Floating lists must remain entirely usable inside the current UI context. Trigger
+            // bounds come from the prior completed layout (the same frame-to-frame source used for
+            // hover testing); prefer the larger side, opening upward near the viewport bottom.
+            const glm::vec2 viewport = ctx.viewport_size();
+            const f32 margin = std::max(style.viewport_margin, 0.0f);
+            constexpr f32 list_gap = 4.0f;
+            const f32 trigger_top = trigger_bounds ? trigger_bounds->position.y : margin;
+            const f32 trigger_bottom = trigger_bounds
+                                           ? trigger_bounds->position.y + trigger_bounds->size.y
+                                           : margin;
+            const f32 available_above = std::max(trigger_top - margin - list_gap, 0.0f);
+            const f32 available_below = std::max(viewport.y - trigger_bottom - margin - list_gap, 0.0f);
+            const bool open_upward = trigger_bounds.has_value() && available_above > available_below;
+            const f32 available_height = std::max(open_upward ? available_above : available_below, 1.0f);
+            const f32 estimated_content_height = std::max(
+                style.estimated_option_height,
+                static_cast<f32>(options.size()) * std::max(style.estimated_option_height, 1.0f));
+            const f32 list_height = std::min(estimated_content_height, available_height);
+
             ElementDecl list_decl{
-                .sizing = {SizingAxis::fit(), SizingAxis::fit()},
+                .sizing = {SizingAxis::fit(), SizingAxis::fixed(list_height)},
                 .direction = LayoutDirection::TopToBottom,
                 .background_color = style.list_background,
                 .corner_radius = style.corner_radius,
                 .border = style.border,
+                .clip = ClipConfig{.vertical = true},
                 .floating = FloatingConfig{
                     .attach_to = FloatingAttachTo::Parent,
-                    .element_attach_point = FloatingAttachPoint::LeftTop,
-                    .parent_attach_point = FloatingAttachPoint::LeftBottom,
-                    .offset = {0.0f, 4.0f},
+                    .element_attach_point = open_upward ? FloatingAttachPoint::LeftBottom
+                                                        : FloatingAttachPoint::LeftTop,
+                    .parent_attach_point = open_upward ? FloatingAttachPoint::LeftTop
+                                                       : FloatingAttachPoint::LeftBottom,
+                    .offset = {0.0f, open_upward ? -list_gap : list_gap},
                     .z_index = static_cast<i16>(style.list_z_index),
 
 
@@ -291,6 +314,13 @@ namespace SFT::UI {
                 }
             }
             render_auxiliary(DropdownVisualPart::Footer, composition.footer);
+
+            // Opening a long menu should expose its current selection immediately instead of
+            // forcing the user to scroll from the first row to discover it.
+            if (selected_index < options.size()) {
+                (void)ctx.scroll_into_view(
+                    list_id, dropdown_part_id(id, DropdownVisualPart::Option, selected_index));
+            }
         }
 
         const bool show_tooltip = composition.tooltip.visible && composition.tooltip.build &&

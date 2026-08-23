@@ -216,6 +216,7 @@ namespace SFT::Renderer {
         *bloom_.lock() = {};
         *bloom_composite_.lock() = {};
         *shadow_lighting_.lock() = {};
+        *gtao_.lock() = {};
         *deferred_msaa_.lock() = {};
         *tonemap_.lock() = {};
         *text_overlay_.lock() = {};

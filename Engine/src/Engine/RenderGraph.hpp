@@ -2,6 +2,7 @@
 
 #include <Foundation/Foundation.hpp>
 
+#include <array>
 #include <expected>
 #include <functional>
 #include <optional>
@@ -118,36 +119,194 @@ namespace SFT::Engine {
     };
 
 
+    /// Single-frame shadow debug visualizations.
+    ///
+    /// These replace the shaded result for pixels the sun cascade covers so cascade allocation,
+    /// transitions and shadow-map footprint can be judged directly, without any temporal filtering.
+    enum class ShadowDebugView : u8 {
+        /// Normal shading.
+        None = 0,
+        /// Tints each pixel by the cascade it samples.
+        CascadeIndex = 1,
+        /// Tints by cascade and highlights the cross-fade band between two cascades.
+        CascadeFade = 2,
+        /// Draws the shadow-map texel grid of the selected cascade in world space.
+        ShadowTexelGrid = 3,
+        /// Shows the shadow-atlas UV the pixel samples, so tile bounds are directly visible.
+        ShadowUv = 4,
+        /// Shows the normal-offset receiver depth in the selected cascade.
+        ReceiverDepth = 5,
+        /// Shows the depth stored in the directional atlas at the receiver's unfiltered UV.
+        AtlasDepth = 6,
+        /// Shows signed receiver-minus-atlas depth at the unfiltered UV (grey = equal).
+        DepthDelta = 7,
+        /// Shows the receiver's normal-offset displacement in shadow texels.
+        NormalBias = 8,
+        /// Shows the receiver-plane d(depth)/d(shadow UV) correction.
+        ReceiverPlaneGradient = 9,
+        /// Shows the unfiltered hardware depth-comparison result.
+        HardComparison = 10,
+        /// Shows fixed-radius PCF before cascade blending or contact shadows.
+        Pcf = 11,
+        /// Shows the complete rasterized directional CSM result, including cascade blending.
+        DirectionalCsm = 12,
+        /// Isolates the screen-space contact-shadow term, with no cascade shading mixed in.
+        ContactShadow = 13,
+        /// Shows the directional CSM and contact terms multiplied together.
+        CombinedSunVisibility = 14,
+
+        // These renderer-stage views deliberately remain available when `ShadowSettings::enabled`
+        // is false. They distinguish a CSM artifact from material/G-buffer/AO/direct-lighting bugs.
+        /// Raw hardware depth from the G-buffer.
+        GbufferDepth = 15,
+        /// World position, visualized as repeating 10 m coordinate bands.
+        WorldPosition = 16,
+        /// Decoded G-buffer normal, remapped from [-1, 1] to [0, 1].
+        GbufferNormal = 17,
+        /// G-buffer base color.
+        GbufferAlbedo = 18,
+        /// G-buffer perceptual roughness.
+        GbufferRoughness = 19,
+        /// G-buffer metallic value.
+        GbufferMetallic = 20,
+        /// Material-authored ambient-occlusion value.
+        MaterialAmbientOcclusion = 21,
+        /// Ambient/indirect lighting after ambient occlusion is applied.
+        AmbientLighting = 22,
+        /// Directional sun N dot L before any shadow visibility is applied.
+        SunNdotL = 23,
+        /// Directional sun BRDF contribution before any shadow visibility is applied.
+        UnshadowedSunLighting = 24,
+        /// The screen-space ambient-occlusion buffer on its own, exactly as deferred lighting
+        /// consumes it. With `AmbientOcclusionSettings::denoise` off this shows the raw
+        /// horizon-search result instead, which is the intended A/B for judging the denoiser.
+        ScreenSpaceAmbientOcclusion = 25,
+    };
+
     struct ShadowSettings {
         bool enabled = true;
+
+
+        /// Edge size of the shared spot/point shadow atlas. Directional cascades no longer draw
+        /// from this atlas; see `cascade_resolutions`.
         u32 atlas_size = 4096;
         u32 cascade_count = 4;
         f32 max_distance = 250.0f;
         f32 cascade_split_lambda = 0.65f;
+
+
+        /// Fraction of a cascade's view-space depth range spent cross-fading into the next cascade.
         f32 cascade_blend = 0.10f;
         f32 depth_bias = 0.75f;
         f32 slope_bias = 1.0f;
 
 
+        /// Per-cascade shadow-map edge resolution, near cascade first.
+        ///
+        /// Deliberate rather than a by-product of atlas packing. The default keeps the far cascades
+        /// at half the near cascade's resolution: with practical (mostly logarithmic) splits each
+        /// successive cascade covers roughly twice the view-space depth but a much smaller share of
+        /// the screen, so holding them at 1024 keeps world texel size within ~2x of cascade 0 while
+        /// costing a quarter of its memory each. Raise uniformly (e.g. {4096, 2048, 2048, 2048}) for
+        /// a high-quality preset. Values are clamped to powers of two, forced non-increasing, and
+        /// uniformly halved if the packed atlas would exceed the device texture limit.
+        std::array<u32, 4> cascade_resolutions{2048u, 1024u, 1024u, 1024u};
+
+
+        /// PCF filter radius in shadow texels of the sampled cascade.
+        ///
+        /// Texel-relative so the perceived softness stays constant when cascade resolution changes.
+        f32 filter_radius_texels = 2.0f;
+
+
+        /// Receiver normal-offset magnitude in shadow texels at normal incidence.
         f32 normal_bias = 0.75f;
+
+
+        ShadowDebugView debug_view = ShadowDebugView::None;
         u32 max_shadowed_spot_lights = 8;
         u32 max_shadowed_point_lights = 4;
-        bool contact_hardening = true;
 
 
+        /// Enables optional PCSS-style contact hardening for raster shadows.
+        ///
+        /// Disabled by default: stable CSM geometry and PCF are the baseline, while PCSS can
+        /// amplify residual grazing-angle depth disagreement into a secondary dark band. Enable
+        /// it only after validating a scene's caster/receiver bias at the selected quality level.
+        bool contact_hardening = false;
+
+
+        /// Screen-space short-range sun occlusion.
+        ///
+        /// A refinement for contact detail too small to survive the shadow-map footprint (feet,
+        /// thin stems, cables). It supplements the cascades and is deliberately incapable of
+        /// compensating for them: it is clamped in strength, fades out with view distance, and is
+        /// only ever evaluated within `contact_shadow_distance` world units of the receiver.
         bool contact_shadows = true;
         f32 contact_shadow_distance = 0.5f;
         f32 contact_shadow_thickness = 0.05f;
         u32 contact_shadow_steps = 8;
+
+
+        /// Maximum darkening the contact term may apply, in [0, 1].
+        ///
+        /// Below 1.0 the effect can never drive the sun contribution to zero on its own, which is
+        /// what keeps it reading as contact occlusion rather than as a second, harder shadow.
+        f32 contact_shadow_intensity = 0.85f;
+
+
+        /// View-space distance at which the contact term has completely faded out.
+        ///
+        /// Past this range a shadow texel is already smaller than the detail the march is meant to
+        /// recover, so the cascades alone are the better answer.
+        f32 contact_shadow_fade_distance = 40.0f;
     };
 
     struct AmbientOcclusionSettings {
         bool enabled = true;
+
+
+        /// World-space radius the occlusion search covers around a shaded point. This bounds the
+        /// *near field*: contact darkening and small crevices, not long-range indirect occlusion.
         f32 radius = 1.0f;
-        f32 falloff = 0.8f;
-        f32 thickness = 0.15f;
-        f32 intensity = 1.0f;
+
+
+        /// Slice/step budget. High (3 slices x 6 steps = 18 taps) is the paper's practical
+        /// configuration and the default; the 5x5 spatial denoiser is what makes that tap count
+        /// sufficient, so raising this is rarely the right lever.
         AmbientOcclusionQuality quality = AmbientOcclusionQuality::High;
+
+
+        /// Blend toward fully unoccluded. 1 = full strength, 0 = no occlusion.
+        f32 intensity = 1.0f;
+
+
+        /// Fraction of `radius` over which an occluder fades out. Without a falloff band, occluders
+        /// switch off abruptly at the radius edge and produce a visible ring.
+        f32 falloff_range = 0.615f;
+
+
+        /// Thin-occluder compensation, in [0, 0.7]. The depth buffer is a height field and cannot
+        /// represent how thick a surface is; raising this discards taps sitting behind the shaded
+        /// point sooner. Defaults to 0 deliberately - aggressive thickness assumptions produce black
+        /// halos around railings and foliage and make walls read as far thicker than they are, and
+        /// missing some occlusion looks better than occlusion that is visibly false.
+        f32 thin_occluder_compensation = 0.0f;
+
+
+        /// Contrast curve applied to the visibility term.
+        f32 final_value_power = 2.2f;
+
+
+        /// Exponent of the normalized sample-distance distribution. 2 concentrates taps near the
+        /// shaded pixel, where the visually important occlusion is.
+        f32 sample_distribution_power = 2.0f;
+
+
+        /// Runs the 5x5 edge-aware spatial denoiser. It is part of the algorithm rather than a
+        /// polish step - this renderer has no temporal reconstruction, so the filter is the only
+        /// stage that removes residual sampling structure. Turn it off only to inspect raw output.
+        bool denoise = true;
     };
 
     struct AntiAliasingSettings {

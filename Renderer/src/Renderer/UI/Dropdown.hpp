@@ -35,6 +35,13 @@ namespace SFT::UI {
         u16 list_z_index = 100;
 
 
+        /// Insets reserved between a floating list and the viewport edge.
+        f32 viewport_margin = 8.0f;
+        /// Conservative row-height estimate used only to avoid giving short menus a needlessly
+        /// viewport-tall scroll region. The list is always capped by actual available viewport space.
+        f32 estimated_option_height = 32.0f;
+
+
         bool show_arrow_indicator = true;
         Color arrow_color{1.0, 1.0, 1.0, 1.0};
         FontId arrow_font_id = 0;

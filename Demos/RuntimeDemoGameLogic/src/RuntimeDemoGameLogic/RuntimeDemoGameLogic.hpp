@@ -206,8 +206,16 @@ namespace SFT::Runtime {
         UI::SliderState bloom_threshold_slider_state_{};
         UI::DropdownState tone_mapping_operator_dropdown_state_{};
         UI::SliderState tone_mapping_exposure_slider_state_{};
+        UI::ToggleState ambient_occlusion_toggle_state_{};
+        UI::SliderState ambient_occlusion_radius_slider_state_{};
+        UI::SliderState ambient_occlusion_intensity_slider_state_{};
+        UI::SliderState ambient_occlusion_thin_occluder_slider_state_{};
+        UI::DropdownState ambient_occlusion_quality_dropdown_state_{};
+        UI::ToggleState ambient_occlusion_denoise_toggle_state_{};
         UI::ToggleState shadows_toggle_state_{};
         UI::SliderState shadows_distance_slider_state_{};
+        UI::ToggleState contact_shadows_toggle_state_{};
+        UI::DropdownState shadow_debug_view_dropdown_state_{};
 
         Text::Font tweak_panel_font_{};
         bool tweak_panel_font_registered_ = false;

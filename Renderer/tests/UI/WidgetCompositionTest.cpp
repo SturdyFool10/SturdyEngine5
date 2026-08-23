@@ -399,6 +399,43 @@ namespace {
         (void)context.finish_frame();
     }
 
+    void long_dropdown_is_viewport_bounded_and_scrollable() {
+        Context context = make_context();
+        DropdownState state;
+        const UString id{"long-dropdown"};
+        const ElementDecl trigger_decl{
+            .sizing = {SizingAxis::fixed(120.0f), SizingAxis::fixed(24.0f)},
+            .id = id,
+        };
+        const auto build_option = [](Context &ctx) {
+            auto row = ctx.element(ElementDecl{
+                .sizing = {SizingAxis::fixed(120.0f), SizingAxis::fixed(24.0f)},
+            });
+            (void)row;
+        };
+        std::array<DropdownOption, 32> options{};
+        for (DropdownOption &option : options) option.build = build_option;
+
+        // Establish trigger bounds, then open on the subsequent frame just as a pointer click does.
+        context.begin_layout({300.0f, 240.0f});
+        (void)dropdown(context, id, trigger_decl, DropdownStyle{}, state, 0.0f, 31, options);
+        (void)context.finish_frame();
+        state.open = true;
+
+        context.begin_layout({300.0f, 240.0f});
+        (void)dropdown(context, id, trigger_decl, DropdownStyle{}, state, 0.0f, 31, options);
+        (void)context.finish_frame();
+
+        const UString list_id = dropdown_part_id(id, DropdownVisualPart::List);
+        const auto list_bounds = context.element_bounds(list_id);
+        const Context::ScrollMetrics metrics = context.scroll_metrics(list_id);
+        assert(list_bounds.has_value());
+        assert(list_bounds->position.y >= 8.0f);
+        assert(list_bounds->position.y + list_bounds->size.y <= 232.0f);
+        assert(metrics.found && metrics.vertical);
+        assert(metrics.content_size.y > metrics.container_size.y);
+    }
+
     void dropdown_empty_slot_builds() {
         Context context = make_context();
         DropdownState state;
@@ -428,6 +465,7 @@ int main() {
     slider_track_can_be_disabled_without_hiding_it();
     color_picker_parts_can_be_replaced_hidden_and_labeled();
     dropdown_composition_reports_states_and_blocks_disabled_options();
+    long_dropdown_is_viewport_bounded_and_scrollable();
     dropdown_empty_slot_builds();
 
 

@@ -1074,12 +1074,16 @@ namespace SFT::Engine {
         }
         const AmbientOcclusionSettings &ao = description_.ambient_occlusion;
         if (!std::isfinite(ao.radius) || ao.radius <= 0.0f ||
-            !std::isfinite(ao.falloff) || ao.falloff < 0.0f || ao.falloff >= 1.0f ||
-            !std::isfinite(ao.thickness) || ao.thickness < 0.0f ||
-            !std::isfinite(ao.intensity) || ao.intensity < 0.0f || ao.intensity > 4.0f) {
+            !std::isfinite(ao.intensity) || ao.intensity < 0.0f || ao.intensity > 1.0f ||
+            !std::isfinite(ao.falloff_range) || ao.falloff_range < 0.05f || ao.falloff_range > 1.0f ||
+            !std::isfinite(ao.thin_occluder_compensation) || ao.thin_occluder_compensation < 0.0f ||
+            ao.thin_occluder_compensation > 0.7f ||
+            !std::isfinite(ao.final_value_power) || ao.final_value_power < 0.5f || ao.final_value_power > 5.0f ||
+            !std::isfinite(ao.sample_distribution_power) || ao.sample_distribution_power < 1.0f ||
+            ao.sample_distribution_power > 3.0f) {
             return std::unexpected(RenderGraphError{
                 .code = RenderGraphErrorCode::InvalidAmbientOcclusionSettings,
-                .message = UString{"GTAO requires a positive radius, falloff in [0, 1), and finite non-negative thickness/intensity."_ustr},
+                .message = UString{"Ambient occlusion requires a finite positive radius, intensity in [0, 1], falloff range in [0.05, 1], thin-occluder compensation in [0, 0.7], final value power in [0.5, 5], and sample distribution power in [1, 3]."_ustr},
             });
         }
         const AntiAliasingSettings &aa = description_.anti_aliasing;
@@ -1217,9 +1221,17 @@ namespace SFT::Engine {
         shadows.contact_shadow_steps = std::clamp(shadows.contact_shadow_steps, 2u, 12u);
         AmbientOcclusionSettings &ao = desc.ambient_occlusion;
         ao.radius = std::isfinite(ao.radius) && ao.radius > 0.0f ? ao.radius : 1.0f;
-        ao.falloff = std::isfinite(ao.falloff) ? std::clamp(ao.falloff, 0.0f, 0.999f) : 0.8f;
-        ao.thickness = std::isfinite(ao.thickness) ? std::max(ao.thickness, 0.0f) : 0.15f;
-        ao.intensity = std::isfinite(ao.intensity) ? std::clamp(ao.intensity, 0.0f, 4.0f) : 1.0f;
+        ao.intensity = std::isfinite(ao.intensity) ? std::clamp(ao.intensity, 0.0f, 1.0f) : 1.0f;
+        ao.falloff_range = std::isfinite(ao.falloff_range) ? std::clamp(ao.falloff_range, 0.05f, 1.0f) : 0.615f;
+        ao.thin_occluder_compensation = std::isfinite(ao.thin_occluder_compensation)
+                                            ? std::clamp(ao.thin_occluder_compensation, 0.0f, 0.7f)
+                                            : 0.0f;
+        ao.final_value_power = std::isfinite(ao.final_value_power)
+                                   ? std::clamp(ao.final_value_power, 0.5f, 5.0f)
+                                   : 2.2f;
+        ao.sample_distribution_power = std::isfinite(ao.sample_distribution_power)
+                                           ? std::clamp(ao.sample_distribution_power, 1.0f, 3.0f)
+                                           : 2.0f;
         AntiAliasingSettings &aa = desc.anti_aliasing;
         if (desc.scene.integrator == SceneIntegrator::FullPathTracing) {
             aa.msaa_samples = 1;

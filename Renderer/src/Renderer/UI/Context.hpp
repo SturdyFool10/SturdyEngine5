@@ -272,6 +272,14 @@ namespace SFT::UI {
         void begin_layout(glm::vec2 viewport_size, const PointerState &pointer = {}, f32 delta_seconds = 0.0f);
 
 
+        /// Returns the current layout viewport in logical UI pixels.
+        ///
+        /// Widgets use this to constrain floating content such as menus to the visible context.
+        [[nodiscard]] glm::vec2 viewport_size() const noexcept {
+            return glm::vec2{static_cast<f32>(layout_extent_.x), static_cast<f32>(layout_extent_.y)};
+        }
+
+
         /// Sets the scroll settings for this `Context`.
         ///
         /// @param settings Configuration values controlling the operation.

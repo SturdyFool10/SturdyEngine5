@@ -933,16 +933,32 @@ namespace SFT::Renderer {
                 .max_depth = 1.0f,
             });
             encoder.set_scissor(view.viewport);
+            const auto record_one = [&](const RenderItem &item) -> Core::RendererResult {
+                return record_render_item(
+                    encoder, item, span<const RHI::Format>{}, depth_format, frame_index,
+                    view.view_projection,                true, binding_state,
+                                            false,                true, shadow_depth_bias,
+                    shadow_slope_bias, RHI::SampleCount::X1, false, RHI::BindGroupHandle{});
+            };
+            if (view.has_caster_list) {
+                // Directional cascades already determined their caster set while fitting the
+                // cascade depth range; re-scanning every submitted draw here would repeat that
+                // work once per cascade for no gain.
+                for (const u32 index : view.caster_indices) {
+                    if (index >= draws.size()) {
+                        continue;
+                    }
+                    if (Core::RendererResult recorded = record_one(draws[index]); !recorded.has_value()) {
+                        return recorded;
+                    }
+                }
+                continue;
+            }
             for (const RenderItem &item : draws) {
                 if (!item.casts_shadows || !render_item_visible(item, view.frustum)) {
                     continue;
                 }
-                if (Core::RendererResult recorded = record_render_item(
-                        encoder, item, span<const RHI::Format>{}, depth_format, frame_index,
-                        view.view_projection,                true, binding_state,
-                                                false,                true, shadow_depth_bias,
-                        shadow_slope_bias, RHI::SampleCount::X1, false, RHI::BindGroupHandle{});
-                    !recorded.has_value()) {
+                if (Core::RendererResult recorded = record_one(item); !recorded.has_value()) {
                     return recorded;
                 }
             }
@@ -1286,6 +1302,7 @@ namespace SFT::Renderer {
                 destroy_frame_atmosphere_targets(old_slot);
                 destroy_frame_spectral_photon_targets(old_slot);
                 destroy_frame_deferred_targets(old_slot);
+                destroy_gtao_depth_pyramid(old_slot.gtao_depth_pyramid);
             }
             record.frames_in_flight.assign(frame_count, FrameInFlight{});
         }
@@ -1643,7 +1660,16 @@ namespace SFT::Renderer {
                                                        integrator_policy.raster_shadow_atlas
                                                    ? submission.render_graph.shadow_atlas_size
                                                    : 0u;
-            if (Core::RendererResult shadow_targets = ensure_frame_shadow_targets(slot, requested_shadow_atlas);
+            const DirectionalAtlasLayout directional_layout =
+                requested_shadow_atlas == 0
+                    ? DirectionalAtlasLayout{}
+                    : build_directional_atlas_layout(
+                          span<const u32>{submission.render_graph.shadow_cascade_resolutions.data(),
+                                          submission.render_graph.shadow_cascade_resolutions.size()},
+                          submission.render_graph.shadow_cascade_count,
+                          device->limits().max_texture_dimension_2d);
+            if (Core::RendererResult shadow_targets =
+                    ensure_frame_shadow_targets(slot, requested_shadow_atlas, directional_layout);
                 !shadow_targets.has_value()) {
                 return shadow_targets;
             }
@@ -1656,6 +1682,7 @@ namespace SFT::Renderer {
                 return unexpected(lighting_pipeline.error());
             }
             if (Core::RendererResult shadow_prepared = prepare_shadow_frame(submission, slot.shadow_targets,
+                                                                            record.directional_shadow,
                                                                             shadow_frame, render_extent);
                 !shadow_prepared.has_value()) {
                 return shadow_prepared;
@@ -2256,6 +2283,25 @@ namespace SFT::Renderer {
             graph_resources.publish_texture<RenderGraphSemantics::ReusableSceneHdrScratch>(gbuffer_emissive);
         }
 
+        RenderGraphTextureHandle directional_shadow_atlas{};
+        if (shadow_frame.directional_atlas_used) {
+            directional_shadow_atlas = graph.import_texture(RenderGraphImportedTextureDesc{
+                .texture = slot.shadow_targets.directional_atlas,
+                .default_view = slot.shadow_targets.directional_atlas_view,
+                .format = slot.shadow_targets.format,
+                .extent = RHI::Extent3D{.width = slot.shadow_targets.directional_layout.width,
+                                        .height = slot.shadow_targets.directional_layout.height,
+                                        .depth_or_layers = 1},
+                .initial_layout = RHI::TextureLayout::Undefined,
+                .initial_stage = RHI::PipelineStage::None,
+                .initial_access = RHI::AccessFlags::None,
+                .final_layout = RHI::TextureLayout::ShaderReadOnly,
+                .final_stage = RHI::PipelineStage::FragmentShader,
+                .final_access = RHI::AccessFlags::ShaderRead,
+                .label = "directional shadow atlas",
+            });
+        }
+
         RenderGraphTextureHandle shadow_atlas{};
         if (shadow_frame.atlas_used) {
             shadow_atlas = graph.import_texture(RenderGraphImportedTextureDesc{
@@ -2334,138 +2380,149 @@ namespace SFT::Renderer {
         }
 
         if (submission.render_graph.render_scene && !full_path_tracing) {
-            if (shadow_frame.atlas_used) {
+            // Directional cascades and punctual shadows render into separate atlases, so the pass
+            // body is shared rather than duplicated. Both are depth-only, use identical state, and
+            // parallelize the same way; only the target, the view list and the extent differ.
+            const auto add_shadow_atlas_pass =
+                [&](auto label, RenderGraphTextureHandle atlas,
+                    const vector<ShadowRenderView> &view_storage, u32 width, u32 height) {
+                    const bool uses_bundles = device->is_enabled(RHI::Feature::RenderBundles) &&
+                                              view_storage.size() >= 2 &&
+                                              Async::Scheduler::worker_count() > 1;
+                    graph.add_render_pass(label)
+                        .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
+                            .texture = atlas,
+                            .depth_load_op = RHI::LoadOp::Clear,
+                            .depth_store_op = RHI::StoreOp::Store,
+                            .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
+                        })
+                        .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = width, .height = height})
+                        .set_allow_bundles(uses_bundles)
+                        .set_execute([this, &submission, &view_storage, &slot, frame, uses_bundles](
+                                         RenderGraphContext &context) -> Core::RendererResult {
+                            RHI::RenderPassEncoder &pass = context.render_pass();
+                            const f32 shadow_depth_bias = std::isfinite(submission.render_graph.shadow_depth_bias)
+                                                              ? std::max(submission.render_graph.shadow_depth_bias, 0.0f)
+                                                              : 0.75f;
+                            const f32 shadow_slope_bias = std::isfinite(submission.render_graph.shadow_slope_bias)
+                                                              ? std::max(submission.render_graph.shadow_slope_bias, 0.0f)
+                                                              : 1.0f;
+                            const span<const ShadowRenderView> views{view_storage.data(), view_storage.size()};
+                            const RHI::Format depth_format = slot.shadow_targets.format;
+                            const u32 worker_count = Async::Scheduler::worker_count();
 
-
-                const bool shadow_atlas_uses_bundles =
-                    device->is_enabled(RHI::Feature::RenderBundles) &&
-                    shadow_frame.render_views.size() >= 2 && Async::Scheduler::worker_count() > 1;
-                graph.add_render_pass("raster shadow atlas"_ustr)
-                    .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
-                        .texture = shadow_atlas,
-                        .depth_load_op = RHI::LoadOp::Clear,
-                        .depth_store_op = RHI::StoreOp::Store,
-                        .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
-                    })
-                    .set_render_area(RHI::Rect2D{.x = 0, .y = 0,
-                                                 .width = slot.shadow_targets.atlas_size,
-                                                 .height = slot.shadow_targets.atlas_size})
-                    .set_allow_bundles(shadow_atlas_uses_bundles)
-                    .set_execute([this, &submission, &shadow_frame, &slot, frame, shadow_atlas_uses_bundles](
-                                     RenderGraphContext &context) -> Core::RendererResult {
-                        RHI::RenderPassEncoder &pass = context.render_pass();
-                        const f32 shadow_depth_bias = std::isfinite(submission.render_graph.shadow_depth_bias)
-                                                          ? std::max(submission.render_graph.shadow_depth_bias, 0.0f)
-                                                          : 0.75f;
-                        const f32 shadow_slope_bias = std::isfinite(submission.render_graph.shadow_slope_bias)
-                                                          ? std::max(submission.render_graph.shadow_slope_bias, 0.0f)
-                                                          : 1.0f;
-                        const span<const ShadowRenderView> views{shadow_frame.render_views.data(),
-                                                                  shadow_frame.render_views.size()};
-                        const RHI::Format depth_format = slot.shadow_targets.format;
-                        const u32 worker_count = Async::Scheduler::worker_count();
-
-
-                        if (!shadow_atlas_uses_bundles) {
-                            return record_shadow_view_chunk(pass, views, submission.draws, depth_format,
-                                                            frame.frame_index, shadow_depth_bias, shadow_slope_bias);
-                        }
-
-                        RHI::RhiDevice *device = rhi_device();
-                        if (device == nullptr) {
-                            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                                "Cannot record shadow atlas without an RHI device.");
-                        }
-
-                        const usize chunk_count = std::min<usize>(worker_count, views.size());
-                        const usize chunk_size = (views.size() + chunk_count - 1) / chunk_count;
-
-                        struct ShadowChunkResult {
-                            Core::RendererResult status{};
-                            RHI::RenderBundleHandle bundle{};
-                            unique_ptr<RHI::RenderBundleEncoder> encoder;
-                        };
-                        vector<ShadowChunkResult> results(chunk_count);
-
-
-                        for (usize chunk = 0; chunk < chunk_count; ++chunk) {
-                            const usize begin = chunk * chunk_size;
-                            const usize end = std::min(views.size(), begin + chunk_size);
-                            if (begin >= end) {
-                                continue;
+                            if (!uses_bundles) {
+                                return record_shadow_view_chunk(pass, views, submission.draws, depth_format,
+                                                                frame.frame_index, shadow_depth_bias,
+                                                                shadow_slope_bias);
                             }
-                            const RHI::RenderBundleDesc bundle_desc{
-                                .color_formats = {},
-                                .depth_stencil_format = depth_format,
-                                .samples = RHI::SampleCount::X1,
-                                .view_mask = 0,
-                                .label = "shadow view chunk",
-                            };
-                            auto encoder = device->create_render_bundle_encoder(bundle_desc);
-                            if (!encoder) {
+
+                            RHI::RhiDevice *device = rhi_device();
+                            if (device == nullptr) {
                                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                                    "Cannot create shadow bundle encoder.");
+                                                                    "Cannot record shadow atlas without an RHI device.");
                             }
-                            results[chunk].encoder = std::move(*encoder);
-                        }
 
-                        vector<Async::TaskHandle<void>> tasks;
-                        tasks.reserve(chunk_count);
-                        for (usize chunk = 0; chunk < chunk_count; ++chunk) {
-                            const usize begin = chunk * chunk_size;
-                            const usize end = std::min(views.size(), begin + chunk_size);
-                            if (begin >= end) {
-                                continue;
-                            }
-                            tasks.push_back(Async::Scheduler::spawn([this, &submission, &results, chunk, views, begin,
-                                                                      end, depth_format, frame_index = frame.frame_index,
-                                                                      shadow_depth_bias, shadow_slope_bias]() {
-                                RHI::RenderBundleEncoder &encoder = *results[chunk].encoder;
-                                Core::RendererResult recorded = record_shadow_view_chunk(
-                                    encoder, views.subspan(begin, end - begin), submission.draws, depth_format,
-                                    frame_index, shadow_depth_bias, shadow_slope_bias);
-                                if (!recorded.has_value()) {
-                                    results[chunk].status = recorded;
-                                    return;
+                            const usize chunk_count = std::min<usize>(worker_count, views.size());
+                            const usize chunk_size = (views.size() + chunk_count - 1) / chunk_count;
+
+                            struct ShadowChunkResult {
+                                Core::RendererResult status{};
+                                RHI::RenderBundleHandle bundle{};
+                                unique_ptr<RHI::RenderBundleEncoder> encoder;
+                            };
+                            vector<ShadowChunkResult> results(chunk_count);
+
+                            for (usize chunk = 0; chunk < chunk_count; ++chunk) {
+                                const usize begin = chunk * chunk_size;
+                                const usize end = std::min(views.size(), begin + chunk_size);
+                                if (begin >= end) {
+                                    continue;
                                 }
-                                auto finished = encoder.finish();
-                                if (!finished) {
-                                    results[chunk].status =
-                                        unexpected(graphics_error_from_rhi(finished.error(), "finish shadow bundle"));
-                                    return;
+                                const RHI::RenderBundleDesc bundle_desc{
+                                    .color_formats = {},
+                                    .depth_stencil_format = depth_format,
+                                    .samples = RHI::SampleCount::X1,
+                                    .view_mask = 0,
+                                    .label = "shadow view chunk",
+                                };
+                                auto encoder = device->create_render_bundle_encoder(bundle_desc);
+                                if (!encoder) {
+                                    return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                                        "Cannot create shadow bundle encoder.");
                                 }
-                                results[chunk].bundle = *finished;
-                            }));
-                        }
-                        for (const Async::TaskHandle<void> &task : tasks) {
-                            task.wait();
-                        }
-
-                        vector<RHI::RenderBundleHandle> bundles;
-                        bundles.reserve(chunk_count);
-                        Core::RendererResult first_error{};
-                        bool has_error = false;
-                        for (ShadowChunkResult &result : results) {
-                            if (!result.status.has_value() && !has_error) {
-                                first_error = result.status;
-                                has_error = true;
+                                results[chunk].encoder = std::move(*encoder);
                             }
-                            if (result.bundle) {
-                                bundles.push_back(result.bundle);
+
+                            vector<Async::TaskHandle<void>> tasks;
+                            tasks.reserve(chunk_count);
+                            for (usize chunk = 0; chunk < chunk_count; ++chunk) {
+                                const usize begin = chunk * chunk_size;
+                                const usize end = std::min(views.size(), begin + chunk_size);
+                                if (begin >= end) {
+                                    continue;
+                                }
+                                tasks.push_back(Async::Scheduler::spawn([this, &submission, &results, chunk, views,
+                                                                          begin, end, depth_format,
+                                                                          frame_index = frame.frame_index,
+                                                                          shadow_depth_bias, shadow_slope_bias]() {
+                                    RHI::RenderBundleEncoder &encoder = *results[chunk].encoder;
+                                    Core::RendererResult recorded = record_shadow_view_chunk(
+                                        encoder, views.subspan(begin, end - begin), submission.draws, depth_format,
+                                        frame_index, shadow_depth_bias, shadow_slope_bias);
+                                    if (!recorded.has_value()) {
+                                        results[chunk].status = recorded;
+                                        return;
+                                    }
+                                    auto finished = encoder.finish();
+                                    if (!finished) {
+                                        results[chunk].status =
+                                            unexpected(graphics_error_from_rhi(finished.error(), "finish shadow bundle"));
+                                        return;
+                                    }
+                                    results[chunk].bundle = *finished;
+                                }));
                             }
-                        }
-                        if (!bundles.empty()) {
-                            pass.execute_bundles(span<const RHI::RenderBundleHandle>{bundles.data(), bundles.size()});
-                        }
+                            for (const Async::TaskHandle<void> &task : tasks) {
+                                task.wait();
+                            }
 
+                            vector<RHI::RenderBundleHandle> bundles;
+                            bundles.reserve(chunk_count);
+                            Core::RendererResult first_error{};
+                            bool has_error = false;
+                            for (ShadowChunkResult &result : results) {
+                                if (!result.status.has_value() && !has_error) {
+                                    first_error = result.status;
+                                    has_error = true;
+                                }
+                                if (result.bundle) {
+                                    bundles.push_back(result.bundle);
+                                }
+                            }
+                            if (!bundles.empty()) {
+                                pass.execute_bundles(span<const RHI::RenderBundleHandle>{bundles.data(), bundles.size()});
+                            }
 
-                        submission.transient_render_bundles.insert(submission.transient_render_bundles.end(),
-                                                                    bundles.begin(), bundles.end());
-                        if (has_error) {
-                            return first_error;
-                        }
-                        return {};
-                    });
+                            submission.transient_render_bundles.insert(submission.transient_render_bundles.end(),
+                                                                        bundles.begin(), bundles.end());
+                            if (has_error) {
+                                return first_error;
+                            }
+                            return {};
+                        });
+                };
+
+            if (shadow_frame.directional_atlas_used) {
+                add_shadow_atlas_pass("directional shadow cascades"_ustr, directional_shadow_atlas,
+                                      shadow_frame.directional_views,
+                                      slot.shadow_targets.directional_layout.width,
+                                      slot.shadow_targets.directional_layout.height);
+            }
+            if (shadow_frame.atlas_used) {
+                add_shadow_atlas_pass("raster shadow atlas"_ustr, shadow_atlas,
+                                      shadow_frame.punctual_views, slot.shadow_targets.atlas_size,
+                                      slot.shadow_targets.atlas_size);
             }
 
 
@@ -2790,6 +2847,20 @@ namespace SFT::Renderer {
                 });
         }
 
+        // Screen-space ambient occlusion runs after the G-buffer is complete and before deferred
+        // lighting consumes it. Full path tracing computes its own occlusion along the transport
+        // path, so the screen-space approximation is skipped entirely there rather than layered on
+        // top of a result that already accounts for it.
+        RenderGraphTextureHandle gtao_ambient_occlusion{};
+        if (submission.render_graph.render_scene && !full_path_tracing) {
+            auto gtao_texture = build_gtao_module(module_context, submission, slot,
+                                                  gbuffer_normal, depth_texture);
+            if (!gtao_texture.has_value()) {
+                return unexpected(gtao_texture.error());
+            }
+            gtao_ambient_occlusion = *gtao_texture;
+        }
+
         RenderGraphTextureHandle surfel_irradiance{};
         if (submission.render_graph.render_scene && !full_path_tracing) {
             auto surfel_gi_texture = build_surfel_gi_module(module_context, submission, slot, gbuffer_normal, depth_texture);
@@ -2817,16 +2888,22 @@ namespace SFT::Renderer {
             if (shadow_frame.atlas_used) {
                 lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = shadow_atlas});
             }
+            if (shadow_frame.directional_atlas_used) {
+                lighting_pass.add_sampled_texture(
+                    RenderGraphSampledTextureReadDesc{.texture = directional_shadow_atlas});
+            }
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = transmittance_lut});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = multi_scattering_lut});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = sky_view_lut});
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = surfel_irradiance});
+            lighting_pass.add_sampled_texture(
+                RenderGraphSampledTextureReadDesc{.texture = gtao_ambient_occlusion});
             lighting_pass
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
                 .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
                               gbuffer_material, gbuffer_emissive, depth_texture, lighting_spectral_effect,
-                              shadow_atlas, &shadow_frame, surfel_irradiance,
-                              transmittance_lut, multi_scattering_lut, sky_view_lut](
+                              shadow_atlas, directional_shadow_atlas, &shadow_frame, surfel_irradiance,
+                              gtao_ambient_occlusion, transmittance_lut, multi_scattering_lut, sky_view_lut](
                                  RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
@@ -2837,9 +2914,15 @@ namespace SFT::Renderer {
                     });
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0,
                                                  .width = render_extent.x, .height = render_extent.y});
+                    // The resolve always binds both atlas slots; when one is unused it aliases the
+                    // scene depth view, which the shader never reads because no view indexes it.
                     const RHI::TextureViewHandle atlas_view = shadow_frame.atlas_used
                         ? context.texture(shadow_atlas).default_view
                         : context.texture(depth_texture).default_view;
+                    const RHI::TextureViewHandle directional_atlas_view =
+                        shadow_frame.directional_atlas_used
+                            ? context.texture(directional_shadow_atlas).default_view
+                            : context.texture(depth_texture).default_view;
                     return record_shadow_lighting(
                         pass,
                         context.texture(gbuffer_albedo).default_view,
@@ -2849,11 +2932,13 @@ namespace SFT::Renderer {
                         context.texture(depth_texture).default_view,
                         context.texture(lighting_spectral_effect).default_view,
                         atlas_view,
+                        directional_atlas_view,
                         slot.shadow_targets.lighting_buffer,
                         context.texture(transmittance_lut).default_view,
                         context.texture(multi_scattering_lut).default_view,
                         context.texture(sky_view_lut).default_view,
                         context.texture(surfel_irradiance).default_view,
+                        context.texture(gtao_ambient_occlusion).default_view,
                         slot.atmosphere_targets.constants_buffer,
                         submission.deferred_formats.scene_color,
                         submission.transient_bind_groups);
@@ -4062,6 +4147,7 @@ namespace SFT::Renderer {
                 destroy_frame_pregraph_gpu_timing_target(slot);
                 destroy_frame_spectral_photon_targets(slot);
                 destroy_frame_deferred_targets(slot);
+                destroy_gtao_depth_pyramid(slot.gtao_depth_pyramid);
                 if (slot.fence) {
                     device->destroy_fence(slot.fence);
                     slot.fence = {};
