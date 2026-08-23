@@ -16,6 +16,7 @@ using SFT::UI::Docking::DockTree;
 using SFT::UI::Docking::DockWorkspace;
 using SFT::UI::Docking::DockWorkspaceEvents;
 using SFT::UI::Docking::compute_dock_layout;
+using SFT::UI::Docking::invalid_dock_node_id;
 using SFT::Core::RendererExpected;
 using SFT::UI::Context;
 using SFT::UI::DragGestureState;

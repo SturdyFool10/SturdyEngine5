@@ -49,6 +49,14 @@ namespace SFT::Core::Vulkan {
     [[nodiscard]] const char *physical_device_type_name(VkPhysicalDeviceType type) noexcept;
 
 
+    /// Returns a human-readable name for the supplied Vulkan result value.
+    ///
+    /// @param result `result` value used by the operation.
+    ///
+    /// @return Returns a pointer to a static null-terminated label; the returned pointer is not owned by the caller.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] const char *vulkan_result_name(VkResult result) noexcept;
+
     /// Returns a human-readable name for the supplied vendor value.
     ///
     /// @param vendor_id Identifier of the target object or resource.

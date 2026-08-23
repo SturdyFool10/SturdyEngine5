@@ -18,6 +18,8 @@
 using SFT::Foundation::f64, SFT::Foundation::u32, SFT::Foundation::usize;
 using std::atomic;
 using std::format;
+using std::make_format_args;
+using std::vformat;
 using std::memory_order_acq_rel;
 using std::memory_order_acquire;
 using std::string;
@@ -315,9 +317,11 @@ namespace SFT::Foundation::Memory {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     string format_bytes(usize bytes, ByteFormatOptions options) {
         const ByteUnitInfo unit = byte_unit_info(options.unit);
-        string formatted = unit.integral
-                               ? format("{}", bytes)
-                               : format("{:.{}f}", bytes_as(bytes, options.unit), options.decimal_places);
+        // Dynamic precision goes through vformat: libstdc++ 16's consteval check for `{:.{}f}`
+        // is not usable at the point of use under clang, so the compile-time path is avoided.
+        const f64 scaled = bytes_as(bytes, options.unit);
+        const u32 places = options.decimal_places;
+        string formatted = unit.integral ? format("{}", bytes) : vformat("{:.{}f}", make_format_args(scaled, places));
 
         if (options.include_unit) {
             formatted += format("{}{}", options.space_before_unit ? " " : "", unit.suffix);

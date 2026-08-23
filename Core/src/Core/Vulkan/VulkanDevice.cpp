@@ -1,6 +1,6 @@
 #include <Core/Vulkan/VulkanDevice.hpp>
 
-#include <vulkan/vk_enum_string_helper.h>
+#include <Core/Vulkan/VulkanHelpers.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -144,7 +144,7 @@ VulkanDevice &VulkanDevice::operator=(VulkanDevice &&o) noexcept {
                 return graphics_backend_error(
                     GraphicsBackendErrorCode::InitializationFailed,
                     format("vkCreateDevice failed: {} ({} extensions requested: {})",
-                           string_VkResult(result), desc.extensions.size(),
+                           vulkan_result_name(result), desc.extensions.size(),
                            [&] {
                                string joined;
                                for (usize i = 0; i < desc.extensions.size(); ++i) {
