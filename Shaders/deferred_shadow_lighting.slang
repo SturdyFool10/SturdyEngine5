@@ -18,7 +18,6 @@ static const uint SFT_MAX_POINT_LIGHTS = 8;
 static const uint SFT_MAX_SHADOW_VIEWS = 36;
 static const uint SFT_PCSS_BLOCKER_SAMPLES = 12;
 static const uint SFT_PCF_SAMPLES = 16;
-static const float SFT_MIN_PBR_ROUGHNESS = 0.045;
 
 // Golden-angle increment used to build Vogel disks.
 static const float SFT_GOLDEN_ANGLE = 2.39996322972865332;
@@ -804,33 +803,33 @@ uint pointShadowFace(float3 fromLight) {
     return fromLight.z >= 0.0 ? 4u : 5u;
 }
 
-float distributionGGXLocal(float nDotH, float alphaRoughness) {
-    float a2 = alphaRoughness * alphaRoughness;
-    float d = nDotH * nDotH * (a2 - 1.0) + 1.0;
-    return a2 * SFT_INV_PI / max(d * d, SFT_EPSILON);
-}
-
-float geometrySmithCorrelated(float nDotV, float nDotL, float alphaRoughness) {
-    float a2 = alphaRoughness * alphaRoughness;
-    float gv = nDotL * sqrt(max(nDotV * nDotV * (1.0 - a2) + a2, SFT_EPSILON));
-    float gl = nDotV * sqrt(max(nDotL * nDotL * (1.0 - a2) + a2, SFT_EPSILON));
-    return 0.5 / max(gv + gl, SFT_EPSILON);
-}
-
 float3 evaluateDirect(float3 albedo, float metallic, float perceptualRoughness,
                       float alphaRoughness, float dielectricF0,
-                      float3 normal, float3 viewVector, float3 lightVector, float3 radiance) {
+                      float3 normal, float3 viewVector, float3 lightVector, float3 radiance,
+                      float sphereAngleTangent) {
     float nDotL = saturate(dot(normal, lightVector));
     float nDotV = saturate(dot(normal, viewVector));
     if (nDotL <= 0.0 || nDotV <= 0.0) return float3(0.0);
-    float3 halfVector = safeNormalizeOr(lightVector + viewVector, normal);
+
+    // Sphere/disk light approximation (Karis, "Real Shading in UE4", 2013, sec 3.4): widen alpha by
+    // the light's angular size and reposition the half-vector toward the mirror-reflection ray, so
+    // physically-sized lights (source_radius / angular_radius_degrees) produce a correctly sized and
+    // positioned specular highlight instead of an infinitesimal point regardless of light size.
+    float widenedAlpha = sphereNormalizedAlpha(alphaRoughness, sphereAngleTangent);
+    float specularEnergyScale = sphereNormalizedAlphaEnergyScale(alphaRoughness, widenedAlpha);
+    float3 reflectionVector = reflect(-viewVector, normal);
+    float3 specularLightVector = sphereAngleTangent > 0.0
+        ? representativePointDirection(lightVector, reflectionVector, sphereAngleTangent)
+        : lightVector;
+    float3 halfVector = safeNormalizeOr(specularLightVector + viewVector, normal);
     float nDotH = saturate(dot(normal, halfVector));
     float vDotH = saturate(dot(viewVector, halfVector));
+
     float3 f0 = lerp(float3(dielectricF0), albedo, metallic);
     float3 fresnel = f0 + (1.0 - f0) * pow5(1.0 - vDotH);
-    float distribution = distributionGGXLocal(nDotH, alphaRoughness);
-    float visibility = geometrySmithCorrelated(nDotV, nDotL, alphaRoughness);
-    float3 specular = fresnel * distribution * visibility;
+    float distribution = distributionGGXLocal(nDotH, widenedAlpha);
+    float visibility = geometrySmithCorrelated(nDotV, nDotL, widenedAlpha);
+    float3 specular = fresnel * distribution * visibility * specularEnergyScale;
     float3 diffuseBrdf = evaluateEonDiffuse(
         albedo, perceptualRoughness, normal, lightVector, viewVector);
     float3 diffuse = (1.0 - fresnel) * (1.0 - metallic) * diffuseBrdf;
@@ -930,11 +929,14 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         return float4(screenSpaceAmbientOcclusion.xxx, 1.0);
     }
 
-    float3 hdr = albedo * lightingData.ambientRadianceExposure.rgb * indirectOcclusion;
+    // Indirect diffuse only exists for the dielectric response — metals have no diffuse term, so
+    // scaling by (1-metallic) here matches how the direct-light diffuse term is already split.
+    float3 diffuseAlbedoForIndirect = albedo * (1.0 - metallic);
+    float3 hdr = diffuseAlbedoForIndirect * lightingData.ambientRadianceExposure.rgb * indirectOcclusion;
     if (lightingData.spectralParams.y > 0.5) {
         float3 surfelGi = surfelIrradiance.SampleLevel(gbufferSampler, input.uv, 0.0).rgb *
                            lightingData.spectralParams.z;
-        hdr += albedo * surfelGi * indirectOcclusion;
+        hdr += diffuseAlbedoForIndirect * surfelGi * indirectOcclusion;
     }
     float3 sunVector = -safeNormalizeOr(lightingData.sun.directionAngularRadius.xyz, float3(0.0, -1.0, 0.0));
     if (shadowDebugMode == SFT_RENDER_DEBUG_AMBIENT_LIGHTING) return float4(hdr, 1.0);
@@ -944,7 +946,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     if (shadowDebugMode == SFT_RENDER_DEBUG_UNSHADOWED_SUN_LIGHTING) {
         float3 unshadowedSun = evaluateDirect(
             albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal, viewVector,
-            sunVector, lightingData.sun.radianceShadow.rgb);
+            sunVector, lightingData.sun.radianceShadow.rgb, tan(lightingData.sun.directionAngularRadius.w));
         return float4(unshadowedSun, 1.0);
     }
     if (shadowDebugMode == SFT_SHADOW_DEBUG_CONTACT ||
@@ -973,7 +975,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     if (spectralMode == 1u) sunVisibility = saturate(tracedEffect.rrr);
     if (spectralMode == 4u) sunVisibility = max(tracedEffect.rgb, 0.0);
     hdr += evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal, viewVector,
-                          sunVector, lightingData.sun.radianceShadow.rgb) * sunVisibility;
+                          sunVector, lightingData.sun.radianceShadow.rgb,
+                          tan(lightingData.sun.directionAngularRadius.w)) * sunVisibility;
     if (spectralMode == 2u) {
         float3 specularTint = lerp(float3(dielectricF0), albedo, metallic);
         hdr += max(tracedEffect.rgb, 0.0) * specularTint * (1.0 - saturate(roughness));
@@ -997,8 +1000,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                                           lightVector, worldDx, worldDy);
         }
         float3 radiance = light.radianceInnerCos.rgb * punctualAttenuation(distanceToLight, light.positionRange.w) * cone;
+        float spotSphereAngleTangent = light.shadowParams.y / max(distanceToLight, SFT_EPSILON);
         hdr += evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal, viewVector,
-                              lightVector, radiance) * visibility;
+                              lightVector, radiance, spotSphereAngleTangent) * visibility;
     }
 
     uint pointCount = min((uint)lightingData.counts.y, SFT_MAX_POINT_LIGHTS);
@@ -1017,8 +1021,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                                           normal, lightVector, worldDx, worldDy);
         }
         float3 radiance = light.radianceSourceRadius.rgb * punctualAttenuation(distanceToLight, light.positionRange.w);
+        float pointSphereAngleTangent = light.radianceSourceRadius.w / max(distanceToLight, SFT_EPSILON);
         hdr += evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal, viewVector,
-                              lightVector, radiance) * visibility;
+                              lightVector, radiance, pointSphereAngleTangent) * visibility;
     }
 
     hdr *= lightingData.ambientRadianceExposure.w;

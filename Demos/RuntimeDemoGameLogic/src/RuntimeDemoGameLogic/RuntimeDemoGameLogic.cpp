@@ -385,12 +385,12 @@ namespace SFT::Runtime {
 
         tweak_panel_entity_ = engine.ecs_world().spawn(
             TweakPanelState{},
-            SurfelGiTuningState{},
+            RestirGiTuningState{},
             MotionBlurTuningState{});
         engine.update_schedule().add_system(
             [](Ecs::Entity,
                TweakPanelState &panel,
-               SurfelGiTuningState &gi,
+               RestirGiTuningState &gi,
                MotionBlurTuningState &blur,
                Ecs::EventReader<Engine::KeyboardEvent> keyboard) noexcept {
                 for (const Engine::KeyboardEvent &event : keyboard.read()) {
@@ -715,7 +715,7 @@ namespace SFT::Runtime {
         engine.ui_context().begin_layout(viewport, engine.ui_pointer_state(), static_cast<f32>(frame.delta_seconds));
         UI::Context &ctx = engine.ui_context().context();
 
-        auto gi = engine.ecs_world().get_component<SurfelGiTuningState>(tweak_panel_entity_);
+        auto gi = engine.ecs_world().get_component<RestirGiTuningState>(tweak_panel_entity_);
         auto blur = engine.ecs_world().get_component<MotionBlurTuningState>(tweak_panel_entity_);
         auto bloom = engine.ecs_world().get_component<BloomTuningState>(bloom_controls_entity_);
         const bool raytracing_available = static_cast<bool>(engine.capabilities().raytracing);
@@ -739,16 +739,16 @@ namespace SFT::Runtime {
             draw_panel_text(ctx, "Render Tweaks (U to hide)", kTweakPanelTextPrimary, 14);
 
             {
-                draw_panel_text(ctx, "Surfel GI (G)", kTweakPanelTextSecondary, 12);
+                draw_panel_text(ctx, "ReSTIR GI (G)", kTweakPanelTextSecondary, 12);
                 if (gi) {
                     const bool enabled = raytracing_available && gi->enabled;
                     const UI::ToggleResult toggle_result = UI::switch_toggle(
                         ctx,
                         UI::ElementDecl{
                             .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
-                            .id = UString{"runtime-tweak-surfel-gi-toggle"_ustr},
+                            .id = UString{"runtime-tweak-restir-gi-toggle"_ustr},
                         },
-                        tweak_panel_toggle_style(), surfel_gi_toggle_state_, static_cast<f32>(frame.delta_seconds),
+                        tweak_panel_toggle_style(), restir_gi_toggle_state_, static_cast<f32>(frame.delta_seconds),
                         enabled, raytracing_available);
                     if (toggle_result.clicked) gi->enabled = !gi->enabled;
                     if (!raytracing_available) {
@@ -761,10 +761,10 @@ namespace SFT::Runtime {
                         ctx,
                         UI::ElementDecl{
                             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
-                            .id = UString{"runtime-tweak-surfel-gi-intensity"_ustr},
+                            .id = UString{"runtime-tweak-restir-gi-intensity"_ustr},
                         },
                         UI::SliderConfig{.min = 0.0, .max = 4.0, .step = 0.05},
-                        tweak_panel_slider_style(), surfel_gi_intensity_slider_state_, intensity, UI::SliderInput{},
+                        tweak_panel_slider_style(), restir_gi_intensity_slider_state_, intensity, UI::SliderInput{},
                         raytracing_available);
                     gi->intensity = static_cast<f32>(intensity_result.value);
 
@@ -775,17 +775,38 @@ namespace SFT::Runtime {
                     usize quality_index = std::min<usize>(gi->quality, quality_options.size() - 1);
                     const UI::DropdownResult quality_result = UI::dropdown(
                         ctx,
-                        UString{"runtime-tweak-surfel-gi-quality"_ustr},
+                        UString{"runtime-tweak-restir-gi-quality"_ustr},
                         UI::ElementDecl{
                             .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(32.0f)},
                             .padding = UI::Padding::symmetric(10, 6),
-                            .id = UString{"runtime-tweak-surfel-gi-quality"_ustr},
+                            .id = UString{"runtime-tweak-restir-gi-quality"_ustr},
                         },
-                        tweak_panel_dropdown_style(), surfel_gi_quality_dropdown_state_,
+                        tweak_panel_dropdown_style(), restir_gi_quality_dropdown_state_,
                         static_cast<f32>(frame.delta_seconds), quality_index,
                         span<const UI::DropdownOption>{quality_options.data(), quality_options.size()},
                         raytracing_available);
                     gi->quality = static_cast<u32>(quality_result.selected_index);
+
+                    draw_panel_text(ctx, "Denoiser", kTweakPanelTextPrimary, 12);
+                    // DLSS Ray Reconstruction/FSR Redstone are reserved values in
+                    // Engine::RestirGiDenoiser for future vendor-SDK backends — not surfaced here since
+                    // they currently just fall back to SVGF (see build_restir_gi_denoiser_module).
+                    std::array<UI::DropdownOption, 2> denoiser_options{
+                        tweak_panel_dropdown_option("Off"), tweak_panel_dropdown_option("SVGF")};
+                    usize denoiser_index = std::min<usize>(gi->denoiser, denoiser_options.size() - 1);
+                    const UI::DropdownResult denoiser_result = UI::dropdown(
+                        ctx,
+                        UString{"runtime-tweak-restir-gi-denoiser"_ustr},
+                        UI::ElementDecl{
+                            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(32.0f)},
+                            .padding = UI::Padding::symmetric(10, 6),
+                            .id = UString{"runtime-tweak-restir-gi-denoiser"_ustr},
+                        },
+                        tweak_panel_dropdown_style(), restir_gi_denoiser_dropdown_state_,
+                        static_cast<f32>(frame.delta_seconds), denoiser_index,
+                        span<const UI::DropdownOption>{denoiser_options.data(), denoiser_options.size()},
+                        raytracing_available);
+                    gi->denoiser = static_cast<u32>(denoiser_result.selected_index);
                 }
             }
 
@@ -1157,14 +1178,15 @@ namespace SFT::Runtime {
             render_graph_.scene().path_max_bounces = spectral->max_bounces;
         }
 
-        if (auto gi = engine.ecs_world().get_component<SurfelGiTuningState>(tweak_panel_entity_)) {
+        if (auto gi = engine.ecs_world().get_component<RestirGiTuningState>(tweak_panel_entity_)) {
             const bool raytracing_available = static_cast<bool>(engine.capabilities().raytracing);
             if (gi->enabled && !raytracing_available) {
-                Foundation::log_warn("Surfel GI is unavailable because this device did not negotiate ray tracing.");
+                Foundation::log_warn("ReSTIR GI is unavailable because this device did not negotiate ray tracing.");
             }
-            render_graph_.surfel_gi().enabled = gi->enabled && raytracing_available;
-            render_graph_.surfel_gi().intensity = gi->intensity;
-            render_graph_.surfel_gi().quality = static_cast<Engine::SurfelGiQuality>(gi->quality);
+            render_graph_.restir_gi().enabled = gi->enabled && raytracing_available;
+            render_graph_.restir_gi().intensity = gi->intensity;
+            render_graph_.restir_gi().quality = static_cast<Engine::RestirGiQuality>(gi->quality);
+            render_graph_.restir_gi().denoiser = static_cast<Engine::RestirGiDenoiser>(gi->denoiser);
         }
         if (auto blur = engine.ecs_world().get_component<MotionBlurTuningState>(tweak_panel_entity_)) {
             render_graph_.motion_blur().enabled = blur->enabled;

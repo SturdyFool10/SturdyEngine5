@@ -32,7 +32,8 @@
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/Resources.hpp>
 #include <Renderer/RenderGraph.hpp>
-#include <Renderer/SurfelGi.hpp>
+#include <Renderer/RestirGi.hpp>
+#include <Renderer/SvgfDenoiser.hpp>
 #include <Renderer/RenderGraphModule.hpp>
 #include <Renderer/TileGrid.hpp>
 #include <Renderer/TextAtlas.hpp>
@@ -1208,7 +1209,7 @@ namespace SFT::Renderer {
             bool ready = false;
         };
 
-        struct SurfelGiComputeVariant {
+        struct RestirGiComputeVariant {
             Core::Slang::Shader shader;
             RHI::ShaderModuleHandle module{};
             RHI::BindGroupLayoutHandle bind_group_layout{};
@@ -1217,18 +1218,76 @@ namespace SFT::Renderer {
             vector<ReflectedResource> resources;
         };
 
-        struct SurfelGiResources {
-            SurfelGiComputeVariant screen_seed;
-            SurfelGiComputeVariant grid_clear;
-            SurfelGiComputeVariant hash_grid_build;
-            SurfelGiComputeVariant ray_trace;
-            SurfelGiComputeVariant irradiance_resolve;
+        /// ReSTIR GI compute pipelines plus its persistent, render-extent-sized reservoir buffers.
+        /// Unlike surfel GI's scene-dependent capacity pool, these are screen-space and fully
+        /// reallocated (not just grown) whenever the render extent changes. `reservoir_buffer_a`/`_b`
+        /// are ping-ponged frame to frame by `previous_is_a` — whichever one held this frame's
+        /// temporally-combined result becomes next frame's history input. `reservoir_buffer_spatial`
+        /// holds each frame's spatially-reused result, read only by the shade-resolve pass.
+        struct RestirGiResources {
+            RestirGiComputeVariant initial_sample;
+            RestirGiComputeVariant temporal_reuse;
+            RestirGiComputeVariant spatial_reuse;
+            RestirGiComputeVariant shade_resolve;
+            RestirGiComputeVariant history_copy;
 
-            RHI::BufferHandle surfel_buffer{};
-            RHI::BufferHandle grid_buffer{};
-            RHI::BufferHandle alloc_cursor_buffer{};
-            u32 surfel_capacity = 0;
-            u32 grid_bucket_capacity = 0;
+            RHI::BufferHandle reservoir_buffer_a{};
+            RHI::BufferHandle reservoir_buffer_b{};
+            RHI::BufferHandle reservoir_buffer_spatial{};
+            /// Ray-guiding cache, ping-ponged in lockstep with `previous_is_a` alongside the reservoir
+            /// buffers (see `GuideGpuData`).
+            RHI::BufferHandle guide_buffer_a{};
+            RHI::BufferHandle guide_buffer_b{};
+            RHI::TextureHandle previous_scene_color_texture{};
+            RHI::TextureViewHandle previous_scene_color_view{};
+            RHI::SamplerHandle linear_sampler{};
+            RHI::SamplerHandle atmosphere_sampler{};
+            u32 reservoir_extent_x = 0;
+            u32 reservoir_extent_y = 0;
+            bool previous_is_a = false;
+            bool has_history = false;
+            /// This is Renderer-level singleton state (not per-`FrameInFlight` slot) deliberately: the
+            /// reservoir/history buffers it reprojects against are also singletons, so it must track
+            /// strictly the immediately preceding frame regardless of how many frames are in flight.
+            glm::mat4 previous_view_projection{1.0f};
+
+            bool ready = false;
+        };
+
+        struct SvgfComputeVariant {
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle module{};
+            RHI::BindGroupLayoutHandle bind_group_layout{};
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::ComputePipelineHandle pipeline{};
+            vector<ReflectedResource> resources;
+        };
+
+        /// SVGF denoiser pipelines plus its persistent, render-extent-sized history textures (color,
+        /// raw luminance moments, history length), each ping-ponged like `RestirGiResources`' reservoir
+        /// buffers via `previous_is_a`. `color_history_a`/`_b` hold the *once-filtered* (first a-trous
+        /// iteration) result rather than the raw temporally-accumulated color — see
+        /// Shaders/svgf_atrous.slang's header for why.
+        struct SvgfResources {
+            SvgfComputeVariant temporal_accumulate;
+            SvgfComputeVariant atrous;
+
+            RHI::TextureHandle color_history_a{};
+            RHI::TextureViewHandle color_history_a_view{};
+            RHI::TextureHandle color_history_b{};
+            RHI::TextureViewHandle color_history_b_view{};
+            RHI::TextureHandle moments_history_a{};
+            RHI::TextureViewHandle moments_history_a_view{};
+            RHI::TextureHandle moments_history_b{};
+            RHI::TextureViewHandle moments_history_b_view{};
+            RHI::TextureHandle history_length_a{};
+            RHI::TextureViewHandle history_length_a_view{};
+            RHI::TextureHandle history_length_b{};
+            RHI::TextureViewHandle history_length_b_view{};
+            u32 extent_x = 0;
+            u32 extent_y = 0;
+            bool previous_is_a = false;
+            bool has_history = false;
 
             bool ready = false;
         };
@@ -2776,89 +2835,183 @@ namespace SFT::Renderer {
             RenderGraphTextureHandle motion_texture,
             RenderGraphTextureHandle depth_texture);
 
-        /// Finds or creates the surfel-GI resources required by the operation, (re)allocating the persistent
-        /// surfel/grid buffers if the requested capacity has grown.
+        /// Finds or creates the ReSTIR GI resources required by the operation, (re)allocating the
+        /// persistent reservoir buffers and history texture whenever the render extent changes (this is
+        /// screen-space state, unlike surfel GI's scene-dependent grow-only capacity pool).
         ///
-        /// @param surfel_capacity Requested surfel ring-buffer capacity (`SurfelGiSettings::max_surfels`).
-        /// @param grid_bucket_capacity Requested hash-grid bucket count (`SurfelGiSettings::hash_grid_bucket_count`).
+        /// @param render_extent Current render-target extent in pixels.
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_surfel_gi_resources(u32 surfel_capacity, u32 grid_bucket_capacity);
-        /// Destroys the surfel-GI resources identified by the supplied parameters.
+        [[nodiscard]] Core::RendererResult ensure_restir_gi_resources(glm::uvec2 render_extent);
+        /// Destroys the ReSTIR GI resources identified by the supplied parameters.
         ///
         /// @note This function does not throw exceptions.
-        void destroy_surfel_gi_resources() noexcept;
+        void destroy_restir_gi_resources() noexcept;
 
-        /// Records the surfel screen-space seeding pass (spawns new surfels into coverage gaps).
+        /// Records the ReSTIR GI initial-candidate-sample pass (one ray-traced diffuse bounce per pixel).
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_surfel_screen_seed(
+        [[nodiscard]] Core::RendererResult record_restir_gi_initial_sample(
             RHI::ComputePassEncoder &pass,
+            FrameInFlight &slot,
             RHI::TextureViewHandle gbuffer_normal_view,
             RHI::TextureViewHandle gbuffer_depth_view,
+            RHI::TextureViewHandle gbuffer_albedo_view,
+            RHI::TextureViewHandle gbuffer_material_view,
+            RHI::TextureViewHandle gbuffer_emissive_view,
+            RHI::TextureViewHandle gbuffer_motion_view,
+            RHI::TextureViewHandle transmittance_lut_view,
+            RHI::TextureViewHandle sky_view_lut_view,
+            RHI::BufferHandle atmosphere_constants,
             RHI::BufferHandle constants_buffer,
             const RenderGraphSettings &settings,
             glm::uvec2 render_extent,
             vector<RHI::BindGroupHandle> &transient_bind_groups);
 
-        /// Records the surfel spatial hash-grid clear pass (must run before `record_surfel_hash_grid_build`).
+        /// Records the ReSTIR GI temporal reuse pass.
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_surfel_grid_clear(
+        [[nodiscard]] Core::RendererResult record_restir_gi_temporal_reuse(
             RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle gbuffer_motion_view,
             RHI::BufferHandle constants_buffer,
             const RenderGraphSettings &settings,
             vector<RHI::BindGroupHandle> &transient_bind_groups);
 
-        /// Records the surfel spatial hash-grid rebuild pass.
+        /// Records the ReSTIR GI spatial reuse pass.
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_surfel_hash_grid_build(
-            RHI::ComputePassEncoder &pass,
-            RHI::BufferHandle constants_buffer,
-            const RenderGraphSettings &settings,
-            vector<RHI::BindGroupHandle> &transient_bind_groups);
-
-        /// Records the surfel ray-trace/temporal-accumulation pass.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_surfel_ray_trace(
-            RHI::ComputePassEncoder &pass,
-            FrameInFlight &slot,
-            RHI::BufferHandle constants_buffer,
-            const RenderGraphSettings &settings,
-            vector<RHI::BindGroupHandle> &transient_bind_groups);
-
-        /// Records the screen-space surfel irradiance resolve pass.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_surfel_irradiance_resolve(
+        [[nodiscard]] Core::RendererResult record_restir_gi_spatial_reuse(
             RHI::ComputePassEncoder &pass,
             RHI::TextureViewHandle gbuffer_normal_view,
             RHI::TextureViewHandle gbuffer_depth_view,
+            RHI::BufferHandle constants_buffer,
+            const RenderGraphSettings &settings,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Records the ReSTIR GI shade-resolve pass, writing the final screen-space irradiance texture.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_restir_gi_shade_resolve(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle gbuffer_normal_view,
+            RHI::TextureViewHandle gbuffer_depth_view,
+            RHI::TextureViewHandle gbuffer_albedo_view,
+            RHI::TextureViewHandle gbuffer_material_view,
             RHI::TextureViewHandle output_view,
             RHI::BufferHandle constants_buffer,
             const RenderGraphSettings &settings,
             glm::uvec2 render_extent,
             vector<RHI::BindGroupHandle> &transient_bind_groups);
 
-        /// Builds the surfel-GI render-graph module, returning the resolved screen-space irradiance texture (a
-        /// 1x1 white dummy import when surfel GI is disabled, keeping downstream binding layout fixed).
+        /// Fixed input contract every ReSTIR GI denoiser backend consumes — the seam new backends
+        /// (DLSS Ray Reconstruction, FSR Redstone) plug into alongside `Svgf` without requiring any
+        /// change to `build_restir_gi_module`.
+        struct RestirGiDenoiserInputs {
+            RenderGraphTextureHandle raw_irradiance;
+            RenderGraphTextureHandle gbuffer_normal;
+            RenderGraphTextureHandle gbuffer_depth;
+            RenderGraphTextureHandle gbuffer_motion;
+        };
+
+        /// Dispatches to the denoiser backend selected by `RestirGiSettings::denoiser`. `None` returns
+        /// `inputs.raw_irradiance` unchanged; `DlssRayReconstruction`/`FsrRedstone` are not implemented
+        /// yet and fall back to `Svgf` with a one-time warning.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererExpected<RenderGraphTextureHandle> build_surfel_gi_module(
+        [[nodiscard]] Core::RendererExpected<RenderGraphTextureHandle> build_restir_gi_denoiser_module(
+            RenderGraphModuleBuildContext &context,
+            FrameSubmission &submission,
+            FrameInFlight &slot,
+            const RestirGiDenoiserInputs &inputs);
+
+        /// Finds or creates the SVGF resources required by the operation, (re)allocating the persistent
+        /// history textures whenever the render extent changes.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult ensure_svgf_resources(glm::uvec2 render_extent);
+        /// Destroys the SVGF resources identified by the supplied parameters.
+        ///
+        /// @note This function does not throw exceptions.
+        void destroy_svgf_resources() noexcept;
+
+        /// Records the SVGF temporal-accumulate pass.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_svgf_temporal_accumulate(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle raw_irradiance_view,
+            RHI::TextureViewHandle gbuffer_normal_view,
+            RHI::TextureViewHandle gbuffer_depth_view,
+            RHI::TextureViewHandle gbuffer_motion_view,
+            RHI::TextureViewHandle accumulated_out_view,
+            RHI::BufferHandle constants_buffer,
+            glm::uvec2 render_extent,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Records one SVGF a-trous wavelet filter iteration.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_svgf_atrous(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle gbuffer_normal_view,
+            RHI::TextureViewHandle gbuffer_depth_view,
+            RHI::TextureViewHandle color_variance_in_view,
+            RHI::TextureViewHandle color_variance_out_view,
+            RHI::BufferHandle constants_buffer,
+            u32 step_size,
+            bool write_history,
+            glm::uvec2 render_extent,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Builds the SVGF denoiser render-graph module: one temporal-accumulate pass followed by
+        /// `RestirGiSettings::svgf_atrous_iterations` a-trous passes, returning the final iteration's
+        /// filtered irradiance texture.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererExpected<RenderGraphTextureHandle> build_svgf_denoiser_module(
+            RenderGraphModuleBuildContext &context,
+            FrameSubmission &submission,
+            FrameInFlight &slot,
+            const RestirGiDenoiserInputs &inputs);
+
+        /// Records the end-of-frame copy of this frame's final scene color into ReSTIR GI's history
+        /// texture, consumed next frame by `record_restir_gi_initial_sample`'s multi-bounce feedback.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult record_restir_gi_history_copy(
+            RHI::ComputePassEncoder &pass,
+            RHI::TextureViewHandle scene_color_view,
+            vector<RHI::BindGroupHandle> &transient_bind_groups);
+
+        /// Builds the ReSTIR GI render-graph module, returning the resolved screen-space irradiance texture (a
+        /// 1x1 white dummy import when ReSTIR GI is disabled, keeping downstream binding layout fixed).
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererExpected<RenderGraphTextureHandle> build_restir_gi_module(
             RenderGraphModuleBuildContext &context,
             FrameSubmission &submission,
             FrameInFlight &slot,
             RenderGraphTextureHandle gbuffer_normal,
-            RenderGraphTextureHandle depth_texture);
+            RenderGraphTextureHandle gbuffer_albedo,
+            RenderGraphTextureHandle gbuffer_material,
+            RenderGraphTextureHandle gbuffer_emissive,
+            RenderGraphTextureHandle gbuffer_motion,
+            RenderGraphTextureHandle depth_texture,
+            RenderGraphTextureHandle transmittance_lut,
+            RenderGraphTextureHandle sky_view_lut);
 
 
         /// Depth mip levels in `GtaoDepthPyramid`, matching `SFT_GTAO_DEPTH_MIP_LEVELS` in
@@ -2962,7 +3115,7 @@ namespace SFT::Renderer {
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult ensure_spectral_path_tracing_resources(
-            SpectralRenderMode mode, bool surfel_gi_enabled = false);
+            SpectralRenderMode mode, bool restir_gi_enabled = false);
         /// Finds or creates the spectral mesh acceleration structures required by the operation.
         ///
         /// @param draws Draw descriptions processed in submission order.
@@ -3339,7 +3492,8 @@ namespace SFT::Renderer {
 
         Async::Mutex<std::unordered_map<u64, ObjectHistoryTemplateResources>> object_history_pipeline_variants_;
         Async::Mutex<MotionBlurResources> motion_blur_;
-        Async::Mutex<SurfelGiResources> surfel_gi_;
+        Async::Mutex<RestirGiResources> restir_gi_;
+        Async::Mutex<SvgfResources> svgf_denoiser_;
         Async::Mutex<GtaoResources> gtao_;
 
 

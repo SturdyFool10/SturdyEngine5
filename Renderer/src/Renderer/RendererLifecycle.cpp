@@ -1276,12 +1276,12 @@ namespace SFT::Renderer {
                                                 "Renderer RHI device is unavailable.");
         }
         if (Core::RendererResult spectral_ready = ensure_spectral_path_tracing_resources(
-                submission.render_graph.spectral_path_tracing.mode, submission.render_graph.surfel_gi.enabled);
+                submission.render_graph.spectral_path_tracing.mode, submission.render_graph.restir_gi.enabled);
             !spectral_ready.has_value()) {
             return spectral_ready;
         }
         if (submission.render_graph.spectral_path_tracing.mode != SpectralRenderMode::RasterDeferred ||
-            submission.render_graph.surfel_gi.enabled) {
+            submission.render_graph.restir_gi.enabled) {
             if (Core::RendererResult acceleration_ready =
                     ensure_spectral_mesh_acceleration_structures(submission.draws);
                 !acceleration_ready.has_value()) {
@@ -1820,7 +1820,7 @@ namespace SFT::Renderer {
         }
         const bool spectral_scene_active = submission.render_graph.spectral_path_tracing.mode !=
                                                SpectralRenderMode::RasterDeferred ||
-                                           submission.render_graph.surfel_gi.enabled;
+                                           submission.render_graph.restir_gi.enabled;
         if (spectral_scene_active) {
             if (gpu_timing_enabled) {
                 (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 0);
@@ -2863,11 +2863,13 @@ namespace SFT::Renderer {
 
         RenderGraphTextureHandle surfel_irradiance{};
         if (submission.render_graph.render_scene && !full_path_tracing) {
-            auto surfel_gi_texture = build_surfel_gi_module(module_context, submission, slot, gbuffer_normal, depth_texture);
-            if (!surfel_gi_texture.has_value()) {
-                return unexpected(surfel_gi_texture.error());
+            auto restir_gi_texture = build_restir_gi_module(
+                module_context, submission, slot, gbuffer_normal, gbuffer_albedo, gbuffer_material,
+                gbuffer_emissive, gbuffer_motion, depth_texture, transmittance_lut, sky_view_lut);
+            if (!restir_gi_texture.has_value()) {
+                return unexpected(restir_gi_texture.error());
             }
-            surfel_irradiance = *surfel_gi_texture;
+            surfel_irradiance = *restir_gi_texture;
         }
 
         if (submission.render_graph.render_scene && !full_path_tracing) {
@@ -2954,6 +2956,23 @@ namespace SFT::Renderer {
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x,
                                              .height = render_extent.y});
+        }
+
+        // Copies this frame's just-finished final scene color into ReSTIR GI's history texture, read
+        // back next frame by restir_gi_initial_sample.slang for multi-bounce feedback. Must run after
+        // the lighting pass above has written `scene_color` and is gated identically to
+        // build_restir_gi_module so the history texture only exists/updates while ReSTIR GI is enabled.
+        if (submission.render_graph.render_scene && !full_path_tracing && submission.render_graph.restir_gi.enabled) {
+            graph.add_compute_pass("restir gi history copy"_ustr)
+                .add_sampled_texture(scene_color)
+                .set_side_effect(true)
+                .set_execute([this, &submission, scene_color](
+                                 RenderGraphComputeContext &graph_context) -> Core::RendererResult {
+                    return record_restir_gi_history_copy(
+                        graph_context.compute_pass(),
+                        graph_context.texture(scene_color).default_view,
+                        submission.transient_bind_groups);
+                });
         }
 
         if (submission.render_graph.render_scene && multisampled) {

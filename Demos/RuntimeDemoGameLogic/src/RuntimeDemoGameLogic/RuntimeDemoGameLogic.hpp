@@ -70,10 +70,11 @@ namespace SFT::Runtime {
         bool visible = false;
     };
 
-    struct SurfelGiTuningState {
+    struct RestirGiTuningState {
         bool enabled = false;
         f32 intensity = 1.0f;
         u32 quality = 1;
+        u32 denoiser = 1; // 0=Off, 1=SVGF
     };
 
     struct MotionBlurTuningState {
@@ -196,9 +197,10 @@ namespace SFT::Runtime {
         Ecs::EventModule<RuntimeRenderingSettingsChanged> runtime_rendering_events_{};
         Ecs::EventModule<SpectralPathTracingSettingsChanged> spectral_path_tracing_events_{};
 
-        UI::ToggleState surfel_gi_toggle_state_{};
-        UI::SliderState surfel_gi_intensity_slider_state_{};
-        UI::DropdownState surfel_gi_quality_dropdown_state_{};
+        UI::ToggleState restir_gi_toggle_state_{};
+        UI::SliderState restir_gi_intensity_slider_state_{};
+        UI::DropdownState restir_gi_quality_dropdown_state_{};
+        UI::DropdownState restir_gi_denoiser_dropdown_state_{};
         UI::ToggleState motion_blur_toggle_state_{};
         UI::SliderState motion_blur_intensity_slider_state_{};
         UI::SliderState motion_blur_shutter_slider_state_{};
@@ -240,5 +242,5 @@ SFT_ECS_COMPONENT(SFT::Runtime::SpectralPathTracingKeyboardControls, "sturdy.run
 SFT_ECS_COMPONENT(SFT::Runtime::SpectralPathTracingTuningState, "sturdy.runtime.spectral_path_tracing_tuning_state");
 SFT_ECS_EVENT(SFT::Runtime::SpectralPathTracingSettingsChanged, "sturdy.runtime.spectral_path_tracing_settings_changed");
 SFT_ECS_COMPONENT(SFT::Runtime::TweakPanelState, "sturdy.runtime.tweak_panel_state");
-SFT_ECS_COMPONENT(SFT::Runtime::SurfelGiTuningState, "sturdy.runtime.surfel_gi_tuning_state");
+SFT_ECS_COMPONENT(SFT::Runtime::RestirGiTuningState, "sturdy.runtime.restir_gi_tuning_state");
 SFT_ECS_COMPONENT(SFT::Runtime::MotionBlurTuningState, "sturdy.runtime.motion_blur_tuning_state");

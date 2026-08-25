@@ -917,10 +917,10 @@ namespace SFT::Renderer {
                                          submission.render_graph.background_intensity,
                                          1.0f};
         gpu.spectral_params.x = static_cast<f32>(submission.render_graph.spectral_path_tracing.mode);
-        // .y/.z are repurposed here for surfel GI enable/intensity rather than adding a new packed
+        // .y/.z are repurposed here for ReSTIR GI enable/intensity rather than adding a new packed
         // vec4 field — spectral_params previously only used .x, leaving these lanes reserved.
-        gpu.spectral_params.y = submission.render_graph.surfel_gi.enabled ? 1.0f : 0.0f;
-        gpu.spectral_params.z = std::max(finite_or(submission.render_graph.surfel_gi.intensity, 1.0f), 0.0f);
+        gpu.spectral_params.y = submission.render_graph.restir_gi.enabled ? 1.0f : 0.0f;
+        gpu.spectral_params.z = std::max(finite_or(submission.render_graph.restir_gi.intensity, 1.0f), 0.0f);
         gpu.viewport_params = glm::vec4{
             1.0f / static_cast<f32>(std::max(render_extent.x, 1u)),
             1.0f / static_cast<f32>(std::max(render_extent.y, 1u)),
@@ -1054,22 +1054,6 @@ namespace SFT::Renderer {
 
             const glm::mat4 camera_world = glm::inverse(submission.camera.view);
             const LightBasis basis = make_light_basis(sun_direction);
-            // Only while a shadow debug view is selected, and at most a few times a second, so the
-            // instrumentation can never become a per-frame cost in normal operation.
-            static std::atomic<u64> last_cascade_log_ms{0};
-            bool log_cascade_stats = false;
-            if (submission.render_graph.shadow_debug_view != 0) {
-                const u64 now_ms = static_cast<u64>(
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now().time_since_epoch())
-                        .count());
-                u64 previous = last_cascade_log_ms.load(std::memory_order_relaxed);
-                if (now_ms - previous >= 2000 &&
-                    last_cascade_log_ms.compare_exchange_strong(previous, now_ms,
-                                                                std::memory_order_relaxed)) {
-                    log_cascade_stats = true;
-                }
-            }
             const f32 sun_angular_radius = gpu.sun.direction_angular_radius.w;
             u32 emitted_cascades = 0;
             for (u32 cascade = 0; cascade < cascade_count; ++cascade) {
@@ -1179,21 +1163,6 @@ namespace SFT::Renderer {
                 gpu.sun.cascade_splits[cascade] = splits[cascade];
                 gpu.sun.cascade_fade_starts[cascade] = fade_starts[cascade];
                 ++emitted_cascades;
-
-                if (log_cascade_stats) {
-                    // Quantitative counterpart to the cascade debug views: utilization is how much
-                    // of the tight receiver extent survives the ladder quantization and the guard
-                    // band, so a persistently low number means the fit (not the resolution) is what
-                    // is costing shadow detail.
-                    const f32 utilization = receiver.tight_extent / std::max(padded_extent, 1.0e-6f);
-                    Foundation::log_info(
-                        "CSM c{}: view [{:.2f}, {:.2f}] tight {:.2f}m stable {:.2f}m padded {:.2f}m "
-                        "texel {:.4f}m res {} util {:.0f}% casters {}/{} depth {:.2f}m",
-                        cascade, fit_near, fit_far, receiver.tight_extent, extent, padded_extent,
-                        world_texel, tile.resolution, utilization * 100.0f,
-                        prepared.directional_views.back().caster_indices.size(),
-                        submission.draws.size(), depth_span);
-                }
             }
             if (emitted_cascades > 0) {
                 // If the view budget truncated the cascade set, the last surviving cascade has to

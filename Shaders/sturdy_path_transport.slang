@@ -113,16 +113,14 @@ float evaluateOpaquePbr(
     float nDotH = saturate(dot(normal, halfVector));
     float vDotH = saturate(dot(viewDirection, halfVector));
     float alpha = max(perceptualRoughness * perceptualRoughness, 0.002);
-    float alphaSquared = alpha * alpha;
-    float denominator = nDotH * nDotH * (alphaSquared - 1.0) + 1.0;
-    float distribution = alphaSquared / max(SFT_PI * denominator * denominator, 1.0e-6);
-    float k = square(alpha + 1.0) * 0.125;
-    float geometryV = nDotV / max(nDotV * (1.0 - k) + k, 1.0e-6);
-    float geometryL = nDotL / max(nDotL * (1.0 - k) + k, 1.0e-6);
+    // Shared with the raster deferred lighting pass (sturdy_pbr.slang) so the same material shades
+    // identically under both integrators. geometrySmithCorrelated already folds in 1/(4*NdotL*NdotV) —
+    // do not divide by it again here.
+    float distribution = distributionGGXLocal(nDotH, alpha);
+    float visibility = geometrySmithCorrelated(nDotV, nDotL, alpha);
     float f0 = lerp(saturate(dielectricF0), saturate(baseReflectance), saturate(metallic));
     float fresnel = schlickFresnel(vDotH, f0);
-    float specular = distribution * geometryV * geometryL * fresnel
-                   / max(4.0 * nDotV * nDotL, 1.0e-6);
+    float specular = distribution * visibility * fresnel;
     float diffuseBrdf = evaluateEonDiffuse(
         max(baseReflectance, 0.0), perceptualRoughness,
         normal, lightDirection, viewDirection);
@@ -159,9 +157,7 @@ float opaquePbrPdf(
     float nDotH = saturate(dot(normal, halfVector));
     float vDotH = saturate(dot(viewDirection, halfVector));
     float alpha = max(perceptualRoughness * perceptualRoughness, 0.002);
-    float alphaSquared = alpha * alpha;
-    float denominator = nDotH * nDotH * (alphaSquared - 1.0) + 1.0;
-    float distribution = alphaSquared / max(SFT_PI * denominator * denominator, 1.0e-6);
+    float distribution = distributionGGXLocal(nDotH, alpha);
     float specularPdf = distribution * nDotH / max(4.0 * vDotH, 1.0e-6);
     float diffusePdf = nDotL * SFT_INV_PI;
 

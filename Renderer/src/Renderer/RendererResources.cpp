@@ -327,7 +327,8 @@ namespace SFT::Renderer {
         destroy_atmosphere_lut_resources();
         destroy_hiz_build_resources();
         destroy_motion_blur_resources();
-        destroy_surfel_gi_resources();
+        destroy_restir_gi_resources();
+        destroy_svgf_resources();
         destroy_gtao_resources();
     }
 

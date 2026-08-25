@@ -29,7 +29,7 @@ namespace SFT::Engine {
         Bloom,
         ToneMapping,
         DebugOverlay,
-        SurfelGi,
+        RestirGi,
         MotionBlur,
     };
 
@@ -361,25 +361,46 @@ namespace SFT::Engine {
         bool draw_text = true;
     };
 
-    enum class SurfelGiQuality : u8 { Low, Medium, High };
+    enum class RestirGiQuality : u8 { Low, Medium, High };
 
-    struct SurfelGiSettings {
+    /// Selects which denoiser resolves ReSTIR GI's raw per-pixel reservoir output into the smoothed
+    /// irradiance the deferred lighting pass consumes. `DlssRayReconstruction`/`FsrRedstone` are seam
+    /// values reserved for future vendor-SDK integrations (NVIDIA NGX/Streamline, AMD's respective
+    /// path); selecting either today falls back to `Svgf` with a one-time warning until that backend is
+    /// actually implemented. Adding a real backend is: implement
+    /// `Renderer::build_<name>_denoiser_module` with the same signature as
+    /// `build_svgf_denoiser_module`, and add its case to `build_restir_gi_denoiser_module`'s switch —
+    /// no other ReSTIR GI code changes.
+    enum class RestirGiDenoiser : u8 { None, Svgf, DlssRayReconstruction, FsrRedstone };
+
+    /// Settings for the ReSTIR GI subsystem: a screen-space reservoir that resamples one ray-traced
+    /// indirect-diffuse bounce per pixel per frame across time (temporal reuse) and neighboring pixels
+    /// (spatial reuse). Replaces the earlier surfel-based GI system.
+    struct RestirGiSettings {
         bool enabled = false;
-        f32 surfel_radius_near = 0.12f;
-        f32 surfel_radius_far = 1.5f;
-        u32 cascade_count = 4;
-        f32 cascade_distances[4] = {4.0f, 12.0f, 32.0f, 80.0f};
-        u32 hash_grid_bucket_count = 1u << 20;
-        u32 max_surfels = 1u << 17;
-        u32 max_surfels_spawned_per_frame = 2048;
-        f32 screen_coverage_target = 0.98f;
-        u32 rays_per_surfel_per_frame = 4;
+        /// Drives spatial_reuse_samples defaults when applied by callers; stored for UI/tuning
+        /// convenience, not read directly by the render graph.
+        RestirGiQuality quality = RestirGiQuality::Medium;
+        u32 spatial_reuse_samples = 4;
+        f32 spatial_reuse_radius_px = 24.0f;
+        u32 temporal_history_max = 20;
         f32 max_ray_distance = 60.0f;
-        f32 temporal_accumulation_alpha = 0.05f;
-        f32 irradiance_sample_radius_multiplier = 1.5f;
+        /// Damping factor (0-1) applied to last frame's own final lit scene color when it is read back
+        /// as an extra indirect term at a GI ray's hit point, giving convergent multi-bounce lighting
+        /// over a few frames without a separate probe cache. 0 disables multi-bounce feedback.
+        f32 multi_bounce_feedback = 0.5f;
         f32 intensity = 1.0f;
-        SurfelGiQuality quality = SurfelGiQuality::Medium;
-        bool show_debug_surfels = false;
+        RestirGiDenoiser denoiser = RestirGiDenoiser::Svgf;
+        /// Wavelet filter iterations svgf_atrous.slang runs per frame (step sizes double each
+        /// iteration: 1,2,4,8,16 for the default 5). Only read when `denoiser == Svgf`.
+        u32 svgf_atrous_iterations = 5;
+        /// Temporal color/moment blend rate (0-1, higher = faster/less smoothing). Dynamically raised
+        /// while a pixel's history is still short, the same hysteresis trick surfel GI used.
+        f32 svgf_temporal_alpha = 0.2f;
+        f32 svgf_phi_normal = 128.0f;
+        f32 svgf_phi_depth = 1.0f;
+        f32 svgf_phi_luminance = 4.0f;
+        bool show_debug_reservoirs = false;
     };
 
     struct MotionBlurSettings {
@@ -401,7 +422,7 @@ namespace SFT::Engine {
         BloomSettings bloom{};
         ToneMappingSettings tone_mapping{};
         DebugOverlayRenderSettings debug_overlay{};
-        SurfelGiSettings surfel_gi{};
+        RestirGiSettings restir_gi{};
         MotionBlurSettings motion_blur{};
         RenderGraphExecutionMode execution_mode = RenderGraphExecutionMode::FireAndForget;
 
@@ -569,16 +590,16 @@ namespace SFT::Engine {
         /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function does not throw exceptions.
         [[nodiscard]] DebugOverlayRenderSettings &debug_overlay() noexcept;
-        /// Returns the current or globally available surfel GI value.
+        /// Returns the current or globally available ReSTIR GI value.
         ///
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] const SurfelGiSettings &surfel_gi() const noexcept;
-        /// Returns the current or globally available surfel GI value.
+        [[nodiscard]] const RestirGiSettings &restir_gi() const noexcept;
+        /// Returns the current or globally available ReSTIR GI value.
         ///
         /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] SurfelGiSettings &surfel_gi() noexcept;
+        [[nodiscard]] RestirGiSettings &restir_gi() noexcept;
         /// Returns the current or globally available motion blur value.
         ///
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
@@ -812,14 +833,14 @@ namespace SFT::Engine {
             return *this;
         }
 
-        /// Configures surfel GI using the supplied arguments and current state.
+        /// Configures ReSTIR GI using the supplied arguments and current state.
         ///
         /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename Configure>
-            requires std::invocable<Configure, SurfelGiSettings &>
-        RenderGraph &configure_surfel_gi(Configure &&configure) {
-            std::invoke(std::forward<Configure>(configure), description_.surfel_gi);
+            requires std::invocable<Configure, RestirGiSettings &>
+        RenderGraph &configure_restir_gi(Configure &&configure) {
+            std::invoke(std::forward<Configure>(configure), description_.restir_gi);
             return *this;
         }
 
