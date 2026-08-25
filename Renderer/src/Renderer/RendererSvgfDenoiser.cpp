@@ -241,25 +241,48 @@ namespace SFT::Renderer {
             device->destroy_texture(color_a->first);
             return unexpected(color_b.error());
         }
-        auto moments_a = create_texture(RHI::Format::RG16Float, "SVGF moments history A");
-        auto moments_b = moments_a ? create_texture(RHI::Format::RG16Float, "SVGF moments history B")
-                                    : decltype(create_texture(RHI::Format::RG16Float, "")){};
-        auto length_a = (moments_a && moments_b) ? create_texture(RHI::Format::R16Float, "SVGF history length A")
-                                                  : decltype(create_texture(RHI::Format::R16Float, "")){};
-        auto length_b = (moments_a && moments_b && length_a) ? create_texture(RHI::Format::R16Float, "SVGF history length B")
-                                                               : decltype(create_texture(RHI::Format::R16Float, "")){};
+        // RG32Float/R32Float, not RG16Float/R16Float: single/dual-channel 16-bit float storage images
+        // are not in Vulkan's mandatory format-support set (they need shaderStorageImageExtendedFormats,
+        // which this engine does not negotiate — see ensure_gtao_resources' identical note in
+        // RendererGtao.cpp about why its depth pyramid uses R32Float over R16Float for the same reason).
+        // 4-channel RGBA16Float (used for color history above) *is* mandatory, so it's unaffected.
+        const auto destroy_created = [&](auto &...created) noexcept {
+            ((created ? (void)(device->destroy_texture_view(created->second), device->destroy_texture(created->first)) : (void)0), ...);
+        };
 
-        if (!moments_a || !moments_b || !length_a || !length_b) {
+        auto moments_a = create_texture(RHI::Format::RG32Float, "SVGF moments history A");
+        if (!moments_a) {
             device->destroy_texture_view(color_a->second);
             device->destroy_texture(color_a->first);
             device->destroy_texture_view(color_b->second);
             device->destroy_texture(color_b->first);
-            if (moments_a) { device->destroy_texture_view(moments_a->second); device->destroy_texture(moments_a->first); }
-            if (moments_b) { device->destroy_texture_view(moments_b->second); device->destroy_texture(moments_b->first); }
-            if (length_a) { device->destroy_texture_view(length_a->second); device->destroy_texture(length_a->first); }
-            if (!moments_a) return unexpected(moments_a.error());
-            if (!moments_b) return unexpected(moments_b.error());
-            if (!length_a) return unexpected(length_a.error());
+            return unexpected(moments_a.error());
+        }
+        auto moments_b = create_texture(RHI::Format::RG32Float, "SVGF moments history B");
+        if (!moments_b) {
+            device->destroy_texture_view(color_a->second);
+            device->destroy_texture(color_a->first);
+            device->destroy_texture_view(color_b->second);
+            device->destroy_texture(color_b->first);
+            destroy_created(moments_a);
+            return unexpected(moments_b.error());
+        }
+        auto length_a = create_texture(RHI::Format::R32Float, "SVGF history length A");
+        if (!length_a) {
+            device->destroy_texture_view(color_a->second);
+            device->destroy_texture(color_a->first);
+            device->destroy_texture_view(color_b->second);
+            device->destroy_texture(color_b->first);
+            destroy_created(moments_a, moments_b);
+            return unexpected(length_a.error());
+        }
+        auto length_b = create_texture(RHI::Format::R32Float, "SVGF history length B");
+        if (!length_b) {
+            device->destroy_texture_view(color_a->second);
+            device->destroy_texture(color_a->first);
+            device->destroy_texture_view(color_b->second);
+            device->destroy_texture(color_b->first);
+            destroy_created(moments_a, moments_b, length_a);
             return unexpected(length_b.error());
         }
 
@@ -467,6 +490,20 @@ namespace SFT::Renderer {
         const SvgfAtrousConstants push_constants{.step_size = step_size, .write_history = write_history ? 1u : 0u};
         pass.set_push_constants(RHI::ShaderStage::Compute, 0, std::as_bytes(span<const SvgfAtrousConstants>{&push_constants, 1}));
         pass.dispatch((render_extent.x + 7u) / 8u, (render_extent.y + 7u) / 8u, 1);
+
+        if (write_history) {
+            // Deliberately flipped here, at this pass's own execute time — not back in
+            // build_svgf_denoiser_module's graph-building code, which runs well before the render
+            // graph actually executes any of this frame's passes. Flipping at build time would let a
+            // later-executing frame observe the new `previous_is_a` before this frame's own
+            // temporal-accumulate/a-trous passes (which were built against the old value) have actually
+            // run, reading the wrong ping-pong epoch. This mirrors ReSTIR GI's
+            // record_restir_gi_history_copy, which flips its own ping-pong flag at the same, execute-
+            // time point for the identical reason.
+            auto guard = svgf_denoiser_.lock();
+            guard->has_history = true;
+            guard->previous_is_a = !guard->previous_is_a;
+        }
         return {};
     }
 
@@ -541,7 +578,7 @@ namespace SFT::Renderer {
             .add_sampled_texture(inputs.gbuffer_motion)
             .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = accumulated, .read = false, .write = true})
             .set_side_effect(true)
-            .set_execute([this, &submission, &inputs, accumulated, constants_buffer, render_extent](
+            .set_execute([this, &submission, inputs, accumulated, constants_buffer, render_extent](
                              RenderGraphComputeContext &graph_context) -> Core::RendererResult {
                 return record_svgf_temporal_accumulate(
                     graph_context.compute_pass(),
@@ -575,7 +612,7 @@ namespace SFT::Renderer {
                 .add_sampled_texture(iteration_input)
                 .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = output, .read = false, .write = true})
                 .set_side_effect(true)
-                .set_execute([this, &submission, &inputs, iteration_input, output, constants_buffer, step_size,
+                .set_execute([this, &submission, inputs, iteration_input, output, constants_buffer, step_size,
                               write_history, render_extent](RenderGraphComputeContext &graph_context) -> Core::RendererResult {
                     return record_svgf_atrous(
                         graph_context.compute_pass(),
@@ -592,12 +629,6 @@ namespace SFT::Renderer {
 
             ping = output;
             final_output = output;
-        }
-
-        {
-            auto guard = svgf_denoiser_.lock();
-            guard->has_history = true;
-            guard->previous_is_a = !guard->previous_is_a;
         }
 
         return final_output;
