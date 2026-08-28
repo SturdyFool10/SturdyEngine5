@@ -23,6 +23,12 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     add_test(NAME EcsSynchronousExecutorTest COMMAND EcsSynchronousExecutorTest)
     set_tests_properties(EcsSynchronousExecutorTest PROPERTIES TIMEOUT 20)
 
+    add_executable(EcsWorldErasedTest tests/WorldErasedTest.cpp)
+    target_link_libraries(EcsWorldErasedTest PRIVATE Sturdy::Ecs)
+    sturdy_enable_warnings(EcsWorldErasedTest)
+    add_test(NAME EcsWorldErasedTest COMMAND EcsWorldErasedTest)
+    set_tests_properties(EcsWorldErasedTest PROPERTIES TIMEOUT 20)
+
     set(
         _sturdy_ecs_dependency_boundary_test
         "${CMAKE_SOURCE_DIR}/cmake/tests/AssertEcsDependencyBoundary.cmake"

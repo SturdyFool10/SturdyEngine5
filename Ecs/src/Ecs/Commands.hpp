@@ -118,6 +118,48 @@ namespace SFT::Ecs {
             });
         }
 
+        // ─── Type-erased deferred operations ─────────────────────────────────────────────────
+        //
+        // Siblings of the templated commands above, addressing components by id and copying their
+        // bytes. They exist so a system whose body is not C++ — one registered through the C FFI —
+        // can still make structural changes, which is otherwise the one thing such a system cannot
+        // do safely while a schedule is running.
+        //
+        // Unlike the templated versions, these route through the world's validating erased API when
+        // they apply. A deferred command cannot report failure to whoever queued it, and the entity
+        // it names may legitimately have been destroyed by an earlier command in the same buffer, so
+        // a rejected operation is dropped rather than terminating the process.
+
+        /// Queues creation of an entity carrying the supplied components.
+        ///
+        /// @param component_ids Components to attach.
+        /// @param component_data Initial value for each, copied immediately into the buffer so the
+        ///        caller's storage need not outlive this call.
+        /// @param component_sizes Byte count for each component.
+        ///
+        /// @note This function does not throw exceptions.
+        void spawn_erased(std::span<const ComponentId> component_ids,
+                          std::span<const void *const> component_data,
+                          std::span<const usize> component_sizes) noexcept;
+
+        /// Queues attaching one component to an existing entity.
+        ///
+        /// @param entity Entity to modify.
+        /// @param component Component to attach.
+        /// @param data Initial value, copied immediately into the buffer.
+        /// @param size Byte count of `data`.
+        ///
+        /// @note This function does not throw exceptions.
+        void add_component_erased(Entity entity, ComponentId component, const void *data, usize size) noexcept;
+
+        /// Queues detaching one component from an entity.
+        ///
+        /// @param entity Entity to modify.
+        /// @param component Component to detach.
+        ///
+        /// @note This function does not throw exceptions.
+        void remove_component_erased(Entity entity, ComponentId component) noexcept;
+
       private:
         friend struct Detail::CommandBuffer;
 

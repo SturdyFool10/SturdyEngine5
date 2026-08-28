@@ -2294,6 +2294,18 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererExpected<TextureHandle> ensure_default_white_texture();
 
 
+        /// Finds or creates the default flat-normal texture used for unbound normal-map slots.
+        ///
+        /// White is the right neutral value for a color or mask slot, but not for a normal map: it
+        /// unpacks to a direction lying in the tangent plane, perpendicular to the real surface
+        /// normal, which shades every unlit-looking surface wrong rather than leaving it unaffected.
+        /// This encodes the identity perturbation instead.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererExpected<TextureHandle> ensure_default_flat_normal_texture();
+
+
         /// Resolves the material pipeline associated with the supplied key, handle, or resource.
         ///
         /// @param material_template `material_template` value used by the operation.
@@ -3452,6 +3464,7 @@ namespace SFT::Renderer {
         vector<MaterialTemplateResource> material_templates_;
         vector<MaterialInstanceResource> material_instances_;
         TextureHandle default_white_texture_{};
+        TextureHandle default_flat_normal_texture_{};
 
 
         vector<RenderItem> frame_draws_;

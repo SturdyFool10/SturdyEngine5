@@ -31,25 +31,6 @@ namespace SFT::Core::Vulkan {
             }
         }
 
-        /// Performs the physical device ID operation for `Vulkan` using the supplied arguments.
-        ///
-        /// @param device Device used or affected by the operation.
-        ///
-        /// @return Returns the value produced by the operation.
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] std::string physical_device_id(const VulkanPhysicalDevice &device) {
-            VkPhysicalDeviceIDProperties ids{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
-            VkPhysicalDeviceProperties2 properties{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &ids};
-            vkGetPhysicalDeviceProperties2(device.vk_handle(), &properties);
-            if (ids.deviceLUIDValid != VK_TRUE) {
-                return {};
-            }
-            u64 bits = 0;
-            static_assert(VK_LUID_SIZE == sizeof(bits));
-            std::memcpy(&bits, ids.deviceLUID, sizeof(bits));
-            return std::format("windows-luid:{:016x}", bits);
-        }
-
         class VulkanInventoryAdapter final : public RHI::RhiAdapter {
           public:
             /// Constructs a `VulkanInventoryAdapter` from the supplied initialization values.
@@ -68,7 +49,7 @@ namespace SFT::Core::Vulkan {
                 info_.vendor_id = properties.vendorID;
                 info_.device_id = properties.deviceID;
                 info_.is_discrete = info_.device_type == RHI::DeviceType::DiscreteGpu;
-                info_.physical_device_id = physical_device_id(device_);
+                info_.physical_device_id = device_.stable_device_id();
                 limits_.max_texture_dimension_2d = properties.limits.maxImageDimension2D;
                 limits_.max_texture_array_layers = properties.limits.maxImageArrayLayers;
                 limits_.max_bind_groups = properties.limits.maxBoundDescriptorSets;

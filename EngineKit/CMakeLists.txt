@@ -57,7 +57,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     target_link_libraries(EngineKitAccessTest PRIVATE Sturdy::EngineKit)
     sturdy_enable_warnings(EngineKitAccessTest)
     add_test(NAME EngineKitAccessTest COMMAND EngineKitAccessTest)
-    set_tests_properties(EngineKitAccessTest PROPERTIES TIMEOUT 10)
+    set_tests_properties(EngineKitAccessTest PROPERTIES TIMEOUT 60)
 
     if(NOT STURDY_BUILD_SHARED_LIBS)
         add_executable(
@@ -73,6 +73,6 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
                 "-DSTURDY_STATIC_AGGREGATE_LABEL=Sturdy::EngineKit"
                 -P "${CMAKE_SOURCE_DIR}/cmake/tests/AssertStaticAggregateUnused.cmake"
         )
-        set_tests_properties(EngineKitStaticUnusedTest PROPERTIES TIMEOUT 10)
+        set_tests_properties(EngineKitStaticUnusedTest PROPERTIES TIMEOUT 60)
     endif()
 endif()

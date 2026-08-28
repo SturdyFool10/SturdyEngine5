@@ -186,8 +186,10 @@ namespace SFT::D3D12 {
                 const rhi::VertexBufferLayout &buffer_layout = desc.vertex_buffers[slot];
                 for (const rhi::VertexAttribute &attribute : buffer_layout.attributes) {
                     input_elements.push_back(D3D12_INPUT_ELEMENT_DESC{
-                        .SemanticName = "TEXCOORD",
-                        .SemanticIndex = attribute.shader_location,
+                        // Must match the compiled shader's own input-signature semantic exactly by
+                        // name and index; D3D12 has no location-based fallback the way Vulkan does.
+                        .SemanticName = attribute.semantic_name,
+                        .SemanticIndex = attribute.semantic_index,
                         .Format = to_dxgi(attribute.format),
                         .InputSlot = slot,
                         .AlignedByteOffset = attribute.offset,

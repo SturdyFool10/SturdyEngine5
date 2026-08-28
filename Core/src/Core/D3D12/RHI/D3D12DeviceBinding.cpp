@@ -370,9 +370,14 @@ namespace SFT::D3D12 {
             record.push_constant_values = end_bytes / 4;
             CD3DX12_ROOT_PARAMETER1 parameter{};
 
-
-            parameter.InitAsConstants(record.push_constant_values, 0, 0,
-                                      to_d3d12_visibility(stages));
+            // Must land at the exact register Slang assigned the push-constant cbuffer for this
+            // shader's DXIL target — D3D12 has no dedicated push-constant mechanism, so Slang lowers
+            // it to an ordinary cbuffer wherever its whole-program layout puts it, which is not
+            // reliably b0 once other constant buffers share the program. Every range here describes
+            // the same buffer (this engine only ever has one push-constant block per shader), so the
+            // first entry's register is authoritative.
+            parameter.InitAsConstants(record.push_constant_values, desc.push_constant_ranges[0].shader_register,
+                                      desc.push_constant_ranges[0].register_space, to_d3d12_visibility(stages));
             record.push_constant_root_parameter = static_cast<i32>(parameters.size());
             parameters.push_back(parameter);
         }

@@ -136,6 +136,18 @@ namespace SFT::RHI {
         ShaderStage stages = ShaderStage::None;
         u32 offset = 0;
         u32 size = 0;
+
+        /// D3D-style register/space this push-constant buffer was compiled to.
+        ///
+        /// Vulkan ignores this: push constants there are a distinct hardware mechanism with no
+        /// descriptor register of their own, addressed by offset alone. D3D12 has no such
+        /// mechanism — Slang lowers `[[push_constant]]` to an ordinary `cbuffer` for the DXIL
+        /// target, at whatever register its whole-program layout happens to assign, which is not
+        /// reliably 0 once other constant buffers are reflected into the same program. The D3D12
+        /// backend must place its root-constants entry at this exact register or
+        /// `CreateGraphicsPipelineState` rejects the pipeline as root-signature-incompatible.
+        u32 shader_register = 0;
+        u32 register_space = 0;
     };
 
                                                                                                      

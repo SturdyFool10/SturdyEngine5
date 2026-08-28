@@ -24,6 +24,32 @@
 namespace SFT::Ecs {
 
 
+    /// Prepares one dispatch of an erased system, before any entity is visited.
+    ///
+    /// Receives the `Commands` queue for this dispatch and returns an opaque context handed to
+    /// every per-entity call and finally to the finish callback. This exists so a binding can do
+    /// per-dispatch setup once — the C FFI mints its `Commands` handle here — instead of repeating
+    /// it for every entity on a hot path.
+    ///
+    /// May be null, in which case the per-entity context is null.
+    using ErasedSystemPrepareFn = void *(*)(Commands *commands, void *user_data) noexcept;
+
+    /// Body of a system registered through `Schedule::add_erased_system`, called once per entity.
+    ///
+    /// `components` points at an array parallel to the component ids the system was registered
+    /// with, each entry addressing that component's storage for this entity, valid only for this
+    /// call. `dispatch_context` is whatever the prepare callback returned.
+    using ErasedSystemFn = void (*)(Entity entity,
+                                    void **components,
+                                    void *dispatch_context,
+                                    void *user_data) noexcept;
+
+    /// Tears down one dispatch of an erased system, after the last entity is visited.
+    ///
+    /// Runs even when no entity matched, so whatever prepare acquired is always released. May be
+    /// null.
+    using ErasedSystemFinishFn = void (*)(void *dispatch_context, void *user_data) noexcept;
+
     struct SystemAccess {
         std::vector<ComponentKey> reads;
         std::vector<ComponentKey> writes;
@@ -651,6 +677,54 @@ namespace SFT::Ecs {
             }
             stages_dirty_ = true;
         }
+
+        /// Registers a system whose body is a plain function pointer, with its data access declared
+        /// explicitly rather than deduced from C++ parameter types.
+        ///
+        /// This is what lets a system be written in another language. `add_system` above reads a
+        /// callable's signature to work out which components it reads and writes, which is how the
+        /// scheduler knows what may run in parallel; a C function pointer carries no such
+        /// information, so the caller has to supply it. Getting that declaration wrong is the one
+        /// way to defeat the scheduler's safety, so a caller that is unsure should declare a write.
+        ///
+        /// The system runs synchronously on the scheduling thread rather than being split across
+        /// workers. Systems in the same stage still run concurrently with each other where their
+        /// declared access allows it; only this system's own entities are not yet subdivided.
+        ///
+        /// @param access Declared component and resource access, used for conflict detection.
+        /// @param component_ids Components an entity must all carry for this system to see it.
+        ///        Must be consistent with `access` for the scheduling to mean anything.
+        /// @param fn System body. Must not throw or unwind.
+        /// @param user_data Passed through to every callback untouched.
+        /// @param prepare Optional per-dispatch setup receiving this dispatch's `Commands`.
+        /// @param finish Optional per-dispatch teardown, always run if `prepare` ran.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void add_erased_system(SystemAccess access,
+                               std::vector<ComponentId> component_ids,
+                               ErasedSystemFn fn,
+                               void *user_data,
+                               ErasedSystemPrepareFn prepare = nullptr,
+                               ErasedSystemFinishFn finish = nullptr);
+
+        /// Registers a system that runs once per frame rather than once per entity.
+        ///
+        /// The erased counterpart of a resource-only typed system. Declaring no components means
+        /// there is nothing to iterate, so the body runs exactly once per dispatch — the right shape
+        /// for a system that only reads events or drives a resource.
+        ///
+        /// @param access Declared resource and event access, used for conflict detection.
+        /// @param fn Body to run once per dispatch. Must not throw or unwind.
+        /// @param user_data Passed through to every callback untouched.
+        /// @param prepare Optional per-dispatch setup receiving this dispatch's `Commands`.
+        /// @param finish Optional per-dispatch teardown, always run if `prepare` ran.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void add_erased_global_system(SystemAccess access,
+                                      ErasedSystemFn fn,
+                                      void *user_data,
+                                      ErasedSystemPrepareFn prepare = nullptr,
+                                      ErasedSystemFinishFn finish = nullptr);
 
         /// Runs the requested work.
         ///

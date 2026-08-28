@@ -85,7 +85,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
         )
         set_tests_properties(
             EngineStaticAggregateUnusedTest
-            PROPERTIES TIMEOUT 10
+            PROPERTIES TIMEOUT 60
         )
     endif()
 

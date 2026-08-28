@@ -91,6 +91,30 @@ namespace {
         u32 count = 1;
     };
 
+    /// Groups a binding type by the register space D3D12 would place it in.
+    ///
+    /// Mirrors the backend's own classification: constant buffers, shader resources, unordered
+    /// access and samplers each get an independent register namespace, so registers must be
+    /// numbered within a class rather than across a descriptor set.
+    ///
+    /// @param type Binding type to classify.
+    ///
+    /// @return Index of the register class, in [0, 4).
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] usize register_class_index(RHI::BindingType type) noexcept {
+        switch (type) {
+            case RHI::BindingType::UniformBuffer:
+                return 0;
+            case RHI::BindingType::StorageBuffer:
+            case RHI::BindingType::StorageTexture:
+                return 1;
+            case RHI::BindingType::Sampler:
+                return 2;
+            default:
+                return 3;
+        }
+    }
+
     /// Collects descriptor bindings using the supplied arguments and current state.
     ///
     /// @param reflection `reflection` value used by the operation.
@@ -147,8 +171,23 @@ namespace {
                 }
             }
             if (needs_flattening) {
+                // Two different numbering rules, because the backends disagree about what a
+                // register is.
+                //
+                // `binding` is sequential across the whole set: Vulkan addresses a descriptor by
+                // its binding index, unique per set regardless of type.
+                //
+                // `shader_register` restarts per register class, because D3D12 gives constant
+                // buffers, shader resources, unordered access and samplers their own register
+                // spaces (b#, t#, u#, s#). Numbering it across the set instead — as this first did —
+                // fixes textures colliding at t0 but then pushes a sampler declared after a texture
+                // to s1 when the shader compiled it as s0, and the root signature no longer matches
+                // the shader.
+                u32 next_binding = 0;
+                u32 next_register[4] = {0, 0, 0, 0};
                 for (usize i = begin; i < end; ++i) {
-                    descriptors[i].binding = static_cast<u32>(i - begin);
+                    descriptors[i].binding = next_binding++;
+                    descriptors[i].shader_register = next_register[register_class_index(descriptors[i].type)]++;
                 }
             }
             begin = end;
@@ -218,7 +257,7 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
             }
 
             auto existing = std::ranges::find(layout->entries, uniform_binding, &RHI::BindGroupLayoutEntry::binding);
-            if (existing == layout->entries.end()) {
+            if (existing == layout->entries.end() || existing->type == RHI::BindingType::UniformBuffer) {
                 layout->entries.push_back(RHI::BindGroupLayoutEntry{
                     .binding = uniform_binding,
                     .shader_register = uniform_binding,
@@ -227,10 +266,33 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
                     .count = 1,
                     .flags = RHI::BindingFlags::None,
                 });
-            } else if (existing->type != RHI::BindingType::UniformBuffer) {
-                Foundation::log_warn(
-                    "ReflectionBinding: global constant buffer collides with reflected set {} binding {} of another descriptor type.",
-                    uniform_set, uniform_binding);
+            } else {
+                // `.binding` is this RHI's Vulkan-shaped unified descriptor index; on Vulkan itself
+                // it can't collide, since it comes straight from that shader's own SPIR-V reflection.
+                // D3D12 is the one that gets here: CBVs, SRVs and samplers live in independent
+                // register namespaces there (b0/t0/s0 all coexist), but `.binding` conflates them
+                // into one number, and the global constant buffer's binding (reflected off its own
+                // register class) can legitimately equal a texture's after per-class flattening.
+                // Silently dropping the entry (the previous behavior) left the material's constant
+                // buffer out of the root signature entirely — every shader with an implicit global
+                // constant buffer and any texture would fail PSO creation, not just this one.
+                //
+                // The register D3D12 actually binds to (`shader_register`, still `uniform_binding`,
+                // e.g. b0) is correct and unaffected; only this bookkeeping index needs to move.
+                // `resource.uniform_binding` (used later to write this entry's `BindGroupEntry`) is
+                // read back from this same generated layout, so the reassignment stays consistent.
+                u32 next_binding = uniform_binding;
+                for (const RHI::BindGroupLayoutEntry &entry : layout->entries) {
+                    next_binding = std::max(next_binding, entry.binding + 1);
+                }
+                layout->entries.push_back(RHI::BindGroupLayoutEntry{
+                    .binding = next_binding,
+                    .shader_register = uniform_binding,
+                    .type = RHI::BindingType::UniformBuffer,
+                    .visibility = visibility,
+                    .count = 1,
+                    .flags = RHI::BindingFlags::None,
+                });
             }
         }
 
@@ -265,6 +327,8 @@ vector<RHI::PushConstantRange> generate_push_constant_ranges(const slang::Shader
                 .stages = stages,
                 .offset = static_cast<u32>(parameter.offset),
                 .size = static_cast<u32>(parameter.size),
+                .shader_register = parameter.binding,
+                .register_space = parameter.binding_space,
             });
         }
         return ranges;

@@ -116,27 +116,6 @@ namespace SFT::Core::Vulkan {
             return count == 0 ? 0 : std::min(2u, count);
         }
 
-        /// Performs the physical device ID operation for `Vulkan` using the supplied arguments.
-        ///
-        /// @param device Device used or affected by the operation.
-        ///
-        /// @return Returns the value produced by the operation.
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] std::string physical_device_id(const VulkanPhysicalDevice &device) {
-            VkPhysicalDeviceIDProperties ids{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
-            VkPhysicalDeviceProperties2 properties{
-                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
-                .pNext = &ids,
-            };
-            vkGetPhysicalDeviceProperties2(device.vk_handle(), &properties);
-            if (ids.deviceLUIDValid != VK_TRUE) {
-                return {};
-            }
-            u64 bits = 0;
-            static_assert(VK_LUID_SIZE == sizeof(bits));
-            std::memcpy(&bits, ids.deviceLUID, sizeof(bits));
-            return format("windows-luid:{:016x}", bits);
-        }
 
         /// Finds dedicated queue family in the available state.
         ///
@@ -191,7 +170,7 @@ namespace SFT::Core::Vulkan {
         auto best = devices_result->end();
         if (!init.physical_device_id.empty()) {
             best = std::ranges::find_if(*devices_result, [&](const VulkanPhysicalDevice &candidate) {
-                return physical_device_id(candidate) == init.physical_device_id;
+                return candidate.stable_device_id() == init.physical_device_id;
             });
             if (best == devices_result->end()) {
                 return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,

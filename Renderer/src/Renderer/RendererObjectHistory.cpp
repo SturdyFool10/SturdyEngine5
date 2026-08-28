@@ -44,11 +44,13 @@ namespace SFT::Renderer {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         constexpr array<RHI::VertexAttribute, 5> history_geometry_vertex_attributes() {
             return {
-                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, position), .shader_location = 0},
-                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, normal), .shader_location = 1},
-                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x2, .offset = offsetof(GeometryVertex, uv), .shader_location = 2},
-                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x4, .offset = offsetof(GeometryVertex, color), .shader_location = 3},
-                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x4, .offset = offsetof(GeometryVertex, tangent), .shader_location = 4},
+                // Semantic name/index must match Shaders/gbuffer_geometry*.slang's VertexInput exactly;
+                // Vulkan only reads shader_location, but D3D12's input layout is matched by name.
+                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, position), .shader_location = 0, .semantic_name = "POSITION", .semantic_index = 0},
+                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x3, .offset = offsetof(GeometryVertex, normal), .shader_location = 1, .semantic_name = "NORMAL", .semantic_index = 0},
+                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x2, .offset = offsetof(GeometryVertex, uv), .shader_location = 2, .semantic_name = "TEXCOORD", .semantic_index = 0},
+                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x4, .offset = offsetof(GeometryVertex, color), .shader_location = 3, .semantic_name = "COLOR", .semantic_index = 0},
+                RHI::VertexAttribute{.format = RHI::VertexFormat::Float32x4, .offset = offsetof(GeometryVertex, tangent), .shader_location = 4, .semantic_name = "TANGENT", .semantic_index = 0},
             };
         }
 

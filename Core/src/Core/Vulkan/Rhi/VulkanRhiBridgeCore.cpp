@@ -145,6 +145,10 @@ namespace SFT::Core::Vulkan {
         adapter_info_.vendor_id = props.vendorID;
         adapter_info_.device_id = props.deviceID;
         adapter_info_.is_discrete = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+        // Without this the device's own adapter_info() reported an empty id while the
+        // inventory path reported a real one, so a GPU chosen from the inventory could never be
+        // matched back against the running device.
+        adapter_info_.physical_device_id = physical_device.stable_device_id();
 
         limits_.max_texture_dimension_2d = limits.maxImageDimension2D;
         limits_.max_texture_array_layers = limits.maxImageArrayLayers;

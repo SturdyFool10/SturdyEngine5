@@ -995,7 +995,14 @@ namespace SFT::Renderer {
                                     .depth_or_layers = 1},
             .mip_levels = 1,
             .samples = RHI::SampleCount::X1,
-            .usage = RHI::TextureUsage::DepthStencilAttachment,
+            // Sampled, not just DepthStencilAttachment: GTAO and the shadow lighting pass both read
+            // this depth buffer directly in a later pass (see RendererGtao.cpp/deferred_shadow_lighting).
+            // Vulkan doesn't gate view creation on declared usage the way D3D12 does, so omitting this
+            // silently worked there and broke only on D3D12, whose create_texture_view refuses to mint
+            // an SRV for a texture that never declared Sampled usage — the first depth-sampling pass to
+            // run failed PSO/bind-group creation, and this is the first time this path has been
+            // exercised on D3D12 at all (the built-in demo only ever runs on Vulkan).
+            .usage = RHI::TextureUsage::DepthStencilAttachment | RHI::TextureUsage::Sampled,
             .label = "renderer depth texture",
         });
         if (!depth_texture) {

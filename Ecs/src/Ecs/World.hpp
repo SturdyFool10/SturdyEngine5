@@ -12,6 +12,8 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <expected>
+#include <span>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -27,6 +29,54 @@ namespace SFT::Ecs {
     namespace Detail {
         struct WorldAccess;
     }
+
+
+    /// Why a type-erased `World` operation could not be performed.
+    ///
+    /// These are the conditions the templated API treats as contract violations and terminates on.
+    /// The erased API reports them instead, because its caller may be foreign code holding a value
+    /// that was valid earlier — a situation the process should survive.
+    enum class WorldErasedErrorCode : u32 {
+        /// The entity was never valid, or has since been destroyed.
+        DeadEntity,
+        /// No component is registered under that id.
+        UnknownComponent,
+        /// The entity already carries that component.
+        DuplicateComponent,
+        /// The entity does not carry that component.
+        MissingComponent,
+        /// The supplied byte count does not match the component's registered size.
+        SizeMismatch,
+        /// The component is not trivially copyable, so its bytes cannot be copied in or out
+        /// without running C++ constructors the caller has no way to invoke.
+        NotTriviallyCopyable,
+        /// No components were supplied; an entity must carry at least one.
+        NoComponents,
+        /// A schedule is running. Structural changes must go through `Commands` while it is.
+        ScheduleRunning,
+        /// A required pointer was null.
+        InvalidArgument,
+    };
+
+    struct WorldErasedError {
+        WorldErasedErrorCode code = WorldErasedErrorCode::InvalidArgument;
+        UString message;
+    };
+
+    template <class Value>
+    using WorldErasedExpected = std::expected<Value, WorldErasedError>;
+
+    /// Receives one matching entity during `World::for_each_erased`.
+    ///
+    /// `components` points at an array parallel to the requested component ids, each entry
+    /// addressing that component's storage for this entity. Valid only for this call.
+    using ErasedVisitFn = void (*)(Entity entity, void **components, void *user_data) noexcept;
+
+    /// Upper bound on how many components one `World::for_each_erased` call may match on.
+    ///
+    /// Bounds the fixed-size arrays that hold the per-row pointers, so iteration allocates nothing
+    /// and a caller cannot ask for an unbounded stack frame.
+    inline constexpr usize max_erased_visit_components = 16;
 
 
     template <class T>
@@ -202,6 +252,165 @@ namespace SFT::Ecs {
         /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
         /// @note This function does not throw exceptions.
         [[nodiscard]] bool is_alive(Entity entity) const noexcept;
+
+        // ─── Type-erased access ──────────────────────────────────────────────────────────────
+        //
+        // Non-template siblings of the templated API above, addressing components by ComponentId
+        // and moving their bytes rather than their C++ type. They exist for callers that have no
+        // access to the component's C++ type at compile time — principally the C FFI, where the
+        // caller may be Rust or C#.
+        //
+        // The important difference is failure handling. Every templated mutator above treats a
+        // dead entity or a duplicate component as a contract violation and terminates the process,
+        // which is the right call when the caller is engine C++ that could have checked. It is the
+        // wrong call for a foreign caller holding a stale entity value, so these report the same
+        // conditions as ordinary errors and leave the world untouched.
+
+        /// Spawns an entity carrying the supplied components, addressed by id.
+        ///
+        /// @param component_ids Components to attach. Must be non-empty and free of duplicates.
+        /// @param component_data Initial value for each component, parallel to `component_ids`.
+        ///        Each pointer must address at least that component's registered size.
+        ///
+        /// @return The new entity, or the reason it could not be created.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<Entity> spawn_erased(std::span<const ComponentId> component_ids,
+                                                               std::span<const void *const> component_data);
+
+        /// Adds one component to an existing entity, addressed by id.
+        ///
+        /// @param entity Entity to modify.
+        /// @param component Component to attach.
+        /// @param data Initial value; must address at least the component's registered size.
+        ///
+        /// @return Success, or the reason the component could not be attached.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<void> add_component_erased(Entity entity,
+                                                                     ComponentId component,
+                                                                     const void *data);
+
+        /// Removes one component from an entity, addressed by id.
+        ///
+        /// @param entity Entity to modify.
+        /// @param component Component to detach.
+        ///
+        /// @return Success, or the reason the component could not be detached.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<void> remove_component_erased(Entity entity, ComponentId component);
+
+        /// Reports whether an entity carries a component.
+        ///
+        /// @param entity Entity to inspect.
+        /// @param component Component to look for.
+        ///
+        /// @return `true` when the entity is alive and carries the component.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] bool has_component_erased(Entity entity, ComponentId component) const noexcept;
+
+        /// Copies a component's bytes out of the world.
+        ///
+        /// Copies rather than returning a pointer: the component lives in archetype storage that
+        /// any later spawn or structural change may relocate, so a pointer handed across a
+        /// language boundary would be a dangling-read waiting to happen.
+        ///
+        /// @param entity Entity to read from.
+        /// @param component Component to read.
+        /// @param destination Buffer receiving the bytes.
+        /// @param size Bytes available; must equal the component's registered size.
+        ///
+        /// @return Success, or the reason the component could not be read.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<void> read_component_erased(Entity entity,
+                                                                      ComponentId component,
+                                                                      void *destination,
+                                                                      usize size) const;
+
+        /// Overwrites a component's bytes in place.
+        ///
+        /// @param entity Entity to write to.
+        /// @param component Component to write.
+        /// @param source Bytes to copy in.
+        /// @param size Bytes supplied; must equal the component's registered size.
+        ///
+        /// @return Success, or the reason the component could not be written.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<void> write_component_erased(Entity entity,
+                                                                       ComponentId component,
+                                                                       const void *source,
+                                                                       usize size);
+
+        /// Binds a resource addressed by key rather than by C++ type.
+        ///
+        /// The world stores a borrowed pointer and never owns resource storage, exactly as
+        /// `bind_resource` does — whoever calls this must keep `object` alive until it is unbound or
+        /// the world is destroyed.
+        ///
+        /// @param key Stable key, normally derived from `name`.
+        /// @param name Canonical name, used to report key collisions intelligibly.
+        /// @param object Borrowed storage.
+        /// @param size Byte size of the resource.
+        /// @param align Alignment of the resource.
+        /// @param clear Optional hook invoked when the schedule clears events. Null for a plain
+        ///        resource; events supply their own.
+        ///
+        /// @return Success, or why the resource could not be bound.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<void> bind_resource_erased(ResourceKey key,
+                                                                     std::string_view name,
+                                                                     void *object,
+                                                                     usize size,
+                                                                     usize align,
+                                                                     void (*clear)(void *) noexcept);
+
+        /// Unbinds a resource addressed by key.
+        ///
+        /// @param key Resource to unbind.
+        ///
+        /// @return Success, or why it could not be unbound.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<void> unbind_resource_erased(ResourceKey key);
+
+        /// Reports whether a resource is bound.
+        ///
+        /// @param key Resource to look for.
+        ///
+        /// @return `true` when something is bound under that key.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] bool has_resource_erased(ResourceKey key) const noexcept;
+
+        /// Returns the storage bound under a key, and its size.
+        ///
+        /// Unlike component storage, resource storage is owned by the binder and never relocated by
+        /// the world, so handing out the pointer is safe for as long as the binding lasts.
+        ///
+        /// @param key Resource to resolve.
+        /// @param out_size Receives the resource's byte size. May be null.
+        ///
+        /// @return The bound storage, or null when nothing is bound under that key.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] void *resource_pointer_erased(ResourceKey key, usize *out_size) noexcept;
+
+        /// Visits every live entity carrying all of `component_ids`.
+        ///
+        /// `visit` receives a pointer to each requested component, in the order given, pointing
+        /// directly into archetype storage so values can be read and written in place. Those
+        /// pointers are valid only for the duration of that one call.
+        ///
+        /// The world is locked for reading throughout, so `visit` must not mutate it — no spawn,
+        /// destroy, add, or remove. Attempting one reentrantly trips the same contract check the
+        /// templated API uses and terminates the process, so a caller that cannot guarantee its
+        /// visitor is well behaved should gate it as the C FFI does. Callers that need to mutate
+        /// should collect entities here and act after the visit returns.
+        ///
+        /// @param component_ids Components an entity must all carry to be visited.
+        /// @param visit Invoked once per matching entity. Must not throw or unwind.
+        /// @param user_data Passed through to `visit` untouched.
+        ///
+        /// @return How many entities were visited, or the reason iteration could not start.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<usize> for_each_erased(std::span<const ComponentId> component_ids,
+                                                                 ErasedVisitFn visit,
+                                                                 void *user_data);
 
         /// Returns the component associated with this `World`.
         ///
@@ -622,6 +831,58 @@ namespace SFT::Ecs {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] u32 archetype_index_for(const Signature &signature);
 
+        /// Walks matching archetypes without taking any lock.
+        ///
+        /// Shared by `for_each_erased`, which locks first, and by scheduled execution, which
+        /// already holds the world lock and would deadlock taking it again.
+        ///
+        /// @param component_ids Components an entity must all carry to be visited.
+        /// @param visit Invoked once per matching entity.
+        /// @param user_data Passed through to `visit`.
+        ///
+        /// @return How many entities were visited, or why iteration could not start.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<usize> for_each_unlocked(std::span<const ComponentId> component_ids,
+                                                                   ErasedVisitFn visit,
+                                                                   void *user_data);
+
+        /// Spawns an entity without locking or checking for a running schedule.
+        ///
+        /// For deferred commands, which apply from inside `Schedule::run` where the world lock is
+        /// already held and the schedule flag is still set. Validation is identical to
+        /// `spawn_erased`; only the two guards that assume a direct caller are absent.
+        ///
+        /// @param component_ids Components to attach.
+        /// @param component_data Initial value for each component.
+        ///
+        /// @return The new entity, or the reason it could not be created.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<Entity> spawn_erased_unlocked(
+            std::span<const ComponentId> component_ids,
+            std::span<const void *const> component_data);
+
+        /// Adds one component without locking or checking for a running schedule.
+        ///
+        /// @param entity Entity to modify.
+        /// @param component Component to attach.
+        /// @param data Initial value.
+        ///
+        /// @return Success, or the reason the component could not be attached.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<void> add_component_erased_unlocked(Entity entity,
+                                                                              ComponentId component,
+                                                                              const void *data);
+
+        /// Removes one component without locking or checking for a running schedule.
+        ///
+        /// @param entity Entity to modify.
+        /// @param component Component to detach.
+        ///
+        /// @return Success, or the reason the component could not be detached.
+        /// @note Normal failures are returned through the type-specific error/status state.
+        [[nodiscard]] WorldErasedExpected<void> remove_component_erased_unlocked(Entity entity,
+                                                                                 ComponentId component);
+
         ComponentRegistry *registry_ = nullptr;
         std::vector<EntityRecord> entity_records_;
         std::vector<u32> free_indices_;
@@ -656,6 +917,68 @@ namespace SFT::Ecs {
             template <class... Ts>
             [[nodiscard]] static Query<Ts...> query(World &world) {
                 return world.query_impl<Ts...>();
+            }
+
+            /// Walks matching archetypes during scheduled execution.
+            ///
+            /// The schedule already holds the world lock for its whole run, so this deliberately
+            /// takes none — the public `for_each_erased` would deadlock here.
+            ///
+            /// @param world World to iterate.
+            /// @param component_ids Components an entity must all carry to be visited.
+            /// @param visit Invoked once per matching entity.
+            /// @param user_data Passed through to `visit`.
+            ///
+            /// @return How many entities were visited, or why iteration could not start.
+            /// @note Normal failures are returned through the type-specific error/status state.
+            /// Spawns an entity from a deferred command, mid-schedule.
+            ///
+            /// @param world World to modify.
+            /// @param component_ids Components to attach.
+            /// @param component_data Initial value for each component.
+            ///
+            /// @return The new entity, or why it could not be created.
+            /// @note Normal failures are returned through the type-specific error/status state.
+            [[nodiscard]] static WorldErasedExpected<Entity> spawn_erased_deferred(
+                World &world,
+                std::span<const ComponentId> component_ids,
+                std::span<const void *const> component_data) {
+                return world.spawn_erased_unlocked(component_ids, component_data);
+            }
+
+            /// Adds a component from a deferred command, mid-schedule.
+            ///
+            /// @param world World to modify.
+            /// @param entity Entity to modify.
+            /// @param component Component to attach.
+            /// @param data Initial value.
+            ///
+            /// @return Success, or why the component could not be attached.
+            /// @note Normal failures are returned through the type-specific error/status state.
+            [[nodiscard]] static WorldErasedExpected<void> add_component_erased_deferred(
+                World &world, Entity entity, ComponentId component, const void *data) {
+                return world.add_component_erased_unlocked(entity, component, data);
+            }
+
+            /// Removes a component from a deferred command, mid-schedule.
+            ///
+            /// @param world World to modify.
+            /// @param entity Entity to modify.
+            /// @param component Component to detach.
+            ///
+            /// @return Success, or why the component could not be detached.
+            /// @note Normal failures are returned through the type-specific error/status state.
+            [[nodiscard]] static WorldErasedExpected<void> remove_component_erased_deferred(
+                World &world, Entity entity, ComponentId component) {
+                return world.remove_component_erased_unlocked(entity, component);
+            }
+
+            [[nodiscard]] static WorldErasedExpected<usize> for_each_scheduled(
+                World &world,
+                std::span<const ComponentId> component_ids,
+                ErasedVisitFn visit,
+                void *user_data) {
+                return world.for_each_unlocked(component_ids, visit, user_data);
             }
 
             /// Returns the current or globally available resource value.

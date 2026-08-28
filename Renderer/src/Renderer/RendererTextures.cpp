@@ -38,6 +38,24 @@ namespace SFT::Renderer {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function does not throw exceptions.
+        /// Returns how many rows of packed data one mip level occupies.
+        ///
+        /// A block-compressed level stores one row per *block* row, covering four pixel rows, so
+        /// walking pixel rows would read four times the data that is actually there. Uncompressed
+        /// formats store one row per pixel row, where the two agree.
+        ///
+        /// @param format Texture format.
+        /// @param height Pixel height of the level.
+        ///
+        /// @return The number of stored rows.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] u32 texture_row_count(RHI::Format format, u32 height) noexcept {
+            if (height == 0) {
+                return 0;
+            }
+            return RHI::format_is_block_compressed(format) ? (height + 3u) / 4u : height;
+        }
+
         [[nodiscard]] u64 texture_data_bytes(RHI::Format format, u32 width, u32 height) noexcept {
             if (width == 0 || height == 0) {
                 return 0;
@@ -451,9 +469,19 @@ namespace SFT::Renderer {
         for (u32 level = 0; level < resource.mip_levels; ++level) {
             const u64 tight_row_bytes = texture_data_bytes(format, level_width, 1);
             const u64 row_pitch = d3d12_padded_rows ? align_up(tight_row_bytes, 256) : tight_row_bytes;
-            const u32 buffer_row_length = d3d12_padded_rows && tight_row_bytes != 0
-                                              ? static_cast<u32>(static_cast<u64>(level_width) * row_pitch / tight_row_bytes)
-                                              : 0;
+            // Expressed so the backend recovers exactly `row_pitch` from it: it computes
+            // ceil(row_length / block) * element_bytes, so row_length must be whole blocks.
+            //
+            // Scaling the width by row_pitch/tight_row_bytes looks equivalent and is not: once a
+            // level is four pixels wide or narrower, blocks-per-row is clamped to one by the ceil,
+            // the ratio stops tracking the width, and the smallest mips of a compressed texture
+            // produce an unaligned pitch that D3D12 rejects.
+            const u32 block_extent = RHI::format_is_block_compressed(format) ? 4u : 1u;
+            const u64 element_bytes = texture_data_bytes(format, block_extent, block_extent);
+            const u32 buffer_row_length =
+                d3d12_padded_rows && element_bytes != 0 && row_pitch % element_bytes == 0
+                    ? static_cast<u32>((row_pitch / element_bytes) * block_extent)
+                    : 0;
             const RHI::BufferTextureCopy copy{
                 .buffer_offset = level_offset,
                 .buffer_row_length = buffer_row_length,
@@ -465,8 +493,10 @@ namespace SFT::Renderer {
                 .texture_extent = RHI::Extent3D{.width = level_width, .height = level_height, .depth_or_layers = 1},
             };
             (*encoder)->copy_buffer_to_texture(staging, resource.texture, copy);
+            // Must match upload_texture_rgba's packing stride exactly, including the block-row
+            // count — the two walk the same buffer from opposite ends.
             level_offset += d3d12_padded_rows
-                                ? row_pitch * level_height
+                                ? row_pitch * texture_row_count(format, level_height)
                                 : texture_data_bytes(format, level_width, level_height);
             if (level + 1u < resource.mip_levels) {
                 level_offset = align_up(level_offset, d3d12_padded_rows ? 512 : copy_alignment);
@@ -545,9 +575,10 @@ namespace SFT::Renderer {
                 const u64 tight_row_bytes = texture_data_bytes(format, level_width, 1);
                 const u64 row_pitch = align_up(tight_row_bytes, 256);
                 destination_offset = align_up(destination_offset, 512);
-                const u64 required = destination_offset + row_pitch * level_height;
+                const u32 stored_rows = texture_row_count(format, level_height);
+                const u64 required = destination_offset + row_pitch * stored_rows;
                 padded_data.resize(static_cast<usize>(required));
-                for (u32 row = 0; row < level_height; ++row) {
+                for (u32 row = 0; row < stored_rows; ++row) {
                     std::memcpy(padded_data.data() + destination_offset + static_cast<u64>(row) * row_pitch,
                                 data.data() + source_offset + static_cast<u64>(row) * tight_row_bytes,
                                 static_cast<usize>(tight_row_bytes));
@@ -616,6 +647,28 @@ namespace SFT::Renderer {
             return handle;
         }
         default_white_texture_ = *handle;
+        return *handle;
+    }
+
+    /// Finds or creates the default flat-normal texture used for unbound normal-map slots.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    Core::RendererExpected<TextureHandle> Renderer::ensure_default_flat_normal_texture() {
+        ZoneScopedN("Renderer::ensure_default_flat_normal_texture");
+        if (TextureResource *existing = texture(default_flat_normal_texture_)) {
+            return existing->handle;
+        }
+        // (0.5, 0.5, 1) is the tangent-space encoding of "no perturbation": it unpacks to +Z, which
+        // is the interpolated vertex normal itself.
+        const array<std::byte, 4> flat{std::byte{0x80}, std::byte{0x80}, std::byte{0xFF}, std::byte{0xFF}};
+        auto handle = create_texture(1, 1, RHI::Format::RGBA8Unorm,
+                                     span<const std::byte>{flat.data(), flat.size()},
+                                     "renderer default flat normal");
+        if (!handle) {
+            return handle;
+        }
+        default_flat_normal_texture_ = *handle;
         return *handle;
     }
 

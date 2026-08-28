@@ -51,6 +51,9 @@ if(_sturdy_nm)
     endif()
 endif()
 
+# Dominates this script's runtime: it walks the probe's whole transitive DLL graph, which costs
+# several seconds even for a trivial binary (measured at ~8s for notepad.exe on a dev machine). The
+# tests that run this therefore need a timeout in the tens of seconds, not ten.
 file(GET_RUNTIME_DEPENDENCIES
     EXECUTABLES "${STURDY_STATIC_PROBE}"
     RESOLVED_DEPENDENCIES_VAR _runtime_dependencies

@@ -109,6 +109,16 @@ namespace SFT::RHI {
         VertexFormat format = VertexFormat::Float32x3;
         u32 offset = 0;
         u32 shader_location = 0;
+
+        /// D3D-style semantic name/index this attribute binds to, matching the shader source's
+        /// declared input semantic (e.g. `"NORMAL"`, 0). Vulkan ignores this and matches purely by
+        /// `shader_location`, since SPIR-V has no semantic-name concept — but D3D12's input layout
+        /// is matched by name against the compiled shader's input signature, and this engine's
+        /// shaders declare literal semantics (POSITION/NORMAL/TEXCOORD0/COLOR0/TANGENT) rather than
+        /// a uniform per-location convention, so the backend cannot derive a name from the location
+        /// alone. Left null on a backend that never reads it.
+        const char *semantic_name = "TEXCOORD";
+        u32 semantic_index = 0;
     };
 
                                                                                               

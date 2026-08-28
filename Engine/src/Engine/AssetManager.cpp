@@ -44,12 +44,66 @@ namespace SFT::Engine {
             return UString{fallback};
         }
 
+        /// Rewrites text that is not valid UTF-8 into text that is, preserving what it can.
+        ///
+        /// Bytes that cannot begin or continue a valid sequence become `?`. Used only on failure
+        /// paths, where a diagnostic from a backend or shader compiler may carry raw bytes from an
+        /// OS or driver string, and where dropping the message entirely would be worse than
+        /// showing it with a few characters replaced.
+        ///
+        /// @param message Possibly-invalid UTF-8.
+        ///
+        /// @return A valid UTF-8 rendering of `message`.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        [[nodiscard]] UString sanitize_to_utf8(std::string_view message) {
+            std::string sanitized;
+            sanitized.reserve(message.size());
+            for (usize index = 0; index < message.size();) {
+                // Longest valid sequence starting here wins; anything else is one replaced byte.
+                usize length = 0;
+                const auto lead = static_cast<unsigned char>(message[index]);
+                if (lead < 0x80u) {
+                    length = 1;
+                } else if ((lead & 0xE0u) == 0xC0u) {
+                    length = 2;
+                } else if ((lead & 0xF0u) == 0xE0u) {
+                    length = 3;
+                } else if ((lead & 0xF8u) == 0xF0u) {
+                    length = 4;
+                }
+
+                bool valid = length != 0 && index + length <= message.size();
+                for (usize offset = 1; valid && offset < length; ++offset) {
+                    valid = (static_cast<unsigned char>(message[index + offset]) & 0xC0u) == 0x80u;
+                }
+                if (valid && UString::try_from_utf8(message.substr(index, length))) {
+                    sanitized.append(message.substr(index, length));
+                    index += length;
+                } else {
+                    sanitized.push_back('?');
+                    ++index;
+                }
+            }
+
+            auto text = UString::try_from_utf8(sanitized);
+            return text ? std::move(*text) : UString{"(unprintable error message)"};
+        }
+
         [[nodiscard]] AssetError error(AssetErrorCode code,
                                        std::string message,
                                        std::filesystem::path source = {}) {
+            // try_from_utf8 rather than UString{message}: the validating constructor throws on
+            // invalid UTF-8, and this runs on the failure path, where a throw has nowhere to go —
+            // a backend message carrying a stray byte would terminate the process instead of
+            // reporting the failure it was describing. Backend and shader-compiler diagnostics are
+            // exactly the strings most likely to contain one.
+            //
+            // Sanitized rather than discarded when that happens: the message is the whole reason
+            // this error exists, so losing it to one bad byte would trade a crash for a mystery.
+            auto text = UString::try_from_utf8(message);
             return AssetError{
                 .code = code,
-                .message = UString{message},
+                .message = text ? std::move(*text) : sanitize_to_utf8(message),
                 .source = std::move(source),
             };
         }

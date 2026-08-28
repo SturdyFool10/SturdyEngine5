@@ -103,14 +103,19 @@ namespace SFT::Engine {
 
         auto context = UI::Context::create(UI::Context::Config{});
         if (!context) {
-            Foundation::log_error("Engine::UiContext: failed to create UI::Context.");
+            Foundation::log_error("Engine::UiContext: failed to create UI::Context: {}",
+                                  context.error().message);
             return false;
         }
         context_ = std::move(*context);
 
         auto renderer = UI::UiRenderer::create(device, color_format);
         if (!renderer) {
-            Foundation::log_error("Engine::UiContext: failed to create UI::UiRenderer.");
+            // Carry the backend's reason: without it this reports only that UI is unavailable, and
+            // the actual cause — a pipeline or format the device rejected — is discarded at the one
+            // point where it was still known.
+            Foundation::log_error("Engine::UiContext: failed to create UI::UiRenderer: {}",
+                                  renderer.error().message);
             context_.destroy();
             return false;
         }

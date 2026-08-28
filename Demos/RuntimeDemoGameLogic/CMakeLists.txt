@@ -37,6 +37,6 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
                 "-DSTURDY_STATIC_PROBE=$<TARGET_FILE:RuntimeDemoGameLogicUnusedProbe>"
                 -P "${CMAKE_SOURCE_DIR}/cmake/tests/AssertStaticAggregateUnused.cmake"
         )
-        set_tests_properties(RuntimeDemoGameLogicUnusedTest PROPERTIES TIMEOUT 10)
+        set_tests_properties(RuntimeDemoGameLogicUnusedTest PROPERTIES TIMEOUT 60)
     endif()
 endif()

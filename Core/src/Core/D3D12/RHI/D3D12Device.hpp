@@ -3,6 +3,7 @@
 
 #include <Core/D3D12/RHI/D3D12Common.hpp>
 #include <Core/D3D12/RHI/D3D12Descriptors.hpp>
+#include <Core/D3D12/RHI/D3D12NativeAccessExtension.hpp>
 #include <Core/D3D12/RHI/D3D12ResourcePool.hpp>
 
 #pragma region Imports
@@ -1074,6 +1075,10 @@ namespace SFT::D3D12 {
         rhi::FeatureProperties feature_properties_{};
         vector<rhi::QueueInfo> queue_infos_;
         vector<rhi::ExtensionId> enabled_extensions_;
+        // Engaged only when enabled_extensions_ carries D3D12NativeAccessExtension::id(), which is
+        // what makes extension_interface() publish it. Holds borrowed pointers into this device's
+        // own ComPtrs, so it must be constructed after those are live and never outlive them.
+        std::optional<D3D12NativeAccessExtension> native_access_extension_;
         bool enhanced_barriers_ = false;
         bool debug_layer_enabled_ = false;
         bool allow_tearing_ = false;

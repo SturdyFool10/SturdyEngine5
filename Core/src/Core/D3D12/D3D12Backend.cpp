@@ -1,12 +1,14 @@
 #include <Core/D3D12/D3D12Backend.hpp>
 
 #include <Core/D3D12/RHI/D3D12Adapter.hpp>
+#include <Core/D3D12/RHI/D3D12NativeAccessExtension.hpp>
 
 #pragma region Imports
 #include <expected>
 #include <format>
 #include <ranges>
 #include <utility>
+#include <vector>
 #pragma endregion
 
 #include <Core/GraphicsBackendError.hpp>
@@ -149,11 +151,18 @@ namespace SFT::Core::D3D12 {
         };
         close_bindless_dependencies(required_features);
         close_bindless_dependencies(optional_features);
+        // Requested as optional rather than required, matching how the Vulkan backend treats its own
+        // native-access extension: a consumer that asked for raw handles should still get a working
+        // device if some future adapter cannot publish them, and find that out by querying.
+        vector<RHI::ExtensionId> optional_extensions;
+        if (init.features.enable_native_access_extension) {
+            optional_extensions.push_back(::SFT::D3D12::D3D12NativeAccessExtension::id());
+        }
         const RHI::DeviceRequest device_request{
             .required_features = required_features,
             .optional_features = optional_features,
             .required_extensions = {},
-            .optional_extensions = {},
+            .optional_extensions = optional_extensions,
             .queue_requests = {},
             .label = "SturdyEngine D3D12 device",
         };

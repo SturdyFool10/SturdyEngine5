@@ -10,6 +10,7 @@
 #include <format>
 #include <optional>
 #include <ranges>
+#include <string>
 #include <string_view>
 #include <vector>
 #pragma endregion
@@ -142,6 +143,19 @@ namespace SFT::Core::Vulkan {
         /// @return Returns the current API version string value.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] UString api_version_string() const;
+
+
+        /// Returns a stable identifier for this physical device, suitable for persisting a user's
+        /// GPU choice and matching it again on a later run.
+        ///
+        /// Prefers the Windows LUID when the driver reports one, so the value agrees with the
+        /// D3D12 backend's `windows-luid:` spelling and a GPU chosen under one backend can be
+        /// matched under the other. Falls back to the Vulkan device UUID, which is always
+        /// available and is what makes this work on platforms that have no LUID at all.
+        ///
+        /// @return The identifier, or an empty string if the driver reports neither.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        [[nodiscard]] std::string stable_device_id() const;
 
 
         /// Returns the current or globally available timestamp period value.

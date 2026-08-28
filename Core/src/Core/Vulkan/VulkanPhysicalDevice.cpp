@@ -2,6 +2,10 @@
 
 #include <tracy/Tracy.hpp>
 
+#include <cstring>
+#include <iterator>
+#include <string>
+
 namespace SFT::Core::Vulkan {
 
 /// Performs the vulkan physical device operation for `Vulkan` using the supplied arguments.
@@ -155,6 +159,43 @@ void VulkanPhysicalDevice::query_features2(VkPhysicalDeviceFeatures2 &features) 
                                VK_API_VERSION_MAJOR(properties_.apiVersion),
                                VK_API_VERSION_MINOR(properties_.apiVersion),
                                VK_API_VERSION_PATCH(properties_.apiVersion));
+        }
+
+/// Returns a stable identifier for this physical device.
+///
+/// @return The identifier, or an empty string if the driver reports neither a LUID nor a UUID.
+/// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+[[nodiscard]] std::string VulkanPhysicalDevice::stable_device_id() const {
+            ZoneScopedN("VulkanPhysicalDevice::stable_device_id");
+            if (device_ == VK_NULL_HANDLE) {
+                return {};
+            }
+
+            VkPhysicalDeviceIDProperties ids{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+            VkPhysicalDeviceProperties2 properties{
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+                .pNext = &ids,
+            };
+            vkGetPhysicalDeviceProperties2(device_, &properties);
+
+            // LUID first so the value matches what the D3D12 backend reports for the same GPU: a
+            // user who picked an adapter under one backend should still match it under the other.
+            if (ids.deviceLUIDValid == VK_TRUE) {
+                u64 bits = 0;
+                static_assert(VK_LUID_SIZE == sizeof(bits));
+                std::memcpy(&bits, ids.deviceLUID, sizeof(bits));
+                return std::format("windows-luid:{:016x}", bits);
+            }
+
+            // The UUID is always populated and is the only stable identity available where LUIDs do
+            // not exist, which is every non-Windows target. Without this fallback, selecting a
+            // specific GPU by id silently matched nothing outside Windows.
+            std::string uuid = "vulkan-uuid:";
+            uuid.reserve(uuid.size() + (VK_UUID_SIZE * 2));
+            for (const u8 byte : ids.deviceUUID) {
+                std::format_to(std::back_inserter(uuid), "{:02x}", byte);
+            }
+            return uuid;
         }
 
 /// Returns the current or globally available timestamp period value.

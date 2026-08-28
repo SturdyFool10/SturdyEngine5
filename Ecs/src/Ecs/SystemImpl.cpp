@@ -140,6 +140,122 @@ namespace SFT::Ecs {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    /// Registers a system whose body is a plain function pointer.
+    ///
+    /// @param access Declared component and resource access.
+    /// @param component_ids Components an entity must all carry to be visited.
+    /// @param fn System body.
+    /// @param user_data Passed through to every callback.
+    /// @param prepare Optional per-dispatch setup.
+    /// @param finish Optional per-dispatch teardown.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void Schedule::add_erased_system(SystemAccess access,
+                                     std::vector<ComponentId> component_ids,
+                                     ErasedSystemFn fn,
+                                     void *user_data,
+                                     ErasedSystemPrepareFn prepare,
+                                     ErasedSystemFinishFn finish) {
+        ZoneScopedN("Schedule::add_erased_system");
+        if (fn == nullptr || component_ids.empty()) {
+            return;
+        }
+
+        SystemEntry entry;
+        entry.access = std::move(access);
+        entry.dispatch = [ids = std::move(component_ids), fn, user_data, prepare, finish](
+                             World &world,
+                             usize,
+                             usize,
+                             ExecutorPolicy,
+                             Detail::AsyncTaskList &,
+                             Detail::CommandBufferList &command_buffers) mutable {
+            ZoneScopedN("Schedule::erased_system_dispatch");
+
+            // A command buffer is allocated unconditionally rather than on demand: unlike a typed
+            // system, whose signature says whether it wants Commands, a function pointer gives no
+            // such hint, and the buffer costs nothing when nothing is queued into it.
+            command_buffers.emplace_back();
+            Detail::CommandBuffer &buffer = command_buffers.back();
+            Commands commands = buffer.view();
+
+            void *dispatch_context = prepare != nullptr ? prepare(&commands, user_data) : nullptr;
+
+            struct DispatchContext {
+                ErasedSystemFn fn;
+                void *dispatch_context;
+                void *user_data;
+            };
+            DispatchContext context{fn, dispatch_context, user_data};
+
+            // Runs inline on the scheduling thread. Splitting an erased system across workers would
+            // need the caller to promise its body is safe to run concurrently against itself, which
+            // the current declaration has no way to express.
+            (void)Detail::WorldAccess::for_each_scheduled(
+                world, ids,
+                [](Entity entity, void **components, void *context_pointer) noexcept {
+                    auto *dispatch = static_cast<DispatchContext *>(context_pointer);
+                    dispatch->fn(entity, components, dispatch->dispatch_context, dispatch->user_data);
+                },
+                &context);
+
+            // Run unconditionally, including when nothing matched, so whatever prepare acquired is
+            // always released.
+            if (finish != nullptr) {
+                finish(dispatch_context, user_data);
+            }
+        };
+        systems_.push_back(std::move(entry));
+        stages_dirty_ = true;
+    }
+
+    /// Registers a system that runs once per frame rather than once per entity.
+    ///
+    /// @param access Declared resource and event access.
+    /// @param fn Body to run once per dispatch.
+    /// @param user_data Passed through to every callback.
+    /// @param prepare Optional per-dispatch setup.
+    /// @param finish Optional per-dispatch teardown.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void Schedule::add_erased_global_system(SystemAccess access,
+                                            ErasedSystemFn fn,
+                                            void *user_data,
+                                            ErasedSystemPrepareFn prepare,
+                                            ErasedSystemFinishFn finish) {
+        ZoneScopedN("Schedule::add_erased_global_system");
+        if (fn == nullptr) {
+            return;
+        }
+
+        SystemEntry entry;
+        entry.access = std::move(access);
+        entry.dispatch = [fn, user_data, prepare, finish](World &,
+                                                          usize,
+                                                          usize,
+                                                          ExecutorPolicy,
+                                                          Detail::AsyncTaskList &,
+                                                          Detail::CommandBufferList &command_buffers) mutable {
+            ZoneScopedN("Schedule::erased_global_system_dispatch");
+
+            command_buffers.emplace_back();
+            Detail::CommandBuffer &buffer = command_buffers.back();
+            Commands commands = buffer.view();
+
+            void *dispatch_context = prepare != nullptr ? prepare(&commands, user_data) : nullptr;
+
+            // A default-constructed entity and a null component array: there is no entity to report
+            // and nothing to point at, and the body was registered knowing that.
+            fn(Entity{}, nullptr, dispatch_context, user_data);
+
+            if (finish != nullptr) {
+                finish(dispatch_context, user_data);
+            }
+        };
+        systems_.push_back(std::move(entry));
+        stages_dirty_ = true;
+    }
+
     void Schedule::run(World &world) {
         ZoneScopedN("Schedule::run");
 

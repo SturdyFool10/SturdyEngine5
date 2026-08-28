@@ -1,5 +1,6 @@
 #include <Core/D3D12/RHI/D3D12Adapter.hpp>
 #include <Core/D3D12/RHI/D3D12Device.hpp>
+#include <Core/D3D12/RHI/D3D12NativeAccessExtension.hpp>
 
 #pragma region Imports
 #include <directx/d3d12sdklayers.h>
@@ -543,7 +544,13 @@ namespace SFT::D3D12 {
     D3D12Adapter::D3D12Adapter(ComPtr<IDXGIFactory6> factory, ComPtr<IDXGIAdapter4> adapter, ComPtr<ID3D12Device> device, rhi::AdapterInfo info, DeviceCapabilities capabilities, bool debug_layer_enabled)
         : factory_(std::move(factory)), adapter_(std::move(adapter)), device_(std::move(device)),
           info_(std::move(info)), capabilities_(std::move(capabilities)),
-          debug_layer_enabled_(debug_layer_enabled) {}
+          debug_layer_enabled_(debug_layer_enabled) {
+        // Native access is always available on D3D12 — the raw objects exist whether or not anyone
+        // asks for them, so there is nothing to probe for. Advertising it here is what lets
+        // create_device() below accept it as a requested extension; it is still only *published*
+        // on a device that actually requested it.
+        supported_extensions_.push_back(D3D12NativeAccessExtension::id());
+    }
 
     /// Returns the current or globally available info value.
     ///
@@ -639,6 +646,19 @@ namespace SFT::D3D12 {
         info.allow_tearing = capabilities_.allow_tearing;
         info.pipeline_library_supported = capabilities_.pipeline_library_supported;
         info.gpu_upload_heap_supported = capabilities_.gpu_upload_heap_supported;
+
+        // Record which requested extensions this device actually gets. Required ones were already
+        // validated above; optional ones are kept only when supported, which is what makes an
+        // unsupported optional extension a silent no-op rather than a device-creation failure.
+        for (rhi::ExtensionId extension : request.required_extensions) {
+            info.enabled_extensions.push_back(extension);
+        }
+        for (rhi::ExtensionId extension : request.optional_extensions) {
+            if (rhi::contains_extension(supported_extensions_, extension) &&
+                !rhi::contains_extension(info.enabled_extensions, extension)) {
+                info.enabled_extensions.push_back(extension);
+            }
+        }
 
         auto device = std::make_unique<D3D12Device>(std::move(info));
         if (auto initialized = device->initialize(); !initialized) {

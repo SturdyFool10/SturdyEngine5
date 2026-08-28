@@ -234,6 +234,16 @@ namespace SFT::D3D12 {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] rhi::RhiExpected<rhi::CommandBufferHandle> finish() override;
 
+        /// Returns the borrowed command list this encoder records into.
+        ///
+        /// Exists for `D3D12NativeAccessExtension`, which republishes it to consumers that need to
+        /// record something the RHI has no abstraction for. Borrowed: the encoder owns the list's
+        /// lifetime, so callers must not release it or use it after the encoder is finished.
+        ///
+        /// @return Returns a pointer to the requested object/resource; ownership is not transferred.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] ID3D12GraphicsCommandList *native_command_list() const noexcept { return list_; }
+
       private:
         friend class D3D12RenderPassEncoder;
         friend class D3D12ComputePassEncoder;

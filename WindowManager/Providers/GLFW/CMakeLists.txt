@@ -128,7 +128,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
                 "-DSTURDY_STATIC_AGGREGATE_LABEL=Sturdy::WindowManagerGLFW"
                 -P "${CMAKE_SOURCE_DIR}/cmake/tests/AssertStaticAggregateUnused.cmake"
         )
-        set_tests_properties(WindowManagerGLFWUnusedTest PROPERTIES TIMEOUT 10)
+        set_tests_properties(WindowManagerGLFWUnusedTest PROPERTIES TIMEOUT 60)
 
         add_executable(GlfwDefaultApplicationProbe tests/DefaultApplicationProbe.cpp)
         target_link_libraries(

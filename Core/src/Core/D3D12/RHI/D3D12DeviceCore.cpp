@@ -227,6 +227,17 @@ namespace SFT::D3D12 {
             copy_queue_ = std::move(*queue);
         }
 
+        // Constructed here rather than in the constructor: it publishes borrowed pointers to the
+        // queues, which only exist once the block above has run.
+        if (rhi::contains_extension(enabled_extensions_, D3D12NativeAccessExtension::id())) {
+            native_access_extension_.emplace(
+                factory_.Get(), adapter_.Get(), device_.Get(), graphics_queue_.Get(), this,
+                [](void *context, rhi::QueueLane lane) noexcept -> ID3D12CommandQueue * {
+                    auto *device = static_cast<D3D12Device *>(context);
+                    return device != nullptr ? device->queue_for_lane(lane) : nullptr;
+                });
+        }
+
         for (auto *fence_holder : {&graphics_blocking_fence_, &compute_blocking_fence_, &copy_blocking_fence_}) {
             auto fence = fence_holder->lock();
             if (const HRESULT hr = device_->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence->fence));
@@ -323,10 +334,12 @@ namespace SFT::D3D12 {
 
     span<const rhi::ExtensionId> D3D12Device::enabled_extensions() const noexcept { return enabled_extensions_; }
 
-    rhi::RhiDeviceExtension *D3D12Device::extension_interface(rhi::ExtensionId) noexcept {
-        // No D3D12-specific extension interfaces are published yet. Returning nullptr is the documented
-        // safe-fail for an extension that is not enabled, and is correct for every id while the
-        // supported-extension list is empty.
+    rhi::RhiDeviceExtension *D3D12Device::extension_interface(rhi::ExtensionId extension) noexcept {
+        if (native_access_extension_.has_value() &&
+            rhi::extension_matches(D3D12NativeAccessExtension::id(), extension)) {
+            return &*native_access_extension_;
+        }
+        // Returning nullptr is the documented safe-fail for an extension that is not enabled.
         return nullptr;
     }
 

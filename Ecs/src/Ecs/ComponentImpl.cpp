@@ -139,6 +139,20 @@ namespace SFT::Ecs {
         return id < infos_.size() ? &infos_[id] : nullptr;
     }
 
+    /// Marks an already-registered component as a data-less tag.
+    ///
+    /// @param id Component to mark. Unknown ids are ignored.
+    ///
+    /// @note This function does not throw exceptions.
+    void ComponentRegistry::mark_component_as_tag(ComponentId id) noexcept {
+        ZoneScopedN("ComponentRegistry::mark_component_as_tag");
+        std::unique_lock lock{mutex_};
+        if (id >= infos_.size()) {
+            return;
+        }
+        infos_[id].flags = infos_[id].flags | ComponentFlags::Tag;
+    }
+
     /// Returns the size for this `Ecs`.
     ///
     /// @return Returns the current size value.

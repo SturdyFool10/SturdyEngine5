@@ -358,6 +358,18 @@ namespace SFT::Ecs {
         /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
         /// @note This function does not throw exceptions.
         [[nodiscard]] const ComponentInfo *info(ComponentId id) const noexcept;
+
+        /// Marks an already-registered component as a data-less tag.
+        ///
+        /// Exists for callers that register components at runtime rather than from a C++ type, where
+        /// `ComponentFlags::Tag` cannot be deduced. Adding the flag afterwards is safe because it
+        /// carries no layout meaning — it records intent for introspection, and nothing about
+        /// storage or copying depends on it.
+        ///
+        /// @param id Component to mark. Unknown ids are ignored.
+        ///
+        /// @note This function does not throw exceptions.
+        void mark_component_as_tag(ComponentId id) noexcept;
         /// Returns the size for this `ComponentRegistry`.
         ///
         /// @return Returns the current size value.

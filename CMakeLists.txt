@@ -189,6 +189,9 @@ add_subdirectory(Runtime)
 # graphical/game application — see EngineKit/CMakeLists.txt. Always available for the same reason
 # Runtime itself is: it is reusable infrastructure, not demo content.
 add_subdirectory(EngineKit)
+# Stable C ABI for non-C++ consumers. A leaf on top of Runtime, like EngineKit: reusable
+# infrastructure rather than demo content, so it is always available.
+add_subdirectory(FFI)
 if(STURDY_BUILD_RUNTIME_DEMO)
     add_subdirectory(Demos)
 endif()

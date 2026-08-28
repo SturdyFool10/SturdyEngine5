@@ -1810,7 +1810,20 @@ namespace SFT::Core::Slang {
                                     range.category == ShaderParameterCategory::ConstantBuffer);
                         });
                     }
-                    dxil_reflection->global_parameters.push_back(parameter);
+                    // Re-tag as PushConstantBuffer using the SPIR-V-side parameter (so both targets
+                    // agree it's a push constant), but keep DXIL's own binding/space: DXIL has no
+                    // push-constant concept, so Slang lowers this to an ordinary cbuffer at whatever
+                    // register its whole-program layout assigned, which is almost never the same
+                    // register the Vulkan side reports (Vulkan push constants aren't descriptor-bound
+                    // at all, so that value is meaningless here). Losing the real DXIL register left
+                    // the D3D12 backend with nothing but a hardcoded guess, which broke the moment a
+                    // shader had a constant buffer other than the push-constant one — the observed
+                    // failure was "Shader CBV descriptor range b1 is not fully bound in root
+                    // signature" for a shader whose push constants Slang had placed at b1, not b0.
+                    ShaderParameterReflection dxil_parameter = parameter;
+                    dxil_parameter.binding = dxil_binding;
+                    dxil_parameter.binding_space = dxil_space;
+                    dxil_reflection->global_parameters.push_back(dxil_parameter);
                 }
                 reflection = std::move(dxil_reflection);
             }
