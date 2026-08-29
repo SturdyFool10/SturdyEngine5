@@ -385,9 +385,259 @@ static void import_gltf_scene(SturdyEngine engine, const char *path, const char 
     printf("  use after release -> %d (expect 3)\n", (int)result);
 }
 
+/* Exercises the RHI resource surface end to end: clears a texture to a known color entirely on
+   the GPU, copies it into a host-readback buffer, and checks the bytes that come back — proving
+   texture/buffer creation, command encoding, barriers, submission and mapping all actually work
+   rather than merely compiling. Also round-trips a bind-group-layout/bind-group/pipeline-layout
+   creation, since exercising an actual pipeline would need real shader bytecode this probe has no
+   compiler to produce. */
+static void probe_rhi_resources(SturdyEngine engine) {
+    SturdyResult result;
+    SturdyTextureDesc texture_desc;
+    SturdyTexture texture;
+    SturdyBufferDesc buffer_desc;
+    SturdyBuffer readback;
+    SturdyBuffer uniform_buffer;
+    SturdyCommandEncoderDesc encoder_desc;
+    SturdyCommandEncoder encoder;
+    SturdyCommandBuffer command_buffer;
+    SturdyTextureSubresourceRange full_range;
+    SturdyTextureBarrier tex_barrier;
+    SturdyBufferTextureCopy copy_region;
+    SturdyGlobalBarrier host_barrier;
+    SturdyBindGroupLayoutEntry layout_entry;
+    SturdyBindGroupLayoutDesc layout_desc;
+    SturdyBindGroupLayout bind_group_layout;
+    SturdyBindGroupEntry group_entry;
+    SturdyBindGroupDesc group_desc;
+    SturdyBindGroup bind_group;
+    SturdyPipelineLayoutDesc pipeline_layout_desc;
+    SturdyPipelineLayout pipeline_layout;
+    float clear_color[4];
+    void *mapped = NULL;
+    size_t mapped_size = 0;
+    unsigned char *bytes;
+    /* Row pitch (width * 4 bytes/texel) must be a multiple of D3D12's 256-byte
+       D3D12_TEXTURE_DATA_PITCH_ALIGNMENT for a buffer<->texture copy; Vulkan has no such
+       requirement. 64 wide keeps this probe portable across both backends. */
+    const unsigned int width = 64;
+    const unsigned int height = 1;
+
+    printf("--- rhi resources ---\n");
+
+    (void)sturdy_rhi_texture_desc_init(&texture_desc);
+    texture_desc.format = STURDY_FORMAT_RGBA8_UNORM;
+    texture_desc.width = width;
+    texture_desc.height = height;
+    /* ColorAttachment is required for sturdy_rhi_command_encoder_clear_color_texture below: D3D12
+       clears through a render-target view, so it needs an RTV-capable texture even though Vulkan
+       has no such requirement for vkCmdClearColorImage. */
+    texture_desc.usage = STURDY_TEXTURE_USAGE_TRANSFER_SRC | STURDY_TEXTURE_USAGE_TRANSFER_DST |
+                         STURDY_TEXTURE_USAGE_COLOR_ATTACHMENT;
+    texture_desc.label = "ffi probe texture";
+    texture.id = 0;
+    result = sturdy_rhi_create_texture(engine, &texture_desc, &texture);
+    printf("create_texture          -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+        return;
+    }
+
+    (void)sturdy_rhi_buffer_desc_init(&buffer_desc);
+    buffer_desc.size = (uint64_t)(width * height * 4);
+    buffer_desc.usage = STURDY_BUFFER_USAGE_TRANSFER_DST;
+    buffer_desc.memory = STURDY_MEMORY_LOCATION_HOST_READBACK;
+    buffer_desc.label = "ffi probe readback";
+    readback.id = 0;
+    result = sturdy_rhi_create_buffer(engine, &buffer_desc, &readback);
+    printf("create_buffer(readback) -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+        sturdy_rhi_destroy_texture(engine, texture);
+        return;
+    }
+
+    (void)sturdy_rhi_buffer_desc_init(&buffer_desc);
+    buffer_desc.size = 256;
+    buffer_desc.usage = STURDY_BUFFER_USAGE_UNIFORM;
+    buffer_desc.memory = STURDY_MEMORY_LOCATION_DEVICE_LOCAL;
+    buffer_desc.label = "ffi probe uniform";
+    uniform_buffer.id = 0;
+    result = sturdy_rhi_create_buffer(engine, &buffer_desc, &uniform_buffer);
+    printf("create_buffer(uniform)  -> %d\n", (int)result);
+
+    (void)sturdy_rhi_command_encoder_desc_init(&encoder_desc);
+    encoder_desc.label = "ffi probe encoder";
+    encoder.token = 0;
+    result = sturdy_rhi_create_command_encoder(engine, &encoder_desc, &encoder);
+    printf("create_command_encoder  -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+        sturdy_rhi_destroy_buffer(engine, uniform_buffer);
+        sturdy_rhi_destroy_buffer(engine, readback);
+        sturdy_rhi_destroy_texture(engine, texture);
+        return;
+    }
+
+    full_range.base_mip_level = 0;
+    full_range.mip_level_count = STURDY_ALL_REMAINING;
+    full_range.base_array_layer = 0;
+    full_range.array_layer_count = STURDY_ALL_REMAINING;
+
+    memset(&tex_barrier, 0, sizeof(tex_barrier));
+    tex_barrier.texture = texture;
+    tex_barrier.dst_stage = STURDY_PIPELINE_STAGE_TRANSFER;
+    tex_barrier.dst_access = STURDY_ACCESS_TRANSFER_WRITE;
+    tex_barrier.old_layout = STURDY_TEXTURE_LAYOUT_UNDEFINED;
+    tex_barrier.new_layout = STURDY_TEXTURE_LAYOUT_TRANSFER_DST;
+    tex_barrier.range = full_range;
+    result = sturdy_rhi_command_encoder_barrier(encoder, 0, NULL, 0, NULL, 1, &tex_barrier);
+    printf("barrier(undef->dst)     -> %d\n", (int)result);
+
+    clear_color[0] = 1.0f;
+    clear_color[1] = 0.0f;
+    clear_color[2] = 0.0f;
+    clear_color[3] = 1.0f;
+    result = sturdy_rhi_command_encoder_clear_color_texture(encoder, texture, clear_color, &full_range);
+    printf("clear_color_texture     -> %d\n", (int)result);
+
+    memset(&tex_barrier, 0, sizeof(tex_barrier));
+    tex_barrier.texture = texture;
+    tex_barrier.src_stage = STURDY_PIPELINE_STAGE_TRANSFER;
+    tex_barrier.src_access = STURDY_ACCESS_TRANSFER_WRITE;
+    tex_barrier.dst_stage = STURDY_PIPELINE_STAGE_TRANSFER;
+    tex_barrier.dst_access = STURDY_ACCESS_TRANSFER_READ;
+    tex_barrier.old_layout = STURDY_TEXTURE_LAYOUT_TRANSFER_DST;
+    tex_barrier.new_layout = STURDY_TEXTURE_LAYOUT_TRANSFER_SRC;
+    tex_barrier.range = full_range;
+    result = sturdy_rhi_command_encoder_barrier(encoder, 0, NULL, 0, NULL, 1, &tex_barrier);
+    printf("barrier(dst->src)       -> %d\n", (int)result);
+
+    memset(&copy_region, 0, sizeof(copy_region));
+    copy_region.array_layer_count = 1;
+    copy_region.extent_width = width;
+    copy_region.extent_height = height;
+    copy_region.extent_depth_or_layers = 1;
+    result = sturdy_rhi_command_encoder_copy_texture_to_buffer(encoder, texture, readback, &copy_region);
+    printf("copy_texture_to_buffer  -> %d\n", (int)result);
+
+    memset(&host_barrier, 0, sizeof(host_barrier));
+    host_barrier.src_stage = STURDY_PIPELINE_STAGE_TRANSFER;
+    host_barrier.src_access = STURDY_ACCESS_TRANSFER_WRITE;
+    host_barrier.dst_stage = STURDY_PIPELINE_STAGE_HOST;
+    host_barrier.dst_access = STURDY_ACCESS_HOST_READ;
+    result = sturdy_rhi_command_encoder_barrier(encoder, 1, &host_barrier, 0, NULL, 0, NULL);
+    printf("barrier(transfer->host) -> %d\n", (int)result);
+
+    command_buffer.id = 0;
+    result = sturdy_rhi_command_encoder_finish(encoder, &command_buffer);
+    printf("command_encoder_finish  -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+        sturdy_rhi_destroy_buffer(engine, uniform_buffer);
+        sturdy_rhi_destroy_buffer(engine, readback);
+        sturdy_rhi_destroy_texture(engine, texture);
+        return;
+    }
+
+    {
+        /* One-shot GPU work waits on a fence scoped to its own submission, not
+           sturdy_rhi_wait_idle: that call is a device-wide barrier, unsafe to interleave with any
+           other GPU work the engine itself may have in flight (its own init-time uploads, for
+           instance) — exactly the mismatch that produced a real device-lost failure here before
+           this fence path was added. */
+        SturdyFenceDesc fence_desc;
+        SturdyFence fence;
+        SturdyBool signaled = STURDY_FALSE;
+
+        memset(&fence_desc, 0, sizeof(fence_desc));
+        fence_desc.struct_size = (uint32_t)sizeof(fence_desc);
+        fence_desc.label = "ffi probe fence";
+        fence.id = 0;
+        result = sturdy_rhi_create_fence(engine, &fence_desc, &fence);
+        printf("create_fence            -> %d\n", (int)result);
+
+        result = sturdy_rhi_submit(engine, STURDY_QUEUE_CLASS_GRAPHICS, 0, 1, &command_buffer, 0, NULL, 0, NULL,
+                                   fence, STURDY_TRUE);
+        printf("submit                  -> %d\n", (int)result);
+
+        result = sturdy_rhi_wait_fences(engine, 1, &fence, STURDY_TRUE, STURDY_WAIT_FOREVER, &signaled);
+        printf("wait_fences             -> %d (signaled=%d)\n", (int)result, (int)signaled);
+
+        result = sturdy_rhi_destroy_fence(engine, fence);
+        printf("destroy_fence           -> %d\n", (int)result);
+    }
+    result = sturdy_rhi_destroy_command_buffer(engine, command_buffer);
+    printf("destroy_command_buffer  -> %d\n", (int)result);
+
+    result = sturdy_rhi_map_buffer(engine, readback, &mapped, &mapped_size);
+    printf("map_buffer              -> %d (size=%zu)\n", (int)result, mapped_size);
+    if (result == STURDY_OK && mapped != NULL) {
+        bytes = (unsigned char *)mapped;
+        printf("  pixel[0] = (%u,%u,%u,%u) (expect 255,0,0,255)\n",
+               bytes[0], bytes[1], bytes[2], bytes[3]);
+        sturdy_rhi_unmap_buffer(engine, readback);
+    }
+
+    /* Bind-group-layout / bind-group / pipeline-layout creation, without a pipeline that would
+       need real shader bytecode this probe cannot compile. */
+    memset(&layout_entry, 0, sizeof(layout_entry));
+    layout_entry.binding = 0;
+    layout_entry.shader_register = 0xffffffffu;
+    layout_entry.type = STURDY_BINDING_TYPE_UNIFORM_BUFFER;
+    layout_entry.visibility = STURDY_SHADER_STAGE_VERTEX | STURDY_SHADER_STAGE_FRAGMENT;
+    layout_entry.count = 1;
+    memset(&layout_desc, 0, sizeof(layout_desc));
+    layout_desc.struct_size = (uint32_t)sizeof(layout_desc);
+    layout_desc.entry_count = 1;
+    layout_desc.entries = &layout_entry;
+    layout_desc.label = "ffi probe bind group layout";
+    bind_group_layout.id = 0;
+    result = sturdy_rhi_create_bind_group_layout(engine, &layout_desc, &bind_group_layout);
+    printf("create_bind_group_layout-> %d\n", (int)result);
+
+    if (result == STURDY_OK) {
+        memset(&group_entry, 0, sizeof(group_entry));
+        group_entry.binding = 0;
+        group_entry.buffer = uniform_buffer;
+        group_entry.size = 256;
+        memset(&group_desc, 0, sizeof(group_desc));
+        group_desc.struct_size = (uint32_t)sizeof(group_desc);
+        group_desc.layout = bind_group_layout;
+        group_desc.entry_count = 1;
+        group_desc.entries = &group_entry;
+        group_desc.label = "ffi probe bind group";
+        bind_group.id = 0;
+        result = sturdy_rhi_create_bind_group(engine, &group_desc, &bind_group);
+        printf("create_bind_group       -> %d\n", (int)result);
+        if (result == STURDY_OK) {
+            sturdy_rhi_destroy_bind_group(engine, bind_group);
+        }
+
+        memset(&pipeline_layout_desc, 0, sizeof(pipeline_layout_desc));
+        pipeline_layout_desc.struct_size = (uint32_t)sizeof(pipeline_layout_desc);
+        pipeline_layout_desc.bind_group_layout_count = 1;
+        pipeline_layout_desc.bind_group_layouts = &bind_group_layout;
+        pipeline_layout_desc.label = "ffi probe pipeline layout";
+        pipeline_layout.id = 0;
+        result = sturdy_rhi_create_pipeline_layout(engine, &pipeline_layout_desc, &pipeline_layout);
+        printf("create_pipeline_layout  -> %d\n", (int)result);
+        if (result == STURDY_OK) {
+            sturdy_rhi_destroy_pipeline_layout(engine, pipeline_layout);
+        }
+
+        sturdy_rhi_destroy_bind_group_layout(engine, bind_group_layout);
+    }
+
+    sturdy_rhi_destroy_buffer(engine, uniform_buffer);
+    sturdy_rhi_destroy_buffer(engine, readback);
+    sturdy_rhi_destroy_texture(engine, texture);
+}
+
 static SturdyBool on_init(SturdyEngine engine, void *user_data) {
     (void)user_data;
     report_startup(engine);
+    probe_rhi_resources(engine);
     build_scene(engine);
     if (g_scene_ok) {
         import_gltf_scene(engine, ".cache/deps/cgltf-src/fuzz/data/Box.glb", "Box.glb");
@@ -401,6 +651,91 @@ static SturdyBool on_init(SturdyEngine engine, void *user_data) {
 }
 
 static int g_ui_reported = 0;
+
+/* Exercises the fine-grained render-graph settings setters once: init each struct to engine
+   defaults, tweak a field, apply it, and report the result. */
+static void apply_frame_settings(SturdyEngine engine, SturdyFrame frame) {
+    SturdyResult result;
+    SturdySceneSettings scene;
+    SturdyShadowSettings shadows;
+    SturdyAmbientOcclusionSettings ao;
+    SturdyAntiAliasingSettings aa;
+    SturdyBloomSettings bloom;
+    SturdyToneMappingSettings tone_mapping;
+    SturdyRestirGiSettings restir_gi;
+    SturdyMotionBlurSettings motion_blur;
+    SturdyFrame wrong_kind;
+
+    printf("--- render graph settings ---\n");
+
+    (void)sturdy_scene_settings_init(&scene);
+    result = sturdy_frame_set_scene_settings(frame, &scene);
+    printf("set_scene_settings       -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+
+    (void)sturdy_shadow_settings_init(&shadows);
+    shadows.cascade_count = 3;
+    shadows.max_distance = 120.0f;
+    result = sturdy_frame_set_shadow_settings(frame, &shadows);
+    printf("set_shadow_settings      -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+
+    (void)sturdy_ambient_occlusion_settings_init(&ao);
+    ao.quality = STURDY_AMBIENT_OCCLUSION_QUALITY_MEDIUM;
+    result = sturdy_frame_set_ambient_occlusion_settings(frame, &ao);
+    printf("set_ao_settings          -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+
+    /* An engine handle's token, presented where a frame handle is expected: the wrong HandleKind
+       must be rejected rather than silently reinterpreted. */
+    wrong_kind.token = engine.token;
+    result = sturdy_frame_set_ambient_occlusion_settings(wrong_kind, &ao);
+    printf("set_ao_settings(wrong handle kind) -> %d (expect 2 = invalid handle)\n", (int)result);
+
+    (void)sturdy_anti_aliasing_settings_init(&aa);
+    aa.msaa_samples = 4;
+    result = sturdy_frame_set_anti_aliasing_settings(frame, &aa);
+    printf("set_anti_aliasing_settings -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+
+    (void)sturdy_bloom_settings_init(&bloom);
+    bloom.intensity = 0.08f;
+    result = sturdy_frame_set_bloom_settings(frame, &bloom);
+    printf("set_bloom_settings       -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+
+    (void)sturdy_tone_mapping_settings_init(&tone_mapping);
+    tone_mapping.exposure = 1.1f;
+    result = sturdy_frame_set_tone_mapping_settings(frame, &tone_mapping);
+    printf("set_tone_mapping_settings -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+
+    (void)sturdy_restir_gi_settings_init(&restir_gi);
+    result = sturdy_frame_set_restir_gi_settings(frame, &restir_gi);
+    printf("set_restir_gi_settings   -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+
+    (void)sturdy_motion_blur_settings_init(&motion_blur);
+    result = sturdy_frame_set_motion_blur_settings(frame, &motion_blur);
+    printf("set_motion_blur_settings -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+}
 
 /* Builds a small panel each frame, proving the C caller can drive the immediate-mode UI. */
 static void draw_ui(SturdyEngine engine, const SturdyFrameInput *input, SturdyFrame frame) {
@@ -542,6 +877,10 @@ static SturdyBool on_frame(SturdyEngine engine,
                 printf("  %s\n", sturdy_last_error_message());
             }
             fflush(stdout);
+            if (camera == STURDY_OK) {
+                apply_frame_settings(engine, frame);
+                fflush(stdout);
+            }
         }
         if (camera == STURDY_OK) {
             draw_ui(engine, input, frame);
@@ -567,15 +906,35 @@ static void on_shutdown(SturdyEngine engine, void *user_data) {
     fflush(stdout);
 }
 
+/* Counts by level, to prove the log sink actually receives the engine's own messages (not just
+   ones this probe prints itself) without spamming stdout with a full duplicate transcript. */
+static uint32_t g_log_counts[6];
+
+static void on_engine_log(SturdyLogLevel level, const char *message, size_t message_length, void *user_data) {
+    (void)message;
+    (void)user_data;
+    if (message_length == 0) {
+        return;
+    }
+    if ((int)level >= 0 && (int)level < 6) {
+        g_log_counts[level]++;
+    }
+}
+
 int main(int argc, char **argv) {
     SturdyRuntimeConfig config;
     SturdyGameLogic logic;
     int32_t exit_code = 0;
     SturdyResult result;
+    SturdyLogSink log_sink;
 
     /* Unbuffered: this probe can hang inside a GPU call, and buffered output would be lost when it
        is killed, hiding exactly the line that would say where. */
     (void)setvbuf(stdout, NULL, _IONBF, 0);
+
+    log_sink.id = 0;
+    result = sturdy_log_add_sink(on_engine_log, NULL, &log_sink);
+    printf("log_add_sink -> %d\n", (int)result);
 
     if (sturdy_runtime_config_init(&config) != STURDY_OK) {
         return 1;
@@ -617,5 +976,13 @@ int main(int argc, char **argv) {
 
     result = sturdy_runtime_run(&config, &logic, 0, NULL, &exit_code);
     printf("runtime_run -> %d (exit=%d) msg='%s'\n", (int)result, (int)exit_code, sturdy_last_error_message());
+
+    printf("log sink message counts: trace=%u debug=%u info=%u warn=%u error=%u critical=%u\n", g_log_counts[0],
+           g_log_counts[1], g_log_counts[2], g_log_counts[3], g_log_counts[4], g_log_counts[5]);
+    result = sturdy_log_remove_sink(log_sink);
+    printf("log_remove_sink -> %d\n", (int)result);
+    /* Removing twice must not double-free or crash. */
+    result = sturdy_log_remove_sink(log_sink);
+    printf("log_remove_sink(again) -> %d\n", (int)result);
     return 0;
 }

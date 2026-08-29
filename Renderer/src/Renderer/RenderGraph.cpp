@@ -1227,7 +1227,8 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                             auto finished = encoder.finish();
                             if (!finished) {
                                 group.status = Core::graphics_backend_error(
-                                    Core::GraphicsBackendErrorCode::OperationFailed, "execute_parallel: failed to finish command encoder.");
+                                    Core::GraphicsBackendErrorCode::OperationFailed,
+                                    "execute_parallel: failed to finish command encoder: " + finished.error().message);
                                 return;
                             }
                             group.command_buffer = *finished;

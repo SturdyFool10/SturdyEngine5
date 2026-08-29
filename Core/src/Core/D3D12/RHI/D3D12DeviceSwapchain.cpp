@@ -304,14 +304,45 @@ namespace SFT::D3D12 {
             resolved.buffer_count = std::clamp(desc.image_count, static_cast<u32>(minimum_flip_buffer_count), static_cast<u32>(DXGI_MAX_SWAP_CHAIN_BUFFERS));
         }
 
+        const rhi::CompositeAlphaMode requested_effective_alpha =
+            wants_exclusive_fullscreen
+                ? rhi::CompositeAlphaMode::Opaque
+                : (wants_transparency
+                       ? (desc.composite_alpha == rhi::CompositeAlphaMode::Inherit
+                              ? rhi::CompositeAlphaMode::Premultiplied
+                              : desc.composite_alpha)
+                       : rhi::CompositeAlphaMode::Opaque);
 
         if (desc.old_swapchain.is_valid()) {
-            const SwapchainRecord *old_record = swapchains_.find(desc.old_swapchain);
+            SwapchainRecord *old_record = swapchains_.find(desc.old_swapchain);
             if (old_record == nullptr) {
                 return invalid_argument("create_swapchain: old_swapchain is not a live swapchain handle.");
             }
             if (old_record->surface != desc.surface) {
                 return invalid_argument("create_swapchain: old_swapchain belongs to a different surface.");
+            }
+
+            // A same-surface, same-presentation-mode resize (by far the common case — a live window
+            // drag) reuses the existing DirectComposition device/target/visual and just calls
+            // `ResizeBuffers` on the existing DXGI swapchain, instead of unbinding the visual
+            // (`SetRoot(nullptr)`) and rebuilding the whole composition/DXGI stack from scratch. The
+            // full rebuild briefly detaches this window's content from the compositor on every resize
+            // tick, which is what produced the reported resize flicker; Vulkan's composition presenter
+            // (`VulkanRhiBridgeComposition.cpp`'s `resize_composition_swapchain_resources`) never tears
+            // down its visual for a resize either, for the same reason.
+            //
+            // The caller (`Renderer::recreate_rhi_swapchain`) treats `old_swapchain` and the returned
+            // handle as two separate objects: once the new one is live it unconditionally retires (and,
+            // for a composition-to-composition transition, immediately destroys) whatever handle it
+            // passed in as `old_swapchain`. Reusing the DXGI swapchain/composition visual in place but
+            // still handing back the *same* handle would make that immediate-destroy path tear down the
+            // very object this call just resized. So the record is extracted out from under
+            // `desc.old_swapchain` first (leaving that handle dead, which is what the caller expects)
+            // and the resized record is reinserted under a fresh handle instead.
+            if (!wants_exclusive_fullscreen && !old_record->full_screen_exclusive_active &&
+                old_record->is_composition_present() && old_record->swapchain != nullptr &&
+                old_record->presentation_resolution.effective_composite_alpha == requested_effective_alpha) {
+                return resize_composition_swapchain(desc.old_swapchain, desc, back_buffer_format);
             }
             destroy_swapchain(desc.old_swapchain);
         }
@@ -368,14 +399,7 @@ namespace SFT::D3D12 {
         // discipline: a swapchain generation is either fully composition-owned or fully
         // HWND/SetFullscreenState-owned, never transitioning between the two mid-lifetime, so the
         // same ghosting failure mode cannot recur for the exclusive-fullscreen path either.
-        const rhi::CompositeAlphaMode effective_alpha =
-            wants_exclusive_fullscreen
-                ? rhi::CompositeAlphaMode::Opaque
-                : (wants_transparency
-                       ? (desc.composite_alpha == rhi::CompositeAlphaMode::Inherit
-                              ? rhi::CompositeAlphaMode::Premultiplied
-                              : desc.composite_alpha)
-                       : rhi::CompositeAlphaMode::Opaque);
+        const rhi::CompositeAlphaMode effective_alpha = requested_effective_alpha;
         swapchain_desc.AlphaMode = to_dxgi_alpha_mode(effective_alpha);
         swapchain_desc.Scaling = DXGI_SCALING_STRETCH;
 
@@ -447,6 +471,7 @@ namespace SFT::D3D12 {
         record.image_count = resolved.buffer_count;
         record.sync_interval = resolved.sync_interval;
         record.present_flags = resolved.wants_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0u;
+        record.swap_chain_flags = swapchain_desc.Flags;
 
 
         const u32 frames_in_flight_count =
@@ -527,6 +552,107 @@ namespace SFT::D3D12 {
             return operation_failed("create_swapchain: DXGI did not provide the requested frame-latency waitable object.");
         }
         set_debug_name(record.swapchain.Get(), desc.label);
+        Foundation::log_info(
+            "D3D12 swapchain created: {} presenting {}x{}, {} buffer(s), {}.",
+            record.is_composition_present() ? "composition" : "hwnd", desc.width, desc.height, record.image_count,
+            full_screen_exclusive_active ? "full-screen exclusive" : "windowed");
+        return swapchains_.insert(std::move(record));
+    }
+
+    /// Resizes an existing composition-presented swapchain in place, keeping its DirectComposition
+    /// device/target/visual alive instead of tearing them down and rebuilding them (see the doc
+    /// comment at the `create_swapchain` call site that routes into this function).
+    ///
+    /// @param handle Handle of the existing swapchain being resized. This handle is consumed: the
+    ///                caller must treat it as destroyed and use the returned handle instead, mirroring
+    ///                the ordinary `create_swapchain(old_swapchain=...)` contract.
+    /// @param desc Description of the resource or operation to perform.
+    /// @param back_buffer_format Format used for the resource, render target, or conversion.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    rhi::RhiExpected<rhi::SwapchainHandle> D3D12Device::resize_composition_swapchain(
+        rhi::SwapchainHandle handle, const rhi::SwapchainDesc &desc, DXGI_FORMAT back_buffer_format) {
+        ZoneScopedN("D3D12Device::resize_composition_swapchain");
+
+        // The caller retires whatever handle it passed as `old_swapchain` once the new one is live,
+        // immediately destroying it for a composition-to-composition transition (see the call-site doc
+        // comment in `create_swapchain`). Extracting the record here — rather than mutating it through
+        // the live slot — leaves `handle` dead for that later retirement to no-op against, while this
+        // resize keeps the extracted DirectComposition device/target/visual and DXGI swapchain alive
+        // and reuses them under a freshly issued handle.
+        auto extracted = swapchains_.extract(handle);
+        if (!extracted) {
+            return invalid_argument("resize_composition_swapchain: old_swapchain is not a live swapchain handle.");
+        }
+        SwapchainRecord record = std::move(*extracted);
+
+        ResolvedPresent resolved = resolve_present(desc.present_strategy, allow_tearing_);
+        if (desc.image_count != 0) {
+            resolved.buffer_count = std::clamp(desc.image_count, static_cast<u32>(minimum_flip_buffer_count),
+                                               static_cast<u32>(DXGI_MAX_SWAP_CHAIN_BUFFERS));
+        }
+
+        // `ResizeBuffers` requires every outstanding reference to the current back buffers to be
+        // released first, and DXGI does not track in-flight GPU usage of those buffers for us — wait
+        // for the GPU to finish with them before releasing, exactly as the full-recreate path already
+        // did before destroying its old swapchain.
+        wait_idle();
+        destroy_swapchain_textures(record);
+
+        if (const HRESULT hr = record.swapchain->ResizeBuffers(resolved.buffer_count, desc.width, desc.height,
+                                                                back_buffer_format, record.swap_chain_flags);
+            FAILED(hr)) {
+            return hresult_error(hr, "resize_composition_swapchain (ResizeBuffers)");
+        }
+
+        record.image_count = resolved.buffer_count;
+        record.sync_interval = resolved.sync_interval;
+        record.present_flags = resolved.wants_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0u;
+
+        record.effective_color_space = rhi::ColorSpace::SrgbNonlinear;
+        DXGI_COLOR_SPACE_TYPE color_space = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+        bool color_space_degraded = false;
+        if (to_dxgi_color_space(desc.color_space, color_space)) {
+            UINT support = 0;
+            if (SUCCEEDED(record.swapchain->CheckColorSpaceSupport(color_space, &support)) &&
+                (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) != 0 &&
+                SUCCEEDED(record.swapchain->SetColorSpace1(color_space))) {
+                record.effective_color_space = desc.color_space;
+            } else if (desc.color_space != rhi::ColorSpace::SrgbNonlinear) {
+                color_space_degraded = true;
+            }
+        } else if (desc.color_space != rhi::ColorSpace::SrgbNonlinear) {
+            color_space_degraded = true;
+        }
+
+        if (record.effective_color_space == rhi::ColorSpace::Hdr10St2084) {
+            const SurfaceRecord *surface = surfaces_.find(desc.surface);
+            const rhi::SurfaceHdrCapabilityQuery hdr_query =
+                surface != nullptr ? ::SFT::Core::query_platform_hdr_display_capabilities(surface->desc)
+                                    : rhi::SurfaceHdrCapabilityQuery{};
+            DXGI_HDR_METADATA_HDR10 metadata = build_hdr10_metadata(hdr_query);
+            if (const HRESULT hr = record.swapchain->SetHDRMetaData(
+                    DXGI_HDR_METADATA_TYPE_HDR10, static_cast<UINT>(sizeof(metadata)), &metadata);
+                FAILED(hr)) {
+                return hresult_error(hr, "resize_composition_swapchain (SetHDRMetaData)");
+            }
+            record.stored_hdr_metadata = metadata;
+            record.has_hdr_metadata = true;
+        }
+
+        record.presentation_resolution.strategy = desc.present_strategy;
+        record.presentation_resolution.effective_mode = resolved.mode;
+        record.presentation_resolution.degraded = resolved.degraded || color_space_degraded;
+        record.presentation_resolution.effective_format = desc.format;
+        record.presentation_resolution.effective_color_space = record.effective_color_space;
+
+        if (auto created = create_swapchain_textures(record, desc.format, desc.width, desc.height, desc.usage);
+            !created) {
+            destroy_swapchain_textures(record);
+            return std::unexpected(created.error());
+        }
+
         return swapchains_.insert(std::move(record));
     }
 

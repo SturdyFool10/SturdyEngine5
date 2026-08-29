@@ -481,6 +481,260 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_pointer_position(SturdyEngine engine,
     });
 }
 
+namespace {
+
+    /// Converts an ABI graph scale to the engine's scale transform.
+    ///
+    /// @param axis Source axis description.
+    /// @param out_scale Receives the translated scale.
+    ///
+    /// @return Returns `true` when `axis->scale` is recognized; otherwise `false`.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] bool to_engine_scale(const SturdyUiGraphAxis &axis, SFT::UI::ScaleTransform *out_scale) noexcept {
+        SFT::UI::ScaleTransform scale{};
+        scale.log_base = axis.log_base;
+        scale.symlog_linear_threshold = axis.symlog_linear_threshold;
+        switch (axis.scale) {
+        case STURDY_UI_GRAPH_SCALE_LINEAR:
+            scale.kind = SFT::UI::ScaleKind::Linear;
+            break;
+        case STURDY_UI_GRAPH_SCALE_LOG:
+            scale.kind = SFT::UI::ScaleKind::Log;
+            break;
+        case STURDY_UI_GRAPH_SCALE_SYMLOG:
+            scale.kind = SFT::UI::ScaleKind::Symlog;
+            break;
+        case STURDY_UI_GRAPH_SCALE_FORCE_U32:
+        default:
+            return false;
+        }
+        *out_scale = scale;
+        return true;
+    }
+
+    /// Converts an ABI graph axis to the engine's axis config.
+    ///
+    /// @param axis Source axis description.
+    /// @param out_axis Receives the translated axis.
+    ///
+    /// @return Returns `true` when every field translates cleanly; otherwise `false`.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    [[nodiscard]] bool to_engine_graph_axis(const SturdyUiGraphAxis &axis, SFT::UI::AxisConfig *out_axis) {
+        SFT::UI::AxisConfig engine_axis{};
+        if (!to_engine_scale(axis, &engine_axis.scale)) {
+            return false;
+        }
+        if (axis.has_min == STURDY_TRUE) {
+            engine_axis.min = axis.min;
+        }
+        if (axis.has_max == STURDY_TRUE) {
+            engine_axis.max = axis.max;
+        }
+        engine_axis.autoscale_padding_percent = axis.autoscale_padding_percent;
+        engine_axis.target_tick_count = axis.target_tick_count;
+        engine_axis.show_gridlines = axis.show_gridlines == STURDY_TRUE;
+        engine_axis.show_minor_gridlines = axis.show_minor_gridlines == STURDY_TRUE;
+        engine_axis.axis_color = to_engine_color(axis.axis_color);
+        engine_axis.gridline_color = to_engine_color(axis.gridline_color);
+        engine_axis.minor_gridline_color = to_engine_color(axis.minor_gridline_color);
+        if (axis.title != nullptr) {
+            engine_axis.title = axis.title;
+        }
+        if (axis.categories != nullptr && axis.category_count != 0) {
+            engine_axis.is_categorical = true;
+            engine_axis.categories.reserve(axis.category_count);
+            for (uint32_t i = 0; i < axis.category_count; ++i) {
+                engine_axis.categories.emplace_back(axis.categories[i] != nullptr ? axis.categories[i] : "");
+            }
+        }
+        *out_axis = std::move(engine_axis);
+        return true;
+    }
+
+} // namespace
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_graph_desc_init(SturdyUiGraphDesc *desc) {
+    return guarded([&]() -> SturdyResult {
+        if (desc == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "desc must not be null");
+        }
+        *desc = SturdyUiGraphDesc{};
+        desc->struct_size = static_cast<uint32_t>(sizeof(SturdyUiGraphDesc));
+        desc->type = STURDY_UI_GRAPH_TYPE_LINE;
+        (void)sturdy_ui_graph_axis_init(&desc->x_axis);
+        (void)sturdy_ui_graph_axis_init(&desc->y_axis);
+        desc->bar_group_gap_fraction = 0.2f;
+        desc->bar_series_gap_fraction = 0.08f;
+        desc->pie_gap_degrees = 0.0f;
+        desc->pie_feather_px = 1.0f;
+        desc->background[0] = 0.07f;
+        desc->background[1] = 0.08f;
+        desc->background[2] = 0.1f;
+        desc->background[3] = 1.0f;
+        desc->corner_radius[0] = desc->corner_radius[1] = desc->corner_radius[2] = desc->corner_radius[3] = 6.0f;
+        desc->axis_margin_left = 48.0f;
+        desc->axis_margin_bottom = 24.0f;
+        desc->axis_margin_top = 10.0f;
+        desc->axis_margin_right = 10.0f;
+        desc->font_id = 0;
+        desc->label_font_size = 11;
+        desc->title_font_size = 12;
+        desc->show_legend = STURDY_TRUE;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_graph_axis_init(SturdyUiGraphAxis *axis) {
+    return guarded([&]() -> SturdyResult {
+        if (axis == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "axis must not be null");
+        }
+        *axis = SturdyUiGraphAxis{};
+        axis->struct_size = static_cast<uint32_t>(sizeof(SturdyUiGraphAxis));
+        axis->scale = STURDY_UI_GRAPH_SCALE_LINEAR;
+        axis->log_base = 10.0;
+        axis->symlog_linear_threshold = 1.0;
+        axis->autoscale_padding_percent = 0.05f;
+        axis->target_tick_count = 6;
+        axis->show_gridlines = STURDY_TRUE;
+        axis->axis_color[0] = 0.45f;
+        axis->axis_color[1] = 0.47f;
+        axis->axis_color[2] = 0.53f;
+        axis->axis_color[3] = 1.0f;
+        axis->gridline_color[0] = 1.0f;
+        axis->gridline_color[1] = 1.0f;
+        axis->gridline_color[2] = 1.0f;
+        axis->gridline_color[3] = 0.06f;
+        axis->minor_gridline_color[0] = 1.0f;
+        axis->minor_gridline_color[1] = 1.0f;
+        axis->minor_gridline_color[2] = 1.0f;
+        axis->minor_gridline_color[3] = 0.03f;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ui_graph_draw(SturdyEngine engine, const SturdyUiElement *element,
+                                                  const SturdyUiGraphDesc *desc) {
+    return guarded([&]() -> SturdyResult {
+        (void)engine;
+        if (element == nullptr || desc == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "element and desc must not be null");
+        }
+        if (element->struct_size != sizeof(SturdyUiElement)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
+                             "SturdyUiElement size does not match this engine build");
+        }
+        if (desc->struct_size != sizeof(SturdyUiGraphDesc)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
+                             "SturdyUiGraphDesc size does not match this engine build");
+        }
+
+        SFT::UI::Context *context = nullptr;
+        const SturdyResult session = require_session(&context);
+        if (session != STURDY_OK) {
+            return session;
+        }
+
+        SFT::UI::SizingAxis width{};
+        SFT::UI::SizingAxis height{};
+        if (!to_engine_axis(element->width_kind, element->width_value, &width) ||
+            !to_engine_axis(element->height_kind, element->height_value, &height)) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized sizing mode");
+        }
+        SFT::UI::ElementDecl decl{};
+        decl.sizing = SFT::UI::Sizing{width, height};
+        if (element->id != nullptr) {
+            decl.id = SFT::UString{element->id};
+        }
+
+        SFT::UI::GraphDesc graph_desc{};
+        switch (desc->type) {
+        case STURDY_UI_GRAPH_TYPE_LINE:
+            graph_desc.type = SFT::UI::GraphType::Line;
+            break;
+        case STURDY_UI_GRAPH_TYPE_AREA:
+            graph_desc.type = SFT::UI::GraphType::Area;
+            break;
+        case STURDY_UI_GRAPH_TYPE_BAR:
+            graph_desc.type = SFT::UI::GraphType::Bar;
+            break;
+        case STURDY_UI_GRAPH_TYPE_SCATTER:
+            graph_desc.type = SFT::UI::GraphType::Scatter;
+            break;
+        case STURDY_UI_GRAPH_TYPE_PIE:
+            graph_desc.type = SFT::UI::GraphType::Pie;
+            break;
+        case STURDY_UI_GRAPH_TYPE_FORCE_U32:
+        default:
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized graph type");
+        }
+        if (!to_engine_graph_axis(desc->x_axis, &graph_desc.x_axis) ||
+            !to_engine_graph_axis(desc->y_axis, &graph_desc.y_axis)) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized axis scale");
+        }
+
+        graph_desc.series.reserve(desc->series_count);
+        for (uint32_t i = 0; i < desc->series_count; ++i) {
+            const SturdyUiGraphSeriesRef &series = desc->series[i];
+            if (series.struct_size != sizeof(SturdyUiGraphSeriesRef)) {
+                return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
+                                 "SturdyUiGraphSeriesRef size does not match this engine build");
+            }
+            graph_desc.series.push_back(SFT::UI::SeriesRef{
+                .name = series.name != nullptr ? series.name : std::string{},
+                .x = std::span<const SFT::f64>{series.x_data, series.x_data != nullptr ? series.x_count : 0u},
+                .y = std::span<const SFT::f64>{series.y_data, series.y_data != nullptr ? series.y_count : 0u},
+                .color = to_engine_color(series.color),
+                .line_width = series.line_width > 0.0f ? series.line_width : 2.0f,
+                .feather_px = series.feather_px,
+                .area_fill_opacity = series.area_fill_opacity,
+                .marker_radius = series.marker_radius,
+            });
+        }
+
+        graph_desc.bar_stack_mode = desc->bar_stack_mode == STURDY_UI_GRAPH_BAR_STACKED
+                                        ? SFT::UI::BarStackMode::Stacked
+                                        : SFT::UI::BarStackMode::Grouped;
+        graph_desc.bar_group_gap_fraction = desc->bar_group_gap_fraction;
+        graph_desc.bar_series_gap_fraction = desc->bar_series_gap_fraction;
+
+        graph_desc.pie_slices.reserve(desc->pie_slice_count);
+        for (uint32_t i = 0; i < desc->pie_slice_count; ++i) {
+            const SturdyUiGraphPieSlice &slice = desc->pie_slices[i];
+            if (slice.struct_size != sizeof(SturdyUiGraphPieSlice)) {
+                return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
+                                 "SturdyUiGraphPieSlice size does not match this engine build");
+            }
+            graph_desc.pie_slices.push_back(SFT::UI::PieSlice{
+                .name = slice.name != nullptr ? slice.name : std::string{},
+                .value = slice.value,
+                .color = to_engine_color(slice.color),
+            });
+        }
+        graph_desc.pie_style.hole_ratio = desc->pie_hole_ratio;
+        graph_desc.pie_style.start_angle_degrees =
+            desc->pie_start_angle_degrees != 0.0f ? desc->pie_start_angle_degrees : -90.0f;
+        graph_desc.pie_style.gap_degrees = desc->pie_gap_degrees;
+        graph_desc.pie_style.feather_px = desc->pie_feather_px > 0.0f ? desc->pie_feather_px : 1.0f;
+
+        graph_desc.background_color = to_engine_color(desc->background);
+        graph_desc.corner_radius = SFT::UI::CornerRadius{
+            desc->corner_radius[0], desc->corner_radius[1], desc->corner_radius[2], desc->corner_radius[3]};
+        if (desc->axis_margin_left > 0.0f) graph_desc.axis_margin_left = desc->axis_margin_left;
+        if (desc->axis_margin_bottom > 0.0f) graph_desc.axis_margin_bottom = desc->axis_margin_bottom;
+        if (desc->axis_margin_top > 0.0f) graph_desc.axis_margin_top = desc->axis_margin_top;
+        if (desc->axis_margin_right > 0.0f) graph_desc.axis_margin_right = desc->axis_margin_right;
+        graph_desc.font_id = static_cast<SFT::UI::FontId>(desc->font_id);
+        if (desc->label_font_size != 0) graph_desc.label_font_size = static_cast<SFT::u16>(desc->label_font_size);
+        if (desc->title_font_size != 0) graph_desc.title_font_size = static_cast<SFT::u16>(desc->title_font_size);
+        graph_desc.show_legend = desc->show_legend == STURDY_TRUE;
+
+        SFT::UI::GraphState state{};
+        (void)SFT::UI::graph(*context, decl, graph_desc, state);
+        return STURDY_OK;
+    });
+}
+
 SturdyResult STURDY_ABI_CALL sturdy_ui_pointer_down(SturdyEngine engine, SturdyBool *out_down) {
     return guarded([&]() -> SturdyResult {
         (void)engine;

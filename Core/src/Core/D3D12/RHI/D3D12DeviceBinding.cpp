@@ -617,7 +617,9 @@ namespace SFT::D3D12 {
                         if (view == nullptr || !view->srv.is_valid()) {
                             return invalid_argument(
                                 "create_bind_group: sampled binding names a texture view with no shader-resource "
-                                "view (was the texture created with TextureUsage::Sampled?).");
+                                "view (was the texture created with TextureUsage::Sampled?). binding=" +
+                                std::to_string(entry.binding) + " label=" + (desc.label ? desc.label : "<null>") +
+                                " view_found=" + (view != nullptr ? "yes" : "no"));
                         }
                         resource_copy_dests.push_back(destination);
                         resource_copy_srcs.push_back(cpu_resource_descriptors_.cpu_handle(view->srv, 0));

@@ -52,6 +52,17 @@ namespace SFT::Ffi {
         GltfScene = 4,
         /// Also owned: a task outlives the call that spawned it.
         Task = 5,
+        /// Also owned: recording spans multiple calls, so the encoder must outlive each of them.
+        /// Lives until `sturdy_rhi_command_encoder_finish`/`_release`.
+        CommandEncoder = 6,
+        /// Also owned, scoped to the render pass it records. Lives until `sturdy_rhi_render_pass_end`.
+        RenderPassEncoder = 7,
+        /// Also owned, scoped to the compute pass it records. Lives until `sturdy_rhi_compute_pass_end`.
+        ComputePassEncoder = 8,
+        /// Also owned: a caller-managed ring-buffer data series for `sturdy_ui_graph_draw`, meant to
+        /// outlive any single frame (e.g. live telemetry). Lives until
+        /// `sturdy_ui_graph_series_release`.
+        GraphSeries = 9,
     };
 
     /// Mints a token referring to `pointer`, valid until `revoke_handle`.

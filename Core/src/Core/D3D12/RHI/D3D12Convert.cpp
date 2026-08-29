@@ -968,8 +968,17 @@ namespace SFT::D3D12 {
         add(rhi::AccessFlags::ShaderWrite, D3D12_BARRIER_ACCESS_UNORDERED_ACCESS);
         add(rhi::AccessFlags::ColorAttachmentRead, D3D12_BARRIER_ACCESS_RENDER_TARGET);
         add(rhi::AccessFlags::ColorAttachmentWrite, D3D12_BARRIER_ACCESS_RENDER_TARGET);
-        add(rhi::AccessFlags::DepthStencilAttachmentRead, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ);
-        add(rhi::AccessFlags::DepthStencilAttachmentWrite, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE);
+        // Not both: D3D12's enhanced-barrier validation rejects DEPTH_STENCIL_READ combined with a
+        // LayoutAfter of DEPTH_STENCIL_WRITE ("AccessAfter bits ... are incompatible with
+        // LayoutAfter ..."), unlike Vulkan, where read+write access with the single combined
+        // depth-stencil-attachment-optimal layout is ordinary. DEPTH_STENCIL_WRITE alone already
+        // grants the depth test its own implicit read, matching what a render-graph pass that binds
+        // a depth attachment for read-and-write actually needs.
+        if (has_any(access, rhi::AccessFlags::DepthStencilAttachmentWrite)) {
+            result |= D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE;
+        } else {
+            add(rhi::AccessFlags::DepthStencilAttachmentRead, D3D12_BARRIER_ACCESS_DEPTH_STENCIL_READ);
+        }
         add(rhi::AccessFlags::TransferRead, D3D12_BARRIER_ACCESS_COPY_SOURCE);
         add(rhi::AccessFlags::TransferWrite, D3D12_BARRIER_ACCESS_COPY_DEST);
         add(rhi::AccessFlags::AccelerationStructureRead, D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_READ);

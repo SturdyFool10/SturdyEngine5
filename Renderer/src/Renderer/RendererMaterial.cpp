@@ -327,6 +327,26 @@ namespace SFT::Renderer {
             resource.uniform_set = uniform.set;
             resource.uniform_binding = uniform.binding;
             resource.uniform_block_size = static_cast<u32>(reflection.global_constant_buffer_size);
+
+            // `find_uniform_location` reflects the binding Slang assigned; `generate_bind_group_layouts`
+            // may have moved it to a different `.binding` to resolve a collision with a texture (see
+            // its comment on the global-constant-buffer block — this happens when a shader's separate
+            // per-register-class D3D12 numbering coincidentally reuses a value this RHI's unified
+            // binding index also uses for a texture). `prepare_material_frame` writes the uniform
+            // buffer's `BindGroupEntry` at `resource.uniform_binding`, so it must match whatever
+            // binding the actual layout ended up with, or that write lands in the texture's slot
+            // instead and the texture's own entry is never populated.
+            for (const GeneratedBindGroupLayout &layout : generated) {
+                if (layout.set != uniform.set) {
+                    continue;
+                }
+                for (const RHI::BindGroupLayoutEntry &entry : layout.entries) {
+                    if (entry.type == RHI::BindingType::UniformBuffer && entry.shader_register == uniform.binding) {
+                        resource.uniform_binding = entry.binding;
+                        break;
+                    }
+                }
+            }
         }
         for (const ReflectedUniform &field : collect_uniform_fields(reflection)) {
             MaterialParameter parameter{

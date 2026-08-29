@@ -14,6 +14,7 @@
 #include <Foundation/Embed.hpp>
 #include <Foundation/ConsoleDiagnostic.hpp>
 #include <Foundation/Log.hpp>
+#include <Foundation/LogSink.hpp>
 #include <Foundation/Cpu/CpuId.hpp>
 #include <Foundation/Cpu/CpuTopology.hpp>
 #include <Foundation/Cpu/SimdMath.hpp>

@@ -778,10 +778,6 @@ namespace SFT::Core::Vulkan {
                 resolution.supports_completion_fence = false;
                 record.presentation_resolution = resolution;
                 record.present_via_compute = false;
-                Foundation::log_info(
-                    "Swapchain presenting via composition present (DXGI + DirectComposition) instead of "
-                    "vkQueuePresentKHR (composite alpha: {}).",
-                    rhi::composite_alpha_mode_name(resolution.effective_composite_alpha));
 
                 const u32 image_count = static_cast<u32>(record.composition.images.size());
                 record.textures.reserve(image_count);

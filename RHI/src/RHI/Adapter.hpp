@@ -31,6 +31,16 @@ namespace SFT::RHI {
         bool enable_validation = false;
         bool enable_debug_utils = false;
 
+        /// D3D12-only. Adds GPU-Based Validation on top of `enable_validation`'s ordinary (CPU-side)
+        /// debug layer: instrumented shaders and heap-tracking checks that catch a class of bugs the
+        /// CPU-side layer cannot (out-of-bounds descriptor access, uninitialized resources), at a
+        /// cost of roughly one to two orders of magnitude in frame time and one-time PSO-creation
+        /// stalls that scale with how many pipelines a frame first touches — a full render graph's
+        /// worth of shaders on first use turns into a stall of minutes, not seconds. Left off by
+        /// default even in debug builds; a deliberate opt-in for a session actually hunting a
+        /// GPU-side corruption bug, not something every debug run should pay for.
+        bool enable_gpu_based_validation = false;
+
 
         bool headless = false;
         const char *label = nullptr;

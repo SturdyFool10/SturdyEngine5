@@ -158,6 +158,25 @@ namespace SFT::D3D12 {
             return D3D_SHADER_MODEL_6_0;
         }
 
+        /// Builds a comma-separated, human-readable summary of a feature set, mirroring
+        /// `VulkanBackendDevice.cpp`'s own `feature_set_message` helper so both backends' feature
+        /// negotiation logs read the same way.
+        ///
+        /// @param features Feature set to describe.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        [[nodiscard]] std::string feature_set_message(const rhi::FeatureSet &features) {
+            std::string out;
+            features.for_each([&](rhi::Feature feature) {
+                if (!out.empty()) {
+                    out += ", ";
+                }
+                out += rhi::feature_name(feature);
+            });
+            return out.empty() ? std::string{"none"} : out;
+        }
+
         /// Fills sample counts using the supplied arguments and current state.
         ///
         /// @param device Device used or affected by the operation.
@@ -609,6 +628,12 @@ namespace SFT::D3D12 {
             });
             return unsupported(std::move(message) + ".");
         }
+        Foundation::log_info("Selected GPU: {} [{}] driver={} {}", info_.name, info_.vendor,
+                             info_.driver_version.empty() ? "unknown" : info_.driver_version, info_.api_version);
+        Foundation::log_info(
+            "RHI feature negotiation: required enabled=[{}], optional enabled=[{}], optional unavailable=[{}]",
+            feature_set_message(report.enabled_required_features), feature_set_message(report.enabled_optional_features),
+            feature_set_message(report.unavailable_optional_features));
         for (rhi::ExtensionId extension : request.required_extensions) {
             if (!rhi::contains_extension(supported_extensions_, extension)) {
                 return unsupported(std::string("D3D12 adapter does not support required extension '") +
@@ -741,12 +766,16 @@ namespace SFT::D3D12 {
             info.api_version = std::string("Direct3D 12 (") +
                                shader_model_name(highest_shader_model(device.Get())) + ")";
 
+            Foundation::log_info("Found GPU: {} [{}] ({}) ID={}", info.name, info.vendor,
+                                 rhi::device_type_name(info.device_type), info.device_id);
+
             adapters.push_back(std::make_unique<D3D12Adapter>(factory_, std::move(adapter), std::move(device), std::move(info), std::move(capabilities), debug_layer_enabled_));
         }
 
         if (adapters.empty()) {
             return operation_failed("D3D12 instance enumerated no adapters capable of creating a device.");
         }
+        Foundation::log_info("D3D12: enumerated {} adapter(s).", adapters.size());
         return adapters;
     }
 
@@ -768,11 +797,15 @@ namespace SFT::D3D12 {
                 debug->EnableDebugLayer();
                 debug_layer_enabled = true;
                 factory_flags |= DXGI_CREATE_FACTORY_DEBUG;
+                Foundation::log_info("D3D12: debug layer enabled.");
 
 
-                ComPtr<ID3D12Debug1> debug1;
-                if (SUCCEEDED(debug.As(&debug1))) {
-                    debug1->SetEnableGPUBasedValidation(TRUE);
+                if (desc.enable_gpu_based_validation) {
+                    ComPtr<ID3D12Debug1> debug1;
+                    if (SUCCEEDED(debug.As(&debug1))) {
+                        debug1->SetEnableGPUBasedValidation(TRUE);
+                        Foundation::log_info("D3D12: GPU-based validation enabled.");
+                    }
                 }
             } else {
                 Foundation::log_warn(
@@ -785,6 +818,7 @@ namespace SFT::D3D12 {
             if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dred)))) {
                 dred->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
                 dred->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+                Foundation::log_info("D3D12: DRED auto-breadcrumbs and page-fault reporting enabled.");
             }
         }
 
@@ -792,12 +826,15 @@ namespace SFT::D3D12 {
         if (const HRESULT hr = CreateDXGIFactory2(factory_flags, IID_PPV_ARGS(&factory)); FAILED(hr)) {
             return hresult_error(hr, "create_d3d12_instance (CreateDXGIFactory2)");
         }
+        Foundation::log_info("D3D12 instance created (DXGI factory 6).");
 
 
         BOOL allow_tearing = FALSE;
         if (FAILED(factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow_tearing, sizeof(allow_tearing)))) {
             allow_tearing = FALSE;
         }
+        Foundation::log_info("D3D12: variable refresh rate (tearing) presentation is {}.",
+                             allow_tearing != FALSE ? "supported" : "not supported");
 
         (void)desc.headless;
 

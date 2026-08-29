@@ -5,7 +5,9 @@
 #include <Renderer/UI/UI.hpp>
 
 #include <array>
+#include <deque>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -174,6 +176,46 @@ namespace SFT::UiWorkbench {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void build_metrics_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
+        /// Builds console panel.
+        ///
+        /// Demonstrates `Foundation::add_log_sink` (and, through it, the FFI's
+        /// `sturdy_log_add_sink`): every engine log message is captured here into an in-memory
+        /// ring buffer via a registered sink, the same mechanism a foreign-language host would use
+        /// to build its own console/log viewer instead of only ever seeing this process's stdout.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        /// @param ctx `ctx` value used by the operation.
+        /// @param delta_seconds `delta_seconds` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        ///
+        /// @param first_visible_line Index into the captured-line buffer of the first line to
+        ///        actually build a text element for; earlier lines get one fixed-height spacer
+        ///        instead of a `draw_text` each. See the definition's own comment for why this
+        ///        virtualization exists.
+        /// @param visible_line_count How many lines starting at `first_visible_line` to build
+        ///        real text elements for.
+        void build_console_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds, usize first_visible_line,
+                                 usize visible_line_count);
+        /// Builds strokes panel — a smoke test for UI::Context::stroke_polyline() (spiral, sharp
+        /// zigzag, and a pixel-snapped dashed hairline).
+        ///
+        /// @param surface Surface used or affected by the operation.
+        /// @param ctx `ctx` value used by the operation.
+        /// @param delta_seconds `delta_seconds` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void build_strokes_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
+        /// Builds graphs panel — a smoke test for UI::graph()/UI::GraphType::Line, including a
+        /// log-Y-axis chart and a chart with both axes non-linear (symlog X, log Y) to demonstrate
+        /// AxisConfig::scale isn't limited to linear.
+        ///
+        /// @param surface Surface used or affected by the operation.
+        /// @param ctx `ctx` value used by the operation.
+        /// @param delta_seconds `delta_seconds` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void build_graphs_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds);
         /// Performs the handle dock events operation for `WorkbenchUi` using the supplied arguments.
         ///
         /// @param engine `engine` value used by the operation.
@@ -298,6 +340,31 @@ namespace SFT::UiWorkbench {
 
         bool ui_renderer_rebuild_failed_ = false;
         std::string status_message_ = "Ready — drag any tab beyond a window edge to tear it off.";
+
+
+        struct ConsoleLine {
+            Foundation::LogLevel level = Foundation::LogLevel::Info;
+            std::string text;
+        };
+        // Captured on whatever thread produced the log message (see `Foundation::add_log_sink`'s
+        // own thread-safety note), so it needs its own lock independent of anything UI-frame-local
+        // — `build_console_panel` only reads under the lock, for as short as copying the deque out
+        // takes, then formats/lays out the copy without holding it.
+        static constexpr usize console_log_capacity_ = 1000;
+        std::mutex console_log_mutex_;
+        std::deque<ConsoleLine> console_log_lines_;
+        u64 console_log_dropped_ = 0;
+        Foundation::LogSinkId console_log_sink_id_{};
+        bool console_autoscroll_ = true;
+        // Line count as of the last time autoscroll forced the scroll position. Forcing it every
+        // frame unconditionally fights any scroll the user is trying to do (mouse wheel or drag)
+        // on every single frame that follows — this instead only re-pins to the bottom on the
+        // frame new content actually arrives, the same "tail -f" behavior any log console uses,
+        // and otherwise leaves the user free to scroll at all.
+        usize console_lines_at_last_autoscroll_ = 0;
+        UI::ToggleState console_autoscroll_toggle_state_{};
+        UI::ButtonState console_clear_button_state_{};
+        UI::ButtonState console_test_log_button_state_{};
     };
 
 } // namespace SFT::UiWorkbench

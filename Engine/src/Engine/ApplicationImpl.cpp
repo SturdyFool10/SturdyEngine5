@@ -745,11 +745,8 @@ namespace SFT::Engine {
             return;
         }
 
-        auto last_memory_log = high_resolution_clock::now();
-        auto last_title_update = last_memory_log;
-        auto last_tick_time = last_memory_log;
-        constexpr f64 memory_log_interval_seconds = 5.0;
-        usize peak_resident_bytes = 0;
+        auto last_title_update = high_resolution_clock::now();
+        auto last_tick_time = last_title_update;
 
         vector<ManagedWindowEvents> window_events;
 
@@ -952,20 +949,6 @@ namespace SFT::Engine {
             }
 
             const auto now = high_resolution_clock::now();
-            if (duration<f64>(now - last_memory_log).count() >= memory_log_interval_seconds) {
-
-
-                const auto usage = Foundation::Memory::heap_usage();
-
-
-                peak_resident_bytes = std::max(peak_resident_bytes, usage.current_resident_bytes);
-                Foundation::log_info("Memory usage: resident={} peak_resident={} committed={} peak_committed={}",
-                                     Foundation::Memory::format_bytes(usage.current_resident_bytes),
-                                     Foundation::Memory::format_bytes(peak_resident_bytes),
-                                     Foundation::Memory::format_bytes(usage.current_bytes),
-                                     Foundation::Memory::format_bytes(usage.peak_bytes));
-                last_memory_log = now;
-            }
 
             const optional<f64> title_update_interval =
                 client_->application_config().primary_window_title_update_interval_seconds;

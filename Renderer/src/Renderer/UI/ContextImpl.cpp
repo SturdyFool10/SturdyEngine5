@@ -737,6 +737,121 @@ namespace SFT::UI {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Context::svg(const ElementDecl &decl, Renderer::TextureHandle texture) { image(decl, texture); }
 
+    /// Draws one or more anti-aliased polylines for `UI` using the supplied arguments.
+    ///
+    /// @param decl `decl` value used by the operation.
+    /// @param paths Paths used or affected by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void Context::stroke_paths(const ElementDecl &decl, std::span<const StrokePath> paths) {
+        set_current();
+        if (!decl.id.empty()) {
+            current_frame_ids_.push_back(decl.id.cpp_string());
+        }
+        update_desired_cursor(decl);
+        stroke_storage_.push_back(StrokePolylineData{
+            .paths = vector<StrokePath>(paths.begin(), paths.end()),
+        });
+        StrokePolylineData *stored = &stroke_storage_.back();
+        const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
+        Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        declaration.custom = Clay_CustomElementConfig{.customData = stored};
+        Clay__OpenElement();
+        Clay__ConfigureOpenElement(declaration);
+        Clay__CloseElement();
+    }
+
+    /// Convenience wrapper around stroke_paths() for a single polyline.
+    ///
+    /// @param decl `decl` value used by the operation.
+    /// @param points Points used or affected by the operation.
+    /// @param style `style` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void Context::stroke_polyline(const ElementDecl &decl, std::span<const glm::vec2> points, const StrokeStyle &style) {
+        const StrokePath path{.points = vector<glm::vec2>(points.begin(), points.end()), .style = style};
+        stroke_paths(decl, span<const StrokePath>{&path, 1});
+    }
+
+    /// Draws one or more filled rects for `UI` using the supplied arguments.
+    ///
+    /// @param decl `decl` value used by the operation.
+    /// @param quads Quads used or affected by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void Context::fill_quads(const ElementDecl &decl, std::span<const FillQuad> quads) {
+        set_current();
+        if (!decl.id.empty()) {
+            current_frame_ids_.push_back(decl.id.cpp_string());
+        }
+        update_desired_cursor(decl);
+        fill_storage_.push_back(FillQuadListData{
+            .quads = vector<FillQuad>(quads.begin(), quads.end()),
+        });
+        FillQuadListData *stored = &fill_storage_.back();
+        const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
+        Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        declaration.custom = Clay_CustomElementConfig{.customData = stored};
+        Clay__OpenElement();
+        Clay__ConfigureOpenElement(declaration);
+        Clay__CloseElement();
+    }
+
+    /// Draws one or more annular sectors for `UI` using the supplied arguments.
+    ///
+    /// @param decl `decl` value used by the operation.
+    /// @param sectors Sectors used or affected by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void Context::fill_sectors(const ElementDecl &decl, std::span<const Sector> sectors) {
+        set_current();
+        if (!decl.id.empty()) {
+            current_frame_ids_.push_back(decl.id.cpp_string());
+        }
+        update_desired_cursor(decl);
+        sector_storage_.push_back(SectorListData{
+            .sectors = vector<Sector>(sectors.begin(), sectors.end()),
+        });
+        SectorListData *stored = &sector_storage_.back();
+        const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
+        Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        declaration.custom = Clay_CustomElementConfig{.customData = stored};
+        Clay__OpenElement();
+        Clay__ConfigureOpenElement(declaration);
+        Clay__CloseElement();
+    }
+
+    /// Draws a shader-driven polyline for `UI` using the supplied arguments.
+    ///
+    /// @param decl `decl` value used by the operation.
+    /// @param points Points used or affected by the operation.
+    /// @param half_width Requested or available size for the operation.
+    /// @param feather_px Requested or available size for the operation.
+    /// @param shader Shader used or affected by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void Context::stroke_custom(const ElementDecl &decl, std::span<const glm::vec2> points, f32 half_width,
+                                f32 feather_px, const CustomShaderRef &shader) {
+        set_current();
+        if (!decl.id.empty()) {
+            current_frame_ids_.push_back(decl.id.cpp_string());
+        }
+        update_desired_cursor(decl);
+        custom_stroke_storage_.push_back(CustomStrokeElementData{
+            .points = vector<glm::vec2>(points.begin(), points.end()),
+            .half_width = half_width,
+            .feather_px = feather_px,
+            .shader = shader,
+        });
+        CustomStrokeElementData *stored = &custom_stroke_storage_.back();
+        const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
+        Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
+        declaration.custom = Clay_CustomElementConfig{.customData = stored};
+        Clay__OpenElement();
+        Clay__ConfigureOpenElement(declaration);
+        Clay__CloseElement();
+    }
+
     /// Performs the custom element operation for `UI` using the supplied arguments.
     ///
     /// @param decl `decl` value used by the operation.
@@ -1332,13 +1447,87 @@ namespace SFT::UI {
                 case CLAY_RENDER_COMMAND_TYPE_CUSTOM: {
                     const Clay_CustomRenderData &data = command.renderData.custom;
                     if (data.customData != nullptr) {
-                        snapshot.custom_draws_.push_back(CustomDraw{
-                            .position = {command.boundingBox.x, command.boundingBox.y},
-                            .size = {command.boundingBox.width, command.boundingBox.height},
-                            .shader = static_cast<const CustomShaderRef *>(data.customData),
-                            .scissor = active_scissor,
-                            .paint = paint,
-                        });
+                        // See UiCustomCommandKind's own doc comment: the tag is always the first
+                        // member of whichever payload struct customData actually points to.
+                        const auto command_kind = *static_cast<const UiCustomCommandKind *>(data.customData);
+                        if (command_kind == UiCustomCommandKind::Stroke) {
+                            const auto *stroke_data = static_cast<const StrokePolylineData *>(data.customData);
+                            const glm::vec2 origin{command.boundingBox.x, command.boundingBox.y};
+                            vector<StrokePath> resolved_paths;
+                            resolved_paths.reserve(stroke_data->paths.size());
+                            for (const StrokePath &local_path : stroke_data->paths) {
+                                vector<glm::vec2> resolved_points;
+                                resolved_points.reserve(local_path.points.size());
+                                for (const glm::vec2 &local_point : local_path.points) {
+                                    resolved_points.push_back(origin + local_point);
+                                }
+                                resolved_paths.push_back(StrokePath{
+                                    .points = std::move(resolved_points),
+                                    .style = local_path.style,
+                                });
+                            }
+                            snapshot.strokes_.push_back(StrokeDraw{
+                                .paths = std::move(resolved_paths),
+                                .scissor = active_scissor,
+                                .paint = paint,
+                            });
+                        } else if (command_kind == UiCustomCommandKind::Fill) {
+                            const auto *fill_data = static_cast<const FillQuadListData *>(data.customData);
+                            const glm::vec2 origin{command.boundingBox.x, command.boundingBox.y};
+                            vector<FillQuad> resolved_quads;
+                            resolved_quads.reserve(fill_data->quads.size());
+                            for (FillQuad quad : fill_data->quads) {
+                                quad.position += origin;
+                                resolved_quads.push_back(quad);
+                            }
+                            snapshot.fills_.push_back(FillQuadDraw{
+                                .quads = std::move(resolved_quads),
+                                .scissor = active_scissor,
+                                .paint = paint,
+                            });
+                        } else if (command_kind == UiCustomCommandKind::Sector) {
+                            const auto *sector_data = static_cast<const SectorListData *>(data.customData);
+                            const glm::vec2 origin{command.boundingBox.x, command.boundingBox.y};
+                            vector<Sector> resolved_sectors;
+                            resolved_sectors.reserve(sector_data->sectors.size());
+                            for (Sector sector : sector_data->sectors) {
+                                sector.center += origin;
+                                resolved_sectors.push_back(sector);
+                            }
+                            snapshot.sectors_.push_back(SectorDraw{
+                                .sectors = std::move(resolved_sectors),
+                                .scissor = active_scissor,
+                                .paint = paint,
+                            });
+                        } else if (command_kind == UiCustomCommandKind::CustomStroke) {
+                            const auto *custom_stroke_data = static_cast<const CustomStrokeElementData *>(data.customData);
+                            const glm::vec2 origin{command.boundingBox.x, command.boundingBox.y};
+                            vector<glm::vec2> resolved_points;
+                            resolved_points.reserve(custom_stroke_data->points.size());
+                            for (const glm::vec2 &local_point : custom_stroke_data->points) {
+                                resolved_points.push_back(origin + local_point);
+                            }
+                            // Copies into the same stable storage CustomDraw::shader points into, so
+                            // the resolved pointer survives for the snapshot's lifetime (see
+                            // custom_storage_'s move into the snapshot below).
+                            custom_storage_.push_back(custom_stroke_data->shader);
+                            snapshot.custom_strokes_.push_back(CustomStrokeDraw{
+                                .points = std::move(resolved_points),
+                                .half_width = custom_stroke_data->half_width,
+                                .feather_px = custom_stroke_data->feather_px,
+                                .shader = &custom_storage_.back(),
+                                .scissor = active_scissor,
+                                .paint = paint,
+                            });
+                        } else {
+                            snapshot.custom_draws_.push_back(CustomDraw{
+                                .position = {command.boundingBox.x, command.boundingBox.y},
+                                .size = {command.boundingBox.width, command.boundingBox.height},
+                                .shader = static_cast<const CustomShaderRef *>(data.customData),
+                                .scissor = active_scissor,
+                                .paint = paint,
+                            });
+                        }
                     }
                     break;
                 }
@@ -1352,6 +1541,16 @@ namespace SFT::UI {
         image_storage_.clear();
         snapshot.custom_storage_ = std::move(custom_storage_);
         custom_storage_.clear();
+        // Unlike image_storage_/custom_storage_, StrokeDraw owns its resolved points outright (see
+        // its own doc comment), so nothing in the snapshot points back into stroke_storage_ — it only
+        // needed to stay alive for the resolve loop above, not for the snapshot's own lifetime.
+        stroke_storage_.clear();
+        // Same rationale as stroke_storage_ above — FillQuadDraw/SectorDraw/CustomStrokeDraw own
+        // their resolved points outright (CustomStrokeDraw's shader pointer is a separate copy kept
+        // alive in custom_storage_, moved into the snapshot just above).
+        fill_storage_.clear();
+        sector_storage_.clear();
+        custom_stroke_storage_.clear();
         text_storage_.clear();
         if (!pointer_down_) {
             pointer_capture_id_.clear();

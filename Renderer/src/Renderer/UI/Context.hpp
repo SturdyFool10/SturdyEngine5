@@ -23,7 +23,10 @@
 #include <Renderer/UI/CustomElement.hpp>
 #include <Renderer/UI/Style.hpp>
 #include <Renderer/UI/TextBridge.hpp>
+#include <Renderer/UI/UiFill.hpp>
 #include <Renderer/UI/UiQuad.hpp>
+#include <Renderer/UI/UiSector.hpp>
+#include <Renderer/UI/UiStroke.hpp>
 
 using std::deque;
 using std::string;
@@ -138,6 +141,35 @@ namespace SFT::UI {
     };
 
 
+    // A resolved Context::stroke_paths()/stroke_polyline() call — unlike QuadDraw/CustomDraw, this
+    // owns its `paths` outright (already offset into absolute pixel space) rather than pointing back
+    // into a Context-owned deque, so FrameSnapshot doesn't need to keep a matching storage deque alive
+    // alongside it the way image_storage_/custom_storage_ do.
+    struct StrokeDraw {
+        vector<StrokePath> paths;
+        RHI::Rect2D scissor{};
+        PaintKey paint{};
+    };
+
+
+    // A resolved Context::fill_quads() call — same ownership rationale as StrokeDraw (see its own
+    // doc comment).
+    struct FillQuadDraw {
+        vector<FillQuad> quads;
+        RHI::Rect2D scissor{};
+        PaintKey paint{};
+    };
+
+
+    // A resolved Context::fill_sectors() call — same ownership rationale as StrokeDraw (see its own
+    // doc comment).
+    struct SectorDraw {
+        vector<Sector> sectors;
+        RHI::Rect2D scissor{};
+        PaintKey paint{};
+    };
+
+
     class FrameSnapshot {
       public:
         /// Constructs a `FrameSnapshot` in its default state.
@@ -181,11 +213,43 @@ namespace SFT::UI {
         /// @note This function does not throw exceptions.
         [[nodiscard]] std::span<const QuadDraw> quads() const noexcept;
 
+
+        /// Returns the current or globally available strokes value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] std::span<const StrokeDraw> strokes() const noexcept;
+
+
+        /// Returns the current or globally available fills value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] std::span<const FillQuadDraw> fills() const noexcept;
+
+
+        /// Returns the current or globally available sectors value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] std::span<const SectorDraw> sectors() const noexcept;
+
+
+        /// Returns the current or globally available custom strokes value.
+        ///
+        /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] std::span<const CustomStrokeDraw> custom_strokes() const noexcept;
+
       private:
         friend class Context;
         friend class UiRenderer;
 
         vector<QuadDraw> quads_;
+        vector<StrokeDraw> strokes_;
+        vector<FillQuadDraw> fills_;
+        vector<SectorDraw> sectors_;
+        vector<CustomStrokeDraw> custom_strokes_;
         vector<Renderer::GlyphPlacement> glyphs_;
 
 
@@ -371,6 +435,74 @@ namespace SFT::UI {
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] ElementScope custom_element(const ElementDecl &decl, const CustomShaderRef &shader);
+
+
+        /// Draws one or more anti-aliased polylines (see Shaders/ui_stroke.slang) as a single leaf
+        /// element sized/positioned by `decl`, same as image()/svg(). Each path's `points` are in the
+        /// element's own local space (relative to its own top-left, e.g. [0, width] x [0, height] for
+        /// a chart's plot area) — resolved to absolute pixel space once the element's own layout is
+        /// known, at Context::finish_frame() time. All paths share one bounding box/scissor/paint
+        /// order, which is what lets a chart widget draw axis lines, gridlines, and every data series
+        /// inside the same plot rect from a single call — see StrokePolylineData's own doc comment
+        /// (UI/UiStroke.hpp) for why that's a single call instead of one leaf element per line.
+        ///
+        /// @param decl `decl` value used by the operation.
+        /// @param paths Paths used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void stroke_paths(const ElementDecl &decl, std::span<const StrokePath> paths);
+
+        /// Convenience wrapper around stroke_paths() for a single polyline.
+        ///
+        /// @param decl `decl` value used by the operation.
+        /// @param points Points used or affected by the operation.
+        /// @param style `style` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void stroke_polyline(const ElementDecl &decl, std::span<const glm::vec2> points, const StrokeStyle &style);
+
+
+        /// Draws one or more filled (optionally rounded) rects as a single leaf element sized/
+        /// positioned by `decl`, same as stroke_paths() but for solid fills instead of lines — reuses
+        /// UiQuadPipeline directly rather than a new pipeline (see UiRenderer.cpp's
+        /// PaintEntry::Kind::Fill handling). Each quad's `position`/`size` are in the element's own
+        /// local space, resolved to absolute pixel space at Context::finish_frame() time. See
+        /// FillQuadListData's own doc comment (UI/UiFill.hpp) for why multiple quads share one call.
+        ///
+        /// @param decl `decl` value used by the operation.
+        /// @param quads Quads used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void fill_quads(const ElementDecl &decl, std::span<const FillQuad> quads);
+
+
+        /// Draws one or more annular sectors ("pie slices") as a single leaf element sized/positioned
+        /// by `decl`, same as fill_quads()/stroke_paths() but via UiSectorPipeline instead. Each
+        /// sector's `center` is in the element's own local space, resolved to absolute pixel space at
+        /// Context::finish_frame() time. See SectorListData's own doc comment (UI/UiSector.hpp) for
+        /// why multiple sectors share one call.
+        ///
+        /// @param decl `decl` value used by the operation.
+        /// @param sectors Sectors used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void fill_sectors(const ElementDecl &decl, std::span<const Sector> sectors);
+
+
+        /// Draws a polyline through a caller-supplied fragment shader instead of ui_stroke.slang, as
+        /// a single leaf element sized/positioned by `decl` — the stroke-shaped sibling of
+        /// custom_element(). See CustomStrokeElementData's own doc comment (UI/CustomElement.hpp) for
+        /// the unbatched-per-segment cost model and `shader`'s vertexMain contract.
+        ///
+        /// @param decl `decl` value used by the operation.
+        /// @param points Points used or affected by the operation.
+        /// @param half_width Requested or available size for the operation.
+        /// @param feather_px Requested or available size for the operation.
+        /// @param shader Shader used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void stroke_custom(const ElementDecl &decl, std::span<const glm::vec2> points, f32 half_width,
+                           f32 feather_px, const CustomShaderRef &shader);
 
 
         /// Performs the hovered operation for `Context` using the supplied arguments.
@@ -584,6 +716,10 @@ namespace SFT::UI {
         deque<string> text_storage_;
         deque<ImageRef> image_storage_;
         deque<CustomShaderRef> custom_storage_;
+        deque<StrokePolylineData> stroke_storage_;
+        deque<FillQuadListData> fill_storage_;
+        deque<SectorListData> sector_storage_;
+        deque<CustomStrokeElementData> custom_stroke_storage_;
 
 
         unordered_map<OutlineCacheKey, Text::GlyphOutline, OutlineCacheKeyHash> outline_cache_;

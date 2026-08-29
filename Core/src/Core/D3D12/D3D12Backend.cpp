@@ -1,5 +1,7 @@
 #include <Core/D3D12/D3D12Backend.hpp>
 
+#include <Foundation/Foundation.hpp>
+
 #include <Core/D3D12/RHI/D3D12Adapter.hpp>
 #include <Core/D3D12/RHI/D3D12NativeAccessExtension.hpp>
 
@@ -236,6 +238,7 @@ namespace SFT::Core::D3D12 {
                                           std::format("Failed to create D3D12 Win32 surface: {}", surface.error().message));
         }
         surfaces_.emplace(window_id, *surface);
+        Foundation::log_info("D3D12 surface created for window {}.", static_cast<usize>(window_id));
         return RenderSurfaceHandle{window_id};
     }
 

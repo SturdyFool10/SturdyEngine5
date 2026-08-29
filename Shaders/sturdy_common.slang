@@ -164,6 +164,33 @@ float4 uiQuadClipPosition(uint vertexId, float2 pixelPos, float2 pixelSize, floa
     return float4(uvToNdc(pixelUv), 0.0, 1.0);
 }
 
+// Pixel space -> clip space for one polyline segment's capsule quad, the stroke-geometry
+// counterpart of uiQuadClipPosition() above — same vertex-pulled six-verts-per-instance idiom, same
+// corner-expansion math as Shaders/ui_stroke.slang's own vertexMain (kept in sync with it by hand;
+// this is the version a Sturdy.UI::Context::stroke_custom() shader calls from its own vertexMain,
+// given the CustomStrokeElementConstants prefix such a shader's push-constant struct is required to
+// start with — see UI/CustomElement.hpp's own doc comment). Writes the same `localPos`/`segEnd`
+// outputs ui_stroke.slang's fragmentMain feeds into capsuleSDF(), so a custom fragment shader can
+// reuse that exact AA edge test if it wants the built-in capsule shape with a different color/effect,
+// or ignore them entirely for a wholly custom look.
+float4 uiStrokeSegmentClipPosition(uint vertexId, float2 p0, float2 p1, float halfWidth, float featherPx,
+                                   float2 viewportSize, out float2 localPos, out float2 segEnd) {
+    float segLength = length(p1 - p0);
+    float2 segDir = segLength > 0.0001 ? (p1 - p0) / segLength : float2(1.0, 0.0);
+    float2 segNormal = float2(-segDir.y, segDir.x);
+    float radius = halfWidth + max(featherPx, 0.0);
+
+    float2 corner = uiQuadCorner(vertexId);
+    float alongLocal = lerp(-radius, segLength + radius, corner.x);
+    float acrossLocal = lerp(-radius, radius, corner.y);
+    localPos = segDir * alongLocal + segNormal * acrossLocal;
+    segEnd = segDir * segLength;
+
+    float2 pixelPos = p0 + localPos;
+    float2 pixelUv = pixelPos * safeRcp(viewportSize);
+    return float4(uvToNdc(pixelUv), 0.0, 1.0);
+}
+
 // Signed distance to a per-corner rounded box, `centerPos` relative to the box center (Y down,
 // matching this engine's pixel-space convention) and `halfSize` the box's half-extent, `cornerRadius`
 // = (topLeft, topRight, bottomLeft, bottomRight). Negative inside the shape, positive outside, zero
@@ -181,6 +208,46 @@ float roundedBoxSDF(float2 centerPos, float2 halfSize, float4 cornerRadius) {
     radius = min(radius, min(halfSize.x, halfSize.y));
     float2 q = abs(centerPos) - halfSize + radius;
     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
+}
+
+// Signed distance to a capsule (the line segment `a`-`b` thickened by `radius`, with round ends) —
+// same Y-down pixel-space convention as roundedBoxSDF, same negative-inside/positive-outside/zero-on-
+// boundary contract, meant to feed the same fwidth()-based antialiasing. A capsule's round ends double
+// as both a stroke's line caps and, since two capsules sharing an endpoint already overlap seamlessly,
+// its round joins too — see Shaders/ui_stroke.slang's own doc comment.
+float capsuleSDF(float2 p, float2 a, float2 b, float radius) {
+    float2 pa = p - a;
+    float2 ba = b - a;
+    float h = clamp01(dot(pa, ba) * safeRcp(dot(ba, ba)));
+    return length(pa - ba * h) - radius;
+}
+
+// Signed distance to a filled annular sector ("pie slice", optionally donut-holed via `innerRadius`),
+// spanning `[startAngle, endAngle]` radians measured the same way atan2(p.y, p.x) would (angle 0 =
+// +X axis, increasing toward +Y — clockwise in this engine's Y-down pixel space). `endAngle` must be
+// >= `startAngle`, and the span `endAngle - startAngle` must be under 2*PI (a full annulus/disc has no
+// angular boundary to speak of, so this isn't meant to draw one). Same antialiasing contract as
+// roundedBoxSDF/capsuleSDF.
+//
+// Derived from Inigo Quilez's sdPie (https://iquilezles.org/articles/distfunctions2d/, which assumes a
+// wedge symmetric around +Y) via a basis change that maps this wedge's own bisector direction onto
+// that +Y-symmetric frame — verified algebraically: substituting p = (cos(mid), sin(mid)) (the
+// bisector direction itself) into the rotation below yields exactly (0, 1) before sdPie's own
+// (separately well-tested) math ever runs.
+float sectorSDF(float2 p, float innerRadius, float outerRadius, float startAngle, float endAngle) {
+    float mid = (startAngle + endAngle) * 0.5;
+    float halfAperture = (endAngle - startAngle) * 0.5;
+    float sinMid = sin(mid);
+    float cosMid = cos(mid);
+    float2 q = float2(p.x * sinMid - p.y * cosMid, p.x * cosMid + p.y * sinMid);
+    q.x = abs(q.x);
+
+    float2 c = float2(sin(halfAperture), cos(halfAperture));
+    float outerDist = length(q) - outerRadius;
+    float armDist = length(q - c * clamp(dot(q, c), 0.0, outerRadius));
+    float pieDist = max(outerDist, armDist * sign(c.y * q.x - c.x * q.y));
+
+    return max(pieDist, innerRadius - length(p));
 }
 
 // -------------------------------------------------------------------------------------------------

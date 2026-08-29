@@ -27,16 +27,24 @@ namespace {
                 SFT::Core::Slang::ShaderDescriptorRangeReflection{
                     .type = SFT::Core::Slang::ShaderBindingType::CombinedTextureSampler,
                     .category = SFT::Core::Slang::ShaderParameterCategory::DescriptorTableSlot,
-                    .binding = 1,
+                    .binding = 0,
                     .count = 1,
                 },
             },
         });
 
+        // Slang reflects an explicit resource global's own binding as if the implicit global
+        // constant buffer did not occupy a slot at all — binding 0 here, the same raw value as
+        // the constant buffer's own `global_constant_buffer_binding` above — and the compiler
+        // shifts it into the real, non-colliding SPIR-V/DXIL binding (1) only once both are
+        // known. Verified empirically against a real compiled shader (`Shaders/gbuffer_geometry.slang`):
+        // see `ReflectionBinding.cpp`'s `collect_descriptor_bindings` doc comment. A fixture that
+        // instead pre-shifts this to binding 1 would pass without the shift this test exists to
+        // verify.
         SFT::Core::Slang::ShaderParameterReflection texture{};
         texture.name = "base_color_texture";
         texture.category = SFT::Core::Slang::ShaderParameterCategory::DescriptorTableSlot;
-        texture.binding = 1;
+        texture.binding = 0;
         texture.binding_space = 0;
         texture.binding_ranges.push_back(SFT::Core::Slang::ShaderBindingRangeReflection{
             .type = SFT::Core::Slang::ShaderBindingType::CombinedTextureSampler,

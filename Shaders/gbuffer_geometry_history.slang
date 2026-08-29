@@ -53,7 +53,17 @@ struct ObjectHistoryDrawConstants {
     uint objectIndex;
 };
 
-[[push_constant]] ConstantBuffer<ObjectHistoryDrawConstants> objectDraw;
+// register(b0, space1): D3D12's equivalent of the [[vk::binding(_, 1)]] annotations below.
+// [[vk::binding]] is Vulkan-only — it does not influence Slang's DXIL register assignment at all —
+// so without this, Slang placed this push constant's lowered ordinary cbuffer (D3D12 has no native
+// push-constant mechanism; see RHI::PushConstantRange's doc comment) whichever space its own
+// automatic numbering picked, independently of the *separately compiled* gbuffer_geometry.slang
+// material shader this pipeline layout also combines. When that number happened to collide with a
+// register the material's own set-0 layout already used, CreateRootSignature failed with "Shader
+// register range of type CBV ... overlaps with another shader register range" — D3D12's exact
+// counterpart to the VUID-...-07990 collision described below for Vulkan, just never hit until a
+// D3D12 pipeline actually got far enough to build this specific combined layout.
+[[push_constant]] ConstantBuffer<ObjectHistoryDrawConstants> objectDraw : register(b0, space1);
 
 // Explicit set=1 (matching where Renderer::history_pipeline_for places this shader's hand-built
 // bind-group layout in the combined pipeline layout — RendererObjectHistory.cpp) — without this,
@@ -66,8 +76,12 @@ struct ObjectHistoryDrawConstants {
 // creates this layout by hand, not through generate_bind_group_layouts, since it's fixed and known
 // ahead of time. Backed by the exact same per-frame view_buffer/object_buffer prepare_scene_gpu_data
 // already fills for the instanced path (RendererScene.cpp) — real content, not a placeholder.
+//
+// register(t0, space1) alongside vk::binding: the same D3D12/Vulkan split as objectDraw above, this
+// time because Slang's *default* DXIL numbering (with no explicit register at all) is not guaranteed
+// to avoid the material shader's own space-0 registers either.
 [[vk::binding(0, 1)]]
-StructuredBuffer<SceneObjectGpuData> sceneObjects;
+StructuredBuffer<SceneObjectGpuData> sceneObjects : register(t0, space1);
 // StructuredBuffer, not ConstantBuffer<SceneViewGpuData>: observed empirically that Slang's
 // [[vk::binding(N, M)]] only reliably honors the requested *set* (M) for StructuredBuffer-kind
 // resources — a ConstantBuffer<T> here silently ignored the set argument and landed back at set 0,
@@ -76,7 +90,7 @@ StructuredBuffer<SceneObjectGpuData> sceneObjects;
 // StructuredBuffer is functionally equivalent for a one-off per-frame read; view_buffer's creation
 // (RendererScene.cpp) was widened to BufferUsage::Storage to match.
 [[vk::binding(1, 1)]]
-StructuredBuffer<SceneViewGpuData> sceneView;
+StructuredBuffer<SceneViewGpuData> sceneView : register(t1, space1);
 
 [shader("vertex")]
 VertexOutput vertexMainWithHistory(VertexInput input) {

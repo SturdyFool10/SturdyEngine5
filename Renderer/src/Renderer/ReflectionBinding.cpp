@@ -115,6 +115,41 @@ namespace {
         }
     }
 
+    /// Reports whether `reflection` has an implicit global-uniform constant buffer (Slang's
+    /// auto-collected "$Globals"-style block for a shader's loose top-level uniform parameters),
+    /// and if so, which descriptor set and binding the compiler actually placed it at.
+    ///
+    /// @param reflection `reflection` value used by the operation.
+    ///
+    /// @return The set/binding pair when present; `std::nullopt` when the shader has no loose
+    ///         global uniform parameters at all.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    [[nodiscard]] optional<std::pair<u32, u32>> find_global_constant_buffer_location(
+        const slang::ShaderReflection &reflection) {
+        const bool has_global_constant_buffer =
+            reflection.global_constant_buffer_size != 0 &&
+            reflection.global_constant_buffer_size != slang::shader_unbounded_size &&
+            reflection.global_constant_buffer_size != slang::shader_unknown_size;
+        if (!has_global_constant_buffer) {
+            return std::nullopt;
+        }
+        const u32 uniform_binding = reflection.global_constant_buffer_binding;
+        u32 uniform_set = 0;
+        for (const slang::ShaderDescriptorSetReflection &descriptor_set : reflection.descriptor_sets) {
+            const bool contains_global_constant_buffer = std::ranges::any_of(
+                descriptor_set.ranges,
+                [uniform_binding](const slang::ShaderDescriptorRangeReflection &range) {
+                    return range.type == slang::ShaderBindingType::ConstantBuffer &&
+                           range.binding == uniform_binding;
+                });
+            if (contains_global_constant_buffer) {
+                uniform_set = descriptor_set.space;
+                break;
+            }
+        }
+        return std::make_pair(uniform_set, uniform_binding);
+    }
+
     /// Collects descriptor bindings using the supplied arguments and current state.
     ///
     /// @param reflection `reflection` value used by the operation.
@@ -192,6 +227,29 @@ namespace {
             }
             begin = end;
         }
+
+        // Reserve the implicit global-uniform constant buffer's real binding slot. Slang's
+        // reflection numbers explicit resource globals (textures, samplers, ...) as if that
+        // implicit block did not occupy a binding at all, but the compiler actually places it at
+        // `reflection.global_constant_buffer_binding` and shifts every resource whose binding is
+        // >= that up by one in the emitted SPIR-V/DXIL. Every caller of this function needs to see
+        // that same shift consistently — both the RHI bind-group-layout builder
+        // (`generate_bind_group_layouts`) and every subsystem that separately calls
+        // `collect_resource_bindings` to know where to write each resource's descriptor
+        // (materials, GTAO, atmosphere, motion blur, shadows, SVGF, UI/text, custom effects, ...).
+        // Verified empirically against a real compiled pipeline: without this shift, a shader with
+        // both loose uniforms and resource globals (e.g. `Shaders/gbuffer_geometry.slang`, 5
+        // textures) built a `VkDescriptorSetLayout` whose bindings did not match its own shader
+        // module's real SPIR-V layout — `VUID-VkGraphicsPipelineCreateInfo-layout-07990` followed
+        // by `VK_ERROR_DEVICE_LOST`, 100% reproducibly.
+        if (const optional<std::pair<u32, u32>> uniform_location = find_global_constant_buffer_location(reflection)) {
+            const auto [uniform_set, uniform_binding] = *uniform_location;
+            for (ReflectedDescriptorBinding &descriptor : descriptors) {
+                if (descriptor.set == uniform_set && descriptor.binding >= uniform_binding) {
+                    ++descriptor.binding;
+                }
+            }
+        }
         return descriptors;
     }
 
@@ -230,25 +288,8 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
                              : RHI::BindingFlags::None,
             });
         }
-        const bool has_global_constant_buffer =
-            reflection.global_constant_buffer_size != 0 &&
-            reflection.global_constant_buffer_size != slang::shader_unbounded_size &&
-            reflection.global_constant_buffer_size != slang::shader_unknown_size;
-        if (has_global_constant_buffer) {
-            u32 uniform_set = 0;
-            const u32 uniform_binding = reflection.global_constant_buffer_binding;
-            for (const slang::ShaderDescriptorSetReflection &descriptor_set : reflection.descriptor_sets) {
-                const bool contains_global_constant_buffer = std::ranges::any_of(
-                    descriptor_set.ranges,
-                    [uniform_binding](const slang::ShaderDescriptorRangeReflection &range) {
-                        return range.type == slang::ShaderBindingType::ConstantBuffer &&
-                               range.binding == uniform_binding;
-                    });
-                if (contains_global_constant_buffer) {
-                    uniform_set = descriptor_set.space;
-                    break;
-                }
-            }
+        if (const optional<std::pair<u32, u32>> uniform_location = find_global_constant_buffer_location(reflection)) {
+            const auto [uniform_set, uniform_binding] = *uniform_location;
 
             auto layout = std::ranges::find(layouts, uniform_set, &GeneratedBindGroupLayout::set);
             if (layout == layouts.end()) {
@@ -256,6 +297,11 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
                 layout = std::prev(layouts.end());
             }
 
+            // `collect_descriptor_bindings` already shifted every resource at or after
+            // `uniform_binding` in this set out of the way (see its own comment), so this slot
+            // should always be free now. The fallback branch stays as defense in depth rather than
+            // an assumed-safe direct insert, since a collision here previously produced a real
+            // `VK_ERROR_DEVICE_LOST` rather than a caught error.
             auto existing = std::ranges::find(layout->entries, uniform_binding, &RHI::BindGroupLayoutEntry::binding);
             if (existing == layout->entries.end() || existing->type == RHI::BindingType::UniformBuffer) {
                 layout->entries.push_back(RHI::BindGroupLayoutEntry{
@@ -267,26 +313,19 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
                     .flags = RHI::BindingFlags::None,
                 });
             } else {
-                // `.binding` is this RHI's Vulkan-shaped unified descriptor index; on Vulkan itself
-                // it can't collide, since it comes straight from that shader's own SPIR-V reflection.
-                // D3D12 is the one that gets here: CBVs, SRVs and samplers live in independent
-                // register namespaces there (b0/t0/s0 all coexist), but `.binding` conflates them
-                // into one number, and the global constant buffer's binding (reflected off its own
-                // register class) can legitimately equal a texture's after per-class flattening.
-                // Silently dropping the entry (the previous behavior) left the material's constant
-                // buffer out of the root signature entirely — every shader with an implicit global
-                // constant buffer and any texture would fail PSO creation, not just this one.
-                //
-                // The register D3D12 actually binds to (`shader_register`, still `uniform_binding`,
-                // e.g. b0) is correct and unaffected; only this bookkeeping index needs to move.
-                // `resource.uniform_binding` (used later to write this entry's `BindGroupEntry`) is
-                // read back from this same generated layout, so the reassignment stays consistent.
-                u32 next_binding = uniform_binding;
-                for (const RHI::BindGroupLayoutEntry &entry : layout->entries) {
-                    next_binding = std::max(next_binding, entry.binding + 1);
+                // `.binding` is this RHI's Vulkan-shaped unified descriptor index, and on Vulkan it
+                // must exactly equal the real compiled SPIR-V binding for that resource. This
+                // branch should be unreachable now that `collect_descriptor_bindings` reserves the
+                // slot up front; kept only so an unexpected collision still resolves to a valid,
+                // if surprising, layout instead of silently dropping the uniform buffer entry —
+                // same shift `collect_descriptor_bindings` performs, applied locally.
+                for (RHI::BindGroupLayoutEntry &entry : layout->entries) {
+                    if (entry.binding >= uniform_binding) {
+                        ++entry.binding;
+                    }
                 }
                 layout->entries.push_back(RHI::BindGroupLayoutEntry{
-                    .binding = next_binding,
+                    .binding = uniform_binding,
                     .shader_register = uniform_binding,
                     .type = RHI::BindingType::UniformBuffer,
                     .visibility = visibility,

@@ -18,8 +18,11 @@
 #include <Renderer/TextInstance.hpp>
 
 #include <Renderer/UI/Context.hpp>
+#include <Renderer/UI/CustomStrokeElementPipeline.hpp>
 #include <Renderer/UI/UiCustomElementPipeline.hpp>
 #include <Renderer/UI/UiQuadPipeline.hpp>
+#include <Renderer/UI/UiSectorPipeline.hpp>
+#include <Renderer/UI/UiStrokePipeline.hpp>
 
 using std::vector;
 
@@ -123,16 +126,25 @@ namespace SFT::UI {
       private:
         Renderer::TextPipeline text_pipeline_;
         UiQuadPipeline quad_pipeline_;
+        UiStrokePipeline stroke_pipeline_;
+        UiSectorPipeline sector_pipeline_;
         UiCustomElementPipeline custom_element_pipeline_;
+        CustomStrokeElementPipeline custom_stroke_element_pipeline_;
         struct FrameResources {
             Renderer::TextFrameResources text;
             UiQuadFrameResources quads;
+            UiStrokeFrameResources strokes;
+            UiSectorFrameResources sectors;
             vector<Renderer::TextDrawBatch> text_batches;
             vector<UiQuadDrawBatch> quad_batches;
+            vector<UiStrokeDrawBatch> stroke_batches;
+            vector<UiSectorDrawBatch> sector_batches;
 
 
             vector<CustomDraw> custom_draws;
             vector<u32> custom_group_ids;
+            vector<CustomStrokeDraw> custom_strokes;
+            vector<u32> custom_stroke_group_ids;
         };
         struct SurfaceFrameResources {
             Core::RenderSurfaceHandle surface{};

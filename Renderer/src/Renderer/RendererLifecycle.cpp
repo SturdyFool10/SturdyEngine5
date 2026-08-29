@@ -3218,6 +3218,36 @@ namespace SFT::Renderer {
                                          &slot.cpu_timing.pass_timings)
                 : graph.execute_parallel(*device, std::move(*encoder), RHI::QueueLane{}, frame_command_buffers);
             if (!graph_result.has_value()) {
+                // A failed frame still creates real GPU objects before hitting the error — render
+                // bundles, bind groups, buffers, and transient graph textures from whichever passes
+                // ran before the one that failed. The success path below hands these to `slot` for
+                // deferred destruction once the GPU is done with them; skipping that here (as this
+                // used to) leaked every one of them on every failed frame. That went unnoticed
+                // because failures were rare, but a bug that fails every frame turns it into a fast
+                // leak: the render-bundle descriptor heap is a small fixed allocation, and it was
+                // exhausted (and reporting an unrelated, more confusing error) within about two
+                // seconds of a bug that fails 100% of frames.
+                graph.destroy_transient_resources(*device);
+                for (RHI::CommandBufferHandle command_buffer : frame_command_buffers) {
+                    if (command_buffer) {
+                        device->destroy_command_buffer(command_buffer);
+                    }
+                }
+                for (RHI::BindGroupHandle group : submission.transient_bind_groups) {
+                    if (group) {
+                        device->destroy_bind_group(group);
+                    }
+                }
+                for (RHI::BufferHandle buffer : submission.transient_buffers) {
+                    if (buffer) {
+                        device->destroy_buffer(buffer);
+                    }
+                }
+                for (RHI::RenderBundleHandle bundle : submission.transient_render_bundles) {
+                    if (bundle) {
+                        device->destroy_render_bundle(bundle);
+                    }
+                }
                 return graph_result;
             }
             if (gpu_timing_enabled) {

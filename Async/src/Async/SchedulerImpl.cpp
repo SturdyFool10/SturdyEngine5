@@ -331,11 +331,7 @@ namespace SFT::Async {
 
 
         if (active_config.worker_count == 0) {
-            const vector<u32> physical_cores = ranked_physical_cores();
-            const u32 physical_count = physical_cores.empty()
-                ? std::max<u32>(1, thread::hardware_concurrency())
-                : static_cast<u32>(physical_cores.size());
-            active_config.worker_count = physical_count > 1 ? physical_count - 1 : 1;
+            active_config.worker_count = std::max<u32>(1, thread::hardware_concurrency());
         }
         if (active_config.idle_sleep_microseconds == 0) {
             active_config.idle_sleep_microseconds = 1;

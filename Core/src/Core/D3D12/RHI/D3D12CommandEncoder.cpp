@@ -108,10 +108,16 @@ namespace SFT::D3D12 {
     /// @note Destruction does not return a failure status; resource-release failures are handled by the operations performed during teardown.
     D3D12CommandEncoder::~D3D12CommandEncoder() {
         if (!finished_ && record_.list != nullptr) {
-
-
-            (void)record_.list->Close();
-            device_->return_command_buffer(std::move(record_));
+            // Only pool this record if Close() actually succeeded. `return_command_buffer` resets
+            // the backing allocator unconditionally, and resetting an allocator while one of its
+            // command lists never successfully closed is undefined behavior — the corrupted list
+            // then fails every future recording attempt after being checked out again, with an
+            // error ("cannot be called on a closed command list") that points nowhere near this
+            // encoder's actual destruction. Dropping the record here instead just releases the COM
+            // objects normally.
+            if (SUCCEEDED(record_.list->Close())) {
+                device_->return_command_buffer(std::move(record_));
+            }
         }
     }
 
@@ -1193,29 +1199,46 @@ namespace SFT::D3D12 {
             fail("finish: a render or compute pass is still open.");
         }
         if (deferred_error_.has_value()) {
-            (void)record_.list->Close();
-            device_->return_command_buffer(std::move(record_));
+            // Only pool this record if Close() actually succeeded — see the destructor's comment.
+            // `deferred_error_` is a logical error unrelated to the list itself (e.g. an earlier RHI
+            // call failed), so Close() usually does succeed here, but it must still be checked before
+            // handing the record back to the allocator-reset-and-reuse path.
+            if (SUCCEEDED(record_.list->Close())) {
+                device_->return_command_buffer(std::move(record_));
+            }
             return std::unexpected(*deferred_error_);
         }
         if (const HRESULT hr = record_.list->Close(); FAILED(hr)) {
             std::string operation = "finish (Close)";
             ComPtr<ID3D12InfoQueue> info_queue;
             if (SUCCEEDED(device_->device_.As(&info_queue))) {
+                // Grab every stored message, not just the last: Close() surfaces validation errors
+                // recorded earlier in the command list (e.g. an invalid SetGraphicsRootDescriptorTable
+                // call several draws ago), and other INFO-level chatter recorded afterward would push
+                // the actually-relevant message off the tail.
                 const u64 count = info_queue->GetNumStoredMessagesAllowedByRetrievalFilter();
-                if (count != 0) {
+                for (u64 index = 0; index < count; ++index) {
                     SIZE_T bytes = 0;
-                    if (SUCCEEDED(info_queue->GetMessage(count - 1, nullptr, &bytes)) && bytes != 0) {
-                        vector<std::byte> storage(bytes);
-                        auto *message = reinterpret_cast<D3D12_MESSAGE *>(storage.data());
-                        if (SUCCEEDED(info_queue->GetMessage(count - 1, message, &bytes)) &&
-                            message->pDescription != nullptr) {
-                            operation += ": ";
-                            operation.append(message->pDescription, message->DescriptionByteLength);
-                        }
+                    if (FAILED(info_queue->GetMessage(index, nullptr, &bytes)) || bytes == 0) {
+                        continue;
+                    }
+                    vector<std::byte> storage(bytes);
+                    auto *message = reinterpret_cast<D3D12_MESSAGE *>(storage.data());
+                    if (SUCCEEDED(info_queue->GetMessage(index, message, &bytes)) && message->pDescription != nullptr) {
+                        operation += " | [";
+                        operation += std::to_string(static_cast<int>(message->Severity));
+                        operation += "] ";
+                        operation.append(message->pDescription, message->DescriptionByteLength);
                     }
                 }
             }
-            device_->return_command_buffer(std::move(record_));
+            // Do not pool this record: Close() itself failed, so the list never reached the closed
+            // state `return_command_buffer`'s allocator reset requires. Recycling it anyway (the
+            // previous behavior) reset the allocator while the list was still open — undefined
+            // behavior that corrupted the list, which then failed every future draw call recorded
+            // into it after the next checkout with "cannot be called on a closed command list",
+            // pointing nowhere near this actual cause. Letting `record_` be destroyed here instead
+            // just releases the COM objects.
             return hresult_error(hr, operation);
         }
         return device_->command_buffers_.insert(std::move(record_));

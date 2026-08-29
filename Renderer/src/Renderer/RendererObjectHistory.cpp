@@ -277,9 +277,25 @@ namespace SFT::Renderer {
             auto guard = object_history_.lock();
             layout = guard->bind_group_layout;
         }
+        // `structure_stride` matters on D3D12: a StructuredBuffer SRV addresses elements by a stride
+        // baked into the descriptor itself, not one derived from the shader's declared element type.
+        // Left at the default 0, D3D12 falls back to a 4-byte raw stride, so `sceneObjects[i]` for
+        // any `i` beyond 0 read from the wrong byte offset — element 0 (byte 0) was accidentally
+        // correct regardless of stride, which is exactly why one object could render fine while
+        // another, sharing the same buffer at a different index, read garbage. Vulkan has no
+        // equivalent gap: SPIR-V's declared stride always matches the shader.
+        //
+        // `size` is likewise explicit rather than left at 0 ("whole buffer"): view_buffer is also
+        // usable as an ordinary ConstantBuffer elsewhere, so its D3D12 allocation is padded up to
+        // the 256-byte constant-buffer alignment (304 bytes -> 512) — "whole buffer" would then
+        // describe a 512-byte SRV range against a 304-byte stride, which D3D12 rejects outright
+        // since it doesn't divide evenly.
         const array<RHI::BindGroupEntry, 2> entries{
-            RHI::BindGroupEntry{.binding = 0, .buffer = resources.object_buffer},
-            RHI::BindGroupEntry{.binding = 1, .buffer = resources.view_buffer},
+            RHI::BindGroupEntry{.binding = 0, .buffer = resources.object_buffer,
+                                .size = static_cast<u64>(resources.object_capacity) * sizeof(SceneObjectGpuData),
+                                .structure_stride = static_cast<u32>(sizeof(SceneObjectGpuData))},
+            RHI::BindGroupEntry{.binding = 1, .buffer = resources.view_buffer, .size = sizeof(SceneViewGpuData),
+                                .structure_stride = static_cast<u32>(sizeof(SceneViewGpuData))},
         };
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = layout,

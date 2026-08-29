@@ -15,6 +15,8 @@
 #include <vector>
 #pragma endregion
 
+#include <Foundation/Stopwatch.hpp>
+
 #include <tracy/Tracy.hpp>
 
 namespace SFT::D3D12 {
@@ -194,6 +196,7 @@ namespace SFT::D3D12 {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult D3D12Device::initialize() {
         ZoneScopedN("D3D12Device::initialize");
+        const Foundation::Stopwatch stopwatch;
         if (device_ == nullptr) {
             return operation_failed("D3D12Device::initialize: no ID3D12Device was supplied.");
         }
@@ -202,19 +205,28 @@ namespace SFT::D3D12 {
         (void)device_.As(&device5_);
         (void)device_.As(&device8_);
         (void)device_.As(&device10_);
+        Foundation::log_info("D3D12: device interfaces queried (ID3D12Device5={}, ID3D12Device8={}, ID3D12Device10={}).",
+                             device5_ != nullptr, device8_ != nullptr, device10_ != nullptr);
 
 
         if (pipeline_library_supported_) {
             if (ComPtr<ID3D12PipelineLibrary1> library = load_pipeline_library(device_.Get());
                 library != nullptr) {
                 *pipeline_library_.lock() = std::move(library);
+                Foundation::log_info("D3D12: pipeline library ready ({}).",
+                                     std::filesystem::exists(pipeline_library_cache_path) ? "loaded from disk cache"
+                                                                                          : "created fresh");
             } else {
                 pipeline_library_supported_ = false;
+                Foundation::log_warn("D3D12: pipeline library creation failed; PSO caching is disabled for this run.");
             }
+        } else {
+            Foundation::log_info("D3D12: pipeline library caching is not supported on this device.");
         }
 
         if (auto queue = create_queue(device_.Get(), D3D12_COMMAND_LIST_TYPE_DIRECT, "Sturdy graphics queue")) {
             graphics_queue_ = std::move(*queue);
+            Foundation::log_info("D3D12: graphics (direct) queue created.");
         } else {
             return std::unexpected(queue.error());
         }
@@ -222,9 +234,15 @@ namespace SFT::D3D12 {
 
         if (auto queue = create_queue(device_.Get(), D3D12_COMMAND_LIST_TYPE_COMPUTE, "Sturdy compute queue")) {
             compute_queue_ = std::move(*queue);
+            Foundation::log_info("D3D12: dedicated compute queue created.");
+        } else {
+            Foundation::log_warn("D3D12: dedicated compute queue creation failed; compute work will use the graphics queue.");
         }
         if (auto queue = create_queue(device_.Get(), D3D12_COMMAND_LIST_TYPE_COPY, "Sturdy copy queue")) {
             copy_queue_ = std::move(*queue);
+            Foundation::log_info("D3D12: dedicated copy queue created.");
+        } else {
+            Foundation::log_warn("D3D12: dedicated copy queue creation failed; copies will use the graphics queue.");
         }
 
         // Constructed here rather than in the constructor: it publishes borrowed pointers to the
@@ -236,6 +254,7 @@ namespace SFT::D3D12 {
                     auto *device = static_cast<D3D12Device *>(context);
                     return device != nullptr ? device->queue_for_lane(lane) : nullptr;
                 });
+            Foundation::log_info("D3D12: native-access extension published.");
         }
 
         for (auto *fence_holder : {&graphics_blocking_fence_, &compute_blocking_fence_, &copy_blocking_fence_}) {
@@ -249,6 +268,7 @@ namespace SFT::D3D12 {
                 return operation_failed("D3D12Device::initialize: CreateEventW failed for a blocking fence.");
             }
         }
+        Foundation::log_info("D3D12: blocking fences created for the graphics, compute and copy queues.");
 
         // D3D12MA suballocates buffers/textures onto shared heaps via CreatePlacedResource instead of
         // every resource paying for its own dedicated CreateCommittedResource heap (the D3D12
@@ -269,6 +289,8 @@ namespace SFT::D3D12 {
                     "D3D12: D3D12MA::CreateAllocator failed (hr=0x{:08X}); every buffer/texture will fall "
                     "back to its own dedicated CreateCommittedResource allocation.",
                     static_cast<u32>(hr));
+            } else {
+                Foundation::log_info("D3D12: D3D12MA suballocator initialized.");
             }
         }
 
@@ -290,6 +312,7 @@ namespace SFT::D3D12 {
                 return initialized;
             }
         }
+        Foundation::log_info("D3D12: CPU descriptor heap allocators initialized (resource, sampler, RTV, DSV).");
 
         if (auto initialized = bundle_resource_descriptors_.initialize(
                 device_.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, default_persistent_bundle_resource_descriptors);
@@ -301,16 +324,21 @@ namespace SFT::D3D12 {
             !initialized) {
             return initialized;
         }
+        Foundation::log_info("D3D12: render-bundle descriptor heap allocators initialized.");
 
 
         UINT64 timestamp_frequency = 0;
         if (SUCCEEDED(graphics_queue_->GetTimestampFrequency(&timestamp_frequency)) && timestamp_frequency != 0) {
             limits_.timestamp_period_ns = 1'000'000'000.0f / static_cast<f32>(timestamp_frequency);
+            Foundation::log_info("D3D12: graphics queue timestamp frequency={} Hz (period={:.3f} ns).",
+                                 timestamp_frequency, limits_.timestamp_period_ns);
         } else {
             limits_.timestamp_period_ns = 0.0f;
             limits_.timestamp_valid_bits = 0;
+            Foundation::log_warn("D3D12: graphics queue timestamp frequency unavailable; GPU timestamp queries are disabled.");
         }
 
+        Foundation::log_info("D3D12 device fully initialized in {}.", stopwatch.elapsed_human());
         return {};
     }
 

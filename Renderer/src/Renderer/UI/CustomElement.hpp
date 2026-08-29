@@ -19,6 +19,19 @@
 // Clay type either.
 namespace SFT::UI {
 
+    // Clay has exactly one CUSTOM render command type, carrying a single opaque `void* customData`
+    // payload — Context::custom_element() (CustomShaderRef), Context::stroke_paths() (UI/UiStroke.hpp's
+    // StrokePolylineData), Context::fill_quads() (UI/UiFill.hpp's FillQuadListData),
+    // Context::fill_sectors() (UI/UiSector.hpp's SectorListData), and Context::stroke_custom()
+    // (CustomStrokeElementData, below) all route through it, since Clay's fixed set of render command
+    // types has no native "arbitrary polyline"/"many overlapping rects"/"pie slice"/"shader-driven
+    // line" command. This tag disambiguates them at resolve time (Context::finish_frame()'s
+    // CLAY_RENDER_COMMAND_TYPE_CUSTOM case): it MUST be the first declared member of every payload
+    // struct, so `static_cast<const UiCustomCommandKind *>` on the untyped `customData` pointer reads
+    // the right struct's tag via the standard's common-initial-sequence/pointer-interconvertibility
+    // guarantee for standard-layout types.
+    enum class UiCustomCommandKind : u8 { Shader = 0, Stroke = 1, Fill = 2, Sector = 3, CustomStroke = 4 };
+
     // Every custom-element shader's single push-constant struct must begin with exactly these five
     // fields, in this order and byte layout (see Shaders/sturdy_common.slang's uiQuadClipPosition(),
     // which a custom shader's own vertexMain calls with these five fields) —
@@ -50,6 +63,9 @@ namespace SFT::UI {
     // No concrete need for a textured custom element has come up yet (plans/clay-ui-renderer.md);
     // this can grow to support resource bindings if/when one does.
     struct CustomShaderRef {
+        // MUST stay the first member — see UiCustomCommandKind's own doc comment above.
+        UiCustomCommandKind command_kind = UiCustomCommandKind::Shader;
+
         std::string shader_path;
         std::string module_name;
         std::string fragment_entry_point = "fragmentMain";
@@ -78,6 +94,60 @@ namespace SFT::UI {
     struct CustomDraw {
         glm::vec2 position{0.0f};
         glm::vec2 size{0.0f};
+        const CustomShaderRef *shader = nullptr;
+        RHI::Rect2D scissor{};
+        PaintKey paint{};
+    };
+
+    // The push-constant prefix a Context::stroke_custom() shader's own struct must start with —
+    // CustomShaderRef reused as-is (same shader_path/module_name/fragment_entry_point/push_constants
+    // shape), just paired with this prefix instead of UiElementConstants. A clean 48 bytes for the
+    // same reason UiElementConstants is 32: a shader's first trailing field lands at a clean multiple
+    // of 16 with no implicit HLSL-cbuffer-style alignment gap to account for.
+    //
+    // `vertexMain` MUST build its geometry via Shaders/sturdy_common.slang's
+    // uiStrokeSegmentClipPosition() — the shared-vertex-helper counterpart of
+    // uiQuadClipPosition()/UiElementConstants for quad custom elements — given these five fields.
+    //
+    // `arc_length_so_far` is this segment's starting distance along the *whole* polyline (same value
+    // UiStrokeInstance::dash_phase carries for the built-in dashing) — a shader computing a gradient/
+    // pattern along the line needs this rather than a per-segment-local parametrization, since two
+    // adjacent segments' local [0,1] ranges don't correspond to a consistent position along the curve
+    // (each segment's own orientation differs). Using local position instead produces a visibly
+    // discontinuous "restarts every segment" look — found by rendering the demo shader
+    // (Shaders/ui_stroke_custom_demo.slang) and seeing exactly that artifact.
+    struct CustomStrokeElementConstants {
+        glm::vec2 p0{0.0f};
+        glm::vec2 p1{0.0f};
+        f32 half_width = 0.5f;
+        f32 feather_px = 0.0f;
+        glm::vec2 viewport_size{0.0f};
+        f32 arc_length_so_far = 0.0f;
+        f32 _pad0 = 0.0f;
+        f32 _pad1 = 0.0f;
+        f32 _pad2 = 0.0f;
+    };
+
+    // A whole polyline drawn through a caller-supplied fragment shader instead of ui_stroke.slang —
+    // the stroke-shaped sibling of Context::custom_element(). Unlike a batched StrokeDraw
+    // (UI/UiStroke.hpp), this expands to one *unbatched* draw call per segment (points.size() - 1),
+    // matching CustomDraw's own "expected to be rare, not per-widget" cost model: a caller flags a
+    // specific data series or gridline for a custom shader/post-effect, not every line in a chart.
+    struct CustomStrokeElementData {
+        // MUST stay the first member — see UiCustomCommandKind's own doc comment above.
+        UiCustomCommandKind command_kind = UiCustomCommandKind::CustomStroke;
+
+        std::vector<glm::vec2> points;
+        f32 half_width = 0.5f;
+        f32 feather_px = 0.0f;
+        CustomShaderRef shader;
+    };
+
+    // One resolved Context::stroke_custom() call.
+    struct CustomStrokeDraw {
+        std::vector<glm::vec2> points;
+        f32 half_width = 0.5f;
+        f32 feather_px = 0.0f;
         const CustomShaderRef *shader = nullptr;
         RHI::Rect2D scissor{};
         PaintKey paint{};

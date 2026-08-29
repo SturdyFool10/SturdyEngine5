@@ -304,6 +304,7 @@ namespace SFT::D3D12 {
         u32 current_image = ~0u;
         u32 sync_interval = 1;
         UINT present_flags = 0;
+        UINT swap_chain_flags = 0;
         rhi::PresentationResolution presentation_resolution{};
 
 
@@ -1022,6 +1023,17 @@ namespace SFT::D3D12 {
         ///
         /// @note This function does not throw exceptions.
         void destroy_swapchain_textures(SwapchainRecord &record) noexcept;
+        /// Resizes an existing composition-presented swapchain in place, reusing its DirectComposition
+        /// device/target/visual instead of tearing them down and rebuilding them.
+        ///
+        /// @param handle Handle of the existing swapchain being resized; consumed by this call.
+        /// @param desc Description of the resource or operation to perform.
+        /// @param back_buffer_format Format used for the resource, render target, or conversion.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] rhi::RhiExpected<rhi::SwapchainHandle> resize_composition_swapchain(
+            rhi::SwapchainHandle handle, const rhi::SwapchainDesc &desc, DXGI_FORMAT back_buffer_format);
 
 
         ComPtr<IDXGIFactory6> factory_;

@@ -29,6 +29,30 @@ namespace SFT::UI {
     /// @note This function does not throw exceptions.
     std::span<const QuadDraw> FrameSnapshot::quads() const noexcept { return quads_; }
 
+    /// Returns the current or globally available strokes value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
+    std::span<const StrokeDraw> FrameSnapshot::strokes() const noexcept { return strokes_; }
+
+    /// Returns the current or globally available fills value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
+    std::span<const FillQuadDraw> FrameSnapshot::fills() const noexcept { return fills_; }
+
+    /// Returns the current or globally available sectors value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
+    std::span<const SectorDraw> FrameSnapshot::sectors() const noexcept { return sectors_; }
+
+    /// Returns the current or globally available custom strokes value.
+    ///
+    /// @return Returns a non-owning view of the underlying data; the view remains valid only while that storage is not invalidated.
+    /// @note This function does not throw exceptions.
+    std::span<const CustomStrokeDraw> FrameSnapshot::custom_strokes() const noexcept { return custom_strokes_; }
+
     /// Sets the scroll settings for this `UI`.
     ///
     /// @param settings Configuration values controlling the operation.

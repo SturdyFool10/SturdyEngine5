@@ -6,8 +6,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <functional>
+#include <limits>
 #include <span>
 #include <string_view>
 #include <utility>
@@ -27,6 +30,16 @@ namespace SFT::UiWorkbench {
         constexpr UI::Color success{0.270, 0.820, 0.620, 1.0};
         constexpr UI::Color warning{1.0, 0.670, 0.260, 1.0};
         constexpr UI::Color danger{0.960, 0.350, 0.380, 1.0};
+
+        // Console log-line virtualization: an approximate single-line row height (12px font, a
+        // bit of leading) used only to estimate which lines are actually scrolled into view, so
+        // the console can render a bounded number of `draw_text` calls per frame regardless of
+        // how many thousand lines are captured. A wrapped (multi-row) line makes this an
+        // underestimate for that one row, not a correctness problem — see
+        // `WorkbenchUi::build_console_panel`'s doc comment for the full reasoning. Generous
+        // padding (`console_visible_padding_lines`) absorbs the resulting drift.
+        constexpr f32 console_line_height_px = 16.0f;
+        constexpr usize console_visible_padding_lines = 24;
 
         /// Performs the background with opacity operation for `UiWorkbench` using the supplied arguments.
         ///
@@ -356,6 +369,12 @@ namespace SFT::UiWorkbench {
         UI::ScrollAreaState text_scroll{};
         UI::ScrollAreaState docking_scroll{};
         UI::ScrollAreaState metrics_scroll{};
+        UI::ScrollAreaState console_scroll{};
+        UI::ScrollAreaState strokes_scroll{};
+        f32 custom_stroke_time = 0.0f;
+        UI::ScrollAreaState graphs_scroll{};
+        UI::FrameGraphState frame_graph_state{};
+        f32 frame_graph_phase = 0.0f;
 
 
         f32 fps_smoothed = -1.0f;
@@ -450,6 +469,20 @@ namespace SFT::UiWorkbench {
         }
 
         route_input(engine);
+
+        // Demonstrates Foundation::add_log_sink (and, through it, the FFI's sturdy_log_add_sink):
+        // captures every engine log message into console_log_lines_ for the Console panel to
+        // display, the same mechanism a foreign-language host uses to build its own log viewer.
+        console_log_sink_id_ = Foundation::add_log_sink(
+            [this](Foundation::LogLevel level, std::string_view message) {
+                const std::lock_guard<std::mutex> lock(console_log_mutex_);
+                if (console_log_lines_.size() >= console_log_capacity_) {
+                    console_log_lines_.pop_front();
+                    ++console_log_dropped_;
+                }
+                console_log_lines_.push_back(ConsoleLine{level, std::string{message}});
+            });
+
         return {};
     }
 
@@ -535,6 +568,12 @@ namespace SFT::UiWorkbench {
                 .id = UString{"text"}, .title = UString{"Text Lab"}, .closable = true});
             (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
                 .id = UString{"metrics"}, .title = UString{"Performance"}, .closable = true});
+            (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
+                .id = UString{"console"}, .title = UString{"Console"}, .closable = true});
+            (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
+                .id = UString{"strokes"}, .title = UString{"Strokes"}, .closable = true});
+            (void)result->workspace.add_panel(UI::Docking::DockPanelDesc{
+                .id = UString{"graphs"}, .title = UString{"Graphs"}, .closable = true});
         }
         return result;
     }
@@ -982,6 +1021,68 @@ namespace SFT::UiWorkbench {
         if (auto decl = surface.workspace.panel_content_region(UString{"metrics"})) {
             (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.metrics_scroll, delta_seconds, [&](UI::Context &ctx) {
                 build_metrics_panel(surface, ctx, delta_seconds);
+            });
+        }
+        if (auto decl = surface.workspace.panel_content_region(UString{"console"})) {
+            usize console_line_count = 0;
+            {
+                const std::lock_guard<std::mutex> lock(console_log_mutex_);
+                console_line_count = console_log_lines_.size();
+            }
+            // Estimate which lines are actually scrolled into view from *last* frame's metrics
+            // (one-frame-stale, same contract the autoscroll logic below already relies on) so
+            // build_console_panel only builds text elements for those, not every captured line —
+            // see its own doc comment for why. Padded generously on both sides so a fast scroll
+            // or an underestimated wrapped-line height doesn't pop lines in visibly.
+            usize first_visible_line = 0;
+            usize visible_line_count = console_line_count;
+            {
+                const UI::Context::ScrollMetrics metrics = surface.context.scroll_metrics(decl->id);
+                if (metrics.found && metrics.vertical) {
+                    const f32 first_visible_f = (-metrics.offset.y) / console_line_height_px;
+                    const usize first_estimate = first_visible_f > 0.0f ? static_cast<usize>(first_visible_f) : 0;
+                    first_visible_line =
+                        first_estimate > console_visible_padding_lines ? first_estimate - console_visible_padding_lines : 0;
+                    const usize visible_rows =
+                        static_cast<usize>(std::ceil(metrics.container_size.y / console_line_height_px)) +
+                        2 * console_visible_padding_lines;
+                    visible_line_count = visible_rows;
+                }
+            }
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.console_scroll, delta_seconds, [&](UI::Context &ctx) {
+                build_console_panel(surface, ctx, delta_seconds, first_visible_line, visible_line_count);
+            });
+            // Forcing the scroll position every single frame (the bug this replaced) fights any
+            // scroll the user is doing on every frame that follows, which is indistinguishable
+            // from "scrolling doesn't work" — only re-pin to the bottom on the frame new content
+            // actually arrives (a Clear also changes the count, resetting the tracked baseline),
+            // the same "tail -f" behavior any log console uses. All other frames leave the scroll
+            // position alone.
+            if (console_autoscroll_ && console_line_count != console_lines_at_last_autoscroll_) {
+                console_lines_at_last_autoscroll_ = console_line_count;
+                // One-frame-stale metrics, the same contract `Context::scroll_metrics`'s own users
+                // rely on elsewhere in this file — enough to land on the bottom as of this new
+                // line without needing this frame's just-built layout.
+                //
+                // Clay's scroll offset is 0 at the top and *negative* going down (an element's
+                // screen position is `base + scrollOffset`, so a negative offset shifts content up
+                // on screen, revealing later/lower content) — clamped to
+                // [container_size - content_size, 0] by `Context::set_scroll_offset` itself.
+                const UI::Context::ScrollMetrics metrics = surface.context.scroll_metrics(decl->id);
+                if (metrics.found && metrics.vertical) {
+                    const f32 bottom_offset_y = std::min(0.0f, metrics.container_size.y - metrics.content_size.y);
+                    (void)surface.context.set_scroll_offset(decl->id, glm::vec2{metrics.offset.x, bottom_offset_y});
+                }
+            }
+        }
+        if (auto decl = surface.workspace.panel_content_region(UString{"strokes"})) {
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.strokes_scroll, delta_seconds, [&](UI::Context &ctx) {
+                build_strokes_panel(surface, ctx, delta_seconds);
+            });
+        }
+        if (auto decl = surface.workspace.panel_content_region(UString{"graphs"})) {
+            (void)UI::scroll_area(surface.context, decl->id, *decl, scrollbar_style_, surface.graphs_scroll, delta_seconds, [&](UI::Context &ctx) {
+                build_graphs_panel(surface, ctx, delta_seconds);
             });
         }
 
@@ -2418,6 +2519,552 @@ namespace SFT::UiWorkbench {
         timing_section("CPU PASS RECORDING", timings.cpu_pass_timings_ms);
     }
 
+    /// Builds strokes panel — a smoke test for UI::Context::stroke_polyline() (spiral, sharp zigzag,
+    /// and a pixel-snapped dashed hairline).
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param ctx `ctx` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void WorkbenchUi::build_strokes_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds) {
+        auto body = ctx.element(UI::ElementDecl{
+            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+            .padding = UI::Padding::all(22),
+            .child_gap = 16,
+            .direction = UI::LayoutDirection::TopToBottom,
+            .id = UString{"workbench-strokes-body"},
+        });
+        panel_heading(ctx, font_id_, "PRIMITIVES", "Strokes",
+                      "Anti-aliased polyline smoke test for UI::Context::stroke_polyline() -- a spiral, a sharp "
+                      "zigzag, and a pixel-snapped dashed hairline -- plus UI::Context::stroke_custom() for a "
+                      "caller-supplied fragment shader.");
+
+        constexpr f32 row_width = 640.0f;
+        constexpr f32 row_height = 160.0f;
+
+        const auto stroke_row = [&](const char *id_suffix, const UI::StrokeStyle &style,
+                                    const std::vector<glm::vec2> &points) {
+            const std::string base = std::string("workbench-strokes-") + id_suffix;
+            auto box = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::fixed(row_width), UI::SizingAxis::fixed(row_height)},
+                .background_color = UI::Color{0.08, 0.09, 0.11, 1.0},
+                .corner_radius = UI::CornerRadius::all(8.0f),
+                .id = UString{base},
+            });
+            ctx.stroke_polyline(UI::ElementDecl{
+                                    .sizing = {UI::SizingAxis::fixed(row_width), UI::SizingAxis::fixed(row_height)},
+                                    .id = UString{base + "-line"},
+                                },
+                                points, style);
+        };
+
+        {
+            std::vector<glm::vec2> spiral_points;
+            spiral_points.reserve(121);
+            const glm::vec2 center{140.0f, 80.0f};
+            for (int i = 0; i <= 120; ++i) {
+                const f32 t = static_cast<f32>(i) / 120.0f;
+                const f32 angle = t * 6.0f * 3.14159265f;
+                const f32 radius = 6.0f + t * 68.0f;
+                spiral_points.push_back(center + glm::vec2{std::cos(angle), std::sin(angle)} * radius);
+            }
+            stroke_row("spiral", UI::StrokeStyle{.color = UI::Color{0.35, 0.75, 1.0, 1.0}, .width = 3.0f, .feather_px = 1.5f},
+                      spiral_points);
+        }
+        {
+            const std::vector<glm::vec2> zigzag_points{
+                {320.0f, 20.0f}, {400.0f, 80.0f}, {320.0f, 140.0f},
+            };
+            stroke_row("zigzag", UI::StrokeStyle{.color = UI::Color{1.0, 0.55, 0.25, 1.0}, .width = 4.0f}, zigzag_points);
+        }
+        {
+            const std::vector<glm::vec2> dashed_points{{460.0f, 80.0f}, {620.0f, 80.0f}};
+            stroke_row("dashed",
+                      UI::StrokeStyle{.color = UI::Color{0.6, 1.0, 0.55, 1.0}, .width = 1.0f, .dash_length = 8.0f,
+                                     .dash_gap = 6.0f, .snap_to_pixel_grid = true},
+                      dashed_points);
+        }
+        {
+            // Custom-shader stroke: an animated rainbow gradient, driven entirely by a caller-supplied
+            // fragment shader (Shaders/ui_stroke_custom_demo.slang) instead of ui_stroke.slang.
+            surface.custom_stroke_time += delta_seconds;
+            struct DemoTrailingParams {
+                f32 time;
+                f32 pad0;
+                f32 pad1;
+                f32 pad2;
+            };
+            const DemoTrailingParams trailing{.time = surface.custom_stroke_time};
+            std::vector<std::byte> push_constants(sizeof(trailing));
+            std::memcpy(push_constants.data(), &trailing, sizeof(trailing));
+
+            const UI::CustomShaderRef shader{
+                .shader_path = "Shaders/ui_stroke_custom_demo.slang",
+                .module_name = "ui_stroke_custom_demo",
+                .fragment_entry_point = "fragmentMain",
+                .push_constants = std::move(push_constants),
+            };
+
+            const std::string base = "workbench-strokes-custom";
+            auto box = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::fixed(row_width), UI::SizingAxis::fixed(row_height)},
+                .background_color = UI::Color{0.08, 0.09, 0.11, 1.0},
+                .corner_radius = UI::CornerRadius::all(8.0f),
+                .id = UString{base},
+            });
+            std::vector<glm::vec2> wave_points;
+            wave_points.reserve(97);
+            for (int i = 0; i <= 96; ++i) {
+                const f32 t = static_cast<f32>(i) / 96.0f;
+                const f32 x = 20.0f + t * 600.0f;
+                const f32 y = 80.0f + 45.0f * std::sin(t * 4.0f * 3.14159265f + surface.custom_stroke_time);
+                wave_points.push_back({x, y});
+            }
+            ctx.stroke_custom(UI::ElementDecl{
+                                  .sizing = {UI::SizingAxis::fixed(row_width), UI::SizingAxis::fixed(row_height)},
+                                  .id = UString{base + "-line"},
+                              },
+                              wave_points, 4.0f, 1.5f, shader);
+        }
+    }
+
+    /// Builds graphs panel — a smoke test for UI::graph()/UI::GraphType::Line, including a log-Y-axis
+    /// chart and a chart with both axes non-linear (symlog X, log Y) to demonstrate AxisConfig::scale
+    /// isn't limited to linear.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param ctx `ctx` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void WorkbenchUi::build_graphs_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds) {
+        (void)surface;
+        (void)delta_seconds;
+        auto body = ctx.element(UI::ElementDecl{
+            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+            .padding = UI::Padding::all(22),
+            .child_gap = 16,
+            .direction = UI::LayoutDirection::TopToBottom,
+            .id = UString{"workbench-graphs-body"},
+        });
+        panel_heading(ctx, font_id_, "PRIMITIVES", "Graphs",
+                      "UI::graph() smoke test -- linear axes, a log Y axis, and a chart with both axes "
+                      "non-linear (symlog X, log Y).");
+
+        constexpr f32 chart_width = 640.0f;
+        constexpr f32 chart_height = 220.0f;
+
+        // Linear: sine wave, both axes linear/autoscaled.
+        {
+            std::vector<f64> xs;
+            std::vector<f64> ys;
+            xs.reserve(120);
+            ys.reserve(120);
+            for (int i = 0; i < 120; ++i) {
+                const f64 x = static_cast<f64>(i) / 119.0 * 4.0 * 3.14159265358979;
+                xs.push_back(x);
+                ys.push_back(std::sin(x));
+            }
+            UI::GraphDesc desc{};
+            desc.font_id = font_id_;
+            desc.x_axis.title = "x";
+            desc.y_axis.title = "sin(x)";
+            desc.series.push_back(UI::SeriesRef{
+                .name = "sin(x)", .x = xs, .y = ys, .color = UI::Color{0.4, 0.75, 1.0, 1.0}, .line_width = 2.0f,
+                .feather_px = 1.0f,
+            });
+            UI::GraphState state{};
+            (void)UI::graph(ctx,
+                            UI::ElementDecl{
+                                .sizing = {UI::SizingAxis::fixed(chart_width), UI::SizingAxis::fixed(chart_height)},
+                                .id = UString{"workbench-graphs-linear"},
+                            },
+                            desc, state);
+        }
+
+        // Log Y: exponential growth -- a straight line on a log axis is the classic visual proof that
+        // the scale is actually logarithmic, not just relabeled.
+        {
+            std::vector<f64> xs;
+            std::vector<f64> ys;
+            xs.reserve(60);
+            ys.reserve(60);
+            for (int i = 0; i < 60; ++i) {
+                const f64 x = static_cast<f64>(i) / 59.0 * 10.0;
+                xs.push_back(x);
+                ys.push_back(std::exp(x * 0.5));
+            }
+            UI::GraphDesc desc{};
+            desc.font_id = font_id_;
+            desc.x_axis.title = "x";
+            desc.y_axis.title = "exp(x/2)";
+            desc.y_axis.scale.kind = UI::ScaleKind::Log;
+            desc.series.push_back(UI::SeriesRef{
+                .name = "exp(x/2)", .x = xs, .y = ys, .color = UI::Color{1.0, 0.6, 0.3, 1.0}, .line_width = 2.0f,
+                .feather_px = 1.0f,
+            });
+            UI::GraphState state{};
+            (void)UI::graph(ctx,
+                            UI::ElementDecl{
+                                .sizing = {UI::SizingAxis::fixed(chart_width), UI::SizingAxis::fixed(chart_height)},
+                                .id = UString{"workbench-graphs-logy"},
+                            },
+                            desc, state);
+        }
+
+        // Both axes non-linear: x is symlog (the data crosses zero, which a plain log axis can't
+        // represent), y is log (x^2 + 1 is always positive).
+        {
+            std::vector<f64> xs;
+            std::vector<f64> ys;
+            xs.reserve(101);
+            ys.reserve(101);
+            for (int i = 0; i <= 100; ++i) {
+                const f64 x = -50.0 + static_cast<f64>(i);
+                xs.push_back(x);
+                ys.push_back(x * x + 1.0);
+            }
+            UI::GraphDesc desc{};
+            desc.font_id = font_id_;
+            desc.x_axis.title = "x";
+            desc.y_axis.title = "x^2 + 1";
+            desc.x_axis.scale.kind = UI::ScaleKind::Symlog;
+            desc.x_axis.scale.symlog_linear_threshold = 5.0;
+            desc.y_axis.scale.kind = UI::ScaleKind::Log;
+            desc.series.push_back(UI::SeriesRef{
+                .name = "x^2 + 1", .x = xs, .y = ys, .color = UI::Color{0.65, 1.0, 0.55, 1.0}, .line_width = 2.0f,
+                .feather_px = 1.0f,
+            });
+            UI::GraphState state{};
+            (void)UI::graph(ctx,
+                            UI::ElementDecl{
+                                .sizing = {UI::SizingAxis::fixed(chart_width), UI::SizingAxis::fixed(chart_height)},
+                                .id = UString{"workbench-graphs-both"},
+                            },
+                            desc, state);
+        }
+
+        // Area: damped oscillation, filled to the zero baseline.
+        {
+            std::vector<f64> xs;
+            std::vector<f64> ys;
+            xs.reserve(150);
+            ys.reserve(150);
+            for (int i = 0; i < 150; ++i) {
+                const f64 x = static_cast<f64>(i) / 149.0 * 6.0 * 3.14159265358979;
+                xs.push_back(x);
+                ys.push_back(std::sin(x) * std::exp(-x * 0.15));
+            }
+            UI::GraphDesc desc{};
+            desc.font_id = font_id_;
+            desc.type = UI::GraphType::Area;
+            desc.x_axis.title = "x";
+            desc.y_axis.title = "damped sin(x)";
+            desc.series.push_back(UI::SeriesRef{
+                .name = "damped", .x = xs, .y = ys, .color = UI::Color{0.55, 0.85, 1.0, 1.0}, .line_width = 2.0f,
+                .feather_px = 1.0f, .area_fill_opacity = 0.4f,
+            });
+            UI::GraphState state{};
+            (void)UI::graph(ctx,
+                            UI::ElementDecl{
+                                .sizing = {UI::SizingAxis::fixed(chart_width), UI::SizingAxis::fixed(chart_height)},
+                                .id = UString{"workbench-graphs-area"},
+                            },
+                            desc, state);
+        }
+
+        // Bar (grouped): two series across five categories.
+        {
+            const std::vector<f64> a{4.0, 7.0, 3.0, 8.0, 5.0};
+            const std::vector<f64> b{6.0, 2.0, 5.0, 4.0, 7.0};
+            UI::GraphDesc desc{};
+            desc.font_id = font_id_;
+            desc.type = UI::GraphType::Bar;
+            desc.bar_stack_mode = UI::BarStackMode::Grouped;
+            desc.x_axis.is_categorical = true;
+            desc.x_axis.categories = {"Mon", "Tue", "Wed", "Thu", "Fri"};
+            desc.y_axis.title = "value";
+            desc.series.push_back(UI::SeriesRef{.name = "A", .y = a, .color = UI::Color{0.4, 0.75, 1.0, 1.0}});
+            desc.series.push_back(UI::SeriesRef{.name = "B", .y = b, .color = UI::Color{1.0, 0.6, 0.35, 1.0}});
+            UI::GraphState state{};
+            (void)UI::graph(ctx,
+                            UI::ElementDecl{
+                                .sizing = {UI::SizingAxis::fixed(chart_width), UI::SizingAxis::fixed(chart_height)},
+                                .id = UString{"workbench-graphs-bar-grouped"},
+                            },
+                            desc, state);
+        }
+
+        // Bar (stacked): same data, stacked instead of grouped.
+        {
+            const std::vector<f64> a{4.0, 7.0, 3.0, 8.0, 5.0};
+            const std::vector<f64> b{6.0, 2.0, 5.0, 4.0, 7.0};
+            UI::GraphDesc desc{};
+            desc.font_id = font_id_;
+            desc.type = UI::GraphType::Bar;
+            desc.bar_stack_mode = UI::BarStackMode::Stacked;
+            desc.x_axis.is_categorical = true;
+            desc.x_axis.categories = {"Mon", "Tue", "Wed", "Thu", "Fri"};
+            desc.y_axis.title = "value";
+            desc.series.push_back(UI::SeriesRef{.name = "A", .y = a, .color = UI::Color{0.4, 0.75, 1.0, 1.0}});
+            desc.series.push_back(UI::SeriesRef{.name = "B", .y = b, .color = UI::Color{1.0, 0.6, 0.35, 1.0}});
+            UI::GraphState state{};
+            (void)UI::graph(ctx,
+                            UI::ElementDecl{
+                                .sizing = {UI::SizingAxis::fixed(chart_width), UI::SizingAxis::fixed(chart_height)},
+                                .id = UString{"workbench-graphs-bar-stacked"},
+                            },
+                            desc, state);
+        }
+
+        // Scatter: a noisy point cloud around a rising trend.
+        {
+            std::vector<f64> xs;
+            std::vector<f64> ys;
+            xs.reserve(80);
+            ys.reserve(80);
+            u32 rng_state = 1234567u;
+            const auto next_unit = [&]() -> f64 {
+                rng_state = rng_state * 1664525u + 1013904223u;
+                return static_cast<f64>(rng_state) / static_cast<f64>(std::numeric_limits<u32>::max());
+            };
+            for (int i = 0; i < 80; ++i) {
+                const f64 x = static_cast<f64>(i) / 79.0 * 10.0;
+                xs.push_back(x);
+                ys.push_back(x * 0.6 + (next_unit() - 0.5) * 4.0);
+            }
+            UI::GraphDesc desc{};
+            desc.font_id = font_id_;
+            desc.type = UI::GraphType::Scatter;
+            desc.x_axis.title = "x";
+            desc.y_axis.title = "y";
+            desc.series.push_back(UI::SeriesRef{
+                .name = "samples", .x = xs, .y = ys, .color = UI::Color{0.85, 0.55, 1.0, 0.85}, .marker_radius = 3.5f,
+            });
+            UI::GraphState state{};
+            (void)UI::graph(ctx,
+                            UI::ElementDecl{
+                                .sizing = {UI::SizingAxis::fixed(chart_width), UI::SizingAxis::fixed(chart_height)},
+                                .id = UString{"workbench-graphs-scatter"},
+                            },
+                            desc, state);
+        }
+
+        // Pie / donut: five wedges with a hole cut in the middle.
+        {
+            UI::GraphDesc desc{};
+            desc.font_id = font_id_;
+            desc.type = UI::GraphType::Pie;
+            desc.pie_style.hole_ratio = 0.55f;
+            desc.pie_style.gap_degrees = 2.0f;
+            desc.pie_slices = {
+                UI::PieSlice{.name = "Rendering", .value = 38.0, .color = UI::Color{0.4, 0.75, 1.0, 1.0}},
+                UI::PieSlice{.name = "Physics", .value = 22.0, .color = UI::Color{1.0, 0.6, 0.35, 1.0}},
+                UI::PieSlice{.name = "Audio", .value = 12.0, .color = UI::Color{0.65, 1.0, 0.55, 1.0}},
+                UI::PieSlice{.name = "Scripting", .value = 18.0, .color = UI::Color{0.85, 0.55, 1.0, 1.0}},
+                UI::PieSlice{.name = "Other", .value = 10.0, .color = UI::Color{0.6, 0.62, 0.68, 1.0}},
+            };
+            UI::GraphState state{};
+            (void)UI::graph(ctx,
+                            UI::ElementDecl{
+                                .sizing = {UI::SizingAxis::fixed(chart_height + 40.0f), UI::SizingAxis::fixed(chart_height)},
+                                .id = UString{"workbench-graphs-pie"},
+                            },
+                            desc, state);
+        }
+
+        // Frame graph: synthetic per-frame CPU/GPU-style stage timings, pushed once per frame to
+        // build a rolling stacked-bar window -- the shape UI::frame_graph() is purpose-built for.
+        {
+            surface.frame_graph_phase += delta_seconds;
+            const f32 t = surface.frame_graph_phase;
+            const std::array<f64, 3> sample{
+                4.0 + 2.0 * std::sin(static_cast<f64>(t) * 1.3),
+                2.5 + 1.0 * std::sin(static_cast<f64>(t) * 2.1 + 1.0),
+                1.0 + 0.5 * std::sin(static_cast<f64>(t) * 0.7 + 2.0),
+            };
+            UI::FrameGraphDesc fg_desc{};
+            fg_desc.font_id = font_id_;
+            fg_desc.segments = {
+                UI::FrameGraphSegmentDef{.name = "Scene", .color = UI::Color{0.4, 0.75, 1.0, 1.0}},
+                UI::FrameGraphSegmentDef{.name = "Shadows", .color = UI::Color{1.0, 0.6, 0.35, 1.0}},
+                UI::FrameGraphSegmentDef{.name = "Post", .color = UI::Color{0.65, 1.0, 0.55, 1.0}},
+            };
+            fg_desc.window_size = 90;
+            fg_desc.y_axis.title = "ms";
+            UI::frame_graph_push(surface.frame_graph_state, fg_desc, sample);
+
+            section_label(ctx, font_id_, "FRAME GRAPH");
+            (void)UI::frame_graph(ctx,
+                                  UI::ElementDecl{
+                                      .sizing = {UI::SizingAxis::fixed(chart_width), UI::SizingAxis::fixed(chart_height)},
+                                      .id = UString{"workbench-graphs-framegraph"},
+                                  },
+                                  fg_desc, surface.frame_graph_state);
+        }
+    }
+
+    /// Builds console panel.
+    ///
+    /// Virtualized: only the lines estimated to be scrolled into view (`first_visible_line` ..
+    /// `+visible_line_count`, computed by the caller in `build_frame`) get a real `draw_text`
+    /// element each frame; everything outside that range collapses into one fixed-height spacer
+    /// each side. Without this, every captured line got its own `draw_text` every single frame
+    /// regardless of scroll position or even whether it was clipped — with the 1000-line capture
+    /// cap this panel keeps, that is up to 1000 text-layout-and-draw calls a frame, indefinitely,
+    /// for as long as the Console tab stayed selected. That is a real, unbounded, purely CPU-side
+    /// cost (this function only runs while Console is the active tab — `panel_content_region`
+    /// returns nothing for a background tab — so it does not run in general, but it always runs
+    /// in full while you are actually looking at it), and exactly what a profiler or a repeated
+    /// "Long frame detected" warning showing up *in the console's own captured log* would surface.
+    ///
+    /// @param surface Surface used or affected by the operation.
+    /// @param ctx `ctx` value used by the operation.
+    /// @param delta_seconds `delta_seconds` value used by the operation.
+    /// @param first_visible_line Index into the captured-line buffer of the first line to build a
+    ///        real text element for.
+    /// @param visible_line_count How many lines starting at `first_visible_line` to build real
+    ///        text elements for.
+    ///
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void WorkbenchUi::build_console_panel(Surface &surface, UI::Context &ctx, f32 delta_seconds,
+                                          usize first_visible_line, usize visible_line_count) {
+        auto body = ctx.element(UI::ElementDecl{
+            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+            .padding = UI::Padding::all(22),
+            .child_gap = 13,
+            .direction = UI::LayoutDirection::TopToBottom,
+            .id = UString{"workbench-console-body"},
+        });
+        panel_heading(ctx, font_id_, "DIAGNOSTICS", "Console",
+                      "Every engine log message, captured through Foundation::add_log_sink — the same hook "
+                      "sturdy_log_add_sink exposes over the FFI so a foreign-language host can build its own "
+                      "console instead of only ever seeing this process's stdout.");
+
+        {
+            auto controls = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+                .child_gap = 14,
+                .child_alignment = {UI::AlignX::Left, UI::AlignY::Center},
+                .id = UString{"workbench-console-controls"},
+            });
+            (void)controls;
+
+            {
+                const UI::ToggleResult autoscroll = UI::checkbox(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::fixed(20.0f), UI::SizingAxis::fixed(20.0f)},
+                        .id = UString{"workbench-console-autoscroll"},
+                    },
+                    toggle_style(), console_autoscroll_toggle_state_, delta_seconds, console_autoscroll_, font_id_);
+                if (autoscroll.clicked) {
+                    console_autoscroll_ = !console_autoscroll_;
+                }
+            }
+            {
+                // `UI::button`'s `ButtonResult::scope` is an open element scope — everything drawn
+                // while this local is alive nests *inside* the button (that's how a button gets a
+                // label), so each button+label pair needs its own block. Leaving one open across
+                // the next `UI::button(...)` call nests that entire next button inside this one
+                // instead of placing it as a sibling.
+                auto label = ctx.element(UI::ElementDecl{.sizing = {UI::SizingAxis::fit(), UI::SizingAxis::fit()}});
+                (void)label;
+                draw_text(ctx, "Autoscroll", text_style(font_id_, text_secondary, 12));
+            }
+            {
+                const UI::ButtonResult clear = UI::button(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::fixed(90.0f), UI::SizingAxis::fixed(28.0f)},
+                        .child_alignment = {UI::AlignX::Center, UI::AlignY::Center},
+                        .id = UString{"workbench-console-clear"},
+                    },
+                    action_button_style(), console_clear_button_state_, delta_seconds);
+                draw_text(ctx, "Clear", text_style(font_id_, text_primary, 12));
+                if (clear.clicked) {
+                    const std::lock_guard<std::mutex> lock(console_log_mutex_);
+                    console_log_lines_.clear();
+                    console_log_dropped_ = 0;
+                }
+            }
+            {
+                const UI::ButtonResult emit_test = UI::button(
+                    ctx,
+                    UI::ElementDecl{
+                        .sizing = {UI::SizingAxis::fixed(150.0f), UI::SizingAxis::fixed(28.0f)},
+                        .child_alignment = {UI::AlignX::Center, UI::AlignY::Center},
+                        .id = UString{"workbench-console-emit-test"},
+                    },
+                    action_button_style(), console_test_log_button_state_, delta_seconds);
+                draw_text(ctx, "Emit test message", text_style(font_id_, text_primary, 12));
+                if (emit_test.clicked) {
+                    Foundation::log_info("UiWorkbench: console test message emitted at your request.");
+                }
+            }
+        }
+
+        // Copied out under the lock so the (comparatively slow) per-line layout/draw work below
+        // never runs while holding it — the sink can otherwise be invoked from any engine thread
+        // at any time, including mid-frame here.
+        std::deque<ConsoleLine> lines_copy;
+        u64 dropped = 0;
+        {
+            const std::lock_guard<std::mutex> lock(console_log_mutex_);
+            lines_copy = console_log_lines_;
+            dropped = console_log_dropped_;
+        }
+
+        section_label(ctx, font_id_,
+                     (std::to_string(lines_copy.size()) + " line(s) captured" +
+                      (dropped > 0 ? (", " + std::to_string(dropped) + " older line(s) dropped") : std::string{}))
+                         .c_str());
+
+        if (lines_copy.empty()) {
+            draw_text(ctx, "No log messages captured yet.", text_style(font_id_, text_secondary, 13));
+            return;
+        }
+
+        auto log_list = ctx.element(UI::ElementDecl{
+            .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+            .child_gap = 2,
+            .direction = UI::LayoutDirection::TopToBottom,
+            .id = UString{"workbench-console-lines"},
+        });
+        (void)log_list;
+
+        const usize total = lines_copy.size();
+        const usize begin_index = std::min(first_visible_line, total);
+        const usize end_index = std::min(begin_index + visible_line_count, total);
+
+        if (begin_index > 0) {
+            auto spacer = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(static_cast<f32>(begin_index) * console_line_height_px)},
+            });
+            (void)spacer;
+        }
+        for (usize i = begin_index; i < end_index; ++i) {
+            const ConsoleLine &line = lines_copy[i];
+            const UI::Color color = line.level == Foundation::LogLevel::Error ||
+                                            line.level == Foundation::LogLevel::Critical
+                                        ? danger
+                                    : line.level == Foundation::LogLevel::Warn ? warning
+                                    : line.level == Foundation::LogLevel::Debug ||
+                                            line.level == Foundation::LogLevel::Trace
+                                        ? text_secondary
+                                        : text_primary;
+            draw_text(ctx, line.text, text_style(font_id_, color, 12));
+        }
+        if (end_index < total) {
+            auto spacer = ctx.element(UI::ElementDecl{
+                .sizing = {UI::SizingAxis::grow(),
+                          UI::SizingAxis::fixed(static_cast<f32>(total - end_index) * console_line_height_px)},
+            });
+            (void)spacer;
+        }
+    }
+
     /// Performs the handle dock events operation for `UiWorkbench` using the supplied arguments.
     ///
     /// @param engine `engine` value used by the operation.
@@ -2541,6 +3188,11 @@ namespace SFT::UiWorkbench {
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
     void WorkbenchUi::shutdown(Engine::Engine &engine) noexcept {
+        // Unregistered before anything it captures is torn down — Foundation::remove_log_sink
+        // blocks until any in-flight callback invocation on another thread has returned, so no
+        // call into console_log_lines_/console_log_mutex_ can start after this point.
+        Foundation::remove_log_sink(console_log_sink_id_);
+
         if (RHI::RhiDevice *device = engine.rhi_device()) {
             for (auto &[window, surface] : surfaces_) {
                 (void)window;

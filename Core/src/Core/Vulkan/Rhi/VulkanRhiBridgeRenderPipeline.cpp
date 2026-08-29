@@ -61,7 +61,6 @@ namespace SFT::Core::Vulkan {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument,
                                   "create_render_pipeline: unknown pipeline layout handle.");
         }
-
         GraphicsPipelineBuilder builder;
         builder.set_layout(layout->vk_handle());
         if (uses_mesh_shader) {

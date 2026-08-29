@@ -1,10 +1,12 @@
 /// SturdyEngine 5 stable C ABI.
 ///
 /// This is the language-neutral seam every non-C++ consumer (Rust, C#, Java, ...) binds against.
-/// It is deliberately narrow: it covers the application-hosting seam only — configure a runtime,
-/// supply game-logic callbacks, drive per-frame camera/lighting/render-graph choices, and read
-/// input. Everything else in the engine stays C++ and is reached by writing more of this layer,
-/// never by widening the boundary types.
+/// Its core is the application-hosting seam — configure a runtime, supply game-logic callbacks,
+/// drive per-frame camera/lighting/render-graph choices, and read input — plus, for a caller that
+/// needs to do its own GPU work, the RHI resource surface: buffers, textures, samplers, bind
+/// groups, pipelines, and command encoding (see "RHI resources" below). Fine-grained render-graph
+/// tuning (shadow/AO/tone-curve parameters), ray tracing, and swapchain/HDR control are not
+/// exposed yet; a caller needing those reaches for `sturdy_native_*` in the meantime.
 ///
 /// Every rule below exists because a foreign caller cannot be trusted to honor a C++-side
 /// invariant the way a same-language caller would.
@@ -111,7 +113,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 14u
+#define STURDY_ABI_VERSION_MINOR 21u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -164,6 +166,10 @@ typedef enum SturdyResult {
     /// The world cannot be changed right now — an iteration is in progress on this thread, or a
     /// system schedule is running.
     STURDY_ERROR_BUSY = 17,
+    /// The GPU device was lost (driver crash/reset, surprise-removed adapter, ...). Every
+    /// resource and command buffer from before this point is invalid; the engine cannot recover
+    /// within this process.
+    STURDY_ERROR_DEVICE_LOST = 18,
     STURDY_RESULT_FORCE_U32 = 0x7fffffff
 } SturdyResult;
 
@@ -181,6 +187,62 @@ STURDY_ABI uint32_t STURDY_ABI_CALL sturdy_abi_version_major(void);
 
 /// Minor component of the ABI version this library implements.
 STURDY_ABI uint32_t STURDY_ABI_CALL sturdy_abi_version_minor(void);
+
+// ---------------------------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------------------------
+//
+// Lets a foreign caller host its own console/log viewer instead of only ever seeing this
+// process's stdout: register a callback once, and it receives every log message the engine
+// produces from that point on, alongside whatever console/file sinks are already configured.
+// Independent of everything else in this header — safe to call before `sturdy_runtime_run`, from
+// any thread, at any point in the process's life.
+
+/// Severity of a log message.
+typedef enum SturdyLogLevel {
+    STURDY_LOG_LEVEL_TRACE = 0,
+    STURDY_LOG_LEVEL_DEBUG = 1,
+    STURDY_LOG_LEVEL_INFO = 2,
+    STURDY_LOG_LEVEL_WARN = 3,
+    STURDY_LOG_LEVEL_ERROR = 4,
+    STURDY_LOG_LEVEL_CRITICAL = 5,
+    STURDY_LOG_LEVEL_FORCE_U32 = 0x7fffffff
+} SturdyLogLevel;
+
+/// Handle to a registered log sink, returned by `sturdy_log_add_sink`.
+typedef struct SturdyLogSink {
+    uint64_t id;
+} SturdyLogSink;
+
+/// Invoked once per log message after registration via `sturdy_log_add_sink`.
+///
+/// @param level Severity of the message.
+/// @param message Formatted message text — no timestamp/level prefix, just what was passed to the
+///        engine's own `log_info`/`log_warn`/etc. Not null-terminated; use `message_length`. Only
+///        valid for the duration of this call — copy it if you need to keep it.
+/// @param message_length Byte length of `message`.
+/// @param user_data The pointer passed to `sturdy_log_add_sink`, unchanged.
+///
+/// @note Called from whichever thread produced the log message — this can be any engine thread,
+///       concurrently with other callback invocations. Do not block, and do not call back into
+///       the engine from within this callback.
+typedef void(STURDY_ABI_CALL *SturdyLogCallback)(SturdyLogLevel level,
+                                                  const char *message,
+                                                  size_t message_length,
+                                                  void *user_data);
+
+/// Registers a callback to receive every subsequent log message.
+///
+/// @param callback Function invoked per message. Must not be null.
+/// @param user_data Opaque pointer passed back to `callback` unchanged. May be null.
+/// @param out_sink Receives a handle to unregister this sink later with `sturdy_log_remove_sink`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_log_add_sink(SturdyLogCallback callback,
+                                                             void *user_data,
+                                                             SturdyLogSink *out_sink);
+
+/// Unregisters a sink added by `sturdy_log_add_sink`. A null/zero handle, or one already removed,
+/// is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_log_remove_sink(SturdyLogSink sink);
 
 // ---------------------------------------------------------------------------------------------
 // Handles
@@ -507,6 +569,335 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_resolution_scale(Sturdy
 /// @param label Null-terminated UTF-8, or null to clear. Copied; need not outlive the call.
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_debug_label(SturdyFrame frame,
                                                                      const char *label);
+
+// ---------------------------------------------------------------------------------------------
+// Render graph settings
+// ---------------------------------------------------------------------------------------------
+//
+// Fine-grained tuning for each render-graph stage, beyond the coarse on/off toggle
+// `sturdy_frame_set_feature_enabled` gives. Each `sturdy_frame_set_*_settings` call replaces the
+// whole settings group for the frame being built; there is no getter, matching
+// `sturdy_frame_set_tone_mapping`'s existing write-only shape. Call the matching
+// `sturdy_*_settings_init` first to get engine defaults and the correct `struct_size`, then
+// change only the fields intended to differ from default.
+
+/// Rendering path the scene stage evaluates.
+typedef enum SturdySceneIntegrator {
+    STURDY_SCENE_INTEGRATOR_RASTER_DEFERRED = 0,
+    STURDY_SCENE_INTEGRATOR_SHADOW_ONLY = 1,
+    STURDY_SCENE_INTEGRATOR_REFLECTION_ONLY = 2,
+    STURDY_SCENE_INTEGRATOR_AMBIENT_OCCLUSION_ONLY = 3,
+    STURDY_SCENE_INTEGRATOR_SHADOW_AND_TRANSMISSION = 4,
+    STURDY_SCENE_INTEGRATOR_FULL_PATH_TRACING = 5,
+    STURDY_SCENE_INTEGRATOR_FORCE_U32 = 0x7fffffff
+} SturdySceneIntegrator;
+
+typedef struct SturdySceneSettings {
+    /// Set to `sizeof(SturdySceneSettings)` by `sturdy_scene_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    SturdySceneIntegrator integrator;
+    uint32_t path_samples_per_pixel;
+    uint32_t path_max_bounces;
+    uint32_t path_russian_roulette_start_bounce;
+    uint32_t caustic_photon_count;
+    float caustic_gather_radius;
+    float wavelength_min_nm;
+    float wavelength_max_nm;
+    /// Multiplier applied to the background color/environment when nothing else occludes a ray.
+    float background_intensity;
+} SturdySceneSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (raster deferred, path tracing
+/// parameters set but unused until `integrator` selects a path-traced mode).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_scene_settings_init(SturdySceneSettings *settings);
+
+/// Replaces the scene stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_scene_settings(SturdyFrame frame,
+                                                                        const SturdySceneSettings *settings);
+
+/// Single-frame shadow debug visualization. See `SturdyShadowSettings::debug_view`.
+typedef enum SturdyShadowDebugView {
+    STURDY_SHADOW_DEBUG_VIEW_NONE = 0,
+    STURDY_SHADOW_DEBUG_VIEW_CASCADE_INDEX = 1,
+    STURDY_SHADOW_DEBUG_VIEW_CASCADE_FADE = 2,
+    STURDY_SHADOW_DEBUG_VIEW_SHADOW_TEXEL_GRID = 3,
+    STURDY_SHADOW_DEBUG_VIEW_SHADOW_UV = 4,
+    STURDY_SHADOW_DEBUG_VIEW_RECEIVER_DEPTH = 5,
+    STURDY_SHADOW_DEBUG_VIEW_ATLAS_DEPTH = 6,
+    STURDY_SHADOW_DEBUG_VIEW_DEPTH_DELTA = 7,
+    STURDY_SHADOW_DEBUG_VIEW_NORMAL_BIAS = 8,
+    STURDY_SHADOW_DEBUG_VIEW_RECEIVER_PLANE_GRADIENT = 9,
+    STURDY_SHADOW_DEBUG_VIEW_HARD_COMPARISON = 10,
+    STURDY_SHADOW_DEBUG_VIEW_PCF = 11,
+    STURDY_SHADOW_DEBUG_VIEW_DIRECTIONAL_CSM = 12,
+    STURDY_SHADOW_DEBUG_VIEW_CONTACT_SHADOW = 13,
+    STURDY_SHADOW_DEBUG_VIEW_COMBINED_SUN_VISIBILITY = 14,
+    STURDY_SHADOW_DEBUG_VIEW_GBUFFER_DEPTH = 15,
+    STURDY_SHADOW_DEBUG_VIEW_WORLD_POSITION = 16,
+    STURDY_SHADOW_DEBUG_VIEW_GBUFFER_NORMAL = 17,
+    STURDY_SHADOW_DEBUG_VIEW_GBUFFER_ALBEDO = 18,
+    STURDY_SHADOW_DEBUG_VIEW_GBUFFER_ROUGHNESS = 19,
+    STURDY_SHADOW_DEBUG_VIEW_GBUFFER_METALLIC = 20,
+    STURDY_SHADOW_DEBUG_VIEW_MATERIAL_AMBIENT_OCCLUSION = 21,
+    STURDY_SHADOW_DEBUG_VIEW_AMBIENT_LIGHTING = 22,
+    STURDY_SHADOW_DEBUG_VIEW_SUN_N_DOT_L = 23,
+    STURDY_SHADOW_DEBUG_VIEW_UNSHADOWED_SUN_LIGHTING = 24,
+    STURDY_SHADOW_DEBUG_VIEW_SCREEN_SPACE_AMBIENT_OCCLUSION = 25,
+    STURDY_SHADOW_DEBUG_VIEW_FORCE_U32 = 0x7fffffff
+} SturdyShadowDebugView;
+
+typedef struct SturdyShadowSettings {
+    /// Set to `sizeof(SturdyShadowSettings)` by `sturdy_shadow_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    /// Edge size of the shared spot/point shadow atlas.
+    uint32_t atlas_size;
+    uint32_t cascade_count;
+    float max_distance;
+    float cascade_split_lambda;
+    /// Fraction of a cascade's view-space depth range spent cross-fading into the next cascade.
+    float cascade_blend;
+    float depth_bias;
+    float slope_bias;
+    /// Per-cascade shadow-map edge resolution, near cascade first.
+    uint32_t cascade_resolutions[4];
+    /// PCF filter radius in shadow texels of the sampled cascade.
+    float filter_radius_texels;
+    /// Receiver normal-offset magnitude in shadow texels at normal incidence.
+    float normal_bias;
+    SturdyShadowDebugView debug_view;
+    uint32_t max_shadowed_spot_lights;
+    uint32_t max_shadowed_point_lights;
+    SturdyBool contact_hardening;
+    SturdyBool contact_shadows;
+    uint8_t reserved2[2];
+    float contact_shadow_distance;
+    float contact_shadow_thickness;
+    uint32_t contact_shadow_steps;
+    /// Maximum darkening the contact term may apply, in [0, 1].
+    float contact_shadow_intensity;
+    float contact_shadow_fade_distance;
+} SturdyShadowSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (4 cascades, 4096 atlas, contact
+/// shadows on, contact hardening off).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_shadow_settings_init(SturdyShadowSettings *settings);
+
+/// Replaces the shadow stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_shadow_settings(SturdyFrame frame,
+                                                                         const SturdyShadowSettings *settings);
+
+typedef enum SturdyAmbientOcclusionQuality {
+    STURDY_AMBIENT_OCCLUSION_QUALITY_LOW = 0,
+    STURDY_AMBIENT_OCCLUSION_QUALITY_MEDIUM = 1,
+    STURDY_AMBIENT_OCCLUSION_QUALITY_HIGH = 2,
+    STURDY_AMBIENT_OCCLUSION_QUALITY_ULTRA = 3,
+    STURDY_AMBIENT_OCCLUSION_QUALITY_FORCE_U32 = 0x7fffffff
+} SturdyAmbientOcclusionQuality;
+
+typedef struct SturdyAmbientOcclusionSettings {
+    /// Set to `sizeof(SturdyAmbientOcclusionSettings)` by `sturdy_ambient_occlusion_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    /// World-space radius the occlusion search covers around a shaded point.
+    float radius;
+    SturdyAmbientOcclusionQuality quality;
+    /// Blend toward fully unoccluded. 1 = full strength, 0 = no occlusion.
+    float intensity;
+    /// Fraction of `radius` over which an occluder fades out.
+    float falloff_range;
+    /// Thin-occluder compensation, in [0, 0.7].
+    float thin_occluder_compensation;
+    /// Contrast curve applied to the visibility term.
+    float final_value_power;
+    /// Exponent of the normalized sample-distance distribution.
+    float sample_distribution_power;
+    /// Runs the 5x5 edge-aware spatial denoiser.
+    SturdyBool denoise;
+    uint8_t reserved2[3];
+} SturdyAmbientOcclusionSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (High quality, denoiser on).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ambient_occlusion_settings_init(
+    SturdyAmbientOcclusionSettings *settings);
+
+/// Replaces the ambient-occlusion stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_ambient_occlusion_settings(
+    SturdyFrame frame, const SturdyAmbientOcclusionSettings *settings);
+
+typedef enum SturdyPostProcessAntiAliasing {
+    STURDY_POST_PROCESS_ANTI_ALIASING_NONE = 0,
+    STURDY_POST_PROCESS_ANTI_ALIASING_FXAA = 1,
+    STURDY_POST_PROCESS_ANTI_ALIASING_CONSERVATIVE_MORPHOLOGICAL = 2,
+    STURDY_POST_PROCESS_ANTI_ALIASING_FORCE_U32 = 0x7fffffff
+} SturdyPostProcessAntiAliasing;
+
+typedef struct SturdyAntiAliasingSettings {
+    /// Set to `sizeof(SturdyAntiAliasingSettings)` by `sturdy_anti_aliasing_settings_init`.
+    uint32_t struct_size;
+    uint32_t msaa_samples;
+    SturdyPostProcessAntiAliasing post_process;
+    float subpixel_quality;
+    float edge_threshold;
+} SturdyAntiAliasingSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (1 MSAA sample, FXAA).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_anti_aliasing_settings_init(SturdyAntiAliasingSettings *settings);
+
+/// Replaces the anti-aliasing stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_anti_aliasing_settings(
+    SturdyFrame frame, const SturdyAntiAliasingSettings *settings);
+
+typedef struct SturdyBloomSettings {
+    /// Set to `sizeof(SturdyBloomSettings)` by `sturdy_bloom_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    float threshold;
+    float soft_knee;
+    float intensity;
+    float scatter;
+    float downsample_ratio;
+    uint32_t max_levels;
+} SturdyBloomSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_bloom_settings_init(SturdyBloomSettings *settings);
+
+/// Replaces the bloom stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_bloom_settings(SturdyFrame frame,
+                                                                        const SturdyBloomSettings *settings);
+
+/// AGX tone-curve look variant. See `SturdyToneMappingSettings::agx_look`.
+typedef enum SturdyAgxLook {
+    STURDY_AGX_LOOK_NONE = 0,
+    STURDY_AGX_LOOK_PUNCHY = 1,
+    STURDY_AGX_LOOK_GOLDEN = 2,
+    STURDY_AGX_LOOK_FORCE_U32 = 0x7fffffff
+} SturdyAgxLook;
+
+/// Fine-grained tone-mapping settings. `sturdy_frame_set_tone_mapping` remains the quick path for
+/// just operator/exposure/white-point/saturation; use this instead to also reach HDR display
+/// mapping and the AGX/Hermite-spline/PsychoV curve-tuning knobs, which only apply when
+/// `operation` selects the matching operator.
+typedef struct SturdyToneMappingSettings {
+    /// Set to `sizeof(SturdyToneMappingSettings)` by `sturdy_tone_mapping_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    SturdyToneMapping operation;
+    float exposure;
+    float white_point;
+    float saturation;
+    /// SDR/HDR mapping reference white, in nits.
+    float hdr_paper_white_nits;
+    /// HDR display peak brightness, in nits.
+    float hdr_peak_nits;
+    /// Only read when `operation` is `STURDY_TONE_MAPPING_AGX`.
+    SturdyAgxLook agx_look;
+    /// Only read when `operation` is `STURDY_TONE_MAPPING_HERMITE_SPLINE`.
+    float hermite_toe_strength;
+    float hermite_toe_length;
+    float hermite_shoulder_strength;
+    float hermite_shoulder_length;
+    float hermite_shoulder_angle;
+    /// Only read when `operation` is `STURDY_TONE_MAPPING_PSYCHO_V`.
+    float psychov_highlights;
+    float psychov_shadows;
+    float psychov_contrast;
+    float psychov_purity_scale;
+    float psychov_gamut_compression;
+    SturdyBool psychov_gamut_compression_use_bt2020;
+    uint8_t reserved2[3];
+    float psychov_compression;
+    float psychov_adapted_gray_bt709[3];
+    float psychov_background_gray_bt709[3];
+} SturdyToneMappingSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (AGX operator, no look, neutral
+/// PsychoV/Hermite curve parameters).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tone_mapping_settings_init(SturdyToneMappingSettings *settings);
+
+/// Replaces the tone-mapping stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_tone_mapping_settings(
+    SturdyFrame frame, const SturdyToneMappingSettings *settings);
+
+typedef enum SturdyRestirGiQuality {
+    STURDY_RESTIR_GI_QUALITY_LOW = 0,
+    STURDY_RESTIR_GI_QUALITY_MEDIUM = 1,
+    STURDY_RESTIR_GI_QUALITY_HIGH = 2,
+    STURDY_RESTIR_GI_QUALITY_FORCE_U32 = 0x7fffffff
+} SturdyRestirGiQuality;
+
+/// Denoiser resolving ReSTIR GI's raw reservoir output. `DLSS_RAY_RECONSTRUCTION`/`FSR_REDSTONE`
+/// are reserved for future vendor-SDK integrations; selecting either falls back to `SVGF` with a
+/// one-time engine warning until a real backend exists.
+typedef enum SturdyRestirGiDenoiser {
+    STURDY_RESTIR_GI_DENOISER_NONE = 0,
+    STURDY_RESTIR_GI_DENOISER_SVGF = 1,
+    STURDY_RESTIR_GI_DENOISER_DLSS_RAY_RECONSTRUCTION = 2,
+    STURDY_RESTIR_GI_DENOISER_FSR_REDSTONE = 3,
+    STURDY_RESTIR_GI_DENOISER_FORCE_U32 = 0x7fffffff
+} SturdyRestirGiDenoiser;
+
+typedef struct SturdyRestirGiSettings {
+    /// Set to `sizeof(SturdyRestirGiSettings)` by `sturdy_restir_gi_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    SturdyRestirGiQuality quality;
+    uint32_t spatial_reuse_samples;
+    float spatial_reuse_radius_px;
+    uint32_t temporal_history_max;
+    float max_ray_distance;
+    /// Damping (0-1) applied to last frame's lit scene color when read back as an extra indirect
+    /// term. 0 disables multi-bounce feedback.
+    float multi_bounce_feedback;
+    float intensity;
+    SturdyRestirGiDenoiser denoiser;
+    /// Only read when `denoiser` is `STURDY_RESTIR_GI_DENOISER_SVGF`.
+    uint32_t svgf_atrous_iterations;
+    float svgf_temporal_alpha;
+    float svgf_phi_normal;
+    float svgf_phi_depth;
+    float svgf_phi_luminance;
+    SturdyBool show_debug_reservoirs;
+    uint8_t reserved2[3];
+} SturdyRestirGiSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (Medium quality, SVGF denoiser,
+/// disabled — ReSTIR GI is opt-in).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_restir_gi_settings_init(SturdyRestirGiSettings *settings);
+
+/// Replaces the ReSTIR GI stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_restir_gi_settings(
+    SturdyFrame frame, const SturdyRestirGiSettings *settings);
+
+typedef struct SturdyMotionBlurSettings {
+    /// Set to `sizeof(SturdyMotionBlurSettings)` by `sturdy_motion_blur_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    float intensity;
+    float shutter_angle_degrees;
+    uint32_t tile_size_px;
+    uint32_t sample_count;
+    float max_blur_radius_px;
+    float background_foreground_weight_bias;
+    SturdyBool camera_motion_only;
+    uint8_t reserved2[3];
+} SturdyMotionBlurSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (disabled — motion blur is opt-in).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_motion_blur_settings_init(SturdyMotionBlurSettings *settings);
+
+/// Replaces the motion-blur stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_motion_blur_settings(
+    SturdyFrame frame, const SturdyMotionBlurSettings *settings);
 
 // ---------------------------------------------------------------------------------------------
 // Input
@@ -1697,6 +2088,211 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_pointer_down(SturdyEngine engi
                                                                SturdyBool *out_down);
 
 // ---------------------------------------------------------------------------------------------
+// Graph widget (chart plotting)
+// ---------------------------------------------------------------------------------------------
+//
+// A one-shot draw call (sturdy_ui_graph_draw), same shape as sturdy_ui_text: no begin/end pairing,
+// draws immediately inside the current UI frame. Series data (SturdyUiGraphSeriesRef::x_data/
+// y_data) is read synchronously during the call and not retained, matching this engine's own C++
+// SFT::UI::SeriesRef contract.
+//
+// SturdyGraphSeries is a separate, optional convenience for live/streaming data (e.g. a frame-time
+// graph): an owned ring buffer you push samples into across many frames, then read back as flat
+// arrays to bind into a SturdyUiGraphSeriesRef each draw. A chart built from data you already hold
+// in your own array does not need it.
+//
+// Not yet exposed: AxisConfig::scale's Custom transform and tick_label_formatter (both are C++
+// callback hooks; crossing the ABI boundary safely needs more design than this pass covers) and
+// most of the fixed styling knobs (StrokeStyle::dash_length/cap/join, CornerRadius overrides for
+// bar fills, ...) — Linear/Log/Symlog scales and the fields below cover the common cases.
+
+/// Chart type for `sturdy_ui_graph_draw`.
+typedef enum SturdyUiGraphType {
+    STURDY_UI_GRAPH_TYPE_LINE = 0,
+    STURDY_UI_GRAPH_TYPE_AREA = 1,
+    STURDY_UI_GRAPH_TYPE_BAR = 2,
+    STURDY_UI_GRAPH_TYPE_SCATTER = 3,
+    STURDY_UI_GRAPH_TYPE_PIE = 4,
+    STURDY_UI_GRAPH_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyUiGraphType;
+
+/// Axis scale kind. See the engine-side `SFT::UI::ScaleTransform`'s own doc comment for the math
+/// behind each.
+typedef enum SturdyUiGraphScale {
+    STURDY_UI_GRAPH_SCALE_LINEAR = 0,
+    STURDY_UI_GRAPH_SCALE_LOG = 1,
+    STURDY_UI_GRAPH_SCALE_SYMLOG = 2,
+    STURDY_UI_GRAPH_SCALE_FORCE_U32 = 0x7fffffff
+} SturdyUiGraphScale;
+
+typedef enum SturdyUiGraphBarStackMode {
+    STURDY_UI_GRAPH_BAR_GROUPED = 0,
+    STURDY_UI_GRAPH_BAR_STACKED = 1,
+    STURDY_UI_GRAPH_BAR_STACK_MODE_FORCE_U32 = 0x7fffffff
+} SturdyUiGraphBarStackMode;
+
+/// Handle to a caller-owned, incrementally-appendable data series. Lives until
+/// `sturdy_ui_graph_series_release`.
+typedef struct SturdyGraphSeries {
+    uint64_t token;
+} SturdyGraphSeries;
+
+/// One axis's configuration for `sturdy_ui_graph_draw`.
+typedef struct SturdyUiGraphAxis {
+    /// Set to `sizeof(SturdyUiGraphAxis)` by `sturdy_ui_graph_axis_init`.
+    uint32_t struct_size;
+    SturdyUiGraphScale scale;
+    /// `Log`/`Symlog` only; a value `<= 1` falls back to base 10.
+    double log_base;
+    /// `Symlog` only: the linear region extends `+-symlog_linear_threshold` around zero.
+    double symlog_linear_threshold;
+
+    SturdyBool has_min;
+    double min;
+    SturdyBool has_max;
+    double max;
+    float autoscale_padding_percent;
+    uint32_t target_tick_count;
+
+    SturdyBool show_gridlines;
+    SturdyBool show_minor_gridlines;
+    /// Non-linear sRGB with straight alpha.
+    float axis_color[4];
+    float gridline_color[4];
+    float minor_gridline_color[4];
+    /// May be null.
+    const char *title;
+
+    /// `GraphType::Bar` only: one label per category, left to right. A null/zero-length array
+    /// auto-derives numeric labels ("0", "1", ...) from the longest bound series.
+    const char *const *categories;
+    uint32_t category_count;
+} SturdyUiGraphAxis;
+
+/// One data series bound to `sturdy_ui_graph_draw`.
+typedef struct SturdyUiGraphSeriesRef {
+    /// Set to `sizeof(SturdyUiGraphSeriesRef)`.
+    uint32_t struct_size;
+    /// May be null.
+    const char *name;
+    /// `GraphType::Bar` ignores this — the category axis supplies bar positions instead.
+    const double *x_data;
+    uint32_t x_count;
+    const double *y_data;
+    uint32_t y_count;
+    /// Non-linear sRGB with straight alpha.
+    float color[4];
+    float line_width;
+    float feather_px;
+    /// `GraphType::Area` only.
+    float area_fill_opacity;
+    /// `GraphType::Scatter` only; `0` falls back to a 3px default.
+    float marker_radius;
+} SturdyUiGraphSeriesRef;
+
+/// One wedge of a `GraphType::Pie` chart.
+typedef struct SturdyUiGraphPieSlice {
+    /// Set to `sizeof(SturdyUiGraphPieSlice)`.
+    uint32_t struct_size;
+    /// May be null.
+    const char *name;
+    double value;
+    /// Non-linear sRGB with straight alpha.
+    float color[4];
+} SturdyUiGraphPieSlice;
+
+typedef struct SturdyUiGraphDesc {
+    /// Set to `sizeof(SturdyUiGraphDesc)` by `sturdy_ui_graph_desc_init`.
+    uint32_t struct_size;
+    SturdyUiGraphType type;
+    SturdyUiGraphAxis x_axis;
+    SturdyUiGraphAxis y_axis;
+
+    const SturdyUiGraphSeriesRef *series;
+    uint32_t series_count;
+
+    /// `GraphType::Bar` only.
+    SturdyUiGraphBarStackMode bar_stack_mode;
+    float bar_group_gap_fraction;
+    float bar_series_gap_fraction;
+
+    /// `GraphType::Pie` only.
+    const SturdyUiGraphPieSlice *pie_slices;
+    uint32_t pie_slice_count;
+    float pie_hole_ratio;
+    float pie_start_angle_degrees;
+    float pie_gap_degrees;
+    float pie_feather_px;
+
+    /// Non-linear sRGB with straight alpha.
+    float background[4];
+    /// Corner radii: top-left, top-right, bottom-left, bottom-right.
+    float corner_radius[4];
+    /// Ignored by `GraphType::Pie` (no axes to reserve space for).
+    float axis_margin_left;
+    float axis_margin_bottom;
+    float axis_margin_top;
+    float axis_margin_right;
+
+    /// Font tick labels, axis titles, and the legend are drawn with — same "id 0 is whatever the
+    /// caller registered under id 0" convention `SturdyUiTextStyle::font_id` uses. Appended in ABI
+    /// 0.21; `struct_size` still gates on the full struct, so a caller built against an older header
+    /// gets `STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE` rather than these fields silently reading garbage.
+    uint32_t font_id;
+    uint32_t label_font_size;
+    uint32_t title_font_size;
+    /// Draws a small swatch+name legend, floating in the widget's top-right corner.
+    SturdyBool show_legend;
+} SturdyUiGraphDesc;
+
+/// Fills a graph description with defaults: a Line chart with linear, autoscaled axes and the
+/// engine's default colors/margins.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_graph_desc_init(SturdyUiGraphDesc *desc);
+
+/// Fills an axis config with defaults: linear scale, autoscaled, 6 target ticks, gridlines on.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_graph_axis_init(SturdyUiGraphAxis *axis);
+
+/// Draws a graph/plot widget as a leaf element inside the current UI frame, sized/positioned by
+/// `element` the same way `sturdy_ui_begin_element`'s element is. See the engine-side
+/// `SFT::UI::graph()`'s own doc comment for the bounds-latency contract (one frame behind a layout
+/// change, same as every other bounds-dependent widget).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_graph_draw(SturdyEngine engine,
+                                                              const SturdyUiElement *element,
+                                                              const SturdyUiGraphDesc *desc);
+
+/// Creates an owned, incrementally-appendable data series — the ring-buffer convenience for live/
+/// streaming telemetry.
+///
+/// @param capacity Bounds how many trailing `(x, y)` samples are kept; once full, the oldest
+///        sample is dropped as a new one is pushed (a "tail -f" window). `0` means unbounded.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_graph_series_create(SturdyEngine engine,
+                                                                       uint32_t capacity,
+                                                                       SturdyGraphSeries *out_series);
+
+/// Appends one `(x, y)` sample to `series`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_graph_series_push(SturdyGraphSeries series,
+                                                                     double x,
+                                                                     double y);
+
+/// Removes every sample from `series`, without releasing it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_graph_series_clear(SturdyGraphSeries series);
+
+/// Reads back `series`' current samples as flat arrays, to bind into a
+/// `SturdyUiGraphSeriesRef`'s `x_data`/`y_data`.
+///
+/// @return `out_x`/`out_y` are borrowed and valid only until the next call that mutates this
+///         series (push/clear/release) on this thread — use them immediately, in the same
+///         `sturdy_ui_graph_draw` call.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_graph_series_data(SturdyGraphSeries series,
+                                                                     const double **out_x,
+                                                                     const double **out_y,
+                                                                     uint32_t *out_count);
+
+/// Releases a data series created with `sturdy_ui_graph_series_create`. Unknown/already-released
+/// tokens are ignored.
+STURDY_ABI void STURDY_ABI_CALL sturdy_ui_graph_series_release(SturdyGraphSeries series);
+
+// ---------------------------------------------------------------------------------------------
 // Time
 // ---------------------------------------------------------------------------------------------
 
@@ -2022,6 +2618,1493 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_extension_name(SturdyEngine e
                                                                   size_t capacity,
                                                                   size_t *out_length,
                                                                   uint32_t *out_version);
+
+// ---------------------------------------------------------------------------------------------
+// RHI resources
+// ---------------------------------------------------------------------------------------------
+//
+// Buffers, textures, samplers, shader modules, bind groups, pipelines, and recorded command
+// buffers, plus command encoding to use them. This is deliberately still not the entire RHI:
+// ray tracing, opacity micromaps, mesh/task shaders, render bundles, indirect draws, GPU
+// queries, semaphores/fences, and swapchain/surface/HDR control are not exposed here. A caller
+// needing those reaches for `sturdy_native_*` and drives the backend directly in the meantime.
+//
+// Resource handles (`SturdyBuffer`, `SturdyTexture`, ...) carry no scope of their own — like
+// `SturdySurface`, they are informational identifiers the RHI device owns and validates until
+// the matching `sturdy_rhi_destroy_*` call. `SturdyCommandEncoder`, `SturdyRenderPassEncoder`
+// and `SturdyComputePassEncoder` are the exception: they are ABI-owned handles (like
+// `SturdyGltfScene`) that live until `finish()`/`end()` releases them, because encoding a pass
+// is inherently a multi-call sequence a foreign caller must be able to hold across calls.
+
+/// Pixel format for a texture, or a vertex/color-target format reference.
+///
+/// Ordinal values are pinned to match the engine's internal `RHI::Format` and must stay in this
+/// exact order; new formats are appended, never inserted.
+typedef enum SturdyFormat {
+    STURDY_FORMAT_UNDEFINED = 0,
+    STURDY_FORMAT_R8_UNORM,
+    STURDY_FORMAT_R8_SNORM,
+    STURDY_FORMAT_R8_UINT,
+    STURDY_FORMAT_R8_SINT,
+    STURDY_FORMAT_RG8_UNORM,
+    STURDY_FORMAT_RG8_SNORM,
+    STURDY_FORMAT_RG8_UINT,
+    STURDY_FORMAT_RG8_SINT,
+    STURDY_FORMAT_RGBA8_UNORM,
+    STURDY_FORMAT_RGBA8_UNORM_SRGB,
+    STURDY_FORMAT_RGBA8_SNORM,
+    STURDY_FORMAT_RGBA8_UINT,
+    STURDY_FORMAT_RGBA8_SINT,
+    STURDY_FORMAT_BGRA8_UNORM,
+    STURDY_FORMAT_BGRA8_UNORM_SRGB,
+    STURDY_FORMAT_RGB10A2_UNORM,
+    STURDY_FORMAT_RG11B10_FLOAT,
+    STURDY_FORMAT_R16_UINT,
+    STURDY_FORMAT_R16_SINT,
+    STURDY_FORMAT_R16_FLOAT,
+    STURDY_FORMAT_RG16_UINT,
+    STURDY_FORMAT_RG16_SINT,
+    STURDY_FORMAT_RG16_FLOAT,
+    STURDY_FORMAT_RGBA16_UINT,
+    STURDY_FORMAT_RGBA16_SINT,
+    STURDY_FORMAT_RGBA16_FLOAT,
+    STURDY_FORMAT_R32_UINT,
+    STURDY_FORMAT_R32_SINT,
+    STURDY_FORMAT_R32_FLOAT,
+    STURDY_FORMAT_RG32_UINT,
+    STURDY_FORMAT_RG32_SINT,
+    STURDY_FORMAT_RG32_FLOAT,
+    STURDY_FORMAT_RGBA32_UINT,
+    STURDY_FORMAT_RGBA32_SINT,
+    STURDY_FORMAT_RGBA32_FLOAT,
+    STURDY_FORMAT_D16_UNORM,
+    STURDY_FORMAT_D24_UNORM_S8_UINT,
+    STURDY_FORMAT_D32_FLOAT,
+    STURDY_FORMAT_D32_FLOAT_S8_UINT,
+    STURDY_FORMAT_BC1_UNORM,
+    STURDY_FORMAT_BC1_UNORM_SRGB,
+    STURDY_FORMAT_BC3_UNORM,
+    STURDY_FORMAT_BC3_UNORM_SRGB,
+    STURDY_FORMAT_BC4_UNORM,
+    STURDY_FORMAT_BC5_UNORM,
+    STURDY_FORMAT_BC7_UNORM,
+    STURDY_FORMAT_BC7_UNORM_SRGB,
+    STURDY_FORMAT_FORCE_U32 = 0x7fffffff
+} SturdyFormat;
+
+/// Bitwise-OR'd usage flags for `SturdyBufferDesc::usage`.
+typedef uint32_t SturdyBufferUsage;
+#define STURDY_BUFFER_USAGE_NONE ((SturdyBufferUsage)0)
+#define STURDY_BUFFER_USAGE_TRANSFER_SRC ((SturdyBufferUsage)(1u << 0))
+#define STURDY_BUFFER_USAGE_TRANSFER_DST ((SturdyBufferUsage)(1u << 1))
+#define STURDY_BUFFER_USAGE_VERTEX ((SturdyBufferUsage)(1u << 2))
+#define STURDY_BUFFER_USAGE_INDEX ((SturdyBufferUsage)(1u << 3))
+#define STURDY_BUFFER_USAGE_UNIFORM ((SturdyBufferUsage)(1u << 4))
+#define STURDY_BUFFER_USAGE_STORAGE ((SturdyBufferUsage)(1u << 5))
+#define STURDY_BUFFER_USAGE_INDIRECT ((SturdyBufferUsage)(1u << 6))
+
+/// Where a buffer's backing memory lives.
+typedef enum SturdyMemoryLocation {
+    STURDY_MEMORY_LOCATION_DEVICE_LOCAL = 0,
+    STURDY_MEMORY_LOCATION_HOST_UPLOAD = 1,
+    STURDY_MEMORY_LOCATION_HOST_READBACK = 2,
+    STURDY_MEMORY_LOCATION_FORCE_U32 = 0x7fffffff
+} SturdyMemoryLocation;
+
+/// Handle to a GPU buffer. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyBuffer {
+    uint64_t id;
+} SturdyBuffer;
+
+/// Describes a buffer to create.
+typedef struct SturdyBufferDesc {
+    /// Set to `sizeof(SturdyBufferDesc)` by `sturdy_rhi_buffer_desc_init`.
+    uint32_t struct_size;
+    uint32_t reserved;
+    uint64_t size;
+    /// Bitwise OR of `STURDY_BUFFER_USAGE_*`.
+    SturdyBufferUsage usage;
+    SturdyMemoryLocation memory;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyBufferDesc;
+
+/// Fills `desc` with `struct_size` and engine defaults (`STURDY_MEMORY_LOCATION_DEVICE_LOCAL`,
+/// no usage flags, zero size).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_buffer_desc_init(SturdyBufferDesc *desc);
+
+/// Creates a buffer on the engine's active device.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_buffer(SturdyEngine engine,
+                                                                  const SturdyBufferDesc *desc,
+                                                                  SturdyBuffer *out_buffer);
+
+/// Destroys a buffer created by `sturdy_rhi_create_buffer`. A null/zero handle is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_buffer(SturdyEngine engine, SturdyBuffer buffer);
+
+/// Uploads `data` into `buffer` at `offset`, outside any command encoder. Suitable for
+/// infrequent, host-visible writes; for per-frame or GPU-timed writes use
+/// `sturdy_rhi_command_encoder_update_buffer` instead.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_write_buffer(SturdyEngine engine,
+                                                                 SturdyBuffer buffer,
+                                                                 uint64_t offset,
+                                                                 const void *data,
+                                                                 size_t data_size);
+
+/// Maps `buffer` for host access. Only valid for a buffer created with a host-visible
+/// `SturdyMemoryLocation`.
+///
+/// @param out_ptr Receives a pointer to the mapped range, valid until `sturdy_rhi_unmap_buffer`.
+/// @param out_size Receives the mapped range's size in bytes. May be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_map_buffer(SturdyEngine engine,
+                                                               SturdyBuffer buffer,
+                                                               void **out_ptr,
+                                                               size_t *out_size);
+
+/// Unmaps a buffer previously mapped with `sturdy_rhi_map_buffer`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_unmap_buffer(SturdyEngine engine, SturdyBuffer buffer);
+
+/// Reads the GPU virtual address of `buffer`. Requires the buffer to have been created with
+/// storage/indirect/acceleration-structure-input usage that publishes a device address on the
+/// active backend.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_buffer_device_address(SturdyEngine engine,
+                                                                          SturdyBuffer buffer,
+                                                                          uint64_t *out_address);
+
+/// Dimensionality of a texture.
+typedef enum SturdyTextureDimension {
+    STURDY_TEXTURE_DIMENSION_1D = 0,
+    STURDY_TEXTURE_DIMENSION_2D = 1,
+    STURDY_TEXTURE_DIMENSION_3D = 2,
+    STURDY_TEXTURE_DIMENSION_FORCE_U32 = 0x7fffffff
+} SturdyTextureDimension;
+
+/// Bitwise-OR'd usage flags for `SturdyTextureDesc::usage`.
+typedef uint32_t SturdyTextureUsage;
+#define STURDY_TEXTURE_USAGE_NONE ((SturdyTextureUsage)0)
+#define STURDY_TEXTURE_USAGE_TRANSFER_SRC ((SturdyTextureUsage)(1u << 0))
+#define STURDY_TEXTURE_USAGE_TRANSFER_DST ((SturdyTextureUsage)(1u << 1))
+#define STURDY_TEXTURE_USAGE_SAMPLED ((SturdyTextureUsage)(1u << 2))
+#define STURDY_TEXTURE_USAGE_STORAGE ((SturdyTextureUsage)(1u << 3))
+#define STURDY_TEXTURE_USAGE_COLOR_ATTACHMENT ((SturdyTextureUsage)(1u << 4))
+#define STURDY_TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT ((SturdyTextureUsage)(1u << 5))
+
+/// Handle to a GPU texture. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyTexture {
+    uint64_t id;
+} SturdyTexture;
+
+/// Describes a texture to create.
+typedef struct SturdyTextureDesc {
+    /// Set to `sizeof(SturdyTextureDesc)` by `sturdy_rhi_texture_desc_init`.
+    uint32_t struct_size;
+    SturdyTextureDimension dimension;
+    SturdyFormat format;
+    uint32_t width;
+    uint32_t height;
+    /// Depth for a 3D texture, array layer count for a 1D/2D texture.
+    uint32_t depth_or_layers;
+    uint32_t mip_levels;
+    /// MSAA sample count. Must be 1 for anything but a 2D color/depth-stencil attachment.
+    uint32_t samples;
+    /// Bitwise OR of `STURDY_TEXTURE_USAGE_*`.
+    SturdyTextureUsage usage;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyTextureDesc;
+
+/// Fills `desc` with `struct_size` and engine defaults (2D, `STURDY_FORMAT_UNDEFINED`, 1x1x1,
+/// one mip level, one sample, no usage flags).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_texture_desc_init(SturdyTextureDesc *desc);
+
+/// Creates a texture on the engine's active device.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_texture(SturdyEngine engine,
+                                                                   const SturdyTextureDesc *desc,
+                                                                   SturdyTexture *out_texture);
+
+/// Destroys a texture created by `sturdy_rhi_create_texture`. A null/zero handle is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_texture(SturdyEngine engine, SturdyTexture texture);
+
+/// How a texture view's subresources are addressed.
+typedef enum SturdyTextureViewType {
+    STURDY_TEXTURE_VIEW_TYPE_1D = 0,
+    STURDY_TEXTURE_VIEW_TYPE_2D = 1,
+    STURDY_TEXTURE_VIEW_TYPE_2D_ARRAY = 2,
+    STURDY_TEXTURE_VIEW_TYPE_CUBE = 3,
+    STURDY_TEXTURE_VIEW_TYPE_CUBE_ARRAY = 4,
+    STURDY_TEXTURE_VIEW_TYPE_3D = 5,
+    STURDY_TEXTURE_VIEW_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyTextureViewType;
+
+/// Pass as `mip_level_count`/`array_layer_count` to cover every remaining level/layer from the
+/// base one onward.
+#define STURDY_ALL_REMAINING (~(uint32_t)0)
+
+/// Handle to a texture view. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyTextureView {
+    uint64_t id;
+} SturdyTextureView;
+
+/// Describes a texture view to create.
+typedef struct SturdyTextureViewDesc {
+    /// Set to `sizeof(SturdyTextureViewDesc)` by the caller.
+    uint32_t struct_size;
+    SturdyTextureViewType view_type;
+    SturdyTexture texture;
+    /// `STURDY_FORMAT_UNDEFINED` reuses the texture's own format.
+    SturdyFormat format;
+    uint32_t base_mip_level;
+    uint32_t mip_level_count;
+    uint32_t base_array_layer;
+    uint32_t array_layer_count;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyTextureViewDesc;
+
+/// Creates a texture view. `desc->texture` must be a live handle from
+/// `sturdy_rhi_create_texture`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_texture_view(SturdyEngine engine,
+                                                                        const SturdyTextureViewDesc *desc,
+                                                                        SturdyTextureView *out_view);
+
+/// Destroys a texture view created by `sturdy_rhi_create_texture_view`. A null/zero handle is a
+/// no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_texture_view(SturdyEngine engine,
+                                                                         SturdyTextureView view);
+
+typedef enum SturdyFilter {
+    STURDY_FILTER_NEAREST = 0,
+    STURDY_FILTER_LINEAR = 1,
+    STURDY_FILTER_FORCE_U32 = 0x7fffffff
+} SturdyFilter;
+
+typedef enum SturdyMipmapMode {
+    STURDY_MIPMAP_MODE_NEAREST = 0,
+    STURDY_MIPMAP_MODE_LINEAR = 1,
+    STURDY_MIPMAP_MODE_FORCE_U32 = 0x7fffffff
+} SturdyMipmapMode;
+
+typedef enum SturdyAddressMode {
+    STURDY_ADDRESS_MODE_REPEAT = 0,
+    STURDY_ADDRESS_MODE_MIRRORED_REPEAT = 1,
+    STURDY_ADDRESS_MODE_CLAMP_TO_EDGE = 2,
+    STURDY_ADDRESS_MODE_CLAMP_TO_BORDER = 3,
+    STURDY_ADDRESS_MODE_FORCE_U32 = 0x7fffffff
+} SturdyAddressMode;
+
+typedef enum SturdyBorderColor {
+    STURDY_BORDER_COLOR_TRANSPARENT_BLACK = 0,
+    STURDY_BORDER_COLOR_OPAQUE_BLACK = 1,
+    STURDY_BORDER_COLOR_OPAQUE_WHITE = 2,
+    STURDY_BORDER_COLOR_FORCE_U32 = 0x7fffffff
+} SturdyBorderColor;
+
+/// Comparison used by depth tests, stencil tests, and comparison samplers.
+typedef enum SturdyCompareOp {
+    STURDY_COMPARE_OP_NEVER = 0,
+    STURDY_COMPARE_OP_LESS = 1,
+    STURDY_COMPARE_OP_EQUAL = 2,
+    STURDY_COMPARE_OP_LESS_EQUAL = 3,
+    STURDY_COMPARE_OP_GREATER = 4,
+    STURDY_COMPARE_OP_NOT_EQUAL = 5,
+    STURDY_COMPARE_OP_GREATER_EQUAL = 6,
+    STURDY_COMPARE_OP_ALWAYS = 7,
+    STURDY_COMPARE_OP_FORCE_U32 = 0x7fffffff
+} SturdyCompareOp;
+
+/// Handle to a sampler. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdySampler {
+    uint64_t id;
+} SturdySampler;
+
+/// Describes a sampler to create.
+typedef struct SturdySamplerDesc {
+    /// Set to `sizeof(SturdySamplerDesc)` by `sturdy_rhi_sampler_desc_init`.
+    uint32_t struct_size;
+    SturdyFilter min_filter;
+    SturdyFilter mag_filter;
+    SturdyMipmapMode mipmap_mode;
+    SturdyAddressMode address_u;
+    SturdyAddressMode address_v;
+    SturdyAddressMode address_w;
+    float mip_lod_bias;
+    float min_lod;
+    float max_lod;
+    /// Zero disables anisotropic filtering.
+    float max_anisotropy;
+    SturdyBool compare_enable;
+    uint8_t reserved[3];
+    SturdyCompareOp compare;
+    SturdyBorderColor border_color;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdySamplerDesc;
+
+/// Fills `desc` with `struct_size` and engine defaults (linear filtering/mipmapping, repeat
+/// addressing, LOD range [0, 1000], no anisotropy, no comparison).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_sampler_desc_init(SturdySamplerDesc *desc);
+
+/// Creates a sampler on the engine's active device.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_sampler(SturdyEngine engine,
+                                                                   const SturdySamplerDesc *desc,
+                                                                   SturdySampler *out_sampler);
+
+/// Destroys a sampler created by `sturdy_rhi_create_sampler`. A null/zero handle is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_sampler(SturdyEngine engine, SturdySampler sampler);
+
+/// Bytecode language a shader module was compiled to.
+typedef enum SturdyShaderLanguage {
+    STURDY_SHADER_LANGUAGE_SPIRV = 0,
+    STURDY_SHADER_LANGUAGE_DXIL = 1,
+    STURDY_SHADER_LANGUAGE_MSL = 2,
+    STURDY_SHADER_LANGUAGE_WGSL = 3,
+    STURDY_SHADER_LANGUAGE_FORCE_U32 = 0x7fffffff
+} SturdyShaderLanguage;
+
+/// Bitwise-OR'd shader stages. Used for pipeline entry points, bind-group-layout visibility, and
+/// push-constant range visibility.
+typedef uint32_t SturdyShaderStage;
+#define STURDY_SHADER_STAGE_NONE ((SturdyShaderStage)0)
+#define STURDY_SHADER_STAGE_VERTEX ((SturdyShaderStage)(1u << 0))
+#define STURDY_SHADER_STAGE_FRAGMENT ((SturdyShaderStage)(1u << 1))
+#define STURDY_SHADER_STAGE_COMPUTE ((SturdyShaderStage)(1u << 2))
+
+/// Handle to a shader module compiled from raw backend bytecode (SPIR-V on Vulkan, DXIL on
+/// D3D12). This is the low-level counterpart to `sturdy_render_load_shader`, which additionally
+/// invokes the engine's Slang toolchain; use this one when bytecode was already compiled
+/// offline. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyShaderModule {
+    uint64_t id;
+} SturdyShaderModule;
+
+/// Describes a shader module to create from raw bytecode.
+typedef struct SturdyShaderModuleDesc {
+    /// Set to `sizeof(SturdyShaderModuleDesc)` by the caller.
+    uint32_t struct_size;
+    SturdyShaderLanguage language;
+    const void *code;
+    size_t code_size;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyShaderModuleDesc;
+
+/// Creates a shader module. `desc->language` must match what the active backend consumes
+/// (`STURDY_SHADER_LANGUAGE_SPIRV` for Vulkan, `STURDY_SHADER_LANGUAGE_DXIL` for D3D12); check
+/// `sturdy_rhi_backend` first if targeting both.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_shader_module(SturdyEngine engine,
+                                                                         const SturdyShaderModuleDesc *desc,
+                                                                         SturdyShaderModule *out_module);
+
+/// Destroys a shader module created by `sturdy_rhi_create_shader_module`. A null/zero handle is
+/// a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_shader_module(SturdyEngine engine,
+                                                                          SturdyShaderModule module);
+
+/// What a bind-group-layout entry binds.
+typedef enum SturdyBindingType {
+    STURDY_BINDING_TYPE_UNIFORM_BUFFER = 0,
+    STURDY_BINDING_TYPE_STORAGE_BUFFER = 1,
+    STURDY_BINDING_TYPE_READ_ONLY_STORAGE_BUFFER = 2,
+    STURDY_BINDING_TYPE_SAMPLED_TEXTURE = 3,
+    STURDY_BINDING_TYPE_STORAGE_TEXTURE = 4,
+    STURDY_BINDING_TYPE_SAMPLER = 5,
+    STURDY_BINDING_TYPE_COMBINED_IMAGE_SAMPLER = 6,
+    STURDY_BINDING_TYPE_ACCELERATION_STRUCTURE = 7,
+    STURDY_BINDING_TYPE_INPUT_ATTACHMENT = 8,
+    STURDY_BINDING_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyBindingType;
+
+/// Bitwise-OR'd flags for `SturdyBindGroupLayoutEntry::flags`.
+typedef uint32_t SturdyBindingFlags;
+#define STURDY_BINDING_FLAGS_NONE ((SturdyBindingFlags)0)
+#define STURDY_BINDING_FLAGS_PARTIALLY_BOUND ((SturdyBindingFlags)(1u << 0))
+#define STURDY_BINDING_FLAGS_UPDATE_AFTER_BIND ((SturdyBindingFlags)(1u << 1))
+#define STURDY_BINDING_FLAGS_VARIABLE_DESCRIPTOR_COUNT ((SturdyBindingFlags)(1u << 2))
+
+/// One binding slot within a bind group layout.
+typedef struct SturdyBindGroupLayoutEntry {
+    uint32_t binding;
+    /// D3D-style shader register this binding compiles to. Ignored on Vulkan; leave at
+    /// `0xffffffff` (the default) when only targeting Vulkan.
+    uint32_t shader_register;
+    SturdyBindingType type;
+    /// Bitwise OR of `STURDY_SHADER_STAGE_*`.
+    SturdyShaderStage visibility;
+    /// Array size for this binding; 1 for a non-array binding.
+    uint32_t count;
+    SturdyBool has_dynamic_offset;
+    uint8_t reserved[3];
+    /// Bitwise OR of `STURDY_BINDING_FLAGS_*`.
+    SturdyBindingFlags flags;
+    /// Only meaningful when `type` is `STURDY_BINDING_TYPE_INPUT_ATTACHMENT`.
+    uint32_t input_attachment_index;
+} SturdyBindGroupLayoutEntry;
+
+/// Handle to a bind group layout. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyBindGroupLayout {
+    uint64_t id;
+} SturdyBindGroupLayout;
+
+/// Describes a bind group layout to create.
+typedef struct SturdyBindGroupLayoutDesc {
+    /// Set to `sizeof(SturdyBindGroupLayoutDesc)` by the caller.
+    uint32_t struct_size;
+    uint32_t entry_count;
+    const SturdyBindGroupLayoutEntry *entries;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyBindGroupLayoutDesc;
+
+/// Creates a bind group layout. `desc->entries` is read synchronously and need not outlive the
+/// call.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_bind_group_layout(
+    SturdyEngine engine, const SturdyBindGroupLayoutDesc *desc, SturdyBindGroupLayout *out_layout);
+
+/// Destroys a bind group layout created by `sturdy_rhi_create_bind_group_layout`. A null/zero
+/// handle is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_bind_group_layout(SturdyEngine engine,
+                                                                              SturdyBindGroupLayout layout);
+
+/// One resource binding within a bind group. Set the field matching `binding`'s type in the
+/// layout it targets; unused fields are ignored.
+typedef struct SturdyBindGroupEntry {
+    uint32_t binding;
+    /// Array element within the binding; 0 for a non-array binding.
+    uint32_t array_element;
+    SturdyBuffer buffer;
+    uint64_t offset;
+    /// Zero means the buffer's remaining size from `offset`.
+    uint64_t size;
+    /// Structured-buffer element stride. Only meaningful for a storage-buffer binding on
+    /// backends that need it (D3D12 structured buffers); leave 0 otherwise.
+    uint32_t structure_stride;
+    uint32_t reserved;
+    SturdyTextureView texture_view;
+    SturdySampler sampler;
+} SturdyBindGroupEntry;
+
+/// Handle to a bind group. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyBindGroup {
+    uint64_t id;
+} SturdyBindGroup;
+
+/// Describes a bind group to create.
+typedef struct SturdyBindGroupDesc {
+    /// Set to `sizeof(SturdyBindGroupDesc)` by the caller.
+    uint32_t struct_size;
+    SturdyBindGroupLayout layout;
+    uint32_t entry_count;
+    const SturdyBindGroupEntry *entries;
+    /// Element count to reserve for the layout's trailing variable-count binding, if any.
+    /// Zero when the layout has none.
+    uint32_t variable_descriptor_count;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyBindGroupDesc;
+
+/// Creates a bind group. `desc->entries` is read synchronously and need not outlive the call.
+/// The group is created persistent (not frame-transient); destroy it explicitly when done.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_bind_group(SturdyEngine engine,
+                                                                      const SturdyBindGroupDesc *desc,
+                                                                      SturdyBindGroup *out_group);
+
+/// Destroys a bind group created by `sturdy_rhi_create_bind_group`. A null/zero handle is a
+/// no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_bind_group(SturdyEngine engine, SturdyBindGroup group);
+
+/// One push-constant range within a pipeline layout.
+typedef struct SturdyPushConstantRange {
+    /// Bitwise OR of `STURDY_SHADER_STAGE_*`.
+    SturdyShaderStage stages;
+    uint32_t offset;
+    uint32_t size;
+    /// D3D-style register/space this range compiles to. Ignored on Vulkan.
+    uint32_t shader_register;
+    uint32_t register_space;
+} SturdyPushConstantRange;
+
+/// Handle to a pipeline layout. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyPipelineLayout {
+    uint64_t id;
+} SturdyPipelineLayout;
+
+/// Describes a pipeline layout to create.
+typedef struct SturdyPipelineLayoutDesc {
+    /// Set to `sizeof(SturdyPipelineLayoutDesc)` by the caller.
+    uint32_t struct_size;
+    uint32_t bind_group_layout_count;
+    const SturdyBindGroupLayout *bind_group_layouts;
+    uint32_t push_constant_range_count;
+    uint32_t reserved;
+    const SturdyPushConstantRange *push_constant_ranges;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyPipelineLayoutDesc;
+
+/// Creates a pipeline layout. `desc->bind_group_layouts`/`push_constant_ranges` are read
+/// synchronously and need not outlive the call.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_pipeline_layout(
+    SturdyEngine engine, const SturdyPipelineLayoutDesc *desc, SturdyPipelineLayout *out_layout);
+
+/// Destroys a pipeline layout created by `sturdy_rhi_create_pipeline_layout`. A null/zero handle
+/// is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_pipeline_layout(SturdyEngine engine,
+                                                                            SturdyPipelineLayout layout);
+
+/// Per-vertex-attribute data layout. Ordinal values are pinned to match the engine's internal
+/// `RHI::VertexFormat` and must stay in this exact order.
+typedef enum SturdyVertexFormat {
+    STURDY_VERTEX_FORMAT_FLOAT32 = 0,
+    STURDY_VERTEX_FORMAT_FLOAT32X2,
+    STURDY_VERTEX_FORMAT_FLOAT32X3,
+    STURDY_VERTEX_FORMAT_FLOAT32X4,
+    STURDY_VERTEX_FORMAT_UINT32,
+    STURDY_VERTEX_FORMAT_UINT32X2,
+    STURDY_VERTEX_FORMAT_UINT32X3,
+    STURDY_VERTEX_FORMAT_UINT32X4,
+    STURDY_VERTEX_FORMAT_SINT32,
+    STURDY_VERTEX_FORMAT_SINT32X2,
+    STURDY_VERTEX_FORMAT_SINT32X3,
+    STURDY_VERTEX_FORMAT_SINT32X4,
+    STURDY_VERTEX_FORMAT_UINT8X4_UNORM,
+    STURDY_VERTEX_FORMAT_SINT8X4_NORM,
+    STURDY_VERTEX_FORMAT_UINT16X2_UNORM,
+    STURDY_VERTEX_FORMAT_UINT16X4_UNORM,
+    STURDY_VERTEX_FORMAT_FLOAT16X2,
+    STURDY_VERTEX_FORMAT_FLOAT16X4,
+    STURDY_VERTEX_FORMAT_FORCE_U32 = 0x7fffffff
+} SturdyVertexFormat;
+
+typedef enum SturdyVertexStepMode {
+    STURDY_VERTEX_STEP_MODE_VERTEX = 0,
+    STURDY_VERTEX_STEP_MODE_INSTANCE = 1,
+    STURDY_VERTEX_STEP_MODE_FORCE_U32 = 0x7fffffff
+} SturdyVertexStepMode;
+
+/// One attribute within a vertex buffer layout.
+typedef struct SturdyVertexAttribute {
+    SturdyVertexFormat format;
+    uint32_t offset;
+    uint32_t shader_location;
+    /// D3D-style input semantic name matching the shader's declared input (e.g. "NORMAL").
+    /// Ignored on Vulkan, which matches by `shader_location` alone. Defaults to "TEXCOORD" if
+    /// left null.
+    const char *semantic_name;
+    uint32_t semantic_index;
+} SturdyVertexAttribute;
+
+/// Describes one vertex buffer's layout within a render pipeline.
+typedef struct SturdyVertexBufferLayout {
+    uint64_t stride;
+    SturdyVertexStepMode step_mode;
+    uint32_t attribute_count;
+    const SturdyVertexAttribute *attributes;
+} SturdyVertexBufferLayout;
+
+/// A shader module plus the stage and entry point a pipeline invokes it at.
+typedef struct SturdyShaderEntry {
+    SturdyShaderModule module;
+    /// Defaults to "main" if left null.
+    const char *entry_point;
+    SturdyShaderStage stage;
+} SturdyShaderEntry;
+
+typedef enum SturdyPrimitiveTopology {
+    STURDY_PRIMITIVE_TOPOLOGY_POINT_LIST = 0,
+    STURDY_PRIMITIVE_TOPOLOGY_LINE_LIST = 1,
+    STURDY_PRIMITIVE_TOPOLOGY_LINE_STRIP = 2,
+    STURDY_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST = 3,
+    STURDY_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP = 4,
+    STURDY_PRIMITIVE_TOPOLOGY_FORCE_U32 = 0x7fffffff
+} SturdyPrimitiveTopology;
+
+typedef enum SturdyPolygonMode {
+    STURDY_POLYGON_MODE_FILL = 0,
+    /// Wireframe. A device feature on some backends; check before relying on it.
+    STURDY_POLYGON_MODE_LINE = 1,
+    STURDY_POLYGON_MODE_POINT = 2,
+    STURDY_POLYGON_MODE_FORCE_U32 = 0x7fffffff
+} SturdyPolygonMode;
+
+typedef enum SturdyCullMode {
+    STURDY_CULL_MODE_NONE = 0,
+    STURDY_CULL_MODE_FRONT = 1,
+    STURDY_CULL_MODE_BACK = 2,
+    STURDY_CULL_MODE_FORCE_U32 = 0x7fffffff
+} SturdyCullMode;
+
+/// Winding considered front-facing by the rasterizer.
+typedef enum SturdyFrontFace {
+    STURDY_FRONT_FACE_COUNTER_CLOCKWISE = 0,
+    STURDY_FRONT_FACE_CLOCKWISE = 1,
+    STURDY_FRONT_FACE_FORCE_U32 = 0x7fffffff
+} SturdyFrontFace;
+
+/// Rasterizer fixed-function state.
+typedef struct SturdyRasterizationState {
+    SturdyPolygonMode polygon_mode;
+    SturdyCullMode cull_mode;
+    SturdyFrontFace front_face;
+    SturdyBool depth_clamp_enable;
+    uint8_t reserved[3];
+    float depth_bias_constant;
+    float depth_bias_slope_scale;
+    float depth_bias_clamp;
+    float line_width;
+} SturdyRasterizationState;
+
+typedef enum SturdyStencilOp {
+    STURDY_STENCIL_OP_KEEP = 0,
+    STURDY_STENCIL_OP_ZERO = 1,
+    STURDY_STENCIL_OP_REPLACE = 2,
+    STURDY_STENCIL_OP_INCREMENT_CLAMP = 3,
+    STURDY_STENCIL_OP_DECREMENT_CLAMP = 4,
+    STURDY_STENCIL_OP_INVERT = 5,
+    STURDY_STENCIL_OP_INCREMENT_WRAP = 6,
+    STURDY_STENCIL_OP_DECREMENT_WRAP = 7,
+    STURDY_STENCIL_OP_FORCE_U32 = 0x7fffffff
+} SturdyStencilOp;
+
+/// Stencil behavior for one face (front or back).
+typedef struct SturdyStencilFaceState {
+    SturdyStencilOp fail_op;
+    SturdyStencilOp depth_fail_op;
+    SturdyStencilOp pass_op;
+    SturdyCompareOp compare;
+} SturdyStencilFaceState;
+
+/// Depth/stencil fixed-function state. `format` names the attachment this pipeline targets;
+/// `STURDY_FORMAT_UNDEFINED` means the pipeline has no depth/stencil attachment.
+typedef struct SturdyDepthStencilState {
+    SturdyFormat format;
+    SturdyBool depth_test_enable;
+    SturdyBool depth_write_enable;
+    uint8_t reserved[2];
+    SturdyCompareOp depth_compare;
+    SturdyBool stencil_test_enable;
+    uint8_t stencil_read_mask;
+    uint8_t stencil_write_mask;
+    uint8_t reserved2;
+    SturdyStencilFaceState stencil_front;
+    SturdyStencilFaceState stencil_back;
+} SturdyDepthStencilState;
+
+/// Multisample fixed-function state.
+typedef struct SturdyMultisampleState {
+    uint32_t samples;
+    uint32_t sample_mask;
+    SturdyBool alpha_to_coverage_enable;
+    uint8_t reserved[3];
+} SturdyMultisampleState;
+
+typedef enum SturdyBlendFactor {
+    STURDY_BLEND_FACTOR_ZERO = 0,
+    STURDY_BLEND_FACTOR_ONE = 1,
+    STURDY_BLEND_FACTOR_SRC_COLOR = 2,
+    STURDY_BLEND_FACTOR_ONE_MINUS_SRC_COLOR = 3,
+    STURDY_BLEND_FACTOR_DST_COLOR = 4,
+    STURDY_BLEND_FACTOR_ONE_MINUS_DST_COLOR = 5,
+    STURDY_BLEND_FACTOR_SRC_ALPHA = 6,
+    STURDY_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA = 7,
+    STURDY_BLEND_FACTOR_DST_ALPHA = 8,
+    STURDY_BLEND_FACTOR_ONE_MINUS_DST_ALPHA = 9,
+    STURDY_BLEND_FACTOR_CONSTANT_COLOR = 10,
+    STURDY_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR = 11,
+    STURDY_BLEND_FACTOR_SRC_ALPHA_SATURATED = 12,
+    STURDY_BLEND_FACTOR_FORCE_U32 = 0x7fffffff
+} SturdyBlendFactor;
+
+typedef enum SturdyBlendOp {
+    STURDY_BLEND_OP_ADD = 0,
+    STURDY_BLEND_OP_SUBTRACT = 1,
+    STURDY_BLEND_OP_REVERSE_SUBTRACT = 2,
+    STURDY_BLEND_OP_MIN = 3,
+    STURDY_BLEND_OP_MAX = 4,
+    STURDY_BLEND_OP_FORCE_U32 = 0x7fffffff
+} SturdyBlendOp;
+
+/// Bitwise-OR'd color channel mask for `SturdyColorTargetState::write_mask`.
+typedef uint32_t SturdyColorWriteMask;
+#define STURDY_COLOR_WRITE_MASK_NONE ((SturdyColorWriteMask)0)
+#define STURDY_COLOR_WRITE_MASK_RED ((SturdyColorWriteMask)(1u << 0))
+#define STURDY_COLOR_WRITE_MASK_GREEN ((SturdyColorWriteMask)(1u << 1))
+#define STURDY_COLOR_WRITE_MASK_BLUE ((SturdyColorWriteMask)(1u << 2))
+#define STURDY_COLOR_WRITE_MASK_ALPHA ((SturdyColorWriteMask)(1u << 3))
+#define STURDY_COLOR_WRITE_MASK_ALL \
+    ((SturdyColorWriteMask)(STURDY_COLOR_WRITE_MASK_RED | STURDY_COLOR_WRITE_MASK_GREEN | \
+                             STURDY_COLOR_WRITE_MASK_BLUE | STURDY_COLOR_WRITE_MASK_ALPHA))
+
+/// One color attachment's format and blend/write behavior. `blend_enable` false means a
+/// straight overwrite; the blend fields are then ignored.
+typedef struct SturdyColorTargetState {
+    SturdyFormat format;
+    SturdyBool blend_enable;
+    uint8_t reserved[3];
+    SturdyBlendFactor color_src_factor;
+    SturdyBlendFactor color_dst_factor;
+    SturdyBlendOp color_op;
+    SturdyBlendFactor alpha_src_factor;
+    SturdyBlendFactor alpha_dst_factor;
+    SturdyBlendOp alpha_op;
+    /// Bitwise OR of `STURDY_COLOR_WRITE_MASK_*`.
+    SturdyColorWriteMask write_mask;
+} SturdyColorTargetState;
+
+/// Handle to a render pipeline. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyRenderPipeline {
+    uint64_t id;
+} SturdyRenderPipeline;
+
+/// Everything needed to build a raster pipeline against dynamic rendering (no render-pass
+/// object). Viewport/scissor are always dynamic, set per-draw on the render pass encoder, so
+/// they are not part of this description. All array fields are read synchronously during
+/// `sturdy_rhi_create_render_pipeline` and need not outlive the call.
+///
+/// Mesh/task-shader pipelines are not supported by this ABI version; set `vertex`.
+typedef struct SturdyRenderPipelineDesc {
+    /// Set to `sizeof(SturdyRenderPipelineDesc)` by `sturdy_rhi_render_pipeline_desc_init`.
+    uint32_t struct_size;
+    SturdyPipelineLayout layout;
+    SturdyShaderEntry vertex;
+    /// Module may be the zero handle for a depth-only pipeline.
+    SturdyShaderEntry fragment;
+    uint32_t vertex_buffer_count;
+    uint32_t reserved;
+    const SturdyVertexBufferLayout *vertex_buffers;
+    SturdyPrimitiveTopology topology;
+    SturdyRasterizationState rasterization;
+    SturdyMultisampleState multisample;
+    /// `format` field `STURDY_FORMAT_UNDEFINED` means no depth/stencil attachment.
+    SturdyDepthStencilState depth_stencil;
+    uint32_t color_target_count;
+    uint32_t reserved2;
+    const SturdyColorTargetState *color_targets;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyRenderPipelineDesc;
+
+/// Fills `desc` with `struct_size` and engine defaults (triangle list, fill/back-cull/CCW
+/// rasterization, no multisampling, no depth/stencil, no color targets, zeroed shader entries).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pipeline_desc_init(SturdyRenderPipelineDesc *desc);
+
+/// Creates a render pipeline on the engine's active device.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_render_pipeline(
+    SturdyEngine engine, const SturdyRenderPipelineDesc *desc, SturdyRenderPipeline *out_pipeline);
+
+/// Destroys a render pipeline created by `sturdy_rhi_create_render_pipeline`. A null/zero handle
+/// is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_render_pipeline(SturdyEngine engine,
+                                                                            SturdyRenderPipeline pipeline);
+
+/// Handle to a compute pipeline. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyComputePipeline {
+    uint64_t id;
+} SturdyComputePipeline;
+
+/// Describes a compute pipeline to create.
+typedef struct SturdyComputePipelineDesc {
+    /// Set to `sizeof(SturdyComputePipelineDesc)` by the caller.
+    uint32_t struct_size;
+    SturdyPipelineLayout layout;
+    SturdyShaderEntry compute;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyComputePipelineDesc;
+
+/// Creates a compute pipeline on the engine's active device.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_compute_pipeline(
+    SturdyEngine engine, const SturdyComputePipelineDesc *desc, SturdyComputePipeline *out_pipeline);
+
+/// Destroys a compute pipeline created by `sturdy_rhi_create_compute_pipeline`. A null/zero
+/// handle is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_compute_pipeline(SturdyEngine engine,
+                                                                             SturdyComputePipeline pipeline);
+
+/// Load/store behavior for a render pass attachment.
+typedef enum SturdyLoadOp {
+    STURDY_LOAD_OP_LOAD = 0,
+    STURDY_LOAD_OP_CLEAR = 1,
+    STURDY_LOAD_OP_DONT_CARE = 2,
+    STURDY_LOAD_OP_FORCE_U32 = 0x7fffffff
+} SturdyLoadOp;
+
+typedef enum SturdyStoreOp {
+    STURDY_STORE_OP_STORE = 0,
+    STURDY_STORE_OP_DONT_CARE = 1,
+    STURDY_STORE_OP_FORCE_U32 = 0x7fffffff
+} SturdyStoreOp;
+
+typedef enum SturdyIndexFormat {
+    STURDY_INDEX_FORMAT_UINT16 = 0,
+    STURDY_INDEX_FORMAT_UINT32 = 1,
+    STURDY_INDEX_FORMAT_FORCE_U32 = 0x7fffffff
+} SturdyIndexFormat;
+
+/// Rectangle in pixel space, top-left origin — used for both scissor rects and render-pass
+/// render areas.
+typedef struct SturdyRect2D {
+    int32_t x;
+    int32_t y;
+    uint32_t width;
+    uint32_t height;
+} SturdyRect2D;
+
+/// Floating-point viewport, top-left origin. See `RHI::Viewport`'s engine-side documentation for
+/// the clip-space convention this maps into — it is identical on every backend from a shader's
+/// point of view, so nothing here needs backend-specific handling.
+typedef struct SturdyViewport {
+    float x;
+    float y;
+    float width;
+    float height;
+    float min_depth;
+    float max_depth;
+} SturdyViewport;
+
+/// One color attachment within a render pass.
+typedef struct SturdyColorAttachment {
+    SturdyTextureView view;
+    /// Zero handle disables MSAA resolve for this attachment.
+    SturdyTextureView resolve_view;
+    SturdyLoadOp load_op;
+    SturdyStoreOp store_op;
+    float clear_color[4];
+} SturdyColorAttachment;
+
+/// The depth/stencil attachment within a render pass. `has_view` false means the pass has no
+/// depth/stencil attachment and the rest of this struct is ignored.
+typedef struct SturdyDepthStencilAttachment {
+    SturdyBool has_view;
+    uint8_t reserved[3];
+    SturdyTextureView view;
+    SturdyTextureView resolve_view;
+    SturdyLoadOp depth_load_op;
+    SturdyStoreOp depth_store_op;
+    SturdyLoadOp stencil_load_op;
+    SturdyStoreOp stencil_store_op;
+    float clear_depth;
+    uint32_t clear_stencil;
+} SturdyDepthStencilAttachment;
+
+/// Describes a render pass to begin.
+typedef struct SturdyRenderPassDesc {
+    /// Set to `sizeof(SturdyRenderPassDesc)` by `sturdy_rhi_render_pass_desc_init`.
+    uint32_t struct_size;
+    uint32_t color_attachment_count;
+    const SturdyColorAttachment *color_attachments;
+    SturdyDepthStencilAttachment depth_stencil;
+    SturdyRect2D render_area;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyRenderPassDesc;
+
+/// Fills `desc` with `struct_size` and zeroed contents (no color attachments, no depth/stencil
+/// attachment, zero render area — set `color_attachments`/`render_area` before use).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_desc_init(SturdyRenderPassDesc *desc);
+
+/// Owned handle to an in-progress command recording, borrowed from the engine's active device.
+/// Lives until `sturdy_rhi_command_encoder_finish` or `sturdy_rhi_command_encoder_release`.
+typedef struct SturdyCommandEncoder {
+    uint64_t token;
+} SturdyCommandEncoder;
+
+/// Describes a command encoder to create.
+typedef struct SturdyCommandEncoderDesc {
+    /// Set to `sizeof(SturdyCommandEncoderDesc)` by `sturdy_rhi_command_encoder_desc_init`.
+    uint32_t struct_size;
+    SturdyQueueClass queue_class;
+    uint32_t queue_lane_index;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyCommandEncoderDesc;
+
+/// Fills `desc` with `struct_size` and engine defaults (graphics queue, lane 0).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_desc_init(SturdyCommandEncoderDesc *desc);
+
+/// Begins recording a new command buffer.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_command_encoder(
+    SturdyEngine engine, const SturdyCommandEncoderDesc *desc, SturdyCommandEncoder *out_encoder);
+
+/// Abandons an in-progress recording without submitting it. Use `sturdy_rhi_command_encoder_finish`
+/// instead when the recorded commands should actually run.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_release(SturdyCommandEncoder encoder);
+
+/// Handle to a finished, submittable command buffer. See the "RHI resources" section header for
+/// its lifetime rules.
+typedef struct SturdyCommandBuffer {
+    uint64_t id;
+} SturdyCommandBuffer;
+
+/// Ends recording and produces a submittable command buffer. `encoder` is consumed: its token is
+/// invalid after this call, whether it succeeds or fails.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_finish(SturdyCommandEncoder encoder,
+                                                                           SturdyCommandBuffer *out_buffer);
+
+/// Destroys a command buffer produced by `sturdy_rhi_command_encoder_finish`, whether or not it
+/// was submitted. A null/zero handle is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_command_buffer(SturdyEngine engine,
+                                                                           SturdyCommandBuffer buffer);
+
+/// One buffer-to-buffer copy region.
+typedef struct SturdyBufferCopy {
+    uint64_t src_offset;
+    uint64_t dst_offset;
+    uint64_t size;
+} SturdyBufferCopy;
+
+/// Copies bytes between two buffers.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_copy_buffer_to_buffer(
+    SturdyCommandEncoder encoder, SturdyBuffer src, SturdyBuffer dst, const SturdyBufferCopy *region);
+
+/// Describes one buffer<->texture copy region.
+///
+/// @note The buffer-side row pitch in bytes (the tightly-packed value is `extent_width` times the
+///       format's texel size, or `buffer_row_length` times it when nonzero) must be a multiple of
+///       256 on D3D12 (`D3D12_TEXTURE_DATA_PITCH_ALIGNMENT`) — Vulkan has no such requirement, but
+///       this is required for portability across both backends. Verified empirically: a 4-texel
+///       (16-byte) row succeeds on Vulkan and reports failure on D3D12.
+typedef struct SturdyBufferTextureCopy {
+    uint64_t buffer_offset;
+    /// Row length in texels; 0 means tightly packed.
+    uint32_t buffer_row_length;
+    /// Image height in rows; 0 means tightly packed.
+    uint32_t buffer_image_height;
+    uint32_t mip_level;
+    uint32_t base_array_layer;
+    uint32_t array_layer_count;
+    int32_t texture_x;
+    int32_t texture_y;
+    int32_t texture_z;
+    uint32_t extent_width;
+    uint32_t extent_height;
+    uint32_t extent_depth_or_layers;
+} SturdyBufferTextureCopy;
+
+/// Copies bytes from a buffer into a texture's subresources.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_copy_buffer_to_texture(
+    SturdyCommandEncoder encoder, SturdyBuffer src, SturdyTexture dst, const SturdyBufferTextureCopy *region);
+
+/// Copies texels from a texture's subresources into a buffer.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_copy_texture_to_buffer(
+    SturdyCommandEncoder encoder, SturdyTexture src, SturdyBuffer dst, const SturdyBufferTextureCopy *region);
+
+/// One texture-to-texture copy region. Source and destination subresources must have the same
+/// dimensions.
+typedef struct SturdyTextureCopy {
+    uint32_t src_mip_level;
+    uint32_t src_base_array_layer;
+    uint32_t src_array_layer_count;
+    int32_t src_x;
+    int32_t src_y;
+    int32_t src_z;
+    uint32_t dst_mip_level;
+    uint32_t dst_base_array_layer;
+    uint32_t dst_array_layer_count;
+    int32_t dst_x;
+    int32_t dst_y;
+    int32_t dst_z;
+    uint32_t extent_width;
+    uint32_t extent_height;
+    uint32_t extent_depth_or_layers;
+} SturdyTextureCopy;
+
+/// Copies texels between two textures' subresources.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_copy_texture_to_texture(
+    SturdyCommandEncoder encoder, SturdyTexture src, SturdyTexture dst, const SturdyTextureCopy *region);
+
+/// Fills a byte range of `buffer` with repeated copies of `value`, outside any render/compute
+/// pass.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_fill_buffer(
+    SturdyCommandEncoder encoder, SturdyBuffer buffer, uint64_t offset, uint64_t size, uint32_t value);
+
+/// Records a GPU-timed write of `data` into `buffer` at `offset`, outside any render/compute
+/// pass. Prefer this over `sturdy_rhi_write_buffer` for a write that must be ordered against
+/// other commands in the same encoder.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_update_buffer(
+    SturdyCommandEncoder encoder, SturdyBuffer buffer, uint64_t offset, const void *data, size_t data_size);
+
+/// Identifies the mip/array subrange a clear or barrier applies to.
+typedef struct SturdyTextureSubresourceRange {
+    uint32_t base_mip_level;
+    /// `STURDY_ALL_REMAINING` covers every remaining mip level.
+    uint32_t mip_level_count;
+    uint32_t base_array_layer;
+    /// `STURDY_ALL_REMAINING` covers every remaining array layer.
+    uint32_t array_layer_count;
+} SturdyTextureSubresourceRange;
+
+/// Clears a color texture's subresources to a solid color, outside any render pass.
+///
+/// @note `texture` must have been created with `STURDY_TEXTURE_USAGE_COLOR_ATTACHMENT`. Vulkan's
+///       `vkCmdClearColorImage` has no such requirement, but D3D12 clears through a render-target
+///       view, so this is required for portability across both backends even though only one
+///       enforces it — verified empirically against both.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_clear_color_texture(
+    SturdyCommandEncoder encoder, SturdyTexture texture, const float color[4],
+    const SturdyTextureSubresourceRange *range);
+
+/// Clears a depth/stencil texture's subresources, outside any render pass.
+///
+/// @note `texture` should be created with `STURDY_TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT`; by
+///       symmetry with `sturdy_rhi_command_encoder_clear_color_texture` above, D3D12 likely clears
+///       through a depth-stencil view the same way, though this has not been independently
+///       verified against both backends the way the color case was.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_clear_depth_stencil_texture(
+    SturdyCommandEncoder encoder, SturdyTexture texture, float depth, uint32_t stencil,
+    const SturdyTextureSubresourceRange *range);
+
+/// Pipeline stages a barrier waits on/blocks. Bitwise OR of `STURDY_PIPELINE_STAGE_*`; wider than
+/// 32 bits, so these are macros rather than a C enum.
+typedef uint64_t SturdyPipelineStage;
+#define STURDY_PIPELINE_STAGE_NONE ((SturdyPipelineStage)0)
+#define STURDY_PIPELINE_STAGE_DRAW_INDIRECT ((SturdyPipelineStage)(1ull << 0))
+#define STURDY_PIPELINE_STAGE_VERTEX_INPUT ((SturdyPipelineStage)(1ull << 1))
+#define STURDY_PIPELINE_STAGE_VERTEX_SHADER ((SturdyPipelineStage)(1ull << 2))
+#define STURDY_PIPELINE_STAGE_FRAGMENT_SHADER ((SturdyPipelineStage)(1ull << 6))
+#define STURDY_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS ((SturdyPipelineStage)(1ull << 7))
+#define STURDY_PIPELINE_STAGE_LATE_FRAGMENT_TESTS ((SturdyPipelineStage)(1ull << 8))
+#define STURDY_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT ((SturdyPipelineStage)(1ull << 9))
+#define STURDY_PIPELINE_STAGE_COMPUTE_SHADER ((SturdyPipelineStage)(1ull << 10))
+#define STURDY_PIPELINE_STAGE_TRANSFER ((SturdyPipelineStage)(1ull << 11))
+#define STURDY_PIPELINE_STAGE_HOST ((SturdyPipelineStage)(1ull << 12))
+#define STURDY_PIPELINE_STAGE_ALL_COMMANDS ((SturdyPipelineStage)~0ull)
+
+/// Memory access kinds a barrier synchronizes. Bitwise OR of `STURDY_ACCESS_*`; wider than 32
+/// bits, so these are macros rather than a C enum.
+typedef uint64_t SturdyAccessFlags;
+#define STURDY_ACCESS_NONE ((SturdyAccessFlags)0)
+#define STURDY_ACCESS_INDIRECT_COMMAND_READ ((SturdyAccessFlags)(1ull << 0))
+#define STURDY_ACCESS_INDEX_READ ((SturdyAccessFlags)(1ull << 1))
+#define STURDY_ACCESS_VERTEX_ATTRIBUTE_READ ((SturdyAccessFlags)(1ull << 2))
+#define STURDY_ACCESS_UNIFORM_READ ((SturdyAccessFlags)(1ull << 3))
+#define STURDY_ACCESS_SHADER_READ ((SturdyAccessFlags)(1ull << 4))
+#define STURDY_ACCESS_SHADER_WRITE ((SturdyAccessFlags)(1ull << 5))
+#define STURDY_ACCESS_COLOR_ATTACHMENT_READ ((SturdyAccessFlags)(1ull << 6))
+#define STURDY_ACCESS_COLOR_ATTACHMENT_WRITE ((SturdyAccessFlags)(1ull << 7))
+#define STURDY_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ ((SturdyAccessFlags)(1ull << 8))
+#define STURDY_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE ((SturdyAccessFlags)(1ull << 9))
+#define STURDY_ACCESS_TRANSFER_READ ((SturdyAccessFlags)(1ull << 10))
+#define STURDY_ACCESS_TRANSFER_WRITE ((SturdyAccessFlags)(1ull << 11))
+#define STURDY_ACCESS_HOST_READ ((SturdyAccessFlags)(1ull << 12))
+#define STURDY_ACCESS_HOST_WRITE ((SturdyAccessFlags)(1ull << 13))
+#define STURDY_ACCESS_MEMORY_READ ((SturdyAccessFlags)(1ull << 16))
+#define STURDY_ACCESS_MEMORY_WRITE ((SturdyAccessFlags)(1ull << 17))
+
+/// A pipeline barrier with no specific resource — orders every matching access before/after it.
+typedef struct SturdyGlobalBarrier {
+    SturdyPipelineStage src_stage;
+    SturdyAccessFlags src_access;
+    SturdyPipelineStage dst_stage;
+    SturdyAccessFlags dst_access;
+} SturdyGlobalBarrier;
+
+/// A pipeline barrier scoped to one buffer range.
+typedef struct SturdyBufferBarrier {
+    SturdyBuffer buffer;
+    SturdyPipelineStage src_stage;
+    SturdyAccessFlags src_access;
+    SturdyPipelineStage dst_stage;
+    SturdyAccessFlags dst_access;
+    uint64_t offset;
+    /// Zero means the buffer's remaining size from `offset`.
+    uint64_t size;
+} SturdyBufferBarrier;
+
+/// Layout a texture is transitioned to/from by a barrier.
+typedef enum SturdyTextureLayout {
+    STURDY_TEXTURE_LAYOUT_UNDEFINED = 0,
+    STURDY_TEXTURE_LAYOUT_GENERAL = 1,
+    STURDY_TEXTURE_LAYOUT_COLOR_ATTACHMENT = 2,
+    STURDY_TEXTURE_LAYOUT_DEPTH_STENCIL_ATTACHMENT = 3,
+    STURDY_TEXTURE_LAYOUT_DEPTH_STENCIL_READ_ONLY = 4,
+    STURDY_TEXTURE_LAYOUT_SHADER_READ_ONLY = 5,
+    STURDY_TEXTURE_LAYOUT_TRANSFER_SRC = 6,
+    STURDY_TEXTURE_LAYOUT_TRANSFER_DST = 7,
+    STURDY_TEXTURE_LAYOUT_PRESENT = 8,
+    STURDY_TEXTURE_LAYOUT_FORCE_U32 = 0x7fffffff
+} SturdyTextureLayout;
+
+/// A pipeline barrier scoped to one texture's subresources, optionally also transitioning its
+/// layout.
+typedef struct SturdyTextureBarrier {
+    SturdyTexture texture;
+    SturdyPipelineStage src_stage;
+    SturdyAccessFlags src_access;
+    SturdyPipelineStage dst_stage;
+    SturdyAccessFlags dst_access;
+    SturdyTextureLayout old_layout;
+    SturdyTextureLayout new_layout;
+    SturdyTextureSubresourceRange range;
+} SturdyTextureBarrier;
+
+/// Inserts a pipeline barrier. Any of the three arrays may be empty (count 0, pointer null).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_barrier(
+    SturdyCommandEncoder encoder, uint32_t global_barrier_count, const SturdyGlobalBarrier *global_barriers,
+    uint32_t buffer_barrier_count, const SturdyBufferBarrier *buffer_barriers, uint32_t texture_barrier_count,
+    const SturdyTextureBarrier *texture_barriers);
+
+/// Pushes a labeled debug group, for graphics-debugger capture readability.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_push_debug_group(SturdyCommandEncoder encoder,
+                                                                                     const char *label);
+
+/// Pops the most recently pushed debug group.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_pop_debug_group(SturdyCommandEncoder encoder);
+
+/// Owned handle to an in-progress render pass, borrowed from its command encoder. Lives until
+/// `sturdy_rhi_render_pass_end`. The parent `SturdyCommandEncoder` may not be used for anything
+/// else while a pass is open.
+typedef struct SturdyRenderPassEncoder {
+    uint64_t token;
+} SturdyRenderPassEncoder;
+
+/// Begins a render pass. `desc->color_attachments` is read synchronously and need not outlive
+/// the call.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_begin_render_pass(
+    SturdyCommandEncoder encoder, const SturdyRenderPassDesc *desc, SturdyRenderPassEncoder *out_pass);
+
+/// Sets the pipeline used by subsequent draws.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_set_pipeline(SturdyRenderPassEncoder pass,
+                                                                             SturdyRenderPipeline pipeline);
+
+/// Binds a bind group at `index`. `dynamic_offsets` supplies one offset per dynamic-offset
+/// binding in the group's layout, in declaration order; pass null/0 when the layout has none.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_set_bind_group(
+    SturdyRenderPassEncoder pass, uint32_t index, SturdyBindGroup bind_group, uint32_t dynamic_offset_count,
+    const uint32_t *dynamic_offsets);
+
+/// Binds a vertex buffer at `slot`, matching the pipeline's `vertex_buffers` layout array index.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_set_vertex_buffer(SturdyRenderPassEncoder pass,
+                                                                                  uint32_t slot,
+                                                                                  SturdyBuffer buffer,
+                                                                                  uint64_t offset);
+
+/// Binds the index buffer used by subsequent indexed draws.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_set_index_buffer(SturdyRenderPassEncoder pass,
+                                                                                 SturdyBuffer buffer,
+                                                                                 SturdyIndexFormat format,
+                                                                                 uint64_t offset);
+
+/// Writes push-constant bytes visible to `stages`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_set_push_constants(
+    SturdyRenderPassEncoder pass, SturdyShaderStage stages, uint32_t offset, const void *data, size_t data_size);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_set_viewport(SturdyRenderPassEncoder pass,
+                                                                             const SturdyViewport *viewport);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_set_scissor(SturdyRenderPassEncoder pass,
+                                                                            const SturdyRect2D *scissor);
+
+/// Sets the constant blend color used by `STURDY_BLEND_FACTOR_CONSTANT_COLOR`/
+/// `STURDY_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_set_blend_constant(SturdyRenderPassEncoder pass,
+                                                                                   const float color[4]);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_set_stencil_reference(SturdyRenderPassEncoder pass,
+                                                                                      uint32_t reference);
+
+typedef struct SturdyDrawArgs {
+    uint32_t vertex_count;
+    uint32_t instance_count;
+    uint32_t first_vertex;
+    uint32_t first_instance;
+} SturdyDrawArgs;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw(SturdyRenderPassEncoder pass,
+                                                                     const SturdyDrawArgs *args);
+
+typedef struct SturdyDrawIndexedArgs {
+    uint32_t index_count;
+    uint32_t instance_count;
+    uint32_t first_index;
+    int32_t base_vertex;
+    uint32_t first_instance;
+} SturdyDrawIndexedArgs;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indexed(SturdyRenderPassEncoder pass,
+                                                                             const SturdyDrawIndexedArgs *args);
+
+/// Ends the render pass. `pass`'s token is invalid after this call, whether it succeeds or
+/// fails. The parent command encoder may be used again afterward.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_end(SturdyRenderPassEncoder pass);
+
+/// Owned handle to an in-progress compute pass, borrowed from its command encoder. Lives until
+/// `sturdy_rhi_compute_pass_end`. The parent `SturdyCommandEncoder` may not be used for anything
+/// else while a pass is open.
+typedef struct SturdyComputePassEncoder {
+    uint64_t token;
+} SturdyComputePassEncoder;
+
+/// Begins a compute pass.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_begin_compute_pass(
+    SturdyCommandEncoder encoder, const char *label, SturdyComputePassEncoder *out_pass);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_compute_pass_set_pipeline(SturdyComputePassEncoder pass,
+                                                                              SturdyComputePipeline pipeline);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_compute_pass_set_bind_group(
+    SturdyComputePassEncoder pass, uint32_t index, SturdyBindGroup bind_group, uint32_t dynamic_offset_count,
+    const uint32_t *dynamic_offsets);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_compute_pass_set_push_constants(
+    SturdyComputePassEncoder pass, SturdyShaderStage stages, uint32_t offset, const void *data, size_t data_size);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_compute_pass_dispatch(SturdyComputePassEncoder pass,
+                                                                          uint32_t group_count_x,
+                                                                          uint32_t group_count_y,
+                                                                          uint32_t group_count_z);
+
+/// Dispatches using group counts read from `indirect_buffer` at `offset` (three consecutive
+/// `uint32_t`s), written by an earlier pass on the GPU.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_compute_pass_dispatch_indirect(SturdyComputePassEncoder pass,
+                                                                                   SturdyBuffer indirect_buffer,
+                                                                                   uint64_t offset);
+
+/// Ends the compute pass. `pass`'s token is invalid after this call, whether it succeeds or
+/// fails. The parent command encoder may be used again afterward.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_compute_pass_end(SturdyComputePassEncoder pass);
+
+/// Handle to a timeline semaphore: a GPU-to-GPU (and GPU-to-host, via
+/// `sturdy_rhi_wait_semaphore`) synchronization primitive that counts up through a sequence of
+/// `u64` values rather than toggling once like a fence. Reach for this to order work across two
+/// queues (e.g. an upload on the transfer queue that a graphics-queue submission must wait on);
+/// use `SturdyFence` instead for the common "wait for this one submission to finish on the host"
+/// case. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdySemaphore {
+    uint64_t id;
+} SturdySemaphore;
+
+/// Describes a semaphore to create.
+typedef struct SturdySemaphoreDesc {
+    /// Set to `sizeof(SturdySemaphoreDesc)` by the caller.
+    uint32_t struct_size;
+    uint32_t reserved;
+    uint64_t initial_value;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdySemaphoreDesc;
+
+/// Creates a semaphore on the engine's active device.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_semaphore(SturdyEngine engine,
+                                                                     const SturdySemaphoreDesc *desc,
+                                                                     SturdySemaphore *out_semaphore);
+
+/// Destroys a semaphore created by `sturdy_rhi_create_semaphore`. A null/zero handle is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_semaphore(SturdyEngine engine, SturdySemaphore semaphore);
+
+/// Reads the semaphore's current counter value.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_semaphore_value(SturdyEngine engine, SturdySemaphore semaphore,
+                                                                    uint64_t *out_value);
+
+/// Blocks the calling host thread until `semaphore`'s counter reaches `value`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_wait_semaphore(SturdyEngine engine, SturdySemaphore semaphore,
+                                                                   uint64_t value, uint64_t timeout_ns);
+
+/// Advances `semaphore`'s counter to `value` from the host. Rarely needed directly — a submission
+/// with a signal entry (see `sturdy_rhi_submit`) is the usual way a semaphore advances.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_signal_semaphore(SturdyEngine engine, SturdySemaphore semaphore,
+                                                                     uint64_t value);
+
+/// One semaphore a submission waits on before its work begins.
+typedef struct SturdySemaphoreWait {
+    SturdySemaphore semaphore;
+    uint64_t value;
+    /// Pipeline stages of this submission that must wait; other stages may start immediately.
+    /// Bitwise OR of `STURDY_PIPELINE_STAGE_*`.
+    SturdyPipelineStage stages;
+} SturdySemaphoreWait;
+
+/// One semaphore a submission signals once its work completes.
+typedef struct SturdySemaphoreSignal {
+    SturdySemaphore semaphore;
+    uint64_t value;
+    /// Pipeline stages of this submission that must complete before signaling. Bitwise OR of
+    /// `STURDY_PIPELINE_STAGE_*`.
+    SturdyPipelineStage stages;
+} SturdySemaphoreSignal;
+
+/// Kind of work a query set records.
+typedef enum SturdyQueryType {
+    STURDY_QUERY_TYPE_OCCLUSION = 0,
+    STURDY_QUERY_TYPE_TIMESTAMP = 1,
+    STURDY_QUERY_TYPE_PIPELINE_STATISTICS = 2,
+    STURDY_QUERY_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyQueryType;
+
+/// Bitwise-OR'd pipeline-statistic counters. Only meaningful for
+/// `STURDY_QUERY_TYPE_PIPELINE_STATISTICS`.
+typedef uint32_t SturdyPipelineStatistic;
+#define STURDY_PIPELINE_STATISTIC_NONE ((SturdyPipelineStatistic)0)
+#define STURDY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES ((SturdyPipelineStatistic)(1u << 0))
+#define STURDY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES ((SturdyPipelineStatistic)(1u << 1))
+#define STURDY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS ((SturdyPipelineStatistic)(1u << 2))
+#define STURDY_PIPELINE_STATISTIC_GEOMETRY_SHADER_INVOCATIONS ((SturdyPipelineStatistic)(1u << 3))
+#define STURDY_PIPELINE_STATISTIC_GEOMETRY_SHADER_PRIMITIVES ((SturdyPipelineStatistic)(1u << 4))
+#define STURDY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS ((SturdyPipelineStatistic)(1u << 5))
+#define STURDY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES ((SturdyPipelineStatistic)(1u << 6))
+#define STURDY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS ((SturdyPipelineStatistic)(1u << 7))
+#define STURDY_PIPELINE_STATISTIC_TESS_CONTROL_SHADER_PATCHES ((SturdyPipelineStatistic)(1u << 8))
+#define STURDY_PIPELINE_STATISTIC_TESS_EVALUATION_SHADER_INVOCATIONS ((SturdyPipelineStatistic)(1u << 9))
+#define STURDY_PIPELINE_STATISTIC_COMPUTE_SHADER_INVOCATIONS ((SturdyPipelineStatistic)(1u << 10))
+
+/// Bitwise-OR'd flags controlling how `sturdy_rhi_get_query_set_results` reads results back.
+typedef uint32_t SturdyQueryResultFlags;
+#define STURDY_QUERY_RESULT_FLAGS_NONE ((SturdyQueryResultFlags)0)
+/// Each result is a 64-bit value rather than 32-bit.
+#define STURDY_QUERY_RESULT_FLAGS_RESULT_64_BIT ((SturdyQueryResultFlags)(1u << 0))
+/// Block until every requested query is available rather than returning partial/stale data.
+#define STURDY_QUERY_RESULT_FLAGS_WAIT ((SturdyQueryResultFlags)(1u << 1))
+/// Append one extra value per query reporting whether it was available.
+#define STURDY_QUERY_RESULT_FLAGS_WITH_AVAILABILITY ((SturdyQueryResultFlags)(1u << 2))
+/// Accept whatever subset of queries is currently available instead of failing outright.
+#define STURDY_QUERY_RESULT_FLAGS_PARTIAL ((SturdyQueryResultFlags)(1u << 3))
+
+/// Handle to a query set. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyQuerySet {
+    uint64_t id;
+} SturdyQuerySet;
+
+/// Describes a query set to create.
+typedef struct SturdyQuerySetDesc {
+    /// Set to `sizeof(SturdyQuerySetDesc)` by the caller.
+    uint32_t struct_size;
+    SturdyQueryType type;
+    uint32_t count;
+    /// Only meaningful for `STURDY_QUERY_TYPE_PIPELINE_STATISTICS`: bitwise OR of
+    /// `STURDY_PIPELINE_STATISTIC_*`.
+    SturdyPipelineStatistic statistics;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyQuerySetDesc;
+
+/// Creates a query set on the engine's active device.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_query_set(SturdyEngine engine,
+                                                                     const SturdyQuerySetDesc *desc,
+                                                                     SturdyQuerySet *out_query_set);
+
+/// Destroys a query set created by `sturdy_rhi_create_query_set`. A null/zero handle is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_query_set(SturdyEngine engine, SturdyQuerySet query_set);
+
+/// Reads back `count` results starting at `first`, into `dst` (which must be at least
+/// `count * stride` bytes). Blocks the host if `STURDY_QUERY_RESULT_FLAGS_WAIT` is set;
+/// otherwise a query whose result is not yet available reads as undefined unless
+/// `STURDY_QUERY_RESULT_FLAGS_PARTIAL` is also set.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_get_query_set_results(
+    SturdyEngine engine, SturdyQuerySet query_set, uint32_t first, uint32_t count, void *dst, size_t dst_size,
+    uint64_t stride, SturdyQueryResultFlags flags);
+
+/// Resets `count` queries starting at `first` to the unavailable state, outside any command
+/// encoder. Every query must be reset (via this or
+/// `sturdy_rhi_command_encoder_reset_query_set`) before its first use.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_reset_query_set(SturdyEngine engine, SturdyQuerySet query_set,
+                                                                    uint32_t first, uint32_t count);
+
+/// Resets `count` queries starting at `first` to the unavailable state, recorded into the command
+/// encoder.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_reset_query_set(SturdyCommandEncoder encoder,
+                                                                                    SturdyQuerySet query_set,
+                                                                                    uint32_t first, uint32_t count);
+
+/// Writes a GPU timestamp for `query_set[index]` once every command before this point in the
+/// encoder has reached `stage`. Only valid for a `STURDY_QUERY_TYPE_TIMESTAMP` query set.
+///
+/// @param stage A single `STURDY_PIPELINE_STAGE_*` value (not a combination) naming the point in
+///        the pipeline to timestamp.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_write_timestamp(
+    SturdyCommandEncoder encoder, SturdyPipelineStage stage, SturdyQuerySet query_set, uint32_t index);
+
+/// Begins a pipeline-statistics query at `query_set[index]`, ended by
+/// `sturdy_rhi_command_encoder_end_pipeline_statistics_query`. Only valid for a
+/// `STURDY_QUERY_TYPE_PIPELINE_STATISTICS` query set.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_begin_pipeline_statistics_query(
+    SturdyCommandEncoder encoder, SturdyQuerySet query_set, uint32_t index);
+
+/// Ends the most recently begun pipeline-statistics query on this encoder.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_end_pipeline_statistics_query(
+    SturdyCommandEncoder encoder);
+
+/// Copies `count` query results starting at `first` from `query_set` into `dst` at `dst_offset`,
+/// entirely on the GPU. Prefer this over `sturdy_rhi_get_query_set_results` when the results feed
+/// a later GPU pass rather than the host (e.g. GPU-driven culling statistics).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_resolve_query_set(
+    SturdyCommandEncoder encoder, SturdyQuerySet query_set, uint32_t first, uint32_t count, SturdyBuffer dst,
+    uint64_t dst_offset, uint64_t stride, SturdyQueryResultFlags flags);
+
+/// Begins an occlusion query at `query_set[index]`, ended by
+/// `sturdy_rhi_render_pass_end_occlusion_query`. Only valid for a `STURDY_QUERY_TYPE_OCCLUSION`
+/// query set.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_begin_occlusion_query(SturdyRenderPassEncoder pass,
+                                                                                      SturdyQuerySet query_set,
+                                                                                      uint32_t index);
+
+/// Ends the most recently begun occlusion query on this render pass.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_end_occlusion_query(SturdyRenderPassEncoder pass);
+
+/// Pass to `sturdy_rhi_wait_fences`' `timeout_ns` to block with no timeout.
+#define STURDY_WAIT_FOREVER (~(uint64_t)0)
+
+/// Handle to a fence: a GPU-to-host synchronization primitive signaled when a submission
+/// completes. See the "RHI resources" section header for its lifetime rules.
+typedef struct SturdyFence {
+    uint64_t id;
+} SturdyFence;
+
+/// Describes a fence to create.
+typedef struct SturdyFenceDesc {
+    /// Set to `sizeof(SturdyFenceDesc)` by the caller.
+    uint32_t struct_size;
+    /// Whether the fence starts already signaled.
+    SturdyBool signaled;
+    uint8_t reserved[3];
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyFenceDesc;
+
+/// Creates a fence on the engine's active device.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_fence(SturdyEngine engine, const SturdyFenceDesc *desc,
+                                                                 SturdyFence *out_fence);
+
+/// Destroys a fence created by `sturdy_rhi_create_fence`. A null/zero handle is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_fence(SturdyEngine engine, SturdyFence fence);
+
+/// Waits for one or more fences to become signaled — the correct way to know a specific
+/// submission has finished. Prefer this over `sturdy_rhi_wait_idle`, which is a device-wide
+/// barrier and unsafe to interleave with any other GPU work in flight, including the engine's own.
+///
+/// @param wait_all `STURDY_TRUE` to wait for every fence; `STURDY_FALSE` to return once any one is
+///        signaled.
+/// @param timeout_ns Maximum time to wait, in nanoseconds. `STURDY_WAIT_FOREVER` for no timeout.
+/// @param out_signaled Receives whether the wait condition was met (`STURDY_FALSE` on timeout).
+///        May be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_wait_fences(SturdyEngine engine, uint32_t fence_count,
+                                                                const SturdyFence *fences, SturdyBool wait_all,
+                                                                uint64_t timeout_ns, SturdyBool *out_signaled);
+
+/// Resets one or more fences to unsignaled.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_reset_fences(SturdyEngine engine, uint32_t fence_count,
+                                                                 const SturdyFence *fences);
+
+/// Submits finished command buffers to a device queue for execution.
+///
+/// @param wait_count/waits Semaphores this submission's work waits on before starting. May be
+///        0/null.
+/// @param signal_count/signals Semaphores this submission signals once its work completes. May
+///        be 0/null.
+/// @param fence Optional; the zero handle submits with no fence. When supplied, it becomes
+///        signaled once this submission's work completes — wait on it with
+///        `sturdy_rhi_wait_fences` rather than `sturdy_rhi_wait_idle` to know when it is safe to
+///        reuse or destroy the submitted command buffers. This is the one-shot GPU-work pattern:
+///        create a fence, submit with it, wait on it, destroy the fence and command buffer.
+/// @param one_shot Hints that these command buffers will not be resubmitted, letting the backend
+///        release their recording resources as soon as this submission completes.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_submit(
+    SturdyEngine engine, SturdyQueueClass queue_class, uint32_t queue_lane_index, uint32_t command_buffer_count,
+    const SturdyCommandBuffer *command_buffers, uint32_t wait_count, const SturdySemaphoreWait *waits,
+    uint32_t signal_count, const SturdySemaphoreSignal *signals, SturdyFence fence, SturdyBool one_shot);
+
+/// Blocks until every queue on the active device has finished all submitted work. Expensive, and
+/// unsafe to call while any other GPU work — including the engine's own internal one-shot
+/// uploads — may still be in flight on this device. Intended for shutdown/resource-teardown
+/// synchronization; wait on a specific submission with `sturdy_rhi_wait_fences` instead.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_wait_idle(SturdyEngine engine);
 
 // ---------------------------------------------------------------------------------------------
 // Native handles

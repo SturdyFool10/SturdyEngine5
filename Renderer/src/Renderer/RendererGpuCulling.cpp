@@ -490,8 +490,12 @@ namespace SFT::Renderer {
             cull_bind_group_layout = guard->cull_bind_group_layout;
             cull_pipeline = guard->cull_pipeline;
         }
+        // object_buffer holds SceneObjectGpuData structs; compacted_indices_buffer/
+        // indirect_commands_buffer are plain u32/command arrays, for which the default raw 4-byte
+        // stride is already correct. See RendererObjectHistory.cpp's ensure_object_history_bind_group
+        // for why D3D12 specifically needs the real stride on a StructuredBuffer entry.
         const array<RHI::BindGroupEntry, 4> entries{
-            RHI::BindGroupEntry{.binding = 0, .buffer = resources.object_buffer},
+            RHI::BindGroupEntry{.binding = 0, .buffer = resources.object_buffer, .structure_stride = static_cast<u32>(sizeof(SceneObjectGpuData))},
             RHI::BindGroupEntry{.binding = 1, .buffer = resources.compacted_indices_buffer},
             RHI::BindGroupEntry{.binding = 2, .buffer = resources.indirect_commands_buffer},
             RHI::BindGroupEntry{.binding = 3, .texture_view = hiz.pyramid_view},
@@ -592,7 +596,7 @@ namespace SFT::Renderer {
             instance_data_layout = guard->instance_data_bind_group_layout;
         }
         const array<RHI::BindGroupEntry, 2> entries{
-            RHI::BindGroupEntry{.binding = 0, .buffer = resources.object_buffer},
+            RHI::BindGroupEntry{.binding = 0, .buffer = resources.object_buffer, .structure_stride = static_cast<u32>(sizeof(SceneObjectGpuData))},
             RHI::BindGroupEntry{.binding = 1, .buffer = resources.compacted_indices_buffer},
         };
         auto instance_bind_group = device->create_bind_group(RHI::BindGroupDesc{

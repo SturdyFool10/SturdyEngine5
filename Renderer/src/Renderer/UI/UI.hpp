@@ -16,6 +16,9 @@
 #include <Renderer/UI/Dropdown.hpp>
 #include <Renderer/UI/DocumentTextArea.hpp>
 #include <Renderer/UI/Easing.hpp>
+#include <Renderer/UI/FrameGraph.hpp>
+#include <Renderer/UI/Graph.hpp>
+#include <Renderer/UI/GraphAxis.hpp>
 #include <Renderer/UI/Masonry.hpp>
 #include <Renderer/UI/ScrollArea.hpp>
 #include <Renderer/UI/Slider.hpp>
