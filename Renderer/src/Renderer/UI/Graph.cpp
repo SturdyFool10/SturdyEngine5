@@ -207,7 +207,7 @@ namespace SFT::UI {
                             .parent_attach_point = FloatingAttachPoint::LeftTop,
                             .offset = {plot_origin.x - 6.0f, y},
                             .capture_pointer = false,
-                            .clip_to = FloatingClipTo::None,
+                            .clip_to = FloatingClipTo::AttachedParent,
                         },
                     });
                     ctx.text(ustr{std::string_view{tick.label}}, style);
@@ -221,7 +221,7 @@ namespace SFT::UI {
                             .parent_attach_point = FloatingAttachPoint::LeftTop,
                             .offset = {x, plot_origin.y + plot_size.y + 4.0f},
                             .capture_pointer = false,
-                            .clip_to = FloatingClipTo::None,
+                            .clip_to = FloatingClipTo::AttachedParent,
                         },
                     });
                     ctx.text(ustr{std::string_view{tick.label}}, style);
@@ -236,9 +236,15 @@ namespace SFT::UI {
         ///
         /// @param ctx `ctx` value used by the operation.
         /// @param desc Description of the resource or operation to perform.
+        /// @param id_prefix Uniquely identifies the calling `UI::graph()` instance — Clay element IDs
+        ///        are hashed from the id string alone with no implicit parent scoping, so two graphs in
+        ///        the same layout both defaulting to unprefixed "legend-row-0" etc. would collide and
+        ///        corrupt Clay's element hash map for the rest of that frame (visible as "element ID
+        ///        already previously declared" errors, and downstream elements losing correct clip/
+        ///        scissor resolution).
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void draw_legend(Context &ctx, const GraphDesc &desc) {
+        void draw_legend(Context &ctx, const GraphDesc &desc, const string &id_prefix) {
             if (!desc.show_legend) {
                 return;
             }
@@ -286,7 +292,7 @@ namespace SFT::UI {
                     .sizing = {SizingAxis::fit(), SizingAxis::fit()},
                     .child_gap = 6,
                     .direction = LayoutDirection::LeftToRight,
-                    .id = UString{"legend-row-" + std::to_string(i)},
+                    .id = UString{id_prefix + "-legend-row-" + std::to_string(i)},
                 });
                 (void)ctx.element(ElementDecl{
                     .sizing = {SizingAxis::fixed(10.0f), SizingAxis::fixed(10.0f)},
@@ -391,7 +397,8 @@ namespace SFT::UI {
                         }
                         paths.push_back(StrokePath{
                             .points = std::move(points),
-                            .style = StrokeStyle{.color = series.color, .width = series.line_width, .feather_px = series.feather_px},
+                            .style = StrokeStyle{.color = series.color, .width = series.line_width,
+                                                 .feather_px = series.feather_px, .glow_intensity = series.glow_intensity},
                         });
                     }
                     break;
@@ -512,7 +519,7 @@ namespace SFT::UI {
                         .offset = {plot_origin.x + plot_size.x * 0.5f,
                                   plot_origin.y + plot_size.y + desc.label_font_size + 8.0f},
                         .capture_pointer = false,
-                        .clip_to = FloatingClipTo::None,
+                        .clip_to = FloatingClipTo::AttachedParent,
                     },
                 });
                 ctx.text(ustr{std::string_view{x_axis.title}}, title_style);
@@ -528,13 +535,13 @@ namespace SFT::UI {
                         .parent_attach_point = FloatingAttachPoint::LeftTop,
                         .offset = {2.0f, plot_origin.y - 2.0f},
                         .capture_pointer = false,
-                        .clip_to = FloatingClipTo::None,
+                        .clip_to = FloatingClipTo::AttachedParent,
                     },
                 });
                 ctx.text(ustr{std::string_view{desc.y_axis.title}}, title_style);
             }
 
-            draw_legend(ctx, desc);
+            draw_legend(ctx, desc, decl.id.cpp_string());
         }
 
         /// Draws a Pie/donut chart into `widget_size`-sized local space via fill_sectors().
@@ -591,7 +598,7 @@ namespace SFT::UI {
                              },
                              sectors);
 
-            draw_legend(ctx, desc);
+            draw_legend(ctx, desc, decl.id.cpp_string());
         }
 
     } // namespace

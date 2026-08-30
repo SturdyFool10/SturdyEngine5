@@ -33,6 +33,12 @@ namespace SFT::UI {
             RHI::BindGroupHandle handle{};
         };
         vector<BoundGroup> bind_groups;
+
+        /// `true` draws with additive (One,One) GPU blending instead of the normal alpha blend — for
+        /// adding light on top of already-drawn content (a bloom composite) rather than compositing a
+        /// normal opaque/translucent UI element. A caller sets this on the batch prepare() returned,
+        /// not via any per-instance field, since blend state is a pipeline-level property.
+        bool additive = false;
     };
 
 
@@ -129,6 +135,7 @@ namespace SFT::UI {
         RHI::ShaderModuleHandle fragment_module_{};
         RHI::PipelineLayoutHandle pipeline_layout_{};
         RHI::RenderPipelineHandle pipeline_{};
+        RHI::RenderPipelineHandle additive_pipeline_{};
         vector<RHI::BindGroupLayoutHandle> bind_group_layouts_;
         vector<u32> bind_group_layout_sets_;
         RHI::SamplerHandle sampler_{};

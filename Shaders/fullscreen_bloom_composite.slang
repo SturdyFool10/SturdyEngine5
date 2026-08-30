@@ -31,13 +31,20 @@ SamplerState sourceSampler;
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
-    float3 scene = max(sceneTexture.Sample(sourceSampler, input.uv).rgb, 0.0);
-    float3 bloom = max(bloomTexture.Sample(sourceSampler, input.uv).rgb, 0.0);
+    float4 sceneSample = sceneTexture.Sample(sourceSampler, input.uv);
+    float4 bloomSample = bloomTexture.Sample(sourceSampler, input.uv);
+    float3 scene = max(sceneSample.rgb, 0.0);
+    float3 bloom = max(bloomSample.rgb, 0.0);
     float intensity = saturate(composite.bloomIntensity);
     // Thresholded bloom is an artistic emission layer and remains additive. In the Jimenez
     // no-threshold mode, interpolation conserves a spatially constant HDR image exactly.
     float3 combined = composite.thresholdEnabled != 0
         ? scene + bloom * composite.bloomIntensity
         : lerp(scene, bloom, intensity);
-    return float4(combined, 1.0);
+    // Preserves real coverage instead of forcing full opacity: the main scene's own scene texture is
+    // already fully opaque everywhere, so this is a no-op there, but a transparent-background source
+    // (e.g. one small UI element rendered alone for its own glow) needs its actual — and the bloom's
+    // own blurred-outward — alpha to composite correctly instead of painting a solid opaque rect.
+    float alpha = saturate(max(sceneSample.a, bloomSample.a));
+    return float4(combined, alpha);
 }

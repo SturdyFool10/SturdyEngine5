@@ -452,6 +452,46 @@ namespace SFT::Renderer {
                                                                            const char *label = nullptr);
 
 
+        /// Adds render-graph nodes that bloom `source` (an already-graph-resident texture — e.g. one
+        /// `UI::UiRenderer` just drew a single flagged UI element into) through the same downsample/
+        /// upsample pipeline the main scene's own bloom uses (RendererBloom.cpp's private
+        /// record_bloom_downsample/record_bloom_upsample/create_bloom_source_bind_group, reused
+        /// internally here), generalized to an arbitrary small transient texture rather than only the
+        /// persistent main-scene bloom target chain. Uses a small fixed 3-level mip chain (roughly
+        /// half/quarter/eighth resolution) — enough for a visible soft glow on a UI-sized element
+        /// without the cost of the main scene's full chain.
+        ///
+        /// `output` is a graph handle for an already-known destination texture — typically imported
+        /// via `RenderGraph::import_texture()` from a real, caller-owned `RHI::TextureHandle` — rather
+        /// than a texture this call allocates itself. This lets the caller (`UI::UiRenderer`) know the
+        /// composite's real `RHI::TextureViewHandle` up front, before the graph has executed, so it can
+        /// build the on-screen compositing draw call (a normal textured quad) during its own prepare
+        /// phase instead of waiting on `RenderGraphContext` resolution during graph execution.
+        ///
+        /// @param graph The current frame's render graph — nodes are appended to it, not executed
+        ///        immediately.
+        /// @param source The element's own already-rendered color texture (with alpha) to bloom.
+        /// @param source_extent `source`'s pixel size.
+        /// @param output Destination for the final composite (`source` blended with its own bloom),
+        ///        same size/format as `source`. Any pass that reads `output` after this call (e.g. by
+        ///        sampling its real view directly) must still declare a sampled-texture read dependency
+        ///        on it so the graph inserts the correct barrier before that pass runs.
+        /// @param format Format to allocate the intermediate bloom levels in, and of `output`.
+        /// @param settings Bloom parameters (threshold/soft_knee/scatter/intensity) — the same fields
+        ///        the main scene's own bloom reads from `RenderGraphSettings`.
+        /// @param out_transient_bind_groups Bind groups this call creates are appended here rather
+        ///        than owned by `Renderer` directly — the caller (`UI::UiRenderer`) is responsible for
+        ///        destroying them once the frame's GPU work has completed, the same convention every
+        ///        other transient-resource out-param in this engine's frame path already uses.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult add_ui_glow_bloom_passes(
+            RenderGraph &graph, RenderGraphTextureHandle source, Core::Extent2D source_extent,
+            RenderGraphTextureHandle output, RHI::Format format, const RenderGraphSettings &settings,
+            vector<RHI::BindGroupHandle> &out_transient_bind_groups);
+
+
         /// Creates a material template from the supplied parameters.
         ///
         /// @param shader Shader used or affected by the operation.

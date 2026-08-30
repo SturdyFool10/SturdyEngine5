@@ -49,18 +49,14 @@ namespace SFT::UI {
         /// intended for axis/gridlines, never for data series (snapping data would misrepresent it).
         bool snap_to_pixel_grid = false;
 
-        /// `0` disables it; a positive value draws `glow_layers` extra soft, low-alpha, ever-wider
-        /// capsule instances underneath the normal crisp stroke, fading outward — the same idea behind
-        /// this UI's own dashing/feathering, applied several times at once. This is a self-contained
-        /// screen-space approximation of bloom (layered soft halos), not the main scene's actual HDR
-        /// bright-pass bloom (RendererBloom.cpp): the UI surface composites after the main scene's own
-        /// tonemap, so it isn't fed through that pipeline at all, and building a real offscreen-HDR-
-        /// plus-bright-pass path for one UI element would mean UiRenderer reaching into Renderer::Renderer
-        /// across a layer boundary that doesn't otherwise exist (UiRenderer::prepare() only has an
-        /// RHI::RhiDevice/CommandEncoder, not a Renderer::Renderer) — this gets a genuinely glowing look
-        /// without that risk. Higher values read as "brighter"/wider glow.
+        /// `0` disables it; a positive value routes this path through `Renderer::add_ui_glow_bloom_passes`
+        /// instead of the normal batched stroke stream — the path is rendered alone into its own small
+        /// offscreen texture, run through the engine's real bloom downsample/upsample/composite chain
+        /// (the same one the main scene's HDR bright-pass bloom uses, RendererBloom.cpp), then composited
+        /// back as a textured quad. This is real bloom, not an approximation, so it costs a handful of
+        /// extra render-graph passes per glowing path — expected to flag a few series/axis lines, not be
+        /// the default for ordinary strokes. Value scales the composite's bloom intensity.
         f32 glow_intensity = 0.0f;
-        u32 glow_layers = 3;
     };
 
     // Field order must byte-match Shaders/ui_stroke.slang's UiStrokeInstance exactly (see the comment

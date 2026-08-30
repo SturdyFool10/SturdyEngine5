@@ -49,6 +49,13 @@ namespace SFT::UI {
         /// rather than drawing nothing, since picking Scatter is a clear signal the caller wants
         /// visible markers.
         f32 marker_radius = 0.0f;
+
+        /// `GraphType::Line`/`GraphType::Area` only: forwarded to this series' line StrokePath as
+        /// `StrokeStyle::glow_intensity` — `0` draws the line normally; a positive value routes it
+        /// through the engine's real bloom pipeline instead (see StrokeStyle's own doc comment,
+        /// UiStroke.hpp), so just this one series gets a genuine glow independent of the rest of the
+        /// chart.
+        f32 glow_intensity = 0.0f;
     };
 
     /// One wedge of a `GraphType::Pie` chart. Pie charts have no Cartesian axes at all, so they bind

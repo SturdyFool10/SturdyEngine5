@@ -364,6 +364,162 @@ namespace SFT::Renderer {
         return *group;
     }
 
+    /// Adds render-graph nodes that bloom `source` for `Renderer` using the supplied arguments — see
+    /// the declaration's own doc comment (RendererModule.hpp) for the full contract.
+    ///
+    /// @param graph The current frame's render graph.
+    /// @param source The element's own already-rendered color texture (with alpha) to bloom.
+    /// @param source_extent `source`'s pixel size.
+    /// @param output Destination for the final composite; caller-provided (typically an imported
+    ///        texture) rather than allocated here.
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param settings Configuration values controlling the operation.
+    /// @param out_transient_bind_groups Bind group used or affected by the operation.
+    ///
+    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    Core::RendererResult Renderer::add_ui_glow_bloom_passes(
+        RenderGraph &graph, RenderGraphTextureHandle source, Core::Extent2D source_extent,
+        RenderGraphTextureHandle output, RHI::Format format, const RenderGraphSettings &settings,
+        vector<RHI::BindGroupHandle> &out_transient_bind_groups) {
+        ZoneScopedN("Renderer::add_ui_glow_bloom_passes");
+        if (Core::RendererResult ready = ensure_bloom_resources(format); !ready) {
+            return unexpected(ready.error());
+        }
+
+        constexpr usize level_count = 3;
+        array<Core::Extent2D, level_count> level_extents{};
+        Core::Extent2D previous = source_extent;
+        for (usize i = 0; i < level_count; ++i) {
+            previous = Core::Extent2D{std::max(previous.x / 2u, 1u), std::max(previous.y / 2u, 1u)};
+            level_extents[i] = previous;
+        }
+
+        array<RenderGraphTextureHandle, level_count> levels{};
+        for (usize level = 0; level < level_count; ++level) {
+            levels[level] = graph.create_texture(RenderGraphTextureDesc{
+                .format = format,
+                .extent = RHI::Extent3D{.width = level_extents[level].x, .height = level_extents[level].y, .depth_or_layers = 1},
+                .mip_levels = 1,
+                .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+                .initial_layout = RHI::TextureLayout::Undefined,
+                .initial_stage = RHI::PipelineStage::None,
+                .initial_access = RHI::AccessFlags::None,
+            });
+        }
+
+        // Downsample chain: level 0 <- source (threshold applied), level 1 <- level 0, level 2 <- level 1.
+        // Mirrors Renderer::build_bloom_module's own downsample loop (RendererRenderGraphModules.cpp),
+        // generalized to a small fixed level count instead of the main scene's dynamically-sized chain.
+        for (usize level = 0; level < level_count; ++level) {
+            const RenderGraphTextureHandle pass_source = level == 0 ? source : levels[level - 1];
+            const Core::Extent2D src_extent = level == 0 ? source_extent : level_extents[level - 1];
+            const Core::Extent2D dst_extent = level_extents[level];
+            const bool apply_threshold = level == 0;
+
+            graph.add_render_pass("ui glow bloom downsample"_ustr)
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = levels[level],
+                    .load_op = RHI::LoadOp::DontCare,
+                    .store_op = RHI::StoreOp::Store,
+                })
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = pass_source})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = dst_extent.x, .height = dst_extent.y})
+                .set_execute([this, pass_source, src_extent, dst_extent, settings, apply_threshold,
+                             &out_transient_bind_groups](RenderGraphContext &context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = context.render_pass();
+                    pass.set_viewport(RHI::Viewport{
+                        .width = static_cast<f32>(dst_extent.x), .height = static_cast<f32>(dst_extent.y),
+                        .min_depth = 0.0f, .max_depth = 1.0f});
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = dst_extent.x, .height = dst_extent.y});
+                    const RHI::TextureViewHandle source_view = context.texture(pass_source).default_view;
+                    auto bind_group = create_bloom_source_bind_group(source_view);
+                    if (!bind_group.has_value()) {
+                        return unexpected(bind_group.error());
+                    }
+                    {
+                        auto lock_guard = transient_bind_groups_lock_.lock();
+                        out_transient_bind_groups.push_back(*bind_group);
+                    }
+                    return record_bloom_downsample(
+                        pass, source_view,
+                        glm::vec2{1.0f / static_cast<f32>(src_extent.x), 1.0f / static_cast<f32>(src_extent.y)},
+                        settings,
+                        glm::vec2{0.5f * static_cast<f32>(src_extent.x) / static_cast<f32>(dst_extent.x),
+                                 0.5f * static_cast<f32>(src_extent.y) / static_cast<f32>(dst_extent.y)},
+                        apply_threshold, *bind_group);
+                });
+        }
+
+        // Upsample chain: level 1 -> blended into level 0's texture, i.e. level_count-1 down to 1.
+        for (usize level = level_count; level-- > 1;) {
+            const Core::Extent2D src_extent = level_extents[level];
+            const Core::Extent2D dst_extent = level_extents[level - 1];
+            const RenderGraphTextureHandle pass_source = levels[level];
+            const RenderGraphTextureHandle pass_destination = levels[level - 1];
+
+            graph.add_render_pass("ui glow bloom upsample"_ustr)
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = pass_destination,
+                    .load_op = RHI::LoadOp::Load,
+                    .store_op = RHI::StoreOp::Store,
+                })
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = pass_source})
+                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = dst_extent.x, .height = dst_extent.y})
+                .set_execute([this, pass_source, src_extent, dst_extent, settings,
+                             &out_transient_bind_groups](RenderGraphContext &context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = context.render_pass();
+                    pass.set_viewport(RHI::Viewport{
+                        .width = static_cast<f32>(dst_extent.x), .height = static_cast<f32>(dst_extent.y),
+                        .min_depth = 0.0f, .max_depth = 1.0f});
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = dst_extent.x, .height = dst_extent.y});
+                    const RHI::TextureViewHandle source_view = context.texture(pass_source).default_view;
+                    auto bind_group = create_bloom_source_bind_group(source_view);
+                    if (!bind_group.has_value()) {
+                        return unexpected(bind_group.error());
+                    }
+                    {
+                        auto lock_guard = transient_bind_groups_lock_.lock();
+                        out_transient_bind_groups.push_back(*bind_group);
+                    }
+                    return record_bloom_upsample(
+                        pass, source_view,
+                        glm::vec2{1.0f / static_cast<f32>(src_extent.x), 1.0f / static_cast<f32>(src_extent.y)},
+                        settings, *bind_group);
+                });
+        }
+
+        // Final composite: blend the now-blurred levels[0] back onto the original `source`, into the
+        // caller-provided `output` texture.
+        const RenderGraphTextureHandle bloom_level0 = levels[0];
+        graph.add_render_pass("ui glow bloom composite"_ustr)
+            .add_color_attachment(RenderGraphColorAttachmentDesc{
+                .texture = output,
+                .load_op = RHI::LoadOp::DontCare,
+                .store_op = RHI::StoreOp::Store,
+            })
+            .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = source})
+            .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = bloom_level0})
+            .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = source_extent.x, .height = source_extent.y})
+            .set_execute([this, source, bloom_level0, source_extent, format, settings,
+                         &out_transient_bind_groups](RenderGraphContext &context) -> Core::RendererResult {
+                RHI::RenderPassEncoder &pass = context.render_pass();
+                pass.set_viewport(RHI::Viewport{
+                    .width = static_cast<f32>(source_extent.x), .height = static_cast<f32>(source_extent.y),
+                    .min_depth = 0.0f, .max_depth = 1.0f});
+                pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = source_extent.x, .height = source_extent.y});
+                // threshold_enabled = true selects the additive scene + bloom*intensity branch
+                // (fullscreen_bloom_composite.slang) instead of the main scene's own lerp-toward-bloom
+                // blend — a UI glow needs to keep its crisp base line and ADD a halo on top of it, not
+                // fade the line out as intensity rises.
+                return record_bloom_composite(
+                    pass, context.texture(source).default_view, context.texture(bloom_level0).default_view,
+                    format, settings.bloom_intensity, true, out_transient_bind_groups);
+            });
+
+        return {};
+    }
+
     /// Finds or creates the bloom composite resources required by the operation.
     ///
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.

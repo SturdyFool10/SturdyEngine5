@@ -1973,21 +1973,27 @@ namespace SFT::Renderer {
             }
         }
 
-        if (submission.render_graph.ui_overlay) {
-            const glm::vec2 ui_viewport_size{presentation_extent};
-            if (Core::RendererResult ui_prepared = submission.render_graph.ui_overlay.prepare(
-                    *device, **encoder, ui_viewport_size, record.surface, frame_slot_index,
-                    submission.transient_buffers, submission.retired_text_atlas_resources);
-                !ui_prepared.has_value()) {
-                return ui_prepared;
-            }
-        }
-
-
         RenderGraph &graph = record.graph;
         graph.reset();
         RenderGraphBlackboard &graph_resources = record.graph_resources;
         graph_resources.reset();
+
+        // Moved after graph.reset() (this call used to precede it) so the UI overlay's own prepare
+        // hook can add render-graph nodes of its own (e.g. UI::UiRenderer bloom-ing one flagged
+        // element via Renderer::add_ui_glow_bloom_passes) — it never touched graph/graph_resources
+        // state either before or after this move, so the reorder changes nothing else about this
+        // function's behavior.
+        vector<RenderGraphTextureHandle> ui_glow_bloom_outputs;
+        if (submission.render_graph.ui_overlay) {
+            const glm::vec2 ui_viewport_size{presentation_extent};
+            if (Core::RendererResult ui_prepared = submission.render_graph.ui_overlay.prepare(
+                    *device, **encoder, graph, ui_viewport_size, record.surface, frame_slot_index,
+                    submission.transient_buffers, submission.retired_text_atlas_resources,
+                    submission.transient_bind_groups, ui_glow_bloom_outputs);
+                !ui_prepared.has_value()) {
+                return ui_prepared;
+            }
+        }
 
 
         const RHI::TextureHandle output_texture = offscreen_output
@@ -3109,7 +3115,7 @@ namespace SFT::Renderer {
         if (submission.render_graph.ui_overlay) {
 
 
-            graph.add_render_pass("UI overlay"_ustr)
+            RenderGraphRenderPassBuilder &ui_pass = graph.add_render_pass("UI overlay"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
                     .texture = ui_overlay_target,
                     .load_op = direct_overlay_presentation ? RHI::LoadOp::Clear : RHI::LoadOp::Load,
@@ -3117,8 +3123,15 @@ namespace SFT::Renderer {
                     .clear_color = static_cast<bool>(record.presentation.transparent_composition)
                                        ? RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f}
                                        : RHI::ClearColor{background.r, background.g, background.b, 1.0f},
-                })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y})
+                });
+            // Every glow-bloom output UI::UiRenderer's own prepare() hook queued this frame (see
+            // ui_glow_bloom_outputs above) must be declared as a read dependency here — otherwise the
+            // graph's transient-memory aliasing has no reason to know this pass still needs that
+            // texture's memory, and could reuse/corrupt it before draw() below samples it.
+            for (const RenderGraphTextureHandle glow_output : ui_glow_bloom_outputs) {
+                ui_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = glow_output});
+            }
+            ui_pass.set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y})
                 .set_execute([presentation_extent, surface = record.surface, frame_slot_index,
                               &submission](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();

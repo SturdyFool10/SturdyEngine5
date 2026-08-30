@@ -266,6 +266,36 @@ namespace SFT::UI {
         }
         pipeline.pipeline_ = *rhi_pipeline;
 
+        // Same shaders/layout/geometry as the normal pipeline above — only the blend state differs.
+        // Additive (One,One) adds light on top of whatever this render pass has already drawn instead
+        // of alpha-compositing over it, which a bloom composite needs and ordinary UI quads don't; dst
+        // alpha is left untouched (src_factor = Zero) since this draws inside an already-open pass and
+        // shouldn't perturb the surface's own coverage/alpha.
+        const RHI::ColorTargetState additive_color_target{
+            .format = color_format,
+            .blend_enable = true,
+            .color = RHI::BlendComponent{.src_factor = RHI::BlendFactor::One, .dst_factor = RHI::BlendFactor::One, .op = RHI::BlendOp::Add},
+            .alpha = RHI::BlendComponent{.src_factor = RHI::BlendFactor::Zero, .dst_factor = RHI::BlendFactor::One, .op = RHI::BlendOp::Add},
+            .write_mask = RHI::ColorWriteMask::All,
+        };
+        const RHI::RenderPipelineDesc additive_desc{
+            .layout = pipeline.pipeline_layout_,
+            .vertex = RHI::ShaderEntry{.module = pipeline.vertex_module_, .entry_point = "vertexMain", .stage = RHI::ShaderStage::Vertex},
+            .fragment = RHI::ShaderEntry{.module = pipeline.fragment_module_, .entry_point = "fragmentMain", .stage = RHI::ShaderStage::Fragment},
+            .vertex_buffers = {},
+            .topology = RHI::PrimitiveTopology::TriangleList,
+            .rasterization = RHI::RasterizationState{.cull_mode = RHI::CullMode::None},
+            .depth_stencil = RHI::DepthStencilState{},
+            .color_targets = span<const RHI::ColorTargetState>{&additive_color_target, 1},
+            .label = "ui quad additive pipeline",
+        };
+        auto rhi_additive_pipeline = device.create_render_pipeline(additive_desc);
+        if (!rhi_additive_pipeline) {
+            pipeline.destroy(device);
+            return unexpected(Renderer::graphics_error_from_rhi(rhi_additive_pipeline.error(), "create ui quad additive pipeline"));
+        }
+        pipeline.additive_pipeline_ = *rhi_additive_pipeline;
+
         return pipeline;
     }
 
@@ -423,17 +453,16 @@ namespace SFT::UI {
         if (batches.empty()) {
             return {};
         }
-        if (!pipeline_) {
+        if (!pipeline_ || !additive_pipeline_) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, "UI quad pipeline was not created.");
         }
-
-        pass.set_pipeline(pipeline_);
 
         for (const UiQuadDrawBatch &batch : batches) {
             if (!batch.instance_buffer) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                     "UI quad draw batch has no prepared instance buffer.");
             }
+            pass.set_pipeline(batch.additive ? additive_pipeline_ : pipeline_);
             pass.set_scissor(batch.scissor);
             for (const UiQuadDrawBatch::BoundGroup &group : batch.bind_groups) {
                 if (!group.handle) {
@@ -469,6 +498,9 @@ namespace SFT::UI {
     void UiQuadPipeline::destroy(RHI::RhiDevice &device) noexcept {
         if (pipeline_) {
             device.destroy_render_pipeline(pipeline_);
+        }
+        if (additive_pipeline_) {
+            device.destroy_render_pipeline(additive_pipeline_);
         }
         if (sampler_) {
             device.destroy_sampler(sampler_);

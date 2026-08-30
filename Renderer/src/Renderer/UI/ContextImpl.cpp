@@ -2,6 +2,7 @@
 
 #pragma region Imports
 #include <algorithm>
+#include <cstdlib>
 
 
 #define CLAY_IMPLEMENTATION
@@ -302,8 +303,13 @@ namespace SFT::UI {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void clay_error_handler(Clay_ErrorData error) {
-            Foundation::log_error("Clay UI layout error: {}",
-                                  string_view{error.errorText.chars, static_cast<usize>(error.errorText.length)});
+            // Layout errors are typically caused by a real, persistent bug in whatever declared this
+            // frame's elements (a duplicate id, a stack overflow, ...) and so fire again every single
+            // frame until fixed — throttled to keep that from burying the rest of the log, but still
+            // reported regularly (with a suppressed-call count) rather than only once, so it stays
+            // visible for as long as the underlying bug is still there.
+            SFT_LOG_ERROR_THROTTLED(2000, "Clay UI layout error: {}",
+                                    string_view{error.errorText.chars, static_cast<usize>(error.errorText.length)});
         }
 
     } // namespace
@@ -444,6 +450,17 @@ namespace SFT::UI {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<Context> Context::create(const Config &config) {
+        // Clay_SetMaxElementCount()/Clay_MinMemorySize() both silently operate on whatever context is
+        // currently "active" (Clay_GetCurrentContext()) rather than being parameterized by which context
+        // is actually being built here. WorkbenchUi (and anything else creating more than one UI::Context
+        // — one per surface/window) leaves the *previous* surface's context set as "current" from its
+        // last frame's rendering, so without this, Clay_SetMaxElementCount would silently overwrite THAT
+        // unrelated, already-initialized context's element budget instead of setting the default this
+        // brand-new context is about to be sized from, and Clay_MinMemorySize would size *this* context's
+        // arena off THAT other context's (possibly different) budget instead of `config.max_element_count`.
+        // Forcing "no current context" here routes both calls through Clay's actual global-default path,
+        // independent of whatever other UI::Context instances already exist.
+        Clay_SetCurrentContext(nullptr);
         if (config.max_element_count != 0) {
             Clay_SetMaxElementCount(static_cast<i32>(config.max_element_count));
         }
@@ -1351,6 +1368,17 @@ namespace SFT::UI {
         }
 
         vector<RHI::Rect2D> scissor_stack{snapshot.full_viewport_scissor_};
+        // Records, per clip element id, the ambient scissor that was active when that element was
+        // opened during Clay's normal (non-floating) tree traversal -- i.e. already intersected with
+        // every real ancestor clip (a scroll area's viewport, a dock panel's bounds, ...). Floating
+        // roots (tick labels, legends, tooltips -- anything using FloatingConfig) are appended by Clay
+        // *after* the whole main tree finishes, so `scissor_stack` has already unwound back to the base
+        // viewport by the time their own SCISSOR_START command is processed; without this map they'd
+        // only clip to their own attached element's bounding box and freely overflow whatever scrollable
+        // or windowed container that element itself sits inside. Clay's floating SCISSOR_START commands
+        // carry the clip element's real id in `.id` (patched into clay.h — see the comment there) so
+        // they can look themselves up here.
+        unordered_map<u32, RHI::Rect2D> ambient_scissor_by_clip_id;
 
         for (i32 i = 0; i < commands.length; ++i) {
             const Clay_RenderCommand &command = *Clay_RenderCommandArray_Get(&commands, i);
@@ -1435,7 +1463,16 @@ namespace SFT::UI {
                     break;
                 }
                 case CLAY_RENDER_COMMAND_TYPE_SCISSOR_START: {
-                    scissor_stack.push_back(intersect_rect(active_scissor, command.boundingBox));
+                    // A floating root's clip element was possibly already opened earlier this frame with
+                    // a real (already ancestor-intersected) ambient scissor recorded below; prefer that
+                    // over `active_scissor`, which for a floating root is just the base viewport at this
+                    // point in the command stream. Elements opened normally still record their own entry
+                    // the same way, so a self-lookup here (before it exists) simply misses and falls back
+                    // to `active_scissor`, unchanged from before.
+                    const auto ambient = ambient_scissor_by_clip_id.find(command.id);
+                    const RHI::Rect2D base_scissor = ambient != ambient_scissor_by_clip_id.end() ? ambient->second : active_scissor;
+                    ambient_scissor_by_clip_id.emplace(command.id, active_scissor);
+                    scissor_stack.push_back(intersect_rect(base_scissor, command.boundingBox));
                     break;
                 }
                 case CLAY_RENDER_COMMAND_TYPE_SCISSOR_END: {
@@ -1565,8 +1602,20 @@ namespace SFT::UI {
     void Context::destroy() noexcept {
 
 
-        if (context_ != nullptr && Clay_GetCurrentContext() == context_) {
-            Clay_SetCurrentContext(nullptr);
+        if (context_ != nullptr) {
+            // scrollContainerDatas may have outgrown its original arena-allocated slice (see
+            // Clay__GrowArrayStorage in clay.h) and now points at a separately malloc'd heap buffer --
+            // freeing arena_memory_ below wouldn't release that. Detected the same way growth itself
+            // detects "is this still the original arena pointer": outside arena_memory_'s own range.
+            const auto *arena_begin = reinterpret_cast<const std::byte *>(arena_memory_.data());
+            const auto *arena_end = arena_begin + arena_memory_.size();
+            const auto *scroll_data = reinterpret_cast<const std::byte *>(context_->scrollContainerDatas.internalArray);
+            if (scroll_data != nullptr && !(scroll_data >= arena_begin && scroll_data < arena_end)) {
+                std::free(context_->scrollContainerDatas.internalArray);
+            }
+            if (Clay_GetCurrentContext() == context_) {
+                Clay_SetCurrentContext(nullptr);
+            }
         }
         context_ = nullptr;
         arena_memory_.clear();

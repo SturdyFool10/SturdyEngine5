@@ -74,21 +74,37 @@ namespace SFT::UI {
         ///
         /// @param device Device used or affected by the operation.
         /// @param encoder `encoder` value used by the operation.
+        /// @param render_graph The current frame's render graph. Any stroke path flagged with
+        ///        `StrokeStyle::glow_intensity > 0` draws into this frame's shared, viewport-sized glow
+        ///        mask instead of the normal batched stroke stream; one real bloom pass chain
+        ///        (`Renderer::add_ui_glow_bloom_passes`) then blurs that whole mask and the result is
+        ///        composited additively over the entire surface, unclipped by any container — see
+        ///        FrameResources' own doc comment for the full rationale.
         /// @param snapshot `snapshot` value used by the operation.
         /// @param texture_resolver Texture used or affected by the operation.
         /// @param surface Surface used or affected by the operation.
         /// @param frame_resource_index Zero-based index of the target element or entry.
         /// @param out_transient_buffers Buffer used or affected by the operation.
         /// @param out_retired_atlas_resources `out_retired_atlas_resources` value used by the operation.
+        /// @param out_transient_bind_groups Bind groups any glow-bloom pass chain created — the caller
+        ///        is responsible for destroying them once this frame's GPU work has completed, same
+        ///        convention as every other transient-resource out-param in the frame path.
+        /// @param out_glow_bloom_outputs Real, `render_graph`-imported destination texture for each
+        ///        glow element's bloom composite this call queued — the caller must declare each one
+        ///        as a sampled-texture read dependency on whatever pass ends up sampling it (the "UI
+        ///        overlay" pass), so the graph's transient-memory aliasing preserves it correctly.
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
         [[nodiscard]] Core::RendererResult prepare(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
+                                                    Renderer::RenderGraph &render_graph,
                                                     const FrameSnapshot &snapshot, Renderer::Renderer *texture_resolver,
                                                     Core::RenderSurfaceHandle surface, u32 frame_resource_index,
                                                     vector<RHI::BufferHandle> &out_transient_buffers,
-                                                    Renderer::TextAtlasRetiredResources &out_retired_atlas_resources);
+                                                    Renderer::TextAtlasRetiredResources &out_retired_atlas_resources,
+                                                    vector<RHI::BindGroupHandle> &out_transient_bind_groups,
+                                                    vector<Renderer::RenderGraphTextureHandle> &out_glow_bloom_outputs);
 
         /// Issues the batches prepare() built, interleaved by paint order (see class doc comment).
         ///
@@ -145,7 +161,30 @@ namespace SFT::UI {
             vector<u32> custom_group_ids;
             vector<CustomStrokeDraw> custom_strokes;
             vector<u32> custom_stroke_group_ids;
+
+            // A real, full-screen bloom, not a per-element approximation: every StrokeStyle::
+            // glow_intensity > 0 path drawn this frame is skipped in the normal batched stroke stream
+            // and instead drawn (at its own screen position and clip, brightness pre-scaled by its own
+            // glow_intensity) into this ONE shared, viewport-sized mask. Renderer::add_ui_glow_bloom_passes
+            // then blurs that whole mask once — real room to spread since the mask spans the entire
+            // surface, not a small per-element crop — and the blurred result is composited back with
+            // additive GPU blending as the very last draw of the frame, using full_viewport_scissor (no
+            // clip at all), so the halo can flow out over whatever container the source line sits in,
+            // the way a real glow does. glow_mask_texture/glow_bloom_texture are owned directly by
+            // UiRenderer (not the render graph) so glow_bloom_view is known immediately at prepare()
+            // time, before the graph has executed. Torn down and rebuilt every frame for the (surface,
+            // frame_resource_index) slot they belong to, same reuse cadence as every other per-frame GPU
+            // resource in FrameResources.
+            RHI::TextureHandle glow_mask_texture{};
+            RHI::TextureViewHandle glow_mask_view{};
+            RHI::TextureHandle glow_bloom_texture{};
+            RHI::TextureViewHandle glow_bloom_view{};
+            UiStrokeFrameResources glow_mask_stroke;
+            vector<UiStrokeDrawBatch> glow_mask_stroke_batches;
+            UiQuadFrameResources glow_composite_quad;
+            vector<UiQuadDrawBatch> glow_composite_quad_batches;
         };
+
         struct SurfaceFrameResources {
             Core::RenderSurfaceHandle surface{};
             Renderer::TextAtlas text_atlas;

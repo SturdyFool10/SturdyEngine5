@@ -375,6 +375,9 @@ namespace SFT::UiWorkbench {
         UI::ScrollAreaState graphs_scroll{};
         UI::FrameGraphState frame_graph_state{};
         f32 frame_graph_phase = 0.0f;
+        f32 glow_demo_time = 0.0f;
+        f64 glow_demo_intensity = 1.5;
+        UI::SliderState glow_demo_slider_state{};
 
 
         f32 fps_smoothed = -1.0f;
@@ -2903,6 +2906,65 @@ namespace SFT::UiWorkbench {
                                   },
                                   fg_desc, surface.frame_graph_state);
         }
+
+        // Sub-element bloom: a live sin(time) line whose glow intensity is driven by the slider below
+        // -- a real reuse of Renderer::add_ui_glow_bloom_passes (RendererBloom.cpp), not an
+        // approximation, scoped to just this one series.
+        {
+            section_label(ctx, font_id_, "SUB-ELEMENT BLOOM");
+
+            draw_text(ctx, number_text("Glow intensity  ", surface.glow_demo_intensity), text_style(font_id_, text_primary, 13));
+            const UI::SliderConfig glow_config{.min = 0.0, .max = 4.0, .step = 0.05};
+            const UI::SliderStyle glow_style{
+                .track = UI::Color{0.115, 0.130, 0.180, 1.0},
+                .fill = accent,
+                .thumb = text_primary,
+                .thumb_hovered = UI::Color{1.0, 1.0, 1.0, 1.0},
+                .thumb_dragging = accent_hot,
+                .track_thickness = 6.0f,
+                .thumb_size = 16.0f,
+                .focused_border = UI::BorderStyle{},
+            };
+            const UI::SliderResult glow_result = UI::slider(
+                ctx,
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::fixed(chart_width), UI::SizingAxis::fixed(28.0f)},
+                    .id = UString{"workbench-graphs-glow-intensity"},
+                },
+                glow_config,
+                glow_style,
+                surface.glow_demo_slider_state,
+                surface.glow_demo_intensity,
+                UI::SliderInput{},
+                true);
+            surface.glow_demo_intensity = glow_result.value;
+
+            surface.glow_demo_time += delta_seconds;
+            std::vector<f64> xs;
+            std::vector<f64> ys;
+            xs.reserve(180);
+            ys.reserve(180);
+            for (int i = 0; i < 180; ++i) {
+                const f64 x = static_cast<f64>(i) / 179.0 * 4.0 * 3.14159265358979;
+                xs.push_back(x);
+                ys.push_back(std::sin(x + static_cast<f64>(surface.glow_demo_time)));
+            }
+            UI::GraphDesc desc{};
+            desc.font_id = font_id_;
+            desc.x_axis.title = "x";
+            desc.y_axis.title = "sin(x + t)";
+            desc.series.push_back(UI::SeriesRef{
+                .name = "sin(x + t)", .x = xs, .y = ys, .color = UI::Color{0.55, 0.85, 1.0, 1.0}, .line_width = 2.5f,
+                .feather_px = 1.0f, .glow_intensity = static_cast<f32>(surface.glow_demo_intensity),
+            });
+            UI::GraphState state{};
+            (void)UI::graph(ctx,
+                            UI::ElementDecl{
+                                .sizing = {UI::SizingAxis::fixed(chart_width), UI::SizingAxis::fixed(chart_height)},
+                                .id = UString{"workbench-graphs-glow"},
+                            },
+                            desc, state);
+        }
     }
 
     /// Builds console panel.
@@ -3156,11 +3218,14 @@ namespace SFT::UiWorkbench {
         hooks.prepare = [renderer, renderer_generation, snapshot, texture_resolver](
                             RHI::RhiDevice &device,
                             RHI::CommandEncoder &encoder,
+                            Renderer::RenderGraph &render_graph,
                             glm::vec2 viewport_size,
                             Core::RenderSurfaceHandle render_surface,
                             u32 frame_resource_index,
                             std::vector<RHI::BufferHandle> &transient_buffers,
-                            Renderer::TextAtlasRetiredResources &retired_resources)
+                            Renderer::TextAtlasRetiredResources &retired_resources,
+                            std::vector<RHI::BindGroupHandle> &transient_bind_groups,
+                            std::vector<Renderer::RenderGraphTextureHandle> &glow_bloom_outputs)
             -> Core::RendererResult {
             if (renderer->generation() != renderer_generation) {
                 return {};
@@ -3171,7 +3236,9 @@ namespace SFT::UiWorkbench {
                     Core::GraphicsBackendErrorCode::OperationFailed,
                     "UiWorkbench snapshot extent does not match its render surface.");
             }
-            return renderer->prepare(device, encoder, *snapshot, texture_resolver, render_surface, frame_resource_index, transient_buffers, retired_resources);
+            return renderer->prepare(device, encoder, render_graph, *snapshot, texture_resolver, render_surface,
+                                     frame_resource_index, transient_buffers, retired_resources,
+                                     transient_bind_groups, glow_bloom_outputs);
         };
         hooks.draw = [renderer, renderer_generation](RHI::RenderPassEncoder &pass, glm::vec2 viewport_size, Core::RenderSurfaceHandle render_surface, u32 frame_resource_index) -> Core::RendererResult {
             return renderer->generation() == renderer_generation

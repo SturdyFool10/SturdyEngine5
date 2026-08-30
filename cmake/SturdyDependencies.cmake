@@ -47,7 +47,9 @@ set(STURDY_MINIAUDIO_TAG "0.11.25" CACHE STRING "miniaudio git tag to fetch.")
 # Core's interface for Web (precompiled/offline shaders instead of in-engine compilation).
 # Foundation and Platform are unaffected and build/link cleanly for Web today.
 set(STURDY_SLANG_TAG "v2026.11" CACHE STRING "Slang git tag to fetch and build from source.")
-set(STURDY_CLAY_TAG "v0.14" CACHE STRING "Clay git tag to fetch.")
+# Clay is vendored in-tree (thirdparty/clay/), forked from upstream v0.14 with this engine's own
+# correctness fixes applied on top — see sturdy_fetch_clay() and the modification notice at the top
+# of thirdparty/clay/clay.h. No longer fetched, so no CACHE tag variable here to keep in sync.
 # msdfgen-core has no dependency on FreeType/PNG/Skia — those only gate msdfgen-ext (font loading)
 # and the msdfgen-standalone CLI, neither of which this engine uses: HarfBuzz's hb-draw already
 # supplies glyph outlines directly (see Text/Outline.cppm), so msdfgen only ever consumes shapes
@@ -1216,32 +1218,23 @@ endfunction()
 
 
 function(sturdy_fetch_clay)
-    # Clay (clay.h) is a single-header UI layout library with no library target of its own — its
-    # CMakeLists.txt only builds examples, and CLAY_INCLUDE_ALL_EXAMPLES defaults ON, which would
-    # drag in raylib/SDL2/SDL3/sokol/etc. Disable every example option so add_subdirectory is a
-    # no-op, then wire up the include directory ourselves.
-    set(CLAY_INCLUDE_ALL_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(CLAY_INCLUDE_DEMOS OFF CACHE BOOL "" FORCE)
-    set(CLAY_INCLUDE_CPP_EXAMPLE OFF CACHE BOOL "" FORCE)
-    set(CLAY_INCLUDE_RAYLIB_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(CLAY_INCLUDE_SDL2_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(CLAY_INCLUDE_SDL3_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(CLAY_INCLUDE_WIN32_GDI_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(CLAY_INCLUDE_SOKOL_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(CLAY_INCLUDE_PLAYDATE_EXAMPLES OFF CACHE BOOL "" FORCE)
-
-    sturdy_fetchcontent_declare(clay
-        GIT_REPOSITORY https://github.com/nicbarker/clay.git
-        GIT_TAG ${STURDY_CLAY_TAG}
-    )
-    FetchContent_MakeAvailable(clay)
+    # Clay (clay.h) is vendored directly into this repository at thirdparty/clay/ rather than fetched
+    # at configure time — this engine's UI depends on real correctness fixes (not speculative
+    # patches) applied on top of upstream v0.14 that upstream doesn't have; see the modification
+    # notice at the top of thirdparty/clay/clay.h for exactly what changed and why. A FetchContent-based
+    # fetch would silently discard those fixes on the next dependency refresh/cache wipe, so this is
+    # the one dependency in this file that is intentionally *not* re-downloaded.
+    set(_sturdy_clay_dir "${CMAKE_SOURCE_DIR}/thirdparty/clay")
+    if(NOT EXISTS "${_sturdy_clay_dir}/clay.h")
+        message(FATAL_ERROR "sturdy_fetch_clay: vendored clay.h not found at ${_sturdy_clay_dir} — this dependency is no longer fetched, it must be present in-tree.")
+    endif()
 
     if(NOT TARGET clay)
         add_library(clay INTERFACE)
-        target_include_directories(clay INTERFACE "${clay_SOURCE_DIR}")
+        target_include_directories(clay INTERFACE "${_sturdy_clay_dir}")
     endif()
     sturdy_mark_dependency_targets_exclude_from_all(clay)
-    sturdy_register_license(clay "${clay_SOURCE_DIR}")
+    sturdy_register_license(clay "${_sturdy_clay_dir}")
 endfunction()
 
 function(sturdy_fetch_msdfgen)

@@ -20,6 +20,7 @@
 #include <RHI/RHI.hpp>
 #include <Renderer/SpectralPathTracing.hpp>
 #include <Renderer/Handles.hpp>
+#include <Renderer/RenderGraph.hpp>
 #include <Renderer/RenderTarget.hpp>
 #include <Renderer/Light.hpp>
 #include <Renderer/TextAtlas.hpp>
@@ -145,9 +146,15 @@ namespace SFT::Renderer {
     };
 
 
+    // `prepare` receives the current frame's RenderGraph (nodes may be appended to it, e.g. to bloom a
+    // flagged UI element — see UI::UiRenderer::prepare()'s own doc comment) plus two extra transient-
+    // resource out-params (bind groups, glow-bloom output textures) beyond the buffer/text-atlas ones
+    // it already had, all following the same "caller owns/destroys transient resources this returns"
+    // convention the existing out-params use.
     using UiOverlayPrepareFn = std::function<Core::RendererResult(
-        RHI::RhiDevice &, RHI::CommandEncoder &, glm::vec2, Core::RenderSurfaceHandle, u32,
-        std::vector<RHI::BufferHandle> &, TextAtlasRetiredResources &)>;
+        RHI::RhiDevice &, RHI::CommandEncoder &, RenderGraph &, glm::vec2, Core::RenderSurfaceHandle, u32,
+        std::vector<RHI::BufferHandle> &, TextAtlasRetiredResources &,
+        std::vector<RHI::BindGroupHandle> &, std::vector<RenderGraphTextureHandle> &)>;
     using UiOverlayDrawFn = std::function<Core::RendererResult(
         RHI::RenderPassEncoder &, glm::vec2, Core::RenderSurfaceHandle, u32)>;
 
