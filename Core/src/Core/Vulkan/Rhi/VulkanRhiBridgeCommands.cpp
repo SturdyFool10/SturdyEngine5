@@ -1574,6 +1574,20 @@ namespace SFT::Core::Vulkan {
             };
             command_buffer_.copy_acceleration_structure(info);
         }
+        /// Binds the ray tracing pipeline used by a subsequent `trace_rays`, mirroring
+        /// `VulkanRhiComputePassEncoder::set_pipeline`'s bind-point/layout-tracking shape.
+        ///
+        /// @param pipeline Pipeline used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_ray_tracing_pipeline(rhi::RayTracingPipelineHandle pipeline) override {
+            auto *record = bridge_.ray_tracing_pipelines_.find(pipeline);
+            if (record == nullptr) {
+                return;
+            }
+            current_layout_ = pipeline_layout(record->layout);
+            command_buffer_.bind_pipeline(VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, record->pipeline.vk_handle());
+        }
         /// Traces rays using the supplied arguments and current state.
         ///
         /// @param desc Description of the resource or operation to perform.

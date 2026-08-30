@@ -63,6 +63,11 @@ namespace SFT::Ffi {
         /// outlive any single frame (e.g. live telemetry). Lives until
         /// `sturdy_ui_graph_series_release`.
         GraphSeries = 9,
+        /// Also owned: recording spans multiple calls, like `CommandEncoder`. Lives until
+        /// `sturdy_rhi_render_bundle_encoder_finish`/`_release`. The bundle it produces is a plain
+        /// resource handle (`SturdyRenderBundle`), not a token, so it needs no `HandleKind` of its
+        /// own — same split as `CommandEncoder` (owned) vs. `SturdyCommandBuffer` (resource).
+        RenderBundleEncoder = 10,
     };
 
     /// Mints a token referring to `pointer`, valid until `revoke_handle`.

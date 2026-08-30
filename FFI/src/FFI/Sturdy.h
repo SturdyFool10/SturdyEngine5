@@ -4,9 +4,10 @@
 /// Its core is the application-hosting seam — configure a runtime, supply game-logic callbacks,
 /// drive per-frame camera/lighting/render-graph choices, and read input — plus, for a caller that
 /// needs to do its own GPU work, the RHI resource surface: buffers, textures, samplers, bind
-/// groups, pipelines, and command encoding (see "RHI resources" below). Fine-grained render-graph
-/// tuning (shadow/AO/tone-curve parameters), ray tracing, and swapchain/HDR control are not
-/// exposed yet; a caller needing those reaches for `sturdy_native_*` in the meantime.
+/// groups, pipelines, command encoding, and ray tracing (see "RHI resources" and "Ray tracing"
+/// below), plus per-surface presentation/HDR control (see "Presentation and HDR" below).
+/// Fine-grained render-graph tuning (shadow/AO/tone-curve parameters) is not exposed yet; a
+/// caller needing that reaches for `sturdy_native_*` in the meantime.
 ///
 /// Every rule below exists because a foreign caller cannot be trusted to honor a C++-side
 /// invariant the way a same-language caller would.
@@ -113,7 +114,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 21u
+#define STURDY_ABI_VERSION_MINOR 26u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -2623,11 +2624,14 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_extension_name(SturdyEngine e
 // RHI resources
 // ---------------------------------------------------------------------------------------------
 //
-// Buffers, textures, samplers, shader modules, bind groups, pipelines, and recorded command
-// buffers, plus command encoding to use them. This is deliberately still not the entire RHI:
-// ray tracing, opacity micromaps, mesh/task shaders, render bundles, indirect draws, GPU
-// queries, semaphores/fences, and swapchain/surface/HDR control are not exposed here. A caller
-// needing those reaches for `sturdy_native_*` and drives the backend directly in the meantime.
+// Buffers, textures, samplers, shader modules, bind groups, pipelines (including mesh/task-shader
+// pipelines), recorded command buffers, command encoding (including indirect draws and mesh-task
+// dispatches, with and without a GPU-supplied count), and render bundles. Ray tracing
+// (acceleration structures, ray tracing pipelines, shader binding tables, opacity micromaps) has
+// its own "Ray tracing" section below — it is not part of this resource surface either.
+// (Swapchain/surface/HDR control has its own "Presentation and HDR" section above.) The RHI is
+// now fully covered; a caller needing something finer-grained than this ABI exposes reaches for
+// `sturdy_native_*` and drives the backend directly.
 //
 // Resource handles (`SturdyBuffer`, `SturdyTexture`, ...) carry no scope of their own — like
 // `SturdySurface`, they are informational identifiers the RHI device owns and validates until
@@ -2967,6 +2971,8 @@ typedef uint32_t SturdyShaderStage;
 #define STURDY_SHADER_STAGE_VERTEX ((SturdyShaderStage)(1u << 0))
 #define STURDY_SHADER_STAGE_FRAGMENT ((SturdyShaderStage)(1u << 1))
 #define STURDY_SHADER_STAGE_COMPUTE ((SturdyShaderStage)(1u << 2))
+#define STURDY_SHADER_STAGE_TASK ((SturdyShaderStage)(1u << 6))
+#define STURDY_SHADER_STAGE_MESH ((SturdyShaderStage)(1u << 7))
 
 /// Handle to a shader module compiled from raw backend bytecode (SPIR-V on Vulkan, DXIL on
 /// D3D12). This is the low-level counterpart to `sturdy_render_load_shader`, which additionally
@@ -3359,7 +3365,10 @@ typedef struct SturdyRenderPipeline {
 /// they are not part of this description. All array fields are read synchronously during
 /// `sturdy_rhi_create_render_pipeline` and need not outlive the call.
 ///
-/// Mesh/task-shader pipelines are not supported by this ABI version; set `vertex`.
+/// Set `mesh` (and optionally `task`) for a mesh-shader pipeline, or set `vertex` for a
+/// traditional vertex-input pipeline — not both. A mesh pipeline requires the `"mesh shaders"`
+/// feature (check with `sturdy_rhi_feature_index`/`sturdy_rhi_feature_enabled`) and ignores
+/// `vertex_buffers`/`topology`; a task stage additionally requires `"task/amplification shaders"`.
 typedef struct SturdyRenderPipelineDesc {
     /// Set to `sizeof(SturdyRenderPipelineDesc)` by `sturdy_rhi_render_pipeline_desc_init`.
     uint32_t struct_size;
@@ -3380,6 +3389,11 @@ typedef struct SturdyRenderPipelineDesc {
     const SturdyColorTargetState *color_targets;
     /// Optional debug label, copied at creation time. May be null.
     const char *label;
+    /// Amplification/task stage for a mesh-shader pipeline. Zero handle means no task stage.
+    SturdyShaderEntry task;
+    /// Mesh stage. A valid (nonzero) module here selects the mesh-shader pipeline path instead
+    /// of `vertex`.
+    SturdyShaderEntry mesh;
 } SturdyRenderPipelineDesc;
 
 /// Fills `desc` with `struct_size` and engine defaults (triangle list, fill/back-cull/CCW
@@ -3493,6 +3507,8 @@ typedef struct SturdyRenderPassDesc {
     const SturdyColorAttachment *color_attachments;
     SturdyDepthStencilAttachment depth_stencil;
     SturdyRect2D render_area;
+    /// Must be true to call `sturdy_rhi_render_pass_execute_bundles` on the pass this creates.
+    SturdyBool allow_bundles;
     /// Optional debug label, copied at creation time. May be null.
     const char *label;
 } SturdyRenderPassDesc;
@@ -3822,9 +3838,208 @@ typedef struct SturdyDrawIndexedArgs {
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indexed(SturdyRenderPassEncoder pass,
                                                                              const SturdyDrawIndexedArgs *args);
 
+/// Draws using arguments read from `indirect_buffer` at `offset` (a single `SturdyDrawArgs`-shaped
+/// record, engine-native layout matching the active backend's indirect-draw structure).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indirect(SturdyRenderPassEncoder pass,
+                                                                              SturdyBuffer indirect_buffer,
+                                                                              uint64_t offset);
+
+/// Issues `draw_count` draws read from consecutive `stride`-byte records in `indirect_buffer`
+/// starting at `offset`. `draw_count` is fixed at record time; use
+/// `sturdy_rhi_render_pass_draw_indirect_count` when the count itself comes from the GPU.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indirect_multi(
+    SturdyRenderPassEncoder pass, SturdyBuffer indirect_buffer, uint64_t offset, uint32_t draw_count,
+    uint32_t stride);
+
+/// Issues up to `max_draws` draws read from `indirect_buffer`, with the actual count read from a
+/// 32-bit value in `count_buffer` at `count_offset` (clamped to `max_draws`). Backed by
+/// `vkCmdDrawIndirectCount` on Vulkan and `ExecuteIndirect` with a counter resource on D3D12.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indirect_count(
+    SturdyRenderPassEncoder pass, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride);
+
+/// Indexed counterpart to `sturdy_rhi_render_pass_draw_indirect`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indexed_indirect(
+    SturdyRenderPassEncoder pass, SturdyBuffer indirect_buffer, uint64_t offset);
+
+/// Indexed counterpart to `sturdy_rhi_render_pass_draw_indirect_multi`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indexed_indirect_multi(
+    SturdyRenderPassEncoder pass, SturdyBuffer indirect_buffer, uint64_t offset, uint32_t draw_count,
+    uint32_t stride);
+
+/// Indexed counterpart to `sturdy_rhi_render_pass_draw_indirect_count`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indexed_indirect_count(
+    SturdyRenderPassEncoder pass, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride);
+
+/// Dispatch dimensions for `sturdy_rhi_render_pass_draw_mesh_tasks`, matching
+/// `RHI::DrawMeshTasksArgs`.
+typedef struct SturdyDrawMeshTasksArgs {
+    uint32_t group_count_x;
+    uint32_t group_count_y;
+    uint32_t group_count_z;
+} SturdyDrawMeshTasksArgs;
+
+/// Dispatches the mesh (and, if present, task) shader stages of the currently bound pipeline,
+/// which must have been created with `SturdyRenderPipelineDesc::mesh` set. Neither backend
+/// clamps `group_count_*` against a device maximum here — an out-of-range value is a backend-
+/// defined failure, the same as a C++ caller would see.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_mesh_tasks(
+    SturdyRenderPassEncoder pass, const SturdyDrawMeshTasksArgs *args);
+
+/// Mesh-shader counterpart to `sturdy_rhi_render_pass_draw_indirect`: dispatch dimensions are
+/// read from a single `SturdyDrawMeshTasksArgs`-shaped record in `indirect_buffer` at `offset`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_mesh_tasks_indirect(
+    SturdyRenderPassEncoder pass, SturdyBuffer indirect_buffer, uint64_t offset);
+
+/// Mesh-shader counterpart to `sturdy_rhi_render_pass_draw_indirect_count`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_mesh_tasks_indirect_count(
+    SturdyRenderPassEncoder pass, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride);
+
 /// Ends the render pass. `pass`'s token is invalid after this call, whether it succeeds or
 /// fails. The parent command encoder may be used again afterward.
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_end(SturdyRenderPassEncoder pass);
+
+// ---------------------------------------------------------------------------------------------
+// Render bundles
+// ---------------------------------------------------------------------------------------------
+//
+// A render bundle is a reusable, pre-recorded sequence of pipeline/bind-group/draw commands
+// (Vulkan secondary command buffers, D3D12 bundles under the hood) that a render pass can replay
+// with `sturdy_rhi_render_pass_execute_bundles` without re-encoding it every frame. Recording
+// mirrors the render-pass command surface above minus what bundles cannot legally do: no
+// occlusion queries, no shading-rate control, and no nesting another bundle.
+
+/// Describes a render bundle to create. Bundles are format-only — they record against whatever
+/// render pass later executes them, matching it by attachment formats/sample count/view mask
+/// rather than by binding real attachments.
+typedef struct SturdyRenderBundleDesc {
+    /// Set to `sizeof(SturdyRenderBundleDesc)` by `sturdy_rhi_render_bundle_desc_init`.
+    uint32_t struct_size;
+    uint32_t color_format_count;
+    const SturdyFormat *color_formats;
+    SturdyFormat depth_stencil_format;
+    /// Sample count as an integer (1, 2, 4, 8, or 16), matching `RHI::SampleCount`'s values.
+    uint32_t samples;
+    uint32_t view_mask;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyRenderBundleDesc;
+
+/// Fills `desc` with `struct_size` and zeroed contents (no color formats, no depth/stencil
+/// format, `samples = 1`) — set `color_formats` before use.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_desc_init(SturdyRenderBundleDesc *desc);
+
+/// Owned handle to an in-progress bundle recording, borrowed from the engine's active device.
+/// Lives until `sturdy_rhi_render_bundle_encoder_finish` or `sturdy_rhi_render_bundle_encoder_release`.
+typedef struct SturdyRenderBundleEncoder {
+    uint64_t token;
+} SturdyRenderBundleEncoder;
+
+/// Handle to a finished, replayable render bundle. Unlike the encoder that produced it, this
+/// carries no scope of its own — like `SturdyBuffer`, it is an informational identifier the RHI
+/// device owns and validates until `sturdy_rhi_destroy_render_bundle`.
+typedef struct SturdyRenderBundle {
+    uint64_t id;
+} SturdyRenderBundle;
+
+/// Begins recording a render bundle.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_render_bundle_encoder(
+    SturdyEngine engine, const SturdyRenderBundleDesc *desc, SturdyRenderBundleEncoder *out_encoder);
+
+/// Abandons an in-progress bundle recording without finishing it. `encoder`'s token is invalid
+/// after this call.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_encoder_release(
+    SturdyRenderBundleEncoder encoder);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_pipeline(SturdyRenderBundleEncoder encoder,
+                                                                               SturdyRenderPipeline pipeline);
+
+/// Binds a bind group at `index`. Same `dynamic_offsets` convention as
+/// `sturdy_rhi_render_pass_set_bind_group`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_bind_group(
+    SturdyRenderBundleEncoder encoder, uint32_t index, SturdyBindGroup bind_group,
+    uint32_t dynamic_offset_count, const uint32_t *dynamic_offsets);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_vertex_buffer(
+    SturdyRenderBundleEncoder encoder, uint32_t slot, SturdyBuffer buffer, uint64_t offset);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_index_buffer(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer buffer, SturdyIndexFormat format, uint64_t offset);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_push_constants(
+    SturdyRenderBundleEncoder encoder, SturdyShaderStage stages, uint32_t offset, const void *data,
+    size_t data_size);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_viewport(SturdyRenderBundleEncoder encoder,
+                                                                               const SturdyViewport *viewport);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_scissor(SturdyRenderBundleEncoder encoder,
+                                                                              const SturdyRect2D *scissor);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_blend_constant(
+    SturdyRenderBundleEncoder encoder, const float color[4]);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_stencil_reference(
+    SturdyRenderBundleEncoder encoder, uint32_t reference);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw(SturdyRenderBundleEncoder encoder,
+                                                                       const SturdyDrawArgs *args);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indexed(
+    SturdyRenderBundleEncoder encoder, const SturdyDrawIndexedArgs *args);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indirect(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t offset);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indirect_multi(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t offset, uint32_t draw_count,
+    uint32_t stride);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indirect_count(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indexed_indirect(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t offset);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indexed_indirect_multi(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t offset, uint32_t draw_count,
+    uint32_t stride);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indexed_indirect_count(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_mesh_tasks(
+    SturdyRenderBundleEncoder encoder, const SturdyDrawMeshTasksArgs *args);
+
+/// D3D12 does not allow indirect draws of any kind — including mesh-tasks-indirect — inside a
+/// bundle; this reports a backend failure there rather than an ABI-level rejection, matching how
+/// the ordinary indirect-draw bundle restriction behaves.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_mesh_tasks_indirect(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t offset);
+
+/// See `sturdy_rhi_render_bundle_draw_mesh_tasks_indirect`'s D3D12 caveat.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_mesh_tasks_indirect_count(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride);
+
+/// Finishes recording, consuming `encoder` (its token is invalid after this call, whether it
+/// succeeds or fails) and producing a replayable `SturdyRenderBundle`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_encoder_finish(
+    SturdyRenderBundleEncoder encoder, SturdyRenderBundle *out_bundle);
+
+/// Destroys a bundle created by `sturdy_rhi_render_bundle_encoder_finish`. A null/zero handle is
+/// a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_render_bundle(SturdyEngine engine,
+                                                                          SturdyRenderBundle bundle);
+
+/// Replays `bundles` into `pass`, which must have been created with
+/// `SturdyRenderPassDesc::allow_bundles` set.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_execute_bundles(
+    SturdyRenderPassEncoder pass, uint32_t bundle_count, const SturdyRenderBundle *bundles);
 
 /// Owned handle to an in-progress compute pass, borrowed from its command encoder. Lives until
 /// `sturdy_rhi_compute_pass_end`. The parent `SturdyCommandEncoder` may not be used for anything
@@ -4105,6 +4320,693 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_submit(
 /// uploads — may still be in flight on this device. Intended for shutdown/resource-teardown
 /// synchronization; wait on a specific submission with `sturdy_rhi_wait_fences` instead.
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_wait_idle(SturdyEngine engine);
+
+// ---------------------------------------------------------------------------------------------
+// Presentation and HDR
+// ---------------------------------------------------------------------------------------------
+//
+// Live control over a surface's swapchain policy: vsync/VRR/latency, transparent composition,
+// image count, and real display HDR (distinct from `SturdyToneMappingSettings`'s
+// `hdr_paper_white_nits`/`hdr_peak_nits`, which only shape the tone-mapping curve and never touch
+// the swapchain's color space). A change here is queued the same way as a window request — it is
+// picked up the next time that surface renders, not applied synchronously.
+
+/// How the engine should schedule presentation relative to the display's refresh cycle, once
+/// vsync/VRR/latency are taken into account. Matches `RHI::PresentStrategy`.
+typedef enum SturdyPresentStrategy {
+    STURDY_PRESENT_STRATEGY_UNSYNCHRONIZED = 0,
+    STURDY_PRESENT_STRATEGY_TEAR_FREE_ORDERED,
+    STURDY_PRESENT_STRATEGY_TEAR_FREE_LATEST,
+    STURDY_PRESENT_STRATEGY_ADAPTIVE_TEARING,
+    STURDY_PRESENT_STRATEGY_TEAR_FREE_LATEST_READY,
+    STURDY_PRESENT_STRATEGY_VARIABLE_REFRESH,
+    STURDY_PRESENT_STRATEGY_FORCE_U32 = 0x7fffffff
+} SturdyPresentStrategy;
+
+/// Concrete swapchain present mode a `SturdyPresentStrategy` resolved to on this backend. Matches
+/// `RHI::PresentMode`.
+typedef enum SturdyPresentMode {
+    STURDY_PRESENT_MODE_FIFO = 0,
+    STURDY_PRESENT_MODE_FIFO_RELAXED,
+    STURDY_PRESENT_MODE_MAILBOX,
+    STURDY_PRESENT_MODE_IMMEDIATE,
+    STURDY_PRESENT_MODE_FIFO_LATEST_READY,
+    STURDY_PRESENT_MODE_FORCE_U32 = 0x7fffffff
+} SturdyPresentMode;
+
+/// How the swapchain's alpha channel composites with what is behind the window. Matches
+/// `RHI::CompositeAlphaMode`.
+typedef enum SturdyCompositeAlphaMode {
+    STURDY_COMPOSITE_ALPHA_MODE_AUTO = 0,
+    STURDY_COMPOSITE_ALPHA_MODE_OPAQUE,
+    STURDY_COMPOSITE_ALPHA_MODE_PREMULTIPLIED,
+    STURDY_COMPOSITE_ALPHA_MODE_POST_MULTIPLIED,
+    STURDY_COMPOSITE_ALPHA_MODE_INHERIT,
+    STURDY_COMPOSITE_ALPHA_MODE_FORCE_U32 = 0x7fffffff
+} SturdyCompositeAlphaMode;
+
+/// Swapchain color space, including real display HDR transfer functions. Matches `RHI::ColorSpace`.
+/// `STURDY_COLOR_SPACE_DOLBY_VISION` is declared for completeness but not implemented by either
+/// backend yet; requesting it will not succeed.
+typedef enum SturdyColorSpace {
+    STURDY_COLOR_SPACE_SRGB_NONLINEAR = 0,
+    STURDY_COLOR_SPACE_HDR10_ST2084,
+    STURDY_COLOR_SPACE_SCRGB_LINEAR,
+    STURDY_COLOR_SPACE_HDR10_HLG,
+    STURDY_COLOR_SPACE_DOLBY_VISION,
+    STURDY_COLOR_SPACE_ADOBE_RGB_LINEAR,
+    STURDY_COLOR_SPACE_ADOBE_RGB_NONLINEAR,
+    STURDY_COLOR_SPACE_DISPLAY_P3_LINEAR,
+    STURDY_COLOR_SPACE_DISPLAY_P3_NONLINEAR,
+    STURDY_COLOR_SPACE_BT2020_LINEAR,
+    STURDY_COLOR_SPACE_FORCE_U32 = 0x7fffffff
+} SturdyColorSpace;
+
+/// Variable refresh rate policy. Matches `Core::VariableRefreshMode`.
+typedef enum SturdyVariableRefreshMode {
+    STURDY_VARIABLE_REFRESH_MODE_DISABLED = 0,
+    STURDY_VARIABLE_REFRESH_MODE_AUTOMATIC,
+    STURDY_VARIABLE_REFRESH_MODE_PREFERRED,
+    STURDY_VARIABLE_REFRESH_MODE_FORCE_U32 = 0x7fffffff
+} SturdyVariableRefreshMode;
+
+/// Presentation latency policy. Matches `Core::LatencyMode`.
+typedef enum SturdyLatencyMode {
+    STURDY_LATENCY_MODE_NORMAL = 0,
+    STURDY_LATENCY_MODE_LOW,
+    STURDY_LATENCY_MODE_ULTRA,
+    STURDY_LATENCY_MODE_FORCE_U32 = 0x7fffffff
+} SturdyLatencyMode;
+
+/// Overall presentation tuning goal. Matches `Core::PresentationPreference`.
+typedef enum SturdyPresentationPreference {
+    STURDY_PRESENTATION_PREFERENCE_AUTOMATIC = 0,
+    STURDY_PRESENTATION_PREFERENCE_LOWEST_LATENCY,
+    STURDY_PRESENTATION_PREFERENCE_SMOOTHEST,
+    STURDY_PRESENTATION_PREFERENCE_POWER_EFFICIENT,
+    STURDY_PRESENTATION_PREFERENCE_FORCE_U32 = 0x7fffffff
+} SturdyPresentationPreference;
+
+/// Real display HDR transfer function/color-space combination to present in, when
+/// `SturdyPresentationSettings::hdr_enabled` is set. Matches `Core::HdrColorSpaceMode`.
+typedef enum SturdyHdrColorSpaceMode {
+    STURDY_HDR_COLOR_SPACE_MODE_HDR10_ST2084 = 0,
+    STURDY_HDR_COLOR_SPACE_MODE_SCRGB_LINEAR,
+    STURDY_HDR_COLOR_SPACE_MODE_HDR10_HLG,
+    STURDY_HDR_COLOR_SPACE_MODE_DOLBY_VISION,
+    STURDY_HDR_COLOR_SPACE_MODE_FORCE_U32 = 0x7fffffff
+} SturdyHdrColorSpaceMode;
+
+/// A display's reported HDR transfer function. Matches `RHI::HdrTransferFunction`.
+typedef enum SturdyHdrTransferFunction {
+    STURDY_HDR_TRANSFER_FUNCTION_UNKNOWN = 0,
+    STURDY_HDR_TRANSFER_FUNCTION_SDR,
+    STURDY_HDR_TRANSFER_FUNCTION_PQ_ST2084,
+    STURDY_HDR_TRANSFER_FUNCTION_HLG,
+    STURDY_HDR_TRANSFER_FUNCTION_LINEAR_EXTENDED,
+    STURDY_HDR_TRANSFER_FUNCTION_FORCE_U32 = 0x7fffffff
+} SturdyHdrTransferFunction;
+
+/// A display's reported color gamut. Matches `RHI::HdrColorGamut`.
+typedef enum SturdyHdrColorGamut {
+    STURDY_HDR_COLOR_GAMUT_UNKNOWN = 0,
+    STURDY_HDR_COLOR_GAMUT_REC709,
+    STURDY_HDR_COLOR_GAMUT_DISPLAY_P3,
+    STURDY_HDR_COLOR_GAMUT_REC2020,
+    STURDY_HDR_COLOR_GAMUT_FORCE_U32 = 0x7fffffff
+} SturdyHdrColorGamut;
+
+/// Where reported HDR display metadata came from. Matches `RHI::HdrMetadataSource`.
+typedef enum SturdyHdrMetadataSource {
+    STURDY_HDR_METADATA_SOURCE_UNKNOWN = 0,
+    STURDY_HDR_METADATA_SOURCE_GRAPHICS_API,
+    STURDY_HDR_METADATA_SOURCE_OPERATING_SYSTEM,
+    STURDY_HDR_METADATA_SOURCE_WINDOW_SYSTEM,
+    STURDY_HDR_METADATA_SOURCE_EDID,
+    STURDY_HDR_METADATA_SOURCE_USER_CALIBRATION,
+    STURDY_HDR_METADATA_SOURCE_ENGINE_DEFAULT,
+    STURDY_HDR_METADATA_SOURCE_FORCE_U32 = 0x7fffffff
+} SturdyHdrMetadataSource;
+
+/// How much to trust reported HDR display metadata. Matches `RHI::HdrMetadataConfidence`.
+typedef enum SturdyHdrMetadataConfidence {
+    STURDY_HDR_METADATA_CONFIDENCE_UNKNOWN = 0,
+    STURDY_HDR_METADATA_CONFIDENCE_ESTIMATED,
+    STURDY_HDR_METADATA_CONFIDENCE_REPORTED,
+    STURDY_HDR_METADATA_CONFIDENCE_CALIBRATED,
+    STURDY_HDR_METADATA_CONFIDENCE_MEASURED,
+    STURDY_HDR_METADATA_CONFIDENCE_FORCE_U32 = 0x7fffffff
+} SturdyHdrMetadataConfidence;
+
+/// Outcome of a platform-level display/HDR query, distinct from `SturdyResult`: the call itself
+/// succeeded (a device and surface exist), but the platform may still have nothing useful to
+/// report. Matches `RHI::PlatformQueryStatus`.
+typedef enum SturdyPlatformQueryStatus {
+    STURDY_PLATFORM_QUERY_STATUS_OK = 0,
+    STURDY_PLATFORM_QUERY_STATUS_UNSUPPORTED,
+    STURDY_PLATFORM_QUERY_STATUS_NOT_AVAILABLE,
+    STURDY_PLATFORM_QUERY_STATUS_INVALID_ARGUMENT,
+    STURDY_PLATFORM_QUERY_STATUS_PLATFORM_ERROR,
+    STURDY_PLATFORM_QUERY_STATUS_FORCE_U32 = 0x7fffffff
+} SturdyPlatformQueryStatus;
+
+/// A surface's presentation policy. Mirrors `Core::PresentationSettings` field-for-field.
+typedef struct SturdyPresentationSettings {
+    /// Set to `sizeof(SturdyPresentationSettings)` by `sturdy_presentation_settings_init`.
+    uint32_t struct_size;
+    uint32_t reserved;
+    SturdyVSync vsync;
+    SturdyVariableRefreshMode variable_refresh;
+    SturdyLatencyMode latency;
+    SturdyPresentationPreference preference;
+    /// Enables real display HDR output (not tone-mapping). Fails to take effect if the active
+    /// backend/display cannot support it; check `sturdy_surface_presentation_resolution` after the
+    /// next frame to see what was actually negotiated.
+    SturdyBool hdr_enabled;
+    SturdyHdrColorSpaceMode hdr_color_space;
+    SturdyBool transparent_composition;
+    /// Requested swapchain image count. Zero uses the engine's default.
+    uint32_t swapchain_image_count;
+    SturdyBool allow_present_from_compute;
+} SturdyPresentationSettings;
+
+/// Fills `settings` with `struct_size` and the engine's defaults (vsync on, no HDR, opaque
+/// composition, automatic image count).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_presentation_settings_init(SturdyPresentationSettings *settings);
+
+/// Requests a change to `surface`'s presentation policy. Queued like a window request: applied the
+/// next time `surface` renders, not synchronously.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_surface_set_presentation_settings(
+    SturdyEngine engine,
+    SturdySurface surface,
+    const SturdyPresentationSettings *settings);
+
+/// Reads `surface`'s current presentation policy: the last value
+/// `sturdy_surface_set_presentation_settings` accepted, or the app-wide default if never
+/// overridden.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_surface_presentation_settings(
+    SturdyEngine engine,
+    SturdySurface surface,
+    SturdyPresentationSettings *out_settings);
+
+/// What a `SturdyPresentationSettings` request actually resolved to on the active backend and
+/// display, including whether the requested strategy, composite alpha, or full-screen-exclusive
+/// state degraded to something else. Mirrors `RHI::PresentationResolution` field-for-field.
+typedef struct SturdyPresentationResolution {
+    uint32_t struct_size;
+    uint32_t reserved;
+    SturdyPresentStrategy strategy;
+    SturdyPresentMode effective_mode;
+    SturdyBool degraded;
+    SturdyBool present_queue_is_compute;
+    SturdyCompositeAlphaMode effective_composite_alpha;
+    SturdyBool composite_alpha_degraded;
+    SturdyBool via_composition_present;
+    SturdyBool supports_completion_fence;
+    SturdyBool full_screen_exclusive_active;
+    SturdyFormat effective_format;
+    SturdyColorSpace effective_color_space;
+} SturdyPresentationResolution;
+
+/// Reads what `surface`'s presentation policy actually resolved to.
+///
+/// @return `STURDY_ERROR_NOT_AVAILABLE` when `surface` has not rendered a frame yet (no swapchain
+///         exists to report on).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_surface_presentation_resolution(
+    SturdyEngine engine,
+    SturdySurface surface,
+    SturdyPresentationResolution *out_resolution);
+
+/// A 1931 CIE xy chromaticity coordinate.
+typedef struct SturdyChromaticity {
+    float x;
+    float y;
+} SturdyChromaticity;
+
+/// Real HDR display metadata (EDID-reported primaries/white point/luminance range, or a platform
+/// fallback), as opposed to `SturdyToneMappingSettings`'s software tone-curve parameters.
+typedef struct SturdyHdrDisplayMetadata {
+    uint32_t struct_size;
+    uint32_t reserved;
+    SturdyChromaticity red_primary;
+    SturdyChromaticity green_primary;
+    SturdyChromaticity blue_primary;
+    SturdyChromaticity white_point;
+    float min_luminance_nits;
+    float max_luminance_nits;
+    float max_full_frame_luminance_nits;
+    SturdyHdrMetadataSource source;
+    SturdyHdrMetadataConfidence confidence;
+} SturdyHdrDisplayMetadata;
+
+/// One transfer-function/gamut combination a display can present in.
+typedef struct SturdyHdrPresentationMode {
+    SturdyHdrTransferFunction transfer;
+    SturdyHdrColorGamut gamut;
+    /// Whether the OS-level HDR toggle must be on for this mode to work, independent of what the
+    /// application requests.
+    SturdyBool requires_os_hdr_mode;
+} SturdyHdrPresentationMode;
+
+/// Real display HDR capabilities for a surface, as reported by the platform. Mirrors
+/// `RHI::SurfaceHdrCapabilities` plus the outer query's `status`; diagnostic message text is not
+/// surfaced here.
+typedef struct SturdyHdrCapabilities {
+    uint32_t struct_size;
+    /// `STURDY_PLATFORM_QUERY_STATUS_OK` when the platform answered normally. A non-OK status
+    /// means the rest of this struct (aside from `status` itself) is default-initialized, not
+    /// meaningful.
+    SturdyPlatformQueryStatus status;
+    SturdyBool hdr_supported;
+    SturdyBool hdr_enabled_by_os;
+    SturdyBool hdr_metadata_output_supported;
+    float sdr_white_nits;
+    float edr_headroom;
+    float max_edr_headroom;
+    SturdyBool has_display_metadata;
+    SturdyHdrDisplayMetadata display_metadata;
+} SturdyHdrCapabilities;
+
+/// Queries `surface`'s real HDR display capabilities and supported presentation modes.
+///
+/// @param out_capabilities Receives the capability summary. Must not be null.
+/// @param out_modes Receives up to `modes_capacity` supported transfer-function/gamut
+///        combinations. May be null if `modes_capacity` is 0.
+/// @param out_mode_count Receives the number of modes the display actually supports, which may
+///        exceed `modes_capacity`. May be null.
+///
+/// @return `STURDY_ERROR_NOT_AVAILABLE` when `surface` has not rendered a frame yet (no RHI
+///         surface exists to query). A supported-but-empty answer is not an ABI error — see
+///         `SturdyHdrCapabilities::status` for that.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_surface_query_hdr_capabilities(
+    SturdyEngine engine,
+    SturdySurface surface,
+    SturdyHdrCapabilities *out_capabilities,
+    SturdyHdrPresentationMode *out_modes,
+    uint32_t modes_capacity,
+    uint32_t *out_mode_count);
+
+/// Updates HDR10 static content light level metadata (MaxCLL/MaxFALL) on `surface`'s live
+/// swapchain, without recreating it.
+///
+/// @return `STURDY_ERROR_NOT_AVAILABLE` when `surface` has no live swapchain yet, or when the
+///         active backend/driver cannot update this metadata live (e.g. Vulkan without
+///         `VK_EXT_hdr_metadata`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_surface_update_hdr_content_light_level(
+    SturdyEngine engine,
+    SturdySurface surface,
+    float max_content_light_level_nits,
+    float max_frame_average_light_level_nits);
+
+// ---------------------------------------------------------------------------------------------
+// Ray tracing
+// ---------------------------------------------------------------------------------------------
+//
+// Acceleration structures, ray tracing pipelines, shader binding tables, and `trace_rays`.
+// Opacity micromaps are declared here too, but D3D12 does not implement them
+// (`create_opacity_micromap`/`opacity_micromap_build_sizes`/`sturdy_rhi_command_encoder_
+// build_opacity_micromaps` report `STURDY_ERROR_NOT_AVAILABLE` there) — Vulkan implements the
+// full surface via `VK_EXT_opacity_micromap`. Check `STURDY_FEATURE`-style support first with
+// `sturdy_rhi_feature_index("opacity micromaps", ...)`/`sturdy_rhi_feature_enabled` if targeting
+// both backends.
+//
+// Acceleration structures, ray tracing pipelines, and opacity micromaps are plain resource
+// handles like `SturdyBuffer` — informational identifiers the device owns and validates until
+// the matching `sturdy_rhi_destroy_*` call, not scope-bound tokens.
+
+/// Ray tracing stages, added to `SturdyShaderStage`'s bitmask. Bit positions match
+/// `RHI::ShaderStage`.
+#define STURDY_SHADER_STAGE_RAY_GENERATION ((SturdyShaderStage)(1u << 8))
+#define STURDY_SHADER_STAGE_ANY_HIT ((SturdyShaderStage)(1u << 9))
+#define STURDY_SHADER_STAGE_CLOSEST_HIT ((SturdyShaderStage)(1u << 10))
+#define STURDY_SHADER_STAGE_MISS ((SturdyShaderStage)(1u << 11))
+#define STURDY_SHADER_STAGE_INTERSECTION ((SturdyShaderStage)(1u << 12))
+#define STURDY_SHADER_STAGE_CALLABLE ((SturdyShaderStage)(1u << 13))
+
+/// Whether an acceleration structure holds geometry (bottom-level) or instances of bottom-level
+/// structures (top-level). Matches `RHI::AccelerationStructureType`.
+typedef enum SturdyAccelerationStructureType {
+    STURDY_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL = 0,
+    STURDY_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL = 1,
+    STURDY_ACCELERATION_STRUCTURE_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyAccelerationStructureType;
+
+/// Bitwise-OR'd acceleration structure build flags. Matches `RHI::AccelerationStructureBuildFlags`.
+typedef uint32_t SturdyAccelerationStructureBuildFlags;
+#define STURDY_ACCELERATION_STRUCTURE_BUILD_FLAGS_NONE ((SturdyAccelerationStructureBuildFlags)0)
+#define STURDY_ACCELERATION_STRUCTURE_BUILD_FLAGS_ALLOW_UPDATE ((SturdyAccelerationStructureBuildFlags)(1u << 0))
+#define STURDY_ACCELERATION_STRUCTURE_BUILD_FLAGS_ALLOW_COMPACTION ((SturdyAccelerationStructureBuildFlags)(1u << 1))
+#define STURDY_ACCELERATION_STRUCTURE_BUILD_FLAGS_PREFER_FAST_TRACE ((SturdyAccelerationStructureBuildFlags)(1u << 2))
+#define STURDY_ACCELERATION_STRUCTURE_BUILD_FLAGS_PREFER_FAST_BUILD ((SturdyAccelerationStructureBuildFlags)(1u << 3))
+#define STURDY_ACCELERATION_STRUCTURE_BUILD_FLAGS_MINIMIZE_MEMORY ((SturdyAccelerationStructureBuildFlags)(1u << 4))
+
+/// Bitwise-OR'd per-geometry flags. Matches `RHI::AccelerationStructureGeometryFlags`.
+typedef uint32_t SturdyAccelerationStructureGeometryFlags;
+#define STURDY_ACCELERATION_STRUCTURE_GEOMETRY_FLAGS_NONE ((SturdyAccelerationStructureGeometryFlags)0)
+#define STURDY_ACCELERATION_STRUCTURE_GEOMETRY_FLAGS_OPAQUE ((SturdyAccelerationStructureGeometryFlags)(1u << 0))
+#define STURDY_ACCELERATION_STRUCTURE_GEOMETRY_FLAGS_NO_DUPLICATE_ANY_HIT_INVOCATION \
+    ((SturdyAccelerationStructureGeometryFlags)(1u << 1))
+
+/// Which member of `SturdyAccelerationStructureGeometryDesc` is meaningful. Matches
+/// `RHI::AccelerationStructureGeometryType`.
+typedef enum SturdyAccelerationStructureGeometryType {
+    STURDY_ACCELERATION_STRUCTURE_GEOMETRY_TYPE_TRIANGLES = 0,
+    STURDY_ACCELERATION_STRUCTURE_GEOMETRY_TYPE_AABBS = 1,
+    STURDY_ACCELERATION_STRUCTURE_GEOMETRY_TYPE_INSTANCES = 2,
+    STURDY_ACCELERATION_STRUCTURE_GEOMETRY_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyAccelerationStructureGeometryType;
+
+/// Matches `RHI::AccelerationStructureCopyMode`.
+typedef enum SturdyAccelerationStructureCopyMode {
+    STURDY_ACCELERATION_STRUCTURE_COPY_MODE_CLONE = 0,
+    STURDY_ACCELERATION_STRUCTURE_COPY_MODE_COMPACT = 1,
+    STURDY_ACCELERATION_STRUCTURE_COPY_MODE_SERIALIZE = 2,
+    STURDY_ACCELERATION_STRUCTURE_COPY_MODE_DESERIALIZE = 3,
+    STURDY_ACCELERATION_STRUCTURE_COPY_MODE_FORCE_U32 = 0x7fffffff
+} SturdyAccelerationStructureCopyMode;
+
+/// Matches `RHI::RayTracingShaderGroupType`.
+typedef enum SturdyRayTracingShaderGroupType {
+    STURDY_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL = 0,
+    STURDY_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP = 1,
+    STURDY_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP = 2,
+    STURDY_RAY_TRACING_SHADER_GROUP_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyRayTracingShaderGroupType;
+
+/// Matches `RHI::OpacityMicromapFormat`.
+typedef enum SturdyOpacityMicromapFormat {
+    STURDY_OPACITY_MICROMAP_FORMAT_TWO_STATE = 0,
+    STURDY_OPACITY_MICROMAP_FORMAT_FOUR_STATE = 1,
+    STURDY_OPACITY_MICROMAP_FORMAT_FORCE_U32 = 0x7fffffff
+} SturdyOpacityMicromapFormat;
+
+/// Handle to an acceleration structure. See the "Ray tracing" section header for its lifetime
+/// rules.
+typedef struct SturdyAccelerationStructure {
+    uint64_t id;
+} SturdyAccelerationStructure;
+
+/// Handle to an opacity micromap. Not supported on D3D12 — see the "Ray tracing" section header.
+typedef struct SturdyOpacityMicromap {
+    uint64_t id;
+} SturdyOpacityMicromap;
+
+/// Handle to a ray tracing pipeline.
+typedef struct SturdyRayTracingPipeline {
+    uint64_t id;
+} SturdyRayTracingPipeline;
+
+/// Describes an acceleration structure to create. `size` must come from
+/// `sturdy_rhi_acceleration_structure_build_sizes`.
+typedef struct SturdyAccelerationStructureDesc {
+    uint32_t struct_size;
+    SturdyAccelerationStructureType type;
+    uint64_t size;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyAccelerationStructureDesc;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_acceleration_structure_desc_init(
+    SturdyAccelerationStructureDesc *desc);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_acceleration_structure(
+    SturdyEngine engine, const SturdyAccelerationStructureDesc *desc,
+    SturdyAccelerationStructure *out_structure);
+
+/// Destroys an acceleration structure. A null/zero handle is a no-op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_acceleration_structure(
+    SturdyEngine engine, SturdyAccelerationStructure structure);
+
+/// Reads the GPU virtual address of `structure`, for writing into
+/// `SturdyAccelerationStructureInstance::acceleration_structure_device_address`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_acceleration_structure_device_address(
+    SturdyEngine engine, SturdyAccelerationStructure structure, uint64_t *out_address);
+
+/// Triangle geometry within an acceleration structure build. `opacity_micromap` is a zero handle
+/// unless `Feature`-gated opacity micromaps are used (Vulkan only).
+typedef struct SturdyAccelerationStructureTrianglesDesc {
+    SturdyBuffer vertex_buffer;
+    uint64_t vertex_offset;
+    SturdyVertexFormat vertex_format;
+    uint64_t vertex_stride;
+    uint32_t max_vertex;
+    SturdyBuffer index_buffer;
+    uint64_t index_offset;
+    SturdyIndexFormat index_format;
+    /// Zero handle means no per-instance transform.
+    SturdyBuffer transform_buffer;
+    uint64_t transform_offset;
+    SturdyOpacityMicromap opacity_micromap;
+    SturdyBuffer opacity_micromap_index_buffer;
+    uint64_t opacity_micromap_index_offset;
+    SturdyIndexFormat opacity_micromap_index_format;
+} SturdyAccelerationStructureTrianglesDesc;
+
+/// Procedural (AABB) geometry within an acceleration structure build.
+typedef struct SturdyAccelerationStructureAabbsDesc {
+    SturdyBuffer buffer;
+    uint64_t offset;
+    uint64_t stride;
+} SturdyAccelerationStructureAabbsDesc;
+
+/// Top-level instance geometry within an acceleration structure build.
+typedef struct SturdyAccelerationStructureInstancesDesc {
+    /// A buffer of `SturdyAccelerationStructureInstance` records, or of pointers to them if
+    /// `array_of_pointers` is set.
+    SturdyBuffer buffer;
+    uint64_t offset;
+    SturdyBool array_of_pointers;
+} SturdyAccelerationStructureInstancesDesc;
+
+/// One geometry entry in an acceleration structure build. `type` selects which of
+/// `triangles`/`aabbs`/`instances` is meaningful; the other two are ignored. Mirrors
+/// `RHI::AccelerationStructureGeometryDesc`, which carries all three as plain members rather than
+/// a tagged union.
+typedef struct SturdyAccelerationStructureGeometryDesc {
+    SturdyAccelerationStructureGeometryType type;
+    SturdyAccelerationStructureGeometryFlags flags;
+    SturdyAccelerationStructureTrianglesDesc triangles;
+    SturdyAccelerationStructureAabbsDesc aabbs;
+    SturdyAccelerationStructureInstancesDesc instances;
+} SturdyAccelerationStructureGeometryDesc;
+
+/// How many primitives (and at what offsets) each geometry in a build contributes. Index-aligned
+/// with the build's `geometries` array.
+typedef struct SturdyAccelerationStructureBuildRangeInfo {
+    uint32_t primitive_count;
+    uint32_t primitive_offset;
+    uint32_t first_vertex;
+    uint32_t transform_offset;
+} SturdyAccelerationStructureBuildRangeInfo;
+
+/// Buffer sizes needed to build an acceleration structure, returned by
+/// `sturdy_rhi_acceleration_structure_build_sizes`.
+typedef struct SturdyAccelerationStructureBuildSizes {
+    /// Pass to `SturdyAccelerationStructureDesc::size`.
+    uint64_t acceleration_structure_size;
+    /// Scratch buffer size needed for an initial build.
+    uint64_t build_scratch_size;
+    /// Scratch buffer size needed for an in-place update (only meaningful with
+    /// `STURDY_ACCELERATION_STRUCTURE_BUILD_FLAGS_ALLOW_UPDATE`).
+    uint64_t update_scratch_size;
+} SturdyAccelerationStructureBuildSizes;
+
+/// Describes one acceleration structure build (or update, if `src` is nonzero). `geometries`
+/// must match what was passed to `sturdy_rhi_acceleration_structure_build_sizes` when `dst` was
+/// sized.
+typedef struct SturdyAccelerationStructureBuildDesc {
+    SturdyAccelerationStructureType type;
+    SturdyAccelerationStructureBuildFlags flags;
+    SturdyAccelerationStructure dst;
+    /// Zero handle for an initial build; the structure being updated for an in-place update.
+    SturdyAccelerationStructure src;
+    SturdyBuffer scratch_buffer;
+    uint64_t scratch_offset;
+    uint32_t geometry_count;
+    const SturdyAccelerationStructureGeometryDesc *geometries;
+    uint32_t range_count;
+    const SturdyAccelerationStructureBuildRangeInfo *ranges;
+} SturdyAccelerationStructureBuildDesc;
+
+/// Queries the buffer sizes needed to build the acceleration structure described by `desc`.
+/// `desc->dst`/`src` are ignored; only `type`, `flags`, and `geometries` matter for sizing.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_acceleration_structure_build_sizes(
+    SturdyEngine engine, const SturdyAccelerationStructureBuildDesc *desc,
+    SturdyAccelerationStructureBuildSizes *out_sizes);
+
+/// Builds or updates `build_count` acceleration structures, recorded into the command encoder
+/// outside any render/compute pass.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_build_acceleration_structures(
+    SturdyCommandEncoder encoder, uint32_t build_count, const SturdyAccelerationStructureBuildDesc *builds);
+
+typedef struct SturdyAccelerationStructureCopyDesc {
+    SturdyAccelerationStructure src;
+    SturdyAccelerationStructure dst;
+    SturdyAccelerationStructureCopyMode mode;
+} SturdyAccelerationStructureCopyDesc;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_copy_acceleration_structure(
+    SturdyCommandEncoder encoder, const SturdyAccelerationStructureCopyDesc *copy);
+
+/// One row of a top-level acceleration structure's instance buffer. Fixed 64-byte layout matching
+/// `VkAccelerationStructureInstanceKHR`/`D3D12_RAYTRACING_INSTANCE_DESC` exactly (and
+/// `RHI::AccelerationStructureInstance`) — write an array of these directly into a mapped/staged
+/// buffer bound as `SturdyAccelerationStructureInstancesDesc::buffer`.
+typedef struct SturdyAccelerationStructureInstance {
+    /// Row-major 3x4 object-to-world transform (3 rows of 4 floats each).
+    float transform[12];
+    /// Packed via `sturdy_rhi_pack_instance_custom_index_and_mask`.
+    uint32_t custom_index_and_mask;
+    /// Packed via `sturdy_rhi_pack_instance_sbt_offset_and_flags`.
+    uint32_t shader_binding_table_offset_and_flags;
+    /// From `sturdy_rhi_acceleration_structure_device_address` on the referenced bottom-level
+    /// structure.
+    uint64_t acceleration_structure_device_address;
+} SturdyAccelerationStructureInstance;
+
+/// Packs a 24-bit custom index and 8-bit visibility mask into
+/// `SturdyAccelerationStructureInstance::custom_index_and_mask`. Pure host-side bit packing —
+/// takes no engine handle and cannot fail.
+STURDY_ABI uint32_t STURDY_ABI_CALL sturdy_rhi_pack_instance_custom_index_and_mask(
+    uint32_t custom_index, uint8_t mask);
+
+/// Packs a 24-bit shader binding table offset and 8-bit instance flags into
+/// `SturdyAccelerationStructureInstance::shader_binding_table_offset_and_flags`.
+STURDY_ABI uint32_t STURDY_ABI_CALL sturdy_rhi_pack_instance_sbt_offset_and_flags(
+    uint32_t sbt_offset, uint8_t flags);
+
+/// One usage count entry within an opacity micromap build. Not supported on D3D12.
+typedef struct SturdyOpacityMicromapUsageCount {
+    uint32_t count;
+    uint32_t subdivision_level;
+    SturdyOpacityMicromapFormat format;
+} SturdyOpacityMicromapUsageCount;
+
+typedef struct SturdyOpacityMicromapDesc {
+    uint32_t struct_size;
+    uint32_t usage_count_count;
+    const SturdyOpacityMicromapUsageCount *usage_counts;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyOpacityMicromapDesc;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_opacity_micromap_desc_init(SturdyOpacityMicromapDesc *desc);
+
+typedef struct SturdyOpacityMicromapBuildSizes {
+    /// Pass to `sturdy_rhi_create_opacity_micromap`'s `size` parameter.
+    uint64_t micromap_size;
+    uint64_t build_scratch_size;
+} SturdyOpacityMicromapBuildSizes;
+
+/// @return `STURDY_ERROR_NOT_AVAILABLE` on D3D12.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_opacity_micromap_build_sizes(
+    SturdyEngine engine, const SturdyOpacityMicromapDesc *desc, SturdyOpacityMicromapBuildSizes *out_sizes);
+
+/// @return `STURDY_ERROR_NOT_AVAILABLE` on D3D12.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_opacity_micromap(
+    SturdyEngine engine, const SturdyOpacityMicromapDesc *desc, uint64_t size, SturdyOpacityMicromap *out_micromap);
+
+/// Destroys an opacity micromap. A null/zero handle is a no-op; always safe to call even on
+/// D3D12, where it is a no-op regardless of the handle.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_opacity_micromap(
+    SturdyEngine engine, SturdyOpacityMicromap micromap);
+
+typedef struct SturdyOpacityMicromapBuildDesc {
+    SturdyOpacityMicromap dst;
+    SturdyBuffer scratch_buffer;
+    uint64_t scratch_offset;
+    SturdyBuffer data_buffer;
+    uint64_t data_buffer_offset;
+    uint32_t usage_count_count;
+    const SturdyOpacityMicromapUsageCount *usage_counts;
+} SturdyOpacityMicromapBuildDesc;
+
+/// @return `STURDY_ERROR_NOT_AVAILABLE` on D3D12.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_build_opacity_micromaps(
+    SturdyCommandEncoder encoder, uint32_t build_count, const SturdyOpacityMicromapBuildDesc *builds);
+
+/// One shader group within a ray tracing pipeline. `type` selects which entries are meaningful:
+/// `general` for a raygen/miss/callable group, `closest_hit`/`any_hit`/`intersection` for a hit
+/// group (a triangles hit group leaves `intersection` zeroed).
+typedef struct SturdyRayTracingShaderGroupDesc {
+    SturdyRayTracingShaderGroupType type;
+    SturdyShaderEntry general;
+    SturdyShaderEntry closest_hit;
+    SturdyShaderEntry any_hit;
+    SturdyShaderEntry intersection;
+} SturdyRayTracingShaderGroupDesc;
+
+typedef struct SturdyRayTracingPipelineDesc {
+    uint32_t struct_size;
+    SturdyPipelineLayout layout;
+    uint32_t group_count;
+    const SturdyRayTracingShaderGroupDesc *groups;
+    uint32_t max_ray_recursion_depth;
+    /// Optional debug label, copied at creation time. May be null.
+    const char *label;
+} SturdyRayTracingPipelineDesc;
+
+/// Fills `desc` with `struct_size` and engine defaults (`max_ray_recursion_depth = 1`, no groups).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_ray_tracing_pipeline_desc_init(
+    SturdyRayTracingPipelineDesc *desc);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_create_ray_tracing_pipeline(
+    SturdyEngine engine, const SturdyRayTracingPipelineDesc *desc, SturdyRayTracingPipeline *out_pipeline);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_ray_tracing_pipeline(
+    SturdyEngine engine, SturdyRayTracingPipeline pipeline);
+
+/// Reads `group_count` shader group handles starting at `first_group`, into `dst` (which must be
+/// at least `group_count * sturdy_rhi_ray_tracing_properties`'s `shader_group_handle_size` bytes).
+/// Write these into a shader binding table buffer at `shader_group_base_alignment`-aligned
+/// offsets to build `SturdyShaderBindingTableRegion`s for `sturdy_rhi_command_encoder_trace_rays`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_write_ray_tracing_shader_group_handles(
+    SturdyEngine engine, SturdyRayTracingPipeline pipeline, uint32_t first_group, uint32_t group_count,
+    void *dst, size_t dst_size);
+
+/// Ray tracing device properties needed to size and align a shader binding table. Mirrors
+/// `RHI::RayTracingProperties`.
+typedef struct SturdyRayTracingProperties {
+    uint32_t struct_size;
+    uint32_t max_ray_recursion_depth;
+    uint32_t shader_group_handle_size;
+    uint32_t shader_group_base_alignment;
+    uint32_t max_ray_hit_attribute_size;
+    uint32_t max_acceleration_structure_geometry_count;
+    uint32_t max_acceleration_structure_instance_count;
+    uint64_t min_acceleration_structure_scratch_offset_alignment;
+} SturdyRayTracingProperties;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_ray_tracing_properties(
+    SturdyEngine engine, SturdyRayTracingProperties *out_properties);
+
+/// Binds the ray tracing pipeline used by a subsequent `sturdy_rhi_command_encoder_trace_rays`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_set_ray_tracing_pipeline(
+    SturdyCommandEncoder encoder, SturdyRayTracingPipeline pipeline);
+
+/// One shader binding table region: a byte range in a buffer holding shader group handles written
+/// by `sturdy_rhi_write_ray_tracing_shader_group_handles`. `stride` is ignored for `raygen` (a
+/// single record); `miss`/`hit`/`callable` are strided tables.
+typedef struct SturdyShaderBindingTableRegion {
+    SturdyBuffer buffer;
+    uint64_t offset;
+    uint64_t size;
+    uint64_t stride;
+} SturdyShaderBindingTableRegion;
+
+typedef struct SturdyTraceRaysDesc {
+    SturdyShaderBindingTableRegion raygen;
+    SturdyShaderBindingTableRegion miss;
+    SturdyShaderBindingTableRegion hit;
+    SturdyShaderBindingTableRegion callable;
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+} SturdyTraceRaysDesc;
+
+/// Dispatches rays against the pipeline bound by `sturdy_rhi_command_encoder_set_ray_tracing_pipeline`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_trace_rays(
+    SturdyCommandEncoder encoder, const SturdyTraceRaysDesc *desc);
 
 // ---------------------------------------------------------------------------------------------
 // Native handles

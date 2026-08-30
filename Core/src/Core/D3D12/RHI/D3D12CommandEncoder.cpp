@@ -1069,6 +1069,28 @@ namespace SFT::D3D12 {
         list4_->CopyRaytracingAccelerationStructure(destination->gpu_address, source->gpu_address, mode);
     }
 
+    void D3D12CommandEncoder::set_ray_tracing_pipeline(rhi::RayTracingPipelineHandle pipeline) {
+        if (!can_record_outside_pass("set_ray_tracing_pipeline")) {
+            return;
+        }
+        if (list4_ == nullptr) {
+            fail("set_ray_tracing_pipeline: this device/runtime provides no DXR command list.");
+            return;
+        }
+        const RayTracingPipelineRecord *record = device_->ray_tracing_pipelines_.find(pipeline);
+        if (record == nullptr) {
+            fail("set_ray_tracing_pipeline names an unknown ray tracing pipeline handle.");
+            return;
+        }
+        list4_->SetPipelineState1(record->state_object.Get());
+        if (compute_bindings_.layout != record->layout) {
+            compute_bindings_.layout = record->layout;
+            compute_bindings_.layout_dirty = true;
+            compute_bindings_.push_constants.clear();
+            compute_bindings_.push_constants_dirty = false;
+        }
+    }
+
     void D3D12CommandEncoder::trace_rays(const rhi::TraceRaysDesc &desc) {
         if (!can_record_outside_pass("trace_rays")) {
             return;

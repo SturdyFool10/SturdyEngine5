@@ -111,6 +111,8 @@ namespace {
     std::map<u64, std::unique_ptr<RHI::RenderPassEncoder>> g_render_passes;
     std::mutex g_compute_pass_mutex;
     std::map<u64, std::unique_ptr<RHI::ComputePassEncoder>> g_compute_passes;
+    std::mutex g_render_bundle_encoder_mutex;
+    std::map<u64, std::unique_ptr<RHI::RenderBundleEncoder>> g_render_bundle_encoders;
 
     [[nodiscard]] SturdyResult resolve_encoder(SturdyCommandEncoder encoder, RHI::CommandEncoder **out) noexcept {
         void *pointer = nullptr;
@@ -139,6 +141,17 @@ namespace {
             return result;
         }
         *out = static_cast<RHI::ComputePassEncoder *>(pointer);
+        return STURDY_OK;
+    }
+
+    [[nodiscard]] SturdyResult resolve_render_bundle_encoder(SturdyRenderBundleEncoder encoder,
+                                                             RHI::RenderBundleEncoder **out) noexcept {
+        void *pointer = nullptr;
+        const SturdyResult result = resolve_handle(encoder.token, HandleKind::RenderBundleEncoder, &pointer);
+        if (result != STURDY_OK) {
+            return result;
+        }
+        *out = static_cast<RHI::RenderBundleEncoder *>(pointer);
         return STURDY_OK;
     }
 
@@ -765,6 +778,8 @@ SturdyResult STURDY_ABI_CALL sturdy_rhi_create_render_pipeline(SturdyEngine engi
         native.layout = RHI::PipelineLayoutHandle{desc->layout.id};
         native.vertex = to_shader_entry(desc->vertex);
         native.fragment = to_shader_entry(desc->fragment);
+        native.task = to_shader_entry(desc->task);
+        native.mesh = to_shader_entry(desc->mesh);
         native.vertex_buffers = vertex_buffers;
         native.topology = static_cast<RHI::PrimitiveTopology>(desc->topology);
 
@@ -1263,6 +1278,7 @@ SturdyResult STURDY_ABI_CALL sturdy_rhi_command_encoder_begin_render_pass(Sturdy
             native.depth_stencil.clear_value = RHI::ClearDepthStencil{d.clear_depth, d.clear_stencil};
         }
         native.render_area = to_rect(desc->render_area);
+        native.allow_bundles = desc->allow_bundles != STURDY_FALSE;
         native.label = desc->label;
 
         auto begun = encoder_pointer->begin_render_pass(native);
@@ -1448,6 +1464,148 @@ SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indexed(SturdyRenderPas
     });
 }
 
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indirect(SturdyRenderPassEncoder pass,
+                                                                    SturdyBuffer indirect_buffer,
+                                                                    uint64_t offset) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderPassEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_pass(pass, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indirect(RHI::BufferHandle{indirect_buffer.id}, offset);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indirect_multi(SturdyRenderPassEncoder pass,
+                                                                          SturdyBuffer indirect_buffer,
+                                                                          uint64_t offset,
+                                                                          uint32_t draw_count,
+                                                                          uint32_t stride) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderPassEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_pass(pass, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indirect(RHI::BufferHandle{indirect_buffer.id}, offset, draw_count, stride);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indirect_count(SturdyRenderPassEncoder pass,
+                                                                          SturdyBuffer indirect_buffer,
+                                                                          uint64_t indirect_offset,
+                                                                          SturdyBuffer count_buffer,
+                                                                          uint64_t count_offset,
+                                                                          uint32_t max_draws,
+                                                                          uint32_t stride) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderPassEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_pass(pass, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indirect_count(RHI::BufferHandle{indirect_buffer.id}, indirect_offset,
+                                     RHI::BufferHandle{count_buffer.id}, count_offset, max_draws, stride);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indexed_indirect(SturdyRenderPassEncoder pass,
+                                                                            SturdyBuffer indirect_buffer,
+                                                                            uint64_t offset) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderPassEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_pass(pass, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indexed_indirect(RHI::BufferHandle{indirect_buffer.id}, offset);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indexed_indirect_multi(SturdyRenderPassEncoder pass,
+                                                                                  SturdyBuffer indirect_buffer,
+                                                                                  uint64_t offset,
+                                                                                  uint32_t draw_count,
+                                                                                  uint32_t stride) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderPassEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_pass(pass, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indexed_indirect(RHI::BufferHandle{indirect_buffer.id}, offset, draw_count, stride);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_indexed_indirect_count(
+    SturdyRenderPassEncoder pass, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderPassEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_pass(pass, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indexed_indirect_count(RHI::BufferHandle{indirect_buffer.id}, indirect_offset,
+                                             RHI::BufferHandle{count_buffer.id}, count_offset, max_draws,
+                                             stride);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_mesh_tasks(SturdyRenderPassEncoder pass,
+                                                                     const SturdyDrawMeshTasksArgs *args) {
+    return guarded([&]() -> SturdyResult {
+        if (args == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "args must not be null");
+        }
+        RHI::RenderPassEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_pass(pass, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_mesh_tasks(
+            RHI::DrawMeshTasksArgs{args->group_count_x, args->group_count_y, args->group_count_z});
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_mesh_tasks_indirect(SturdyRenderPassEncoder pass,
+                                                                              SturdyBuffer indirect_buffer,
+                                                                              uint64_t offset) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderPassEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_pass(pass, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_mesh_tasks_indirect(RHI::BufferHandle{indirect_buffer.id}, offset);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_draw_mesh_tasks_indirect_count(
+    SturdyRenderPassEncoder pass, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderPassEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_pass(pass, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_mesh_tasks_indirect_count(RHI::BufferHandle{indirect_buffer.id}, indirect_offset,
+                                                RHI::BufferHandle{count_buffer.id}, count_offset, max_draws,
+                                                stride);
+        return STURDY_OK;
+    });
+}
+
 SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_end(SturdyRenderPassEncoder pass) {
     return guarded([&]() -> SturdyResult {
         RHI::RenderPassEncoder *pointer = nullptr;
@@ -1459,6 +1617,446 @@ SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_end(SturdyRenderPassEncoder 
         revoke_handle(pass.token);
         const std::lock_guard<std::mutex> lock{g_render_pass_mutex};
         g_render_passes.erase(pass.token);
+        return STURDY_OK;
+    });
+}
+
+// ─── Render bundles ─────────────────────────────────────────────────────────
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_desc_init(SturdyRenderBundleDesc *desc) {
+    return guarded([&]() -> SturdyResult {
+        if (desc == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "desc must not be null");
+        }
+        *desc = SturdyRenderBundleDesc{};
+        desc->struct_size = static_cast<uint32_t>(sizeof(SturdyRenderBundleDesc));
+        desc->samples = 1;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_create_render_bundle_encoder(SturdyEngine engine,
+                                                                      const SturdyRenderBundleDesc *desc,
+                                                                      SturdyRenderBundleEncoder *out_encoder) {
+    return guarded([&]() -> SturdyResult {
+        if (desc == nullptr || out_encoder == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "desc and output pointer must not be null");
+        }
+        if (desc->color_formats == nullptr && desc->color_format_count != 0) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT,
+                             "color_formats must not be null when color_format_count is nonzero");
+        }
+        RHI::RhiDevice *device = nullptr;
+        const SturdyResult resolved = resolve_device(engine, &device);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+
+        std::vector<RHI::Format> color_formats;
+        color_formats.reserve(desc->color_format_count);
+        for (uint32_t i = 0; i < desc->color_format_count; ++i) {
+            color_formats.push_back(static_cast<RHI::Format>(desc->color_formats[i]));
+        }
+
+        RHI::RenderBundleDesc native{};
+        native.color_formats = color_formats;
+        native.depth_stencil_format = static_cast<RHI::Format>(desc->depth_stencil_format);
+        native.samples = static_cast<RHI::SampleCount>(desc->samples);
+        native.view_mask = desc->view_mask;
+        native.label = desc->label;
+
+        auto created = device->create_render_bundle_encoder(native);
+        if (!created) {
+            return translate_rhi_error(created.error());
+        }
+        auto owned = std::move(*created);
+        void *pointer = owned.get();
+        const u64 token = mint_handle(HandleKind::RenderBundleEncoder, pointer);
+        {
+            const std::lock_guard<std::mutex> lock{g_render_bundle_encoder_mutex};
+            g_render_bundle_encoders.emplace(token, std::move(owned));
+        }
+        out_encoder->token = token;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_encoder_release(SturdyRenderBundleEncoder encoder) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        revoke_handle(encoder.token);
+        const std::lock_guard<std::mutex> lock{g_render_bundle_encoder_mutex};
+        g_render_bundle_encoders.erase(encoder.token);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_pipeline(SturdyRenderBundleEncoder encoder,
+                                                                    SturdyRenderPipeline pipeline) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->set_pipeline(RHI::RenderPipelineHandle{pipeline.id});
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_bind_group(SturdyRenderBundleEncoder encoder,
+                                                                      uint32_t index, SturdyBindGroup bind_group,
+                                                                      uint32_t dynamic_offset_count,
+                                                                      const uint32_t *dynamic_offsets) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->set_bind_group(index, RHI::BindGroupHandle{bind_group.id},
+                                std::span<const uint32_t>{dynamic_offsets, dynamic_offset_count});
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_vertex_buffer(SturdyRenderBundleEncoder encoder,
+                                                                         uint32_t slot, SturdyBuffer buffer,
+                                                                         uint64_t offset) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->set_vertex_buffer(slot, RHI::BufferHandle{buffer.id}, offset);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_index_buffer(SturdyRenderBundleEncoder encoder,
+                                                                        SturdyBuffer buffer,
+                                                                        SturdyIndexFormat format,
+                                                                        uint64_t offset) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->set_index_buffer(RHI::BufferHandle{buffer.id}, static_cast<RHI::IndexFormat>(format), offset);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_push_constants(SturdyRenderBundleEncoder encoder,
+                                                                          SturdyShaderStage stages,
+                                                                          uint32_t offset, const void *data,
+                                                                          size_t data_size) {
+    return guarded([&]() -> SturdyResult {
+        if (data == nullptr && data_size != 0) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "data must not be null when data_size is nonzero");
+        }
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->set_push_constants(static_cast<RHI::ShaderStage>(stages), offset,
+                                    std::span<const std::byte>{static_cast<const std::byte *>(data), data_size});
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_viewport(SturdyRenderBundleEncoder encoder,
+                                                                    const SturdyViewport *viewport) {
+    return guarded([&]() -> SturdyResult {
+        if (viewport == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "viewport must not be null");
+        }
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->set_viewport(to_viewport(*viewport));
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_scissor(SturdyRenderBundleEncoder encoder,
+                                                                   const SturdyRect2D *scissor) {
+    return guarded([&]() -> SturdyResult {
+        if (scissor == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "scissor must not be null");
+        }
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->set_scissor(to_rect(*scissor));
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_blend_constant(SturdyRenderBundleEncoder encoder,
+                                                                          const float color[4]) {
+    return guarded([&]() -> SturdyResult {
+        if (color == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "color must not be null");
+        }
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->set_blend_constant(to_clear_color(color));
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_set_stencil_reference(SturdyRenderBundleEncoder encoder,
+                                                                             uint32_t reference) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->set_stencil_reference(reference);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw(SturdyRenderBundleEncoder encoder,
+                                                            const SturdyDrawArgs *args) {
+    return guarded([&]() -> SturdyResult {
+        if (args == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "args must not be null");
+        }
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw(RHI::DrawArgs{args->vertex_count, args->instance_count, args->first_vertex,
+                                   args->first_instance});
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indexed(SturdyRenderBundleEncoder encoder,
+                                                                    const SturdyDrawIndexedArgs *args) {
+    return guarded([&]() -> SturdyResult {
+        if (args == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "args must not be null");
+        }
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indexed(RHI::DrawIndexedArgs{args->index_count, args->instance_count, args->first_index,
+                                                   args->base_vertex, args->first_instance});
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indirect(SturdyRenderBundleEncoder encoder,
+                                                                     SturdyBuffer indirect_buffer,
+                                                                     uint64_t offset) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indirect(RHI::BufferHandle{indirect_buffer.id}, offset);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indirect_multi(SturdyRenderBundleEncoder encoder,
+                                                                           SturdyBuffer indirect_buffer,
+                                                                           uint64_t offset, uint32_t draw_count,
+                                                                           uint32_t stride) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indirect(RHI::BufferHandle{indirect_buffer.id}, offset, draw_count, stride);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indirect_count(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indirect_count(RHI::BufferHandle{indirect_buffer.id}, indirect_offset,
+                                     RHI::BufferHandle{count_buffer.id}, count_offset, max_draws, stride);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indexed_indirect(SturdyRenderBundleEncoder encoder,
+                                                                             SturdyBuffer indirect_buffer,
+                                                                             uint64_t offset) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indexed_indirect(RHI::BufferHandle{indirect_buffer.id}, offset);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indexed_indirect_multi(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t offset, uint32_t draw_count,
+    uint32_t stride) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indexed_indirect(RHI::BufferHandle{indirect_buffer.id}, offset, draw_count, stride);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_indexed_indirect_count(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_indexed_indirect_count(RHI::BufferHandle{indirect_buffer.id}, indirect_offset,
+                                             RHI::BufferHandle{count_buffer.id}, count_offset, max_draws,
+                                             stride);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_mesh_tasks(SturdyRenderBundleEncoder encoder,
+                                                                       const SturdyDrawMeshTasksArgs *args) {
+    return guarded([&]() -> SturdyResult {
+        if (args == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "args must not be null");
+        }
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_mesh_tasks(
+            RHI::DrawMeshTasksArgs{args->group_count_x, args->group_count_y, args->group_count_z});
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_mesh_tasks_indirect(SturdyRenderBundleEncoder encoder,
+                                                                                SturdyBuffer indirect_buffer,
+                                                                                uint64_t offset) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_mesh_tasks_indirect(RHI::BufferHandle{indirect_buffer.id}, offset);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_draw_mesh_tasks_indirect_count(
+    SturdyRenderBundleEncoder encoder, SturdyBuffer indirect_buffer, uint64_t indirect_offset,
+    SturdyBuffer count_buffer, uint64_t count_offset, uint32_t max_draws, uint32_t stride) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        pointer->draw_mesh_tasks_indirect_count(RHI::BufferHandle{indirect_buffer.id}, indirect_offset,
+                                                RHI::BufferHandle{count_buffer.id}, count_offset, max_draws,
+                                                stride);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_bundle_encoder_finish(SturdyRenderBundleEncoder encoder,
+                                                                      SturdyRenderBundle *out_bundle) {
+    return guarded([&]() -> SturdyResult {
+        if (out_bundle == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        RHI::RenderBundleEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_bundle_encoder(encoder, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        auto finished = pointer->finish();
+        revoke_handle(encoder.token);
+        {
+            const std::lock_guard<std::mutex> lock{g_render_bundle_encoder_mutex};
+            g_render_bundle_encoders.erase(encoder.token);
+        }
+        if (!finished) {
+            return translate_rhi_error(finished.error());
+        }
+        out_bundle->id = finished->value;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_destroy_render_bundle(SturdyEngine engine, SturdyRenderBundle bundle) {
+    return guarded([&]() -> SturdyResult {
+        RHI::RhiDevice *device = nullptr;
+        const SturdyResult resolved = resolve_device(engine, &device);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        device->destroy_render_bundle(RHI::RenderBundleHandle{bundle.id});
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_rhi_render_pass_execute_bundles(SturdyRenderPassEncoder pass,
+                                                                     uint32_t bundle_count,
+                                                                     const SturdyRenderBundle *bundles) {
+    return guarded([&]() -> SturdyResult {
+        if (bundles == nullptr && bundle_count != 0) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "bundles must not be null when bundle_count is nonzero");
+        }
+        RHI::RenderPassEncoder *pointer = nullptr;
+        const SturdyResult resolved = resolve_render_pass(pass, &pointer);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        std::vector<RHI::RenderBundleHandle> handles;
+        handles.reserve(bundle_count);
+        for (uint32_t i = 0; i < bundle_count; ++i) {
+            handles.push_back(RHI::RenderBundleHandle{bundles[i].id});
+        }
+        pointer->execute_bundles(handles);
         return STURDY_OK;
     });
 }

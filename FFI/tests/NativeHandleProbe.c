@@ -78,6 +78,30 @@ static void report_startup(SturdyEngine engine) {
         }
     }
 
+    /* Mesh/task shader feature reporting. No shader compiler is available to this probe, so a
+       real mesh pipeline/draw_mesh_tasks call cannot be exercised here — this only confirms the
+       device correctly reports what it supports. */
+    {
+        uint32_t mesh_index = 0;
+        uint32_t task_index = 0;
+        SturdyBool mesh_enabled = STURDY_FALSE;
+        SturdyBool task_enabled = STURDY_FALSE;
+        SturdyResult mesh_index_result = sturdy_rhi_feature_index("mesh shaders", &mesh_index);
+        SturdyResult task_index_result = sturdy_rhi_feature_index("task/amplification shaders", &task_index);
+        SturdyResult mesh_enabled_result = STURDY_ERROR_NOT_AVAILABLE;
+        SturdyResult task_enabled_result = STURDY_ERROR_NOT_AVAILABLE;
+        if (mesh_index_result == STURDY_OK) {
+            mesh_enabled_result = sturdy_rhi_feature_enabled(engine, mesh_index, &mesh_enabled);
+        }
+        if (task_index_result == STURDY_OK) {
+            task_enabled_result = sturdy_rhi_feature_enabled(engine, task_index, &task_enabled);
+        }
+        printf("feature(mesh shaders)  -> index=%d(%d) enabled_query=%d(%d) enabled=%d\n",
+               (int)mesh_index_result, mesh_index, (int)mesh_enabled_result, mesh_index, (int)mesh_enabled);
+        printf("feature(task shaders)  -> index=%d(%d) enabled_query=%d(%d) enabled=%d\n",
+               (int)task_index_result, task_index, (int)task_enabled_result, task_index, (int)task_enabled);
+    }
+
     result = sturdy_native_available(engine, &native);
     printf("native_available       -> %d (%d)\n", (int)result, (int)native);
 
@@ -159,6 +183,58 @@ static void report_frame(SturdyEngine engine, SturdySurface surface, const Sturd
     printf("set_cursor_icon        -> %d\n", (int)result);
     result = sturdy_window_set_cursor_icon(engine, surface, (SturdyCursorIcon)9999);
     printf("set_cursor_icon(bogus) -> %d (expect 1 = invalid argument)\n", (int)result);
+
+    {
+        SturdyPresentationSettings settings;
+        SturdyPresentationResolution resolution;
+        SturdyHdrCapabilities hdr;
+        SturdyHdrPresentationMode modes[8];
+        uint32_t mode_count = 0;
+        uint32_t i;
+
+        printf("--- presentation/HDR ---\n");
+
+        result = sturdy_presentation_settings_init(&settings);
+        printf("presentation_settings_init -> %d (vsync=%d hdr=%d)\n", (int)result,
+               (int)settings.vsync, (int)settings.hdr_enabled);
+
+        memset(&settings, 0, sizeof(settings));
+        result = sturdy_surface_presentation_settings(engine, surface, &settings);
+        printf("surface_presentation_settings -> %d (vsync=%d variable_refresh=%d latency=%d "
+               "hdr_enabled=%d hdr_color_space=%d transparent=%d image_count=%u)\n",
+               (int)result, (int)settings.vsync, (int)settings.variable_refresh,
+               (int)settings.latency, (int)settings.hdr_enabled, (int)settings.hdr_color_space,
+               (int)settings.transparent_composition, settings.swapchain_image_count);
+
+        result = sturdy_surface_set_presentation_settings(engine, surface, &settings);
+        printf("surface_set_presentation_settings (round-trip, unchanged) -> %d\n", (int)result);
+
+        memset(&resolution, 0, sizeof(resolution));
+        result = sturdy_surface_presentation_resolution(engine, surface, &resolution);
+        printf("surface_presentation_resolution -> %d (strategy=%d mode=%d degraded=%d "
+               "composite_alpha=%d format=%d color_space=%d fullscreen_exclusive=%d)\n",
+               (int)result, (int)resolution.strategy, (int)resolution.effective_mode,
+               (int)resolution.degraded, (int)resolution.effective_composite_alpha,
+               (int)resolution.effective_format, (int)resolution.effective_color_space,
+               (int)resolution.full_screen_exclusive_active);
+
+        memset(&hdr, 0, sizeof(hdr));
+        memset(modes, 0, sizeof(modes));
+        result = sturdy_surface_query_hdr_capabilities(engine, surface, &hdr, modes, 8, &mode_count);
+        printf("surface_query_hdr_capabilities -> %d (status=%d supported=%d enabled_by_os=%d "
+               "sdr_white=%f edr_headroom=%f mode_count=%u)\n",
+               (int)result, (int)hdr.status, (int)hdr.hdr_supported, (int)hdr.hdr_enabled_by_os,
+               (double)hdr.sdr_white_nits, (double)hdr.edr_headroom, mode_count);
+        for (i = 0; i < mode_count && i < 8; ++i) {
+            printf("  mode[%u] transfer=%d gamut=%d requires_os_hdr=%d\n", i,
+                   (int)modes[i].transfer, (int)modes[i].gamut, (int)modes[i].requires_os_hdr_mode);
+        }
+
+        result = sturdy_surface_update_hdr_content_light_level(engine, surface, 1000.0f, 400.0f);
+        printf("surface_update_hdr_content_light_level -> %d (expect NOT_AVAILABLE if HDR isn't "
+               "active/supported on this backend/driver)\n",
+               (int)result);
+    }
 }
 
 /* Scene built from C, to prove the rendering surface actually puts geometry on screen. */
@@ -413,6 +489,9 @@ static void probe_rhi_resources(SturdyEngine engine) {
     SturdyBindGroup bind_group;
     SturdyPipelineLayoutDesc pipeline_layout_desc;
     SturdyPipelineLayout pipeline_layout;
+    SturdyQuerySetDesc query_set_desc;
+    SturdyQuerySet query_set;
+    int have_query_set = 0;
     float clear_color[4];
     void *mapped = NULL;
     size_t mapped_size = 0;
@@ -484,6 +563,25 @@ static void probe_rhi_resources(SturdyEngine engine) {
     full_range.base_array_layer = 0;
     full_range.array_layer_count = STURDY_ALL_REMAINING;
 
+    /* GPU timestamp query set, bracketing the clear below. Exercises the query-set surface (added
+       to the FFI well before this probe ever ran it against real hardware). */
+    memset(&query_set_desc, 0, sizeof(query_set_desc));
+    query_set_desc.struct_size = (uint32_t)sizeof(query_set_desc);
+    query_set_desc.type = STURDY_QUERY_TYPE_TIMESTAMP;
+    query_set_desc.count = 2;
+    query_set_desc.label = "ffi probe timestamps";
+    query_set.id = 0;
+    result = sturdy_rhi_create_query_set(engine, &query_set_desc, &query_set);
+    printf("create_query_set        -> %d\n", (int)result);
+    have_query_set = (result == STURDY_OK);
+    if (have_query_set) {
+        result = sturdy_rhi_command_encoder_reset_query_set(encoder, query_set, 0, 2);
+        printf("reset_query_set         -> %d\n", (int)result);
+        result = sturdy_rhi_command_encoder_write_timestamp(encoder, STURDY_PIPELINE_STAGE_DRAW_INDIRECT,
+                                                            query_set, 0);
+        printf("write_timestamp[0]      -> %d\n", (int)result);
+    }
+
     memset(&tex_barrier, 0, sizeof(tex_barrier));
     tex_barrier.texture = texture;
     tex_barrier.dst_stage = STURDY_PIPELINE_STAGE_TRANSFER;
@@ -500,6 +598,12 @@ static void probe_rhi_resources(SturdyEngine engine) {
     clear_color[3] = 1.0f;
     result = sturdy_rhi_command_encoder_clear_color_texture(encoder, texture, clear_color, &full_range);
     printf("clear_color_texture     -> %d\n", (int)result);
+
+    if (have_query_set) {
+        result = sturdy_rhi_command_encoder_write_timestamp(encoder, STURDY_PIPELINE_STAGE_TRANSFER,
+                                                            query_set, 1);
+        printf("write_timestamp[1]      -> %d\n", (int)result);
+    }
 
     memset(&tex_barrier, 0, sizeof(tex_barrier));
     tex_barrier.texture = texture;
@@ -549,6 +653,11 @@ static void probe_rhi_resources(SturdyEngine engine) {
         SturdyFenceDesc fence_desc;
         SturdyFence fence;
         SturdyBool signaled = STURDY_FALSE;
+        SturdySemaphoreDesc semaphore_desc;
+        SturdySemaphore semaphore;
+        SturdySemaphoreSignal signal;
+        int have_semaphore;
+        uint64_t semaphore_value = 0;
 
         memset(&fence_desc, 0, sizeof(fence_desc));
         fence_desc.struct_size = (uint32_t)sizeof(fence_desc);
@@ -557,12 +666,53 @@ static void probe_rhi_resources(SturdyEngine engine) {
         result = sturdy_rhi_create_fence(engine, &fence_desc, &fence);
         printf("create_fence            -> %d\n", (int)result);
 
-        result = sturdy_rhi_submit(engine, STURDY_QUEUE_CLASS_GRAPHICS, 0, 1, &command_buffer, 0, NULL, 0, NULL,
-                                   fence, STURDY_TRUE);
+        /* Timeline semaphore, signaled by this submission — exercises sturdy_rhi_submit's signal
+           array end to end (added to the FFI well before this probe ever ran it against real
+           hardware). */
+        memset(&semaphore_desc, 0, sizeof(semaphore_desc));
+        semaphore_desc.struct_size = (uint32_t)sizeof(semaphore_desc);
+        semaphore_desc.initial_value = 0;
+        semaphore_desc.label = "ffi probe semaphore";
+        semaphore.id = 0;
+        result = sturdy_rhi_create_semaphore(engine, &semaphore_desc, &semaphore);
+        printf("create_semaphore        -> %d\n", (int)result);
+        have_semaphore = (result == STURDY_OK);
+
+        memset(&signal, 0, sizeof(signal));
+        signal.semaphore = semaphore;
+        signal.value = 1;
+        signal.stages = STURDY_PIPELINE_STAGE_TRANSFER;
+
+        result = sturdy_rhi_submit(engine, STURDY_QUEUE_CLASS_GRAPHICS, 0, 1, &command_buffer, 0, NULL,
+                                   have_semaphore ? 1u : 0u, have_semaphore ? &signal : NULL, fence,
+                                   STURDY_TRUE);
         printf("submit                  -> %d\n", (int)result);
 
         result = sturdy_rhi_wait_fences(engine, 1, &fence, STURDY_TRUE, STURDY_WAIT_FOREVER, &signaled);
         printf("wait_fences             -> %d (signaled=%d)\n", (int)result, (int)signaled);
+
+        if (have_semaphore) {
+            result = sturdy_rhi_wait_semaphore(engine, semaphore, 1, STURDY_WAIT_FOREVER);
+            printf("wait_semaphore          -> %d\n", (int)result);
+            result = sturdy_rhi_semaphore_value(engine, semaphore, &semaphore_value);
+            printf("semaphore_value         -> %d (%llu, expect 1)\n", (int)result,
+                   (unsigned long long)semaphore_value);
+            result = sturdy_rhi_destroy_semaphore(engine, semaphore);
+            printf("destroy_semaphore       -> %d\n", (int)result);
+        }
+
+        if (have_query_set) {
+            uint64_t timestamps[2];
+            memset(timestamps, 0, sizeof(timestamps));
+            result = sturdy_rhi_get_query_set_results(engine, query_set, 0, 2, timestamps, sizeof(timestamps),
+                                                      sizeof(uint64_t), STURDY_QUERY_RESULT_FLAGS_RESULT_64_BIT |
+                                                                            STURDY_QUERY_RESULT_FLAGS_WAIT);
+            printf("get_query_set_results   -> %d (t0=%llu t1=%llu delta=%llu ticks)\n", (int)result,
+                   (unsigned long long)timestamps[0], (unsigned long long)timestamps[1],
+                   (unsigned long long)(timestamps[1] - timestamps[0]));
+            result = sturdy_rhi_destroy_query_set(engine, query_set);
+            printf("destroy_query_set       -> %d\n", (int)result);
+        }
 
         result = sturdy_rhi_destroy_fence(engine, fence);
         printf("destroy_fence           -> %d\n", (int)result);
@@ -627,6 +777,127 @@ static void probe_rhi_resources(SturdyEngine engine) {
         }
 
         sturdy_rhi_destroy_bind_group_layout(engine, bind_group_layout);
+    }
+
+    /* Render bundles: record an (empty, pipeline-less) bundle, replay it into a real render pass
+       against the probe's own texture, and round-trip the abandon-without-finishing path too. No
+       real shader bytecode is available to this probe, so this proves lifecycle/wiring (create,
+       finish, execute, release, destroy) rather than actual draw output. */
+    {
+        SturdyTextureViewDesc view_desc;
+        SturdyTextureView view;
+        SturdyRenderBundleDesc bundle_desc;
+        SturdyRenderBundleEncoder bundle_encoder;
+        SturdyRenderBundleEncoder abandoned_encoder;
+        SturdyRenderBundle bundle;
+        SturdyFormat color_format = STURDY_FORMAT_RGBA8_UNORM;
+        SturdyCommandEncoderDesc rb_cmd_desc;
+        SturdyCommandEncoder rb_cmd_encoder;
+        SturdyTextureBarrier to_color;
+        SturdyRenderPassDesc rp_desc;
+        SturdyColorAttachment color_attachment;
+        SturdyRenderPassEncoder render_pass;
+        SturdyCommandBuffer rb_cmd_buffer;
+        SturdyFenceDesc rb_fence_desc;
+        SturdyFence rb_fence;
+        SturdyBool rb_signaled = STURDY_FALSE;
+
+        printf("--- render bundles ---\n");
+
+        memset(&bundle_desc, 0, sizeof(bundle_desc));
+        result = sturdy_rhi_render_bundle_desc_init(&bundle_desc);
+        printf("render_bundle_desc_init -> %d (samples=%u)\n", (int)result, bundle_desc.samples);
+        bundle_desc.color_format_count = 1;
+        bundle_desc.color_formats = &color_format;
+        bundle_desc.label = "ffi probe bundle";
+
+        abandoned_encoder.token = 0;
+        result = sturdy_rhi_create_render_bundle_encoder(engine, &bundle_desc, &abandoned_encoder);
+        printf("create_render_bundle_encoder(abandoned) -> %d\n", (int)result);
+        if (result == STURDY_OK) {
+            result = sturdy_rhi_render_bundle_encoder_release(abandoned_encoder);
+            printf("render_bundle_encoder_release -> %d\n", (int)result);
+        }
+
+        bundle_encoder.token = 0;
+        result = sturdy_rhi_create_render_bundle_encoder(engine, &bundle_desc, &bundle_encoder);
+        printf("create_render_bundle_encoder -> %d\n", (int)result);
+        bundle.id = 0;
+        result = sturdy_rhi_render_bundle_encoder_finish(bundle_encoder, &bundle);
+        printf("render_bundle_encoder_finish -> %d (bundle.id=%llu)\n", (int)result,
+               (unsigned long long)bundle.id);
+
+        if (bundle.id != 0) {
+            memset(&view_desc, 0, sizeof(view_desc));
+            view_desc.struct_size = (uint32_t)sizeof(view_desc);
+            view_desc.view_type = STURDY_TEXTURE_VIEW_TYPE_2D;
+            view_desc.texture = texture;
+            view_desc.format = STURDY_FORMAT_UNDEFINED;
+            view_desc.mip_level_count = STURDY_ALL_REMAINING;
+            view_desc.array_layer_count = STURDY_ALL_REMAINING;
+            view.id = 0;
+            result = sturdy_rhi_create_texture_view(engine, &view_desc, &view);
+            printf("create_texture_view     -> %d\n", (int)result);
+
+            (void)sturdy_rhi_command_encoder_desc_init(&rb_cmd_desc);
+            rb_cmd_desc.label = "ffi probe render bundle encoder";
+            rb_cmd_encoder.token = 0;
+            result = sturdy_rhi_create_command_encoder(engine, &rb_cmd_desc, &rb_cmd_encoder);
+            printf("create_command_encoder(rb) -> %d\n", (int)result);
+
+            memset(&to_color, 0, sizeof(to_color));
+            to_color.texture = texture;
+            to_color.dst_stage = STURDY_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT;
+            to_color.dst_access = STURDY_ACCESS_COLOR_ATTACHMENT_WRITE;
+            to_color.old_layout = STURDY_TEXTURE_LAYOUT_TRANSFER_SRC;
+            to_color.new_layout = STURDY_TEXTURE_LAYOUT_COLOR_ATTACHMENT;
+            to_color.range = full_range;
+            result = sturdy_rhi_command_encoder_barrier(rb_cmd_encoder, 0, NULL, 0, NULL, 1, &to_color);
+            printf("barrier(src->color)     -> %d\n", (int)result);
+
+            memset(&color_attachment, 0, sizeof(color_attachment));
+            color_attachment.view = view;
+            color_attachment.load_op = STURDY_LOAD_OP_LOAD;
+            color_attachment.store_op = STURDY_STORE_OP_STORE;
+            memset(&rp_desc, 0, sizeof(rp_desc));
+            (void)sturdy_rhi_render_pass_desc_init(&rp_desc);
+            rp_desc.color_attachment_count = 1;
+            rp_desc.color_attachments = &color_attachment;
+            rp_desc.render_area.width = width;
+            rp_desc.render_area.height = height;
+            rp_desc.allow_bundles = STURDY_TRUE;
+            rp_desc.label = "ffi probe render bundle pass";
+            render_pass.token = 0;
+            result = sturdy_rhi_command_encoder_begin_render_pass(rb_cmd_encoder, &rp_desc, &render_pass);
+            printf("begin_render_pass(bundles) -> %d\n", (int)result);
+
+            result = sturdy_rhi_render_pass_execute_bundles(render_pass, 1, &bundle);
+            printf("execute_bundles         -> %d\n", (int)result);
+
+            result = sturdy_rhi_render_pass_end(render_pass);
+            printf("render_pass_end         -> %d\n", (int)result);
+
+            rb_cmd_buffer.id = 0;
+            result = sturdy_rhi_command_encoder_finish(rb_cmd_encoder, &rb_cmd_buffer);
+            printf("command_encoder_finish(rb) -> %d\n", (int)result);
+
+            memset(&rb_fence_desc, 0, sizeof(rb_fence_desc));
+            rb_fence_desc.struct_size = (uint32_t)sizeof(rb_fence_desc);
+            rb_fence_desc.label = "ffi probe render bundle fence";
+            rb_fence.id = 0;
+            result = sturdy_rhi_create_fence(engine, &rb_fence_desc, &rb_fence);
+            result = sturdy_rhi_submit(engine, STURDY_QUEUE_CLASS_GRAPHICS, 0, 1, &rb_cmd_buffer, 0, NULL, 0,
+                                       NULL, rb_fence, STURDY_TRUE);
+            printf("submit(rb)              -> %d\n", (int)result);
+            result = sturdy_rhi_wait_fences(engine, 1, &rb_fence, STURDY_TRUE, STURDY_WAIT_FOREVER, &rb_signaled);
+            printf("wait_fences(rb)         -> %d (signaled=%d)\n", (int)result, (int)rb_signaled);
+
+            sturdy_rhi_destroy_fence(engine, rb_fence);
+            sturdy_rhi_destroy_command_buffer(engine, rb_cmd_buffer);
+            sturdy_rhi_destroy_texture_view(engine, view);
+            result = sturdy_rhi_destroy_render_bundle(engine, bundle);
+            printf("destroy_render_bundle   -> %d\n", (int)result);
+        }
     }
 
     sturdy_rhi_destroy_buffer(engine, uniform_buffer);

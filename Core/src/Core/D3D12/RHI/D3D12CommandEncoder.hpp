@@ -161,6 +161,14 @@ namespace SFT::D3D12 {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void copy_acceleration_structure(const rhi::AccelerationStructureCopyDesc &copy) override;
+        /// Binds the ray tracing pipeline used by a subsequent `trace_rays`, mirroring
+        /// `D3D12ComputePassEncoder::set_pipeline`'s layout-tracking shape since RT dispatch
+        /// shares the compute binding-state track.
+        ///
+        /// @param pipeline Pipeline used or affected by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_ray_tracing_pipeline(rhi::RayTracingPipelineHandle pipeline) override;
         /// Traces rays using the supplied arguments and current state.
         ///
         /// @param desc Description of the resource or operation to perform.

@@ -868,6 +868,16 @@ namespace SFT::RHI {
         /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         virtual void copy_acceleration_structure(const AccelerationStructureCopyDesc &copy) = 0;
+        /// Binds the ray tracing pipeline used by `trace_rays`, and its pipeline layout for
+        /// subsequent `set_bind_group`/`set_push_constants` calls — the same layout-tracking role
+        /// `ComputePassEncoder::set_pipeline` plays for compute dispatches, since ray tracing
+        /// dispatch shares the compute binding-state track on both backends.
+        ///
+        /// @param pipeline Pipeline used or affected by the operation.
+        ///
+        /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        virtual void set_ray_tracing_pipeline(RayTracingPipelineHandle pipeline) = 0;
         /// Traces rays using the supplied arguments and current state.
         ///
         /// @param desc Description of the resource or operation to perform.
