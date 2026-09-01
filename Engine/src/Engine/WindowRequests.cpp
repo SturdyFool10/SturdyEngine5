@@ -104,6 +104,42 @@ namespace SFT::Engine {
         guard->pending.emplace_back(SetTransparentRequest{window, transparent});
     }
 
+    /// Sets the relative mouse mode for this `Engine`.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param enabled Whether the associated behavior is enabled.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void WindowRequests::set_relative_mouse_mode(WindowManager::WindowId window, bool enabled) {
+        auto guard = state_.lock();
+        guard->pending.emplace_back(SetRelativeMouseModeRequest{window, enabled});
+    }
+
+    /// Sets the mouse locked for this `Engine`.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param locked `locked` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void WindowRequests::set_mouse_locked(WindowManager::WindowId window, bool locked) {
+        auto guard = state_.lock();
+        guard->pending.emplace_back(SetMouseLockedRequest{window, locked});
+    }
+
+    /// Sets the cursor grabbed for this `Engine`.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param grabbed `grabbed` value used by the operation.
+    ///
+    /// @return Returns the value produced by the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    void WindowRequests::set_cursor_grabbed(WindowManager::WindowId window, bool grabbed) {
+        auto guard = state_.lock();
+        guard->pending.emplace_back(SetCursorGrabbedRequest{window, grabbed});
+    }
+
     /// Sets the blur for this `Engine`.
     ///
     /// @param window Window used or affected by the operation.

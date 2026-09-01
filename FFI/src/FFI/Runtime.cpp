@@ -4,12 +4,17 @@
 
 #include <Foundation/Foundation.hpp>
 
+#include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
+#include <Core/BackendInventory.hpp>
 #include <Runtime/Runtime.hpp>
 
 #include <FFI/AbiSupport.hpp>
@@ -294,6 +299,65 @@ namespace {
         }
     }
 
+    /// Copies `source` into a fixed-size buffer, always null-terminating and truncating rather
+    /// than overflowing if it does not fit.
+    ///
+    /// @param source Text to copy.
+    /// @param dest Destination buffer.
+    /// @param dest_size Size of `dest`, in bytes. A size of 0 writes nothing.
+    ///
+    /// @note This function does not throw exceptions.
+    void copy_fixed_string(std::string_view source, char *dest, size_t dest_size) noexcept {
+        if (dest_size == 0) {
+            return;
+        }
+        const size_t to_copy = std::min(source.size(), dest_size - 1);
+        std::memcpy(dest, source.data(), to_copy);
+        dest[to_copy] = '\0';
+    }
+
+    /// Translates the engine's device type to the ABI's.
+    ///
+    /// @param type Engine-side value.
+    ///
+    /// @return Returns the ABI spelling; unrecognized values map to `STURDY_DEVICE_TYPE_OTHER`
+    ///         rather than failing, since this is descriptive metadata, not a value the caller acts
+    ///         on the way it would an unrecognized request.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] SturdyDeviceType translate_device_type(SFT::RHI::DeviceType type) noexcept {
+        switch (type) {
+        case SFT::RHI::DeviceType::IntegratedGpu:
+            return STURDY_DEVICE_TYPE_INTEGRATED_GPU;
+        case SFT::RHI::DeviceType::DiscreteGpu:
+            return STURDY_DEVICE_TYPE_DISCRETE_GPU;
+        case SFT::RHI::DeviceType::VirtualGpu:
+            return STURDY_DEVICE_TYPE_VIRTUAL_GPU;
+        case SFT::RHI::DeviceType::Cpu:
+            return STURDY_DEVICE_TYPE_CPU;
+        case SFT::RHI::DeviceType::Other:
+        default:
+            return STURDY_DEVICE_TYPE_OTHER;
+        }
+    }
+
+    /// Computes which ABI-spelled backends a physical GPU's per-backend support entries cover.
+    ///
+    /// @param api_support Per-backend capability entries from a `PhysicalGpu`.
+    ///
+    /// @return Returns the bitmask of `SturdyBackendMask` values.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] uint32_t backend_mask_for(const std::vector<SFT::RHI::GpuApiSupport> &api_support) noexcept {
+        uint32_t mask = 0;
+        for (const SFT::RHI::GpuApiSupport &support : api_support) {
+            if (support.adapter.backend == SFT::RHI::BackendType::Vulkan) {
+                mask |= STURDY_BACKEND_MASK_VULKAN;
+            } else if (support.adapter.backend == SFT::RHI::BackendType::D3D12) {
+                mask |= STURDY_BACKEND_MASK_D3D12;
+            }
+        }
+        return mask;
+    }
+
 } // namespace
 
 extern "C" {
@@ -316,6 +380,41 @@ SturdyResult STURDY_ABI_CALL sturdy_runtime_config_init(SturdyRuntimeConfig *con
         // Off by default: publishing raw backend objects is an explicit opt-in, not something a
         // caller should acquire by forgetting to set a field.
         config->enable_native_access = STURDY_FALSE;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_gpu_enumerate(SturdyGpuInfo *out_gpus,
+                                                  uint32_t capacity,
+                                                  uint32_t *out_count) {
+    return guarded([&]() -> SturdyResult {
+        if (out_count == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output count pointer must not be null");
+        }
+        if (out_gpus == nullptr && capacity != 0) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT,
+                             "output buffer must not be null when capacity is nonzero");
+        }
+
+        SFT::RHI::InstanceDesc instance_desc{};
+        instance_desc.application_name = "Sturdy FFI GPU enumeration";
+        const SFT::RHI::GpuInventory inventory = SFT::Core::enumerate_gpu_inventory(instance_desc);
+
+        *out_count = static_cast<uint32_t>(inventory.gpus.size());
+        const uint32_t to_copy = std::min<uint32_t>(capacity, *out_count);
+        for (uint32_t i = 0; i < to_copy; ++i) {
+            const SFT::RHI::PhysicalGpu &gpu = inventory.gpus[i];
+            SturdyGpuInfo &info = out_gpus[i];
+            info = SturdyGpuInfo{};
+            info.struct_size = static_cast<uint32_t>(sizeof(SturdyGpuInfo));
+            copy_fixed_string(gpu.name, info.name, sizeof(info.name));
+            copy_fixed_string(gpu.vendor, info.vendor, sizeof(info.vendor));
+            copy_fixed_string(gpu.physical_device_id, info.physical_device_id, sizeof(info.physical_device_id));
+            info.device_type = translate_device_type(gpu.device_type);
+            info.vendor_id = gpu.vendor_id;
+            info.device_id = gpu.device_id;
+            info.supported_backends = backend_mask_for(gpu.api_support);
+        }
         return STURDY_OK;
     });
 }

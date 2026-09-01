@@ -97,6 +97,24 @@ namespace SFT::Engine {
     };
 
 
+    struct SetRelativeMouseModeRequest {
+        WindowManager::WindowId window{};
+        bool enabled = false;
+    };
+
+
+    struct SetMouseLockedRequest {
+        WindowManager::WindowId window{};
+        bool locked = false;
+    };
+
+
+    struct SetCursorGrabbedRequest {
+        WindowManager::WindowId window{};
+        bool grabbed = false;
+    };
+
+
     struct SetBlurRequest {
         WindowManager::WindowId window{};
         WindowManager::WindowEffectKind kind = WindowManager::WindowEffectKind::Blur;
@@ -118,7 +136,8 @@ namespace SFT::Engine {
     using WindowRequest = variant<SpawnWindowRequest, CloseWindowRequest, RecreatePrimaryWindowRequest,
                                   SetCursorIconRequest, SetFullscreenRequest, SetDecoratedRequest,
                                   SetTransparentRequest, SetBlurRequest, SetTextInputAreaRequest,
-                                  SetTextInputActiveRequest>;
+                                  SetTextInputActiveRequest, SetRelativeMouseModeRequest,
+                                  SetMouseLockedRequest, SetCursorGrabbedRequest>;
 
     enum class WindowRequestKind : u8 { Spawn, Close, RecreatePrimary };
 
@@ -196,6 +215,30 @@ namespace SFT::Engine {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_transparent(WindowManager::WindowId window, bool transparent);
+
+        /// Sets the relative mouse mode for this `WindowRequests`.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param enabled Whether the associated behavior is enabled.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_relative_mouse_mode(WindowManager::WindowId window, bool enabled);
+
+        /// Sets the mouse locked for this `WindowRequests`.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param locked `locked` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_mouse_locked(WindowManager::WindowId window, bool locked);
+
+        /// Sets the cursor grabbed for this `WindowRequests`.
+        ///
+        /// @param window Window used or affected by the operation.
+        /// @param grabbed `grabbed` value used by the operation.
+        ///
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        void set_cursor_grabbed(WindowManager::WindowId window, bool grabbed);
 
         /// Sets the blur for this `WindowRequests`.
         ///

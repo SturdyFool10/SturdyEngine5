@@ -46,15 +46,29 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     add_test(NAME FfiHeaderCTest COMMAND FfiHeaderCTest)
     set_tests_properties(FfiHeaderCTest PROPERTIES TIMEOUT 30)
 
-    # Manual verification tool, deliberately not registered with add_test(): it creates a real
-    # window and graphics device, so it needs a GPU and a display that CI does not have. Run it by
-    # hand ("FfiNativeHandleProbe vulkan" / "... d3d12") to see what the RHI and native-handle
-    # queries actually return on a given machine. Also doubles as the worked C example for the
-    # native-access surface.
+    # Brings up a real window and graphics device, so it needs a GPU and a display that headless CI
+    # does not have — always built (it also doubles as the worked C example for the native-access
+    # surface), but only registered with add_test() below when STURDY_ENABLE_GPU_TESTS is ON. Run it
+    # by hand ("FfiNativeHandleProbe vulkan" / "... d3d12") to see what the RHI and native-handle
+    # queries actually return on a given machine.
     add_executable(FfiNativeHandleProbe tests/NativeHandleProbe.c)
     target_link_libraries(FfiNativeHandleProbe PRIVATE Sturdy::FFI)
     set_target_properties(FfiNativeHandleProbe PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
     sturdy_enable_warnings(FfiNativeHandleProbe)
+
+    if(STURDY_ENABLE_GPU_TESTS)
+        # Exercises real shader compilation, bind-group-layout/pipeline creation and a few rendered
+        # frames end to end on each backend — the one thing the rest of the FFI test suite can't
+        # touch without a GPU. Exits nonzero (see `g_scene_ok` in NativeHandleProbe.c) if the scene
+        # build fails on either backend, so a regression here fails the build instead of only
+        # showing up as a log line nobody reads.
+        add_test(NAME FfiNativeHandleProbeVulkan COMMAND FfiNativeHandleProbe vulkan)
+        set_tests_properties(FfiNativeHandleProbeVulkan PROPERTIES TIMEOUT 120)
+        if(STURDY_OS STREQUAL "Windows")
+            add_test(NAME FfiNativeHandleProbeD3D12 COMMAND FfiNativeHandleProbe d3d12)
+            set_tests_properties(FfiNativeHandleProbeD3D12 PROPERTIES TIMEOUT 120)
+        endif()
+    endif()
 
     # Reaches the internal handle table to construct an expired handle, which the public header
     # deliberately makes impossible. Those symbols carry no STURDY_ABI marking and so are hidden in

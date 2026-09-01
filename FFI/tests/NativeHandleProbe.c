@@ -4,12 +4,8 @@
 /// Not a CI test — it creates a window and a graphics device. Run by hand on a machine with a GPU:
 ///   FfiNativeHandleProbe [vulkan|d3d12] [physical_device_id] [nonative]
 ///
-/// `nonative` turns off `enable_native_access`, which is how the raw-handle extension was ruled out
-/// as the cause of a D3D12 failure: the same abort reproduces with it disabled.
-///
-/// Known: the D3D12 backend aborts inside `sturdy_render_load_shader`, just after a
-/// `ReflectionBinding` warning. Vulkan completes the whole scene. That is an engine-side D3D12
-/// shader/pipeline problem, not an ABI one — every FFI call before it succeeds on both backends.
+/// `nonative` turns off `enable_native_access`, letting the same probe verify the RHI/window/time
+/// surface without exercising the raw-handle extension.
 ///
 /// Startup queries run from `on_engine_initialized`; per-frame queries run from the first
 /// `request_render_frame`, which then asks the window to close so the probe exits on its own
@@ -1171,9 +1167,24 @@ static SturdyBool on_frame(SturdyEngine engine,
 }
 
 static void on_shutdown(SturdyEngine engine, void *user_data) {
-    (void)engine;
+    SturdyResult result;
+
     (void)user_data;
     printf("on_shutdown called\n");
+
+    /* Exercised here rather than right after the scene stops using them: unloading a model still
+       assigned to a live entity is not rejected (see sturdy_render_unload_asset's own doc comment),
+       so this only proves the round trip once nothing references them any more. */
+    if (g_scene_ok) {
+        result = sturdy_render_unload_asset(engine, g_cube_model);
+        printf("unload_asset(cube)     -> %d\n", (int)result);
+        result = sturdy_render_unload_asset(engine, g_floor_model);
+        printf("unload_asset(floor)    -> %d\n", (int)result);
+        result = sturdy_render_unload_asset(engine, g_shader);
+        printf("unload_asset(shader)   -> %d\n", (int)result);
+        result = sturdy_render_unload_asset(engine, g_shader);
+        printf("unload_asset(shader again) -> %d (expect 2 = invalid handle)\n", (int)result);
+    }
     fflush(stdout);
 }
 
@@ -1206,6 +1217,24 @@ int main(int argc, char **argv) {
     log_sink.id = 0;
     result = sturdy_log_add_sink(on_engine_log, NULL, &log_sink);
     printf("log_add_sink -> %d\n", (int)result);
+
+    /* Before any engine exists: this is the GPU-picker path a real application would use to
+       choose `physical_device_id`, not the already-selected adapter `sturdy_rhi_*` reports on a
+       live device (see report_startup). */
+    {
+        SturdyGpuInfo gpus[8];
+        uint32_t gpu_count = 0;
+        uint32_t gpu_index;
+        result = sturdy_gpu_enumerate(gpus, 8, &gpu_count);
+        printf("gpu_enumerate           -> %d (count=%u)\n", (int)result, gpu_count);
+        for (gpu_index = 0; gpu_index < gpu_count && gpu_index < 8; ++gpu_index) {
+            printf("  [%u] name='%s' vendor='%s' id='%s' type=%d backends=0x%X\n", gpu_index,
+                   gpus[gpu_index].name, gpus[gpu_index].vendor, gpus[gpu_index].physical_device_id,
+                   (int)gpus[gpu_index].device_type, gpus[gpu_index].supported_backends);
+        }
+        result = sturdy_gpu_enumerate(NULL, 0, &gpu_count);
+        printf("gpu_enumerate(count only) -> %d (count=%u)\n", (int)result, gpu_count);
+    }
 
     if (sturdy_runtime_config_init(&config) != STURDY_OK) {
         return 1;
@@ -1255,5 +1284,15 @@ int main(int argc, char **argv) {
     /* Removing twice must not double-free or crash. */
     result = sturdy_log_remove_sink(log_sink);
     printf("log_remove_sink(again) -> %d\n", (int)result);
+
+    /* `g_scene_ok` only becomes true after the full shader/pipeline/scene build in `build_scene`
+       succeeds, so a failure to reach it (shader compile, bind-group-layout, or pipeline creation
+       error on either backend) is a real regression, not an expected negative-path result. Turning
+       that into a nonzero exit is what lets this run as an actual pass/fail CTest case instead of a
+       log a human has to read. */
+    if (!g_scene_ok) {
+        printf("FAIL: scene build did not complete (see build_scene output above)\n");
+        return 1;
+    }
     return 0;
 }

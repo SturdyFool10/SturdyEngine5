@@ -76,6 +76,47 @@ set(STURDY_CGLTF_TAG "v1.15" CACHE STRING "cgltf git tag to fetch.")
 # this engine has no use for, so it's built from source files directly rather than via
 # add_subdirectory.
 set(STURDY_BC7ENC_TAG "f66c2e489b07138f2673a2fb3d27c1aa1d565c48" CACHE STRING "bc7enc git commit to fetch.")
+# webmproject/libwebp (BSD-3-Clause) — WebP decode for Engine::Detail::decode_image_rgba8
+# (ImageDecode.cpp), part of the browser-parity image-format effort (plans/image-format-support.md).
+# Built via its own CMakeLists.txt (unlike bc7enc above): libwebp's build is clean enough to just
+# add_subdirectory with the CLI-tool options turned off, keeping only the webp/webpdemux/
+# libwebpmux/sharpyuv libraries this engine actually links.
+set(STURDY_WEBP_TAG "v1.6.0" CACHE STRING "libwebp git tag to fetch.")
+# google/libgav1 (BSD-3-Clause, Chromium's own AV1 decoder) — the AV1 decode backend for AVIF
+# support (part of plans/image-format-support.md). Chosen over dav1d (the other common AV1
+# decoder) specifically because libgav1 builds with plain CMake; dav1d's own build is Meson-based,
+# which would add a whole second build toolchain to this project for one codec. Decode-only,
+# royalty-free by design (AV1 has no patent-pool licensing the way HEVC/H.265 does).
+set(STURDY_LIBGAV1_TAG "v0.19.0" CACHE STRING "libgav1 git tag to fetch.")
+# AOMediaCodec/libavif (BSD-2-Clause) — parses the AVIF (HEIF/ISOBMFF-based) container and hands
+# its AV1 payload to libgav1 above. AOM/dav1d/rav1e/SVT-AV1 encoders are all disabled: this engine
+# only ever decodes AVIF, never encodes it.
+set(STURDY_LIBAVIF_TAG "v1.4.2" CACHE STRING "libavif git tag to fetch.")
+# libjxl/libjxl (BSD-3-Clause) — JPEG XL decode, part of plans/image-format-support.md. The
+# heaviest dependency in that effort: unlike webp/libavif above, libjxl vendors several of its own
+# dependencies (highway for SIMD, brotli, lcms2 for color management) as git submodules rather
+# than letting a consumer swap in an already-fetched copy the way libavif's codec options do, so
+# GIT_SUBMODULES_RECURSE is needed on top of the usual pinned tag.
+set(STURDY_LIBJXL_TAG "v0.12.0" CACHE STRING "libjxl git tag to fetch.")
+# uclouvain/openjpeg (BSD-2-Clause; JPEG 2000's own patents have all expired) — JPEG 2000 decode,
+# part of plans/image-format-support.md. Safari-only on the web today, but in scope per "any
+# browser supports it." A clean, single-repo CMake build with no submodules.
+set(STURDY_OPENJPEG_TAG "v2.5.4" CACHE STRING "openjpeg git tag to fetch.")
+# libtiff/libtiff (libtiff license, a permissive BSD-like license) — TIFF decode, part of
+# plans/image-format-support.md. Safari-only on the web today, in scope per "any browser supports
+# it." Scoped to uncompressed/LZW/PackBits, which are built into libtiff itself with no external
+# dependency; Deflate-compressed TIFF is deliberately not wired up (libtiff's own DeflateCodec.cmake
+# calls plain find_package(ZLIB) with no "already a target" escape hatch the way libavif's codec
+# options have, so using a locally-fetched zlib here would need CMake's OVERRIDE_FIND_PACKAGE
+# mechanism -- not worth the added complexity for what is already the least common of the three
+# baseline TIFF compressions).
+set(STURDY_LIBTIFF_TAG "v4.7.2" CACHE STRING "libtiff git tag to fetch.")
+# AcademySoftwareFoundation/openexr (BSD-3-Clause) — OpenEXR decode, part of
+# plans/image-format-support.md (Blender-format-parity addition). Self-contained: OpenEXR's own
+# CMakeLists.txt auto-fetches Imath (its math library dependency) via FetchContent when not found,
+# and falls back to a vendored internal deflate implementation when libdeflate/zlib aren't found --
+# no separate dependency wiring needed on this project's side for either.
+set(STURDY_OPENEXR_TAG "v3.4.15" CACHE STRING "openexr git tag to fetch.")
 # KhronosGroup/glTF-Sample-Assets (CC-BY, per-model licensing) — real-world glTF content used only
 # to exercise the glTF import path locally (STURDY_FETCH_SAMPLE_ASSETS). Not a build dependency, so
 # pinned to a commit like every other fetched source but never fetched unless explicitly requested.
@@ -335,7 +376,13 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_stb_image()
         sturdy_fetch_cgltf()
         sturdy_fetch_bc7enc()
+        sturdy_fetch_webp()
+        sturdy_fetch_libavif()
+        sturdy_fetch_libjxl()
+        sturdy_fetch_openjpeg()
+        sturdy_fetch_libtiff()
         sturdy_fetch_gdeflate()
+        sturdy_fetch_openexr()
 
         sturdy_fetch_tracy()
 
@@ -370,6 +417,12 @@ function(sturdy_configure_dependencies)
         sturdy_find_stb_image()
         sturdy_find_cgltf()
         sturdy_find_bc7enc()
+        sturdy_find_webp()
+        sturdy_find_libavif()
+        sturdy_find_libjxl()
+        sturdy_find_openjpeg()
+        sturdy_find_libtiff()
+        sturdy_find_openexr()
         sturdy_find_gdeflate()
         find_package(Tracy 0.13.1 EXACT CONFIG REQUIRED)
 
@@ -1410,6 +1463,281 @@ function(sturdy_fetch_bc7enc)
     sturdy_register_license(bc7enc "${bc7enc_SOURCE_DIR}")
 endfunction()
 
+function(sturdy_fetch_webp)
+    # Unlike bc7enc above, libwebp's own CMakeLists.txt is well-behaved (no global flag mutation,
+    # every option needed to trim it down to just the libraries this engine links), so this uses
+    # the normal FetchContent_MakeAvailable + add_subdirectory path. Only decode is needed: the
+    # simple API (webp) plus the demux API (webpdemux) for extended-format (VP8X) single-frame
+    # files the simple API alone rejects. Every option below just turns off a command-line tool
+    # this engine has no use for building.
+    set(WEBP_BUILD_ANIM_UTILS OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_CWEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_DWEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_GIF2WEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_IMG2WEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_VWEBP OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_WEBPINFO OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_WEBPMUX OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_EXTRAS OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_WEBP_JS OFF CACHE BOOL "" FORCE)
+    set(WEBP_BUILD_FUZZTEST OFF CACHE BOOL "" FORCE)
+
+    sturdy_fetchcontent_declare(webp
+        GIT_REPOSITORY https://github.com/webmproject/libwebp.git
+        GIT_TAG ${STURDY_WEBP_TAG}
+    )
+    FetchContent_MakeAvailable(webp)
+
+    sturdy_mark_dependency_targets_exclude_from_all(webp webpdecoder webpdemux sharpyuv libwebpmux)
+    sturdy_register_license(webp "${webp_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_fetch_libgav1)
+    # =1 removes libgav1's own Abseil dependency from its core library (it only affects
+    # ThreadPool's mutex implementation) -- this project has no other reason to bring in Abseil.
+    set(LIBGAV1_THREADPOOL_USE_STD_MUTEX 1 CACHE BOOL "" FORCE)
+    set(LIBGAV1_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(LIBGAV1_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+
+    sturdy_fetchcontent_declare(libgav1
+        GIT_REPOSITORY https://chromium.googlesource.com/codecs/libgav1
+        GIT_TAG ${STURDY_LIBGAV1_TAG}
+    )
+    FetchContent_MakeAvailable(libgav1)
+
+    # libavif's own check_avif_option() macro (CMakeLists.txt) looks for a target literally named
+    # libgav1::libgav1 before it ever calls find_package() -- providing that alias here is what
+    # lets sturdy_fetch_libavif() below use this fetched copy with AVIF_CODEC_LIBGAV1=SYSTEM,
+    # entirely without a real installed libgav1 package. Real target name verified empirically
+    # (libgav1's own CMakeLists.txt does not export any namespaced alias itself): libgav1_static.
+    if(NOT TARGET libgav1::libgav1)
+        add_library(libgav1::libgav1 ALIAS libgav1_static)
+    endif()
+
+    sturdy_mark_dependency_targets_exclude_from_all(libgav1_static libgav1_dsp libgav1_decoder libgav1_utils)
+    sturdy_register_license(libgav1 "${libgav1_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_fetch_libavif)
+    # Decode-only: every encoder codec is off, and so are the CLI apps/tests that would otherwise
+    # need libavif's own PNG/JPEG/libyuv helper dependencies (see the AVIF_BUILD_APPS/AVIF_BUILD_TESTS
+    # guard around those in libavif's own CMakeLists.txt -- with both off, AVIF_ZLIBPNG/AVIF_JPEG can
+    # safely be OFF too, and AVIF_LIBYUV is a YUV->RGB conversion speed optimization the core decode
+    # path falls back from cleanly, not a hard requirement).
+    set(AVIF_CODEC_AOM OFF CACHE STRING "" FORCE)
+    set(AVIF_CODEC_DAV1D OFF CACHE STRING "" FORCE)
+    set(AVIF_CODEC_LIBGAV1 SYSTEM CACHE STRING "" FORCE)
+    set(AVIF_CODEC_RAV1E OFF CACHE STRING "" FORCE)
+    set(AVIF_CODEC_SVT OFF CACHE STRING "" FORCE)
+    set(AVIF_ZLIBPNG OFF CACHE STRING "" FORCE)
+    set(AVIF_JPEG OFF CACHE STRING "" FORCE)
+    set(AVIF_LIBYUV OFF CACHE STRING "" FORCE)
+    set(AVIF_LIBSHARPYUV OFF CACHE STRING "" FORCE)
+    set(AVIF_LIBXML2 OFF CACHE STRING "" FORCE)
+    set(AVIF_BUILD_APPS OFF CACHE BOOL "" FORCE)
+    set(AVIF_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(AVIF_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS_SAVE_FOR_AVIF ${BUILD_SHARED_LIBS})
+    set(BUILD_SHARED_LIBS OFF) # libavif defaults BUILD_SHARED_LIBS ON; this engine wants it static.
+
+    sturdy_fetch_libgav1() # must exist before add_subdirectory below: see its own comment.
+
+    sturdy_fetchcontent_declare(libavif
+        GIT_REPOSITORY https://github.com/AOMediaCodec/libavif.git
+        GIT_TAG ${STURDY_LIBAVIF_TAG}
+    )
+    FetchContent_MakeAvailable(libavif)
+    set(BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS_SAVE_FOR_AVIF})
+
+    sturdy_mark_dependency_targets_exclude_from_all(avif avif_obj)
+    sturdy_register_license(libavif "${libavif_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_fetch_libjxl)
+    # CLI tools, examples, docs, tests, JNI, and encoder-only helpers (sjpeg) all off: this engine
+    # only ever decodes JPEG XL. Disabling JPEGXL_ENABLE_TRANSCODE_JPEG (JXL's "recompressed JPEG"
+    # reconstruction feature, which needs libjpeg-turbo) is safe too -- it only affects recovering
+    # the *original JPEG bytes* from a JXL that recompressed one, not decoding to pixels.
+    set(JPEGXL_ENABLE_FUZZERS OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_DEVTOOLS OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_TOOLS OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_DOXYGEN OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_MANPAGES OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_BENCHMARK OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_JNI OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_SJPEG OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_OPENEXR OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_VIEWERS OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_PLUGINS OFF CACHE BOOL "" FORCE)
+    set(JPEGXL_ENABLE_TRANSCODE_JPEG OFF CACHE BOOL "" FORCE)
+
+    # Deliberately NOT `CACHE ... FORCE`, unlike every JPEGXL_* option above: BUILD_TESTING is a
+    # project-wide CMake/CTest convention this engine's own tests already depend on, not something
+    # namespaced to libjxl. A CACHE FORCE here would permanently disable every Sturdy test target
+    # project-wide the moment this function first runs (verified empirically -- it did exactly
+    # that). A plain set() shadows the cached value only for reads inside this function's own
+    # scope (functions get their own variable scope in CMake, unlike macros), which is exactly
+    # enough to keep libjxl's own lib/jxl_tests.cmake (gated on the bare global BUILD_TESTING,
+    # not a JPEGXL_-prefixed option) from requiring PNG/ZLIB/JPEG this engine never fetches.
+    set(BUILD_TESTING OFF)
+
+    # Bypasses sturdy_fetchcontent_declare(): unlike every other dependency in this file, libjxl
+    # vendors highway/brotli/skcms (or lcms2) as git submodules rather than something a consumer
+    # can pre-fetch and swap in (contrast sturdy_fetch_libavif()'s AVIF_CODEC_LIBGAV1=SYSTEM
+    # trick above), so GIT_SUBMODULES_RECURSE is required and GIT_SHALLOW is left off (shallow +
+    # submodules is its own source of flaky clones).
+    FetchContent_Declare(libjxl
+        GIT_REPOSITORY https://github.com/libjxl/libjxl.git
+        GIT_TAG ${STURDY_LIBJXL_TAG}
+        GIT_SUBMODULES_RECURSE TRUE
+        GIT_PROGRESS FALSE
+        EXCLUDE_FROM_ALL
+        SYSTEM
+    )
+    FetchContent_MakeAvailable(libjxl)
+
+    sturdy_mark_dependency_targets_exclude_from_all(jxl jxl_dec jxl-static jxl_threads jxl_cms hwy brotlidec brotlienc brotlicommon skcms)
+    sturdy_register_license(libjxl "${libjxl_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_fetch_openjpeg)
+    # Decode-only: no CLI tools (BUILD_CODEC also gates a thirdparty/ subdirectory this engine has
+    # no use for), no JPIP streaming extension, no docs/tests. BUILD_SHARED_LIBS/BUILD_TESTING are
+    # plain (non-CACHE) sets rather than CACHE FORCE deliberately: both are project-wide CMake/CTest
+    # conventions, not names namespaced to openjpeg, and a function's own variables (including a
+    # shadowed same-named one) never escape its scope -- CACHE FORCE would instead permanently
+    # overwrite them for the whole build the moment this function first runs, which is exactly the
+    # mistake sturdy_fetch_libjxl() above made with BUILD_TESTING (see its own comment).
+    set(BUILD_SHARED_LIBS OFF)
+    set(BUILD_TESTING OFF)
+    set(BUILD_CODEC OFF CACHE BOOL "" FORCE)
+    set(BUILD_JPIP OFF CACHE BOOL "" FORCE)
+    set(BUILD_VIEWER OFF CACHE BOOL "" FORCE)
+    set(BUILD_JAVA OFF CACHE BOOL "" FORCE)
+    set(BUILD_DOC OFF CACHE BOOL "" FORCE)
+    set(BUILD_PKGCONFIG_FILES OFF CACHE BOOL "" FORCE)
+
+    sturdy_fetchcontent_declare(openjpeg
+        GIT_REPOSITORY https://github.com/uclouvain/openjpeg.git
+        GIT_TAG ${STURDY_OPENJPEG_TAG}
+    )
+    FetchContent_MakeAvailable(openjpeg)
+
+    if(TARGET openjp2)
+        # Upstream's own CMakeLists.txt (src/lib/openjp2/CMakeLists.txt) only exposes openjpeg.h
+        # via $<INSTALL_INTERFACE:...> on the openjp2 target, and reaches opj_config.h (generated
+        # into the *build* tree) via the legacy directory-scoped include_directories() -- neither
+        # propagates to a consumer that links the target without a real install step, the same
+        # situation sturdy_fetch_d3d12ma() already works around above. Fixed up here rather than
+        # patching upstream's CMakeLists.txt.
+        target_include_directories(openjp2 PUBLIC
+            "$<BUILD_INTERFACE:${openjpeg_SOURCE_DIR}/src/lib/openjp2>"
+            "$<BUILD_INTERFACE:${openjpeg_BINARY_DIR}/src/lib/openjp2>"
+        )
+    endif()
+
+    sturdy_mark_dependency_targets_exclude_from_all(openjp2)
+    sturdy_register_license(openjpeg "${openjpeg_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_fetch_libtiff)
+    # Decode-only: no CLI tools/tests/contrib/docs. Deliberately no zlib/libjpeg/JBIG/LERC/LZMA/
+    # ZSTD/WebP wiring -- see STURDY_LIBTIFF_TAG's own comment on why Deflate specifically was
+    # skipped; the other optional codecs are rarer still and all degrade the same clean way
+    # (find_package fails to find them, libtiff disables that codec, decoding a file that needs it
+    # returns a decode error instead of crashing).
+    set(BUILD_TESTING OFF)
+    set(tiff-tools OFF CACHE BOOL "" FORCE)
+    set(tiff-tests OFF CACHE BOOL "" FORCE)
+    set(tiff-contrib OFF CACHE BOOL "" FORCE)
+    set(tiff-docs OFF CACHE BOOL "" FORCE)
+    set(tiff-install OFF CACHE BOOL "" FORCE)
+
+    # libtiff's own cmake/LinkerChecks.cmake probes for GNU-ld-style --version-script support via
+    # check_c_source_compiles(), which on this Clang+LLD-on-Windows toolchain fails outright --
+    # CMake's try_compile() rejects "-Wl,--version-script=<path>" as an unrecognized warning
+    # category rather than passing it through to the linker, aborting the whole configure (verified
+    # empirically; this is a real upstream portability gap on this platform, not something within
+    # this engine's control). check_c_source_compiles() skips re-running its probe when the result
+    # variable is already cached (the standard CMake Check* idiom), so pre-seeding it here to a
+    # fixed FALSE bypasses the broken check entirely -- this engine doesn't need a linker version
+    # script either way (that only controls default symbol visibility for a shared libtiff build,
+    # and this fetch is static).
+    set(HAVE_LD_VERSION_SCRIPT FALSE CACHE BOOL "" FORCE)
+
+    sturdy_fetchcontent_declare(libtiff
+        GIT_REPOSITORY https://gitlab.com/libtiff/libtiff.git
+        GIT_TAG ${STURDY_LIBTIFF_TAG}
+    )
+    FetchContent_MakeAvailable(libtiff)
+
+    sturdy_mark_dependency_targets_exclude_from_all(tiff)
+    sturdy_register_license(libtiff "${libtiff_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_fetch_openexr)
+    # Decode-only: no CLI tools/examples/python bindings/tests. BUILD_TESTING is a plain
+    # (non-CACHE) set for the same reason as sturdy_fetch_libjxl()/sturdy_fetch_libtiff() above --
+    # it is a project-wide CMake/CTest convention, not a name namespaced to openexr, and a
+    # function's own variables never escape its scope.
+    set(BUILD_TESTING OFF)
+    set(BUILD_SHARED_LIBS OFF)
+    set(OPENEXR_INSTALL OFF CACHE BOOL "" FORCE)
+    set(OPENEXR_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    set(OPENEXR_INSTALL_TOOLS OFF CACHE BOOL "" FORCE)
+    set(OPENEXR_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(OPENEXR_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
+    set(OPENEXR_TEST_LIBRARIES OFF CACHE BOOL "" FORCE)
+    set(OPENEXR_TEST_TOOLS OFF CACHE BOOL "" FORCE)
+    set(OPENEXR_TEST_PYTHON OFF CACHE BOOL "" FORCE)
+    set(OPENEXR_INSTALL_DOCS OFF CACHE BOOL "" FORCE)
+    set(BUILD_WEBSITE OFF CACHE BOOL "" FORCE)
+
+    # OpenEXRCore vendors its own copy of libdeflate's sources (compiled directly into
+    # compression.c) whenever OpenEXRSetup.cmake's find_package(libdeflate CONFIG) can't find an
+    # installed package -- which it never can here, since sturdy_fetch_gdeflate()'s libdeflate_static
+    # target isn't an installed/exported package. That vendored copy's C symbols (libdeflate_alloc_
+    # compressor, etc.) are global and un-namespaced, so any executable linking both OpenEXRCore and
+    # our own libdeflate_static (e.g. anything pulling in GDeflate) fails with duplicate-symbol
+    # errors at link time. Forcing OPENEXR_FORCE_INTERNAL_DEFLATE skips that find_package search
+    # entirely, and pre-setting EXR_DEFLATE_LIB to our own already-fetched target (see
+    # sturdy_fetch_gdeflate(), called just above) makes OpenEXRCore link against it directly instead
+    # of compiling its own copy -- one real libdeflate in the whole build, matching the "don't
+    # duplicate logic" convention used elsewhere for shared dependencies.
+    set(OPENEXR_FORCE_INTERNAL_DEFLATE ON CACHE BOOL "" FORCE)
+    set(EXR_DEFLATE_LIB libdeflate_static)
+
+    sturdy_fetchcontent_declare(openexr
+        GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/openexr.git
+        GIT_TAG ${STURDY_OPENEXR_TAG}
+    )
+    FetchContent_MakeAvailable(openexr)
+
+    sturdy_mark_dependency_targets_exclude_from_all(
+        OpenEXR OpenEXRCore OpenEXRUtil IlmThread Iex Imath
+    )
+
+    # OpenEXRCore's internal_zip.c gates its SSE4.1 fast path on `_MSC_VER >= 1300 && _M_X64`,
+    # assuming (correctly for real MSVC, which never enforces target-feature attributes on
+    # intrinsics) that x64 always has SSE4.1 available. Clang-cl also defines _MSC_VER/_M_X64 but,
+    # unlike real MSVC, DOES enforce target features on intrinsics, so it fails to compile
+    # _mm_shuffle_epi8/_mm_extract_epi8 without an explicit -mssse3/-msse4.1 on that one
+    # translation unit. Scoped to just this file so the rest of the engine keeps its baseline
+    # (non-SSE4.1-assuming) compile flags.
+    # (set_source_files_properties() would not reach here: source-file properties are scoped to the
+    # directory that adds the source to a target, and that's OpenEXRCore's own subdirectory, not
+    # ours -- target_compile_options() has no such restriction.)
+    if(TARGET OpenEXRCore AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+        target_compile_options(OpenEXRCore PRIVATE -mssse3 -msse4.1)
+    endif()
+    if(TARGET OpenEXR AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(OpenEXR PRIVATE -mssse3 -msse4.1)
+    endif()
+
+    sturdy_register_license(openexr "${openexr_SOURCE_DIR}")
+endfunction()
+
 function(sturdy_fetch_gdeflate)
     # microsoft/DirectStorage's repo is mostly the DirectStorage SDK itself (NuGet packaging,
     # samples, docs) -- this engine gets the real DirectStorage binaries from NuGet directly (see
@@ -1514,6 +1842,33 @@ function(sturdy_find_bc7enc)
         add_library(bc7enc STATIC "${STURDY_BC7ENC_INCLUDE_DIR}/bc7enc.c")
         target_include_directories(bc7enc PUBLIC "${STURDY_BC7ENC_INCLUDE_DIR}")
     endif()
+endfunction()
+
+function(sturdy_find_webp)
+    find_package(WebP CONFIG REQUIRED)
+endfunction()
+
+function(sturdy_find_libavif)
+    # Assumes whatever provides the libavif package config has already baked in a decode-capable
+    # AV1 codec (e.g. vcpkg's libavif port with a codec feature enabled) -- there is no portable
+    # way to force that choice from the consuming side of find_package().
+    find_package(libavif CONFIG REQUIRED)
+endfunction()
+
+function(sturdy_find_libjxl)
+    find_package(libjxl CONFIG REQUIRED)
+endfunction()
+
+function(sturdy_find_openjpeg)
+    find_package(OpenJPEG CONFIG REQUIRED)
+endfunction()
+
+function(sturdy_find_libtiff)
+    find_package(TIFF REQUIRED)
+endfunction()
+
+function(sturdy_find_openexr)
+    find_package(OpenEXR CONFIG REQUIRED)
 endfunction()
 
 function(sturdy_find_gdeflate)
@@ -1665,6 +2020,38 @@ function(sturdy_normalize_dependency_targets)
 
     sturdy_alias_existing_target(Sturdy::bc7enc
         bc7enc
+    )
+
+    sturdy_alias_existing_target(Sturdy::WebP
+        WebP::webp
+        webp
+    )
+
+    sturdy_alias_existing_target(Sturdy::WebPDemux
+        WebP::webpdemux
+        webpdemux
+    )
+
+    sturdy_alias_existing_target(Sturdy::libavif
+        avif
+    )
+
+    sturdy_alias_existing_target(Sturdy::libjxl
+        jxl
+    )
+
+    sturdy_alias_existing_target(Sturdy::openjpeg
+        openjp2
+    )
+
+    sturdy_alias_existing_target(Sturdy::libtiff
+        TIFF::tiff
+        tiff
+    )
+
+    sturdy_alias_existing_target(Sturdy::OpenEXR
+        OpenEXR::OpenEXR
+        OpenEXR
     )
 
     sturdy_alias_existing_target(Sturdy::gdeflate

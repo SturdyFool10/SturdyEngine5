@@ -228,28 +228,16 @@ namespace {
             begin = end;
         }
 
-        // Reserve the implicit global-uniform constant buffer's real binding slot. Slang's
-        // reflection numbers explicit resource globals (textures, samplers, ...) as if that
-        // implicit block did not occupy a binding at all, but the compiler actually places it at
-        // `reflection.global_constant_buffer_binding` and shifts every resource whose binding is
-        // >= that up by one in the emitted SPIR-V/DXIL. Every caller of this function needs to see
-        // that same shift consistently — both the RHI bind-group-layout builder
-        // (`generate_bind_group_layouts`) and every subsystem that separately calls
-        // `collect_resource_bindings` to know where to write each resource's descriptor
-        // (materials, GTAO, atmosphere, motion blur, shadows, SVGF, UI/text, custom effects, ...).
-        // Verified empirically against a real compiled pipeline: without this shift, a shader with
-        // both loose uniforms and resource globals (e.g. `Shaders/gbuffer_geometry.slang`, 5
-        // textures) built a `VkDescriptorSetLayout` whose bindings did not match its own shader
-        // module's real SPIR-V layout — `VUID-VkGraphicsPipelineCreateInfo-layout-07990` followed
-        // by `VK_ERROR_DEVICE_LOST`, 100% reproducibly.
-        if (const optional<std::pair<u32, u32>> uniform_location = find_global_constant_buffer_location(reflection)) {
-            const auto [uniform_set, uniform_binding] = *uniform_location;
-            for (ReflectedDescriptorBinding &descriptor : descriptors) {
-                if (descriptor.set == uniform_set && descriptor.binding >= uniform_binding) {
-                    ++descriptor.binding;
-                }
-            }
-        }
+        // Slang's `parameter.binding` for explicit resource globals (textures, samplers, ...)
+        // already accounts for the implicit global-uniform constant buffer's own slot — e.g. for
+        // `Shaders/gbuffer_geometry.slang` (loose uniforms declared before its 5 textures), the
+        // implicit block sits at binding 0 and `base_color_texture` reflects as binding 1, which
+        // is exactly its real compiled SPIR-V binding. Bumping resource bindings by one here on
+        // top of that double-counts the block's slot and desyncs the RHI bind-group layout from
+        // the shader module's real layout — reproduced 100% as
+        // `VUID-VkGraphicsPipelineCreateInfo-layout-07988` on this shader. No adjustment needed:
+        // `generate_bind_group_layouts` inserts the implicit block's own entry at
+        // `reflection.global_constant_buffer_binding` separately, using these bindings as-is.
         return descriptors;
     }
 
@@ -297,11 +285,13 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
                 layout = std::prev(layouts.end());
             }
 
-            // `collect_descriptor_bindings` already shifted every resource at or after
-            // `uniform_binding` in this set out of the way (see its own comment), so this slot
-            // should always be free now. The fallback branch stays as defense in depth rather than
-            // an assumed-safe direct insert, since a collision here previously produced a real
-            // `VK_ERROR_DEVICE_LOST` rather than a caught error.
+            // On Vulkan, `uniform_binding` comes straight from this shader's own SPIR-V reflection
+            // and cannot legitimately collide with another resource's real binding, so the common
+            // case is a plain insert. D3D12 is the one that can reach the collision branch below:
+            // CBVs, SRVs and samplers live in independent register namespaces there (b0/t0/s0 all
+            // coexist), but `.binding` conflates them into one unified index, so the global
+            // constant buffer's binding can legitimately equal a texture's after per-class
+            // flattening (see `collect_descriptor_bindings`'s `needs_flattening` step).
             auto existing = std::ranges::find(layout->entries, uniform_binding, &RHI::BindGroupLayoutEntry::binding);
             if (existing == layout->entries.end() || existing->type == RHI::BindingType::UniformBuffer) {
                 layout->entries.push_back(RHI::BindGroupLayoutEntry{
@@ -313,12 +303,10 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
                     .flags = RHI::BindingFlags::None,
                 });
             } else {
-                // `.binding` is this RHI's Vulkan-shaped unified descriptor index, and on Vulkan it
-                // must exactly equal the real compiled SPIR-V binding for that resource. This
-                // branch should be unreachable now that `collect_descriptor_bindings` reserves the
-                // slot up front; kept only so an unexpected collision still resolves to a valid,
-                // if surprising, layout instead of silently dropping the uniform buffer entry —
-                // same shift `collect_descriptor_bindings` performs, applied locally.
+                // Only reachable on D3D12 (see above) — shifting `.binding` here is safe there
+                // because that field is this RHI's internal bookkeeping index, not the real
+                // register (`.shader_register`, untouched); the register-class flattening already
+                // recorded the actual b#/t#/u#/s# assignment D3D12 binds to.
                 for (RHI::BindGroupLayoutEntry &entry : layout->entries) {
                     if (entry.binding >= uniform_binding) {
                         ++entry.binding;

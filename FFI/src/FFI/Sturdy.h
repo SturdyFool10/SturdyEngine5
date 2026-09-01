@@ -6,8 +6,9 @@
 /// needs to do its own GPU work, the RHI resource surface: buffers, textures, samplers, bind
 /// groups, pipelines, command encoding, and ray tracing (see "RHI resources" and "Ray tracing"
 /// below), plus per-surface presentation/HDR control (see "Presentation and HDR" below).
-/// Fine-grained render-graph tuning (shadow/AO/tone-curve parameters) is not exposed yet; a
-/// caller needing that reaches for `sturdy_native_*` in the meantime.
+/// Render-graph tuning (shadow, ambient occlusion, anti-aliasing, bloom, tone-mapping, ReSTIR
+/// GI, motion blur) is exposed via the `Sturdy*Settings` structs and their `_init` functions
+/// below; anything finer than that still reaches for `sturdy_native_*`.
 ///
 /// Every rule below exists because a foreign caller cannot be trusted to honor a C++-side
 /// invariant the way a same-language caller would.
@@ -114,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 26u
+#define STURDY_ABI_VERSION_MINOR 27u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -477,6 +478,63 @@ typedef struct SturdyRuntimeConfig {
 ///
 /// @param config Destination. Must not be null.
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_runtime_config_init(SturdyRuntimeConfig *config);
+
+/// Broad class of a physical device — the engine's active one (`SturdyAdapterInfo::device_type`)
+/// or one reported by `sturdy_gpu_enumerate` before any engine exists.
+typedef enum SturdyDeviceType {
+    STURDY_DEVICE_TYPE_OTHER = 0,
+    STURDY_DEVICE_TYPE_INTEGRATED_GPU = 1,
+    STURDY_DEVICE_TYPE_DISCRETE_GPU = 2,
+    STURDY_DEVICE_TYPE_VIRTUAL_GPU = 3,
+    STURDY_DEVICE_TYPE_CPU = 4,
+    STURDY_DEVICE_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyDeviceType;
+
+/// Bitmask of graphics backends (see `SturdyBackend`) a physical GPU can be used with, as reported
+/// by `sturdy_gpu_enumerate`.
+typedef enum SturdyBackendMask {
+    STURDY_BACKEND_MASK_NONE = 0,
+    STURDY_BACKEND_MASK_VULKAN = 1u << 0,
+    STURDY_BACKEND_MASK_D3D12 = 1u << 1,
+    STURDY_BACKEND_MASK_FORCE_U32 = 0x7fffffff
+} SturdyBackendMask;
+
+/// One physical GPU this machine can create an engine on, as reported by `sturdy_gpu_enumerate`.
+///
+/// Unlike other queries in this header, `name`/`vendor`/`physical_device_id` are fixed-size
+/// buffers embedded directly in this struct rather than following the general string-output
+/// convention above (buffer + capacity + `*out_length`, queried by calling twice): enumeration
+/// itself creates and tears down a temporary graphics instance per backend, so asking a second time
+/// to learn a string's length would pay that cost again and risks a different snapshot (a GPU
+/// unplugged between calls) coming back. Values are always null-terminated, truncated rather than
+/// overflowed if a driver-reported string is unusually long.
+typedef struct SturdyGpuInfo {
+    /// Set to `sizeof(SturdyGpuInfo)` by the engine.
+    uint32_t struct_size;
+    char name[128];
+    char vendor[64];
+    /// Pass as `SturdyRuntimeConfig::physical_device_id` to request this GPU.
+    char physical_device_id[64];
+    SturdyDeviceType device_type;
+    uint32_t vendor_id;
+    uint32_t device_id;
+    /// Bitmask of `SturdyBackendMask` values.
+    uint32_t supported_backends;
+} SturdyGpuInfo;
+
+/// Enumerates every physical GPU this machine can create an engine on, across every graphics
+/// backend this build supports. Safe to call before `sturdy_runtime_run`, with no window or device
+/// yet — this is how an application builds its own GPU picker rather than guessing at
+/// `physical_device_id` values. Not free: it creates and immediately destroys a temporary graphics
+/// instance per backend, so call it once and cache the result rather than every frame.
+///
+/// @param out_gpus Copies up to `capacity` entries here.
+/// @param capacity Size of `out_gpus`, in entries. May be 0 to just read `*out_count`.
+/// @param out_count Receives the true number of GPUs found, which may exceed `capacity` —
+///        realistically never more than a handful, so a generously sized buffer (8) avoids this.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gpu_enumerate(SturdyGpuInfo *out_gpus,
+                                                             uint32_t capacity,
+                                                             uint32_t *out_count);
 
 /// Runs the application to completion: creates the window and graphics device, drives the frame
 /// loop, and returns once the last window closes.
@@ -1590,6 +1648,57 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_load_texture(SturdyEngine 
                                                                    SturdyBool srgb,
                                                                    SturdyAsset *out_texture);
 
+/// Decodes a texture from an in-memory encoded image (PNG, JPEG, and the rest the engine decodes)
+/// — the same decoder `sturdy_render_load_texture` uses, without requiring the bytes to already be
+/// a file on disk. For an image downloaded, generated, or packaged some other way.
+///
+/// @param encoded_bytes Encoded image bytes (a whole PNG/JPEG file's contents, not raw pixels).
+/// @param encoded_size Length of `encoded_bytes`, in bytes. Must be nonzero.
+/// @param srgb Nonzero to treat the contents as sRGB, which is right for color maps and wrong for
+///        normal and roughness maps.
+/// @param out_texture Receives the texture asset.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_load_texture_from_memory(
+    SturdyEngine engine,
+    const uint8_t *encoded_bytes,
+    size_t encoded_size,
+    SturdyBool srgb,
+    SturdyAsset *out_texture);
+
+/// Describes a texture built directly from raw pixels, for `sturdy_render_create_texture`.
+///
+/// Named distinctly from the RHI-level `SturdyTextureDesc` (see "RHI resources" below) even
+/// though both describe "a texture to create": that one configures a raw GPU resource
+/// (`SturdyFormat`, mip levels, usage flags, no pixel data), while this one is the
+/// asset-manager-level counterpart to `sturdy_render_load_texture` — pixels in, a `SturdyAsset`
+/// usable with `sturdy_render_set_model_texture` out.
+typedef struct SturdyRenderTextureDesc {
+    /// Set to `sizeof(SturdyRenderTextureDesc)` by `sturdy_render_texture_desc_init`.
+    uint32_t struct_size;
+    /// Capped well below any real GPU's maximum, only to keep `width * height * 4` from
+    /// overflowing while validating this struct — the real limit is
+    /// `SturdyDeviceLimits::max_texture_dimension_2d`.
+    uint32_t width;
+    uint32_t height;
+    SturdyBool srgb;
+    SturdyBool allow_compression;
+    SturdyBool generate_mipmaps;
+    uint8_t reserved;
+    /// RGBA8 pixel data, `width * height * 4` bytes, row-major and tightly packed (no row
+    /// padding). Copied before this call returns; the pointer need not outlive it.
+    const uint8_t *rgba8;
+} SturdyRenderTextureDesc;
+
+/// Fills `desc` with engine defaults (linear color space, mipmaps and compression both on) and the
+/// correct `struct_size`. `width`, `height`, and `rgba8` are left for the caller to set.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_texture_desc_init(SturdyRenderTextureDesc *desc);
+
+/// Creates a texture asset directly from raw RGBA8 pixels — for a procedurally generated texture,
+/// as opposed to `sturdy_render_load_texture`/`sturdy_render_load_texture_from_memory`, which
+/// decode an encoded image format.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_create_texture(SturdyEngine engine,
+                                                                     const SturdyRenderTextureDesc *desc,
+                                                                     SturdyAsset *out_texture);
+
 /// Reports how much geometry a model asset holds.
 ///
 /// @param out_primitives Receives the primitive count. May be null.
@@ -1600,6 +1709,19 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_model_info(SturdyEngine en
                                                                  uint32_t *out_primitives,
                                                                  uint32_t *out_vertices,
                                                                  uint32_t *out_triangles);
+
+/// Unloads an asset — a model, shader, or texture previously created by `sturdy_render_load_shader`,
+/// `sturdy_render_create_shape_model`, `sturdy_render_create_mesh_model`, or
+/// `sturdy_render_load_texture`. This is the only way to release one; without it, every asset a
+/// long-running caller creates accumulates for the life of the engine.
+///
+/// Unloading does not check whether an entity's `sturdy_render_set_model` still points at it —
+/// despawn or reassign every such entity first, or its next draw reads a destroyed asset.
+///
+/// @return `STURDY_ERROR_BUSY` when `asset` is a shader or texture a loaded model still depends
+///         on; unload that model first. `STURDY_ERROR_INVALID_HANDLE` when `asset` does not name a
+///         live asset.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_render_unload_asset(SturdyEngine engine, SturdyAsset asset);
 
 // ---------------------------------------------------------------------------------------------
 // Rendering: scene composition
@@ -2352,6 +2474,35 @@ typedef enum SturdyWindowMode {
     STURDY_WINDOW_MODE_FORCE_U32 = 0x7fffffff
 } SturdyWindowMode;
 
+/// Platform-composited visual effect a window can request. Support is OS-dependent — an effect
+/// this platform cannot render (e.g. Mica off Windows 11) is rejected with
+/// `STURDY_ERROR_NOT_AVAILABLE` rather than silently ignored.
+typedef enum SturdyWindowEffectKind {
+    STURDY_WINDOW_EFFECT_BLUR = 0,
+    STURDY_WINDOW_EFFECT_ACRYLIC = 1,
+    STURDY_WINDOW_EFFECT_MICA = 2,
+    STURDY_WINDOW_EFFECT_MICA_ALT = 3,
+    STURDY_WINDOW_EFFECT_TABBED = 4,
+    STURDY_WINDOW_EFFECT_DARK_MODE = 5,
+    STURDY_WINDOW_EFFECT_BORDER_COLOR = 6,
+    STURDY_WINDOW_EFFECT_CAPTION_COLOR = 7,
+    STURDY_WINDOW_EFFECT_TEXT_COLOR = 8,
+    STURDY_WINDOW_EFFECT_TRANSPARENT = 9,
+    STURDY_WINDOW_EFFECT_FORCE_U32 = 0x7fffffff
+} SturdyWindowEffectKind;
+
+/// Screen-space hint for where an IME should draw its candidate/composition window, in the same
+/// logical units as `SturdyWindowSnapshot::width`/`height`. `cursor_offset_x` is the caret's
+/// offset from `x` within that area, for IMEs that anchor the popup to caret position rather than
+/// the area's top-left corner.
+typedef struct SturdyTextInputArea {
+    float x;
+    float y;
+    float width;
+    float height;
+    float cursor_offset_x;
+} SturdyTextInputArea;
+
 /// Observed state of one window this frame.
 ///
 /// `size` is in logical units and `framebuffer_size` in physical pixels; they differ on a
@@ -2403,6 +2554,94 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_find(SturdyEngine engine,
 // Window requests
 // ---------------------------------------------------------------------------------------------
 
+/// Configuration for a new window, as handed to `sturdy_window_spawn` /
+/// `sturdy_window_recreate_primary`. The window's graphics API always matches the engine's active
+/// backend — there is no field for it here, since a second window using a different backend is not
+/// something this engine supports.
+typedef struct SturdyWindowConfig {
+    /// Set to `sizeof(SturdyWindowConfig)` by `sturdy_window_config_init`.
+    uint32_t struct_size;
+    /// Copied by the engine before this call returns; the pointer need not outlive it. Null means
+    /// "Sturdy Engine".
+    const char *title;
+    uint32_t width;
+    uint32_t height;
+    int32_t position_x;
+    int32_t position_y;
+    /// When true, `position_x`/`position_y` are ignored and the OS picks a placement.
+    SturdyBool use_default_position;
+    SturdyBool visible;
+    SturdyBool resizable;
+    SturdyBool decorated;
+    /// Whether the window should render at the display's native pixel density rather than being
+    /// upscaled. `SturdyWindowSnapshot::framebuffer_width/height` reflects the actual result.
+    SturdyBool high_dpi;
+    SturdyBool transparent;
+    SturdyWindowMode mode;
+} SturdyWindowConfig;
+
+/// Fills `config` with the engine's default window configuration (1280x720, windowed, decorated,
+/// visible, resizable, OS-placed).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_config_init(SturdyWindowConfig *config);
+
+/// Requests a new, additional window.
+///
+/// Queued like every other request in this section: this only reports a bad engine handle,
+/// argument, or struct-size mismatch. Whether the window was actually created is reported later
+/// through `sturdy_window_take_completions`, keyed by `*out_request_id`.
+///
+/// @param out_request_id Receives an identifier for the queued request. May be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_spawn(SturdyEngine engine,
+                                                             const SturdyWindowConfig *config,
+                                                             uint64_t *out_request_id);
+
+/// Requests that the primary window be destroyed and recreated with a new configuration —
+/// changing decorations or transparency after creation on a platform where the window must be
+/// recreated to do so, for instance.
+///
+/// Queued and completion-reported the same way as `sturdy_window_spawn`.
+///
+/// @param out_request_id Receives an identifier for the queued request. May be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_recreate_primary(SturdyEngine engine,
+                                                                       const SturdyWindowConfig *config,
+                                                                       uint64_t *out_request_id);
+
+/// Which kind of window request a `SturdyWindowRequestCompletion` reports the outcome of.
+typedef enum SturdyWindowRequestKind {
+    STURDY_WINDOW_REQUEST_SPAWN = 0,
+    STURDY_WINDOW_REQUEST_RECREATE_PRIMARY = 1,
+    /// Also reported for `sturdy_window_request_close`, keyed by that call's own request id — most
+    /// callers don't need to wait for it, since the window disappearing is its own confirmation.
+    STURDY_WINDOW_REQUEST_CLOSE = 2,
+    STURDY_WINDOW_REQUEST_FORCE_U32 = 0x7fffffff
+} SturdyWindowRequestKind;
+
+/// Outcome of one completed window request: `sturdy_window_spawn`, `sturdy_window_recreate_primary`,
+/// or `sturdy_window_request_close`.
+typedef struct SturdyWindowRequestCompletion {
+    /// Matches the `out_request_id` the originating call produced.
+    uint64_t request_id;
+    SturdyWindowRequestKind kind;
+    /// False when the request failed (window creation refused by the platform, runtime window
+    /// management disabled, or a close naming a window that no longer exists); `surface` is not
+    /// valid in that case.
+    SturdyBool accepted;
+    uint8_t reserved[3];
+    SturdySurface surface;
+} SturdyWindowRequestCompletion;
+
+/// Copies up to `capacity` completed window requests into `out_completions` and reports the true
+/// number available in `*out_count`, which may exceed `capacity` — completions beyond `capacity`
+/// are dropped, not held for a later call, since window lifecycle events are rare enough that a
+/// caller should simply pass a generously sized buffer (8 is enough for any realistic frame).
+///
+/// @param out_completions May be null only when `capacity` is 0, to just read `*out_count`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_take_completions(
+    SturdyEngine engine,
+    SturdyWindowRequestCompletion *out_completions,
+    uint32_t capacity,
+    uint32_t *out_count);
+
 /// Requests that a window close.
 ///
 /// Queued rather than immediate: the engine applies window changes at a defined point in the frame
@@ -2434,19 +2673,52 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_transparent(SturdyEngi
                                                                       SturdySurface surface,
                                                                       SturdyBool transparent);
 
+/// Requests relative mouse mode (the OS cursor is hidden and confined, and mouse motion reports
+/// as unbounded deltas instead of absolute position) for a window — the mode a first-person
+/// camera or any other mouse-look control needs. See `SturdyWindowSnapshot::mouse_locked` and
+/// `sturdy_engine_mouse_delta` for reading the resulting state and motion.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_relative_mouse_mode(SturdyEngine engine,
+                                                                              SturdySurface surface,
+                                                                              SturdyBool enabled);
+
+/// Requests that a window confine the cursor to its bounds while keeping it visible at an
+/// absolute position — see `SturdyWindowSnapshot::mouse_locked` for the resulting state. Distinct
+/// from `sturdy_window_set_relative_mouse_mode`, which also hides the cursor and switches to
+/// unbounded motion deltas.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_mouse_locked(SturdyEngine engine,
+                                                                       SturdySurface surface,
+                                                                       SturdyBool locked);
+
+/// Requests that a window grab (confine) or release the cursor at the OS level.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_cursor_grabbed(SturdyEngine engine,
+                                                                         SturdySurface surface,
+                                                                         SturdyBool grabbed);
+
+/// Requests a platform-composited visual effect for a window (Windows' Mica/Acrylic/blur, etc.).
+///
+/// Queued like every other request in this section: this call only reports a bad engine handle or
+/// argument. Whether the platform actually supports `kind` is decided when the request is applied,
+/// and (like every other queued window request) that outcome is not currently reported back.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_effect(SturdyEngine engine,
+                                                                 SturdySurface surface,
+                                                                 SturdyWindowEffectKind kind,
+                                                                 SturdyBool enabled);
+
+/// Requests that a window start or stop IME text composition (on-screen keyboards, CJK input
+/// methods, etc.). Most text fields need this active only while focused and editable.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_text_input_active(SturdyEngine engine,
+                                                                            SturdySurface surface,
+                                                                            SturdyBool active);
+
+/// Hints the IME where to draw its candidate/composition window, in the window's logical units.
+/// Only meaningful while text input is active (see `sturdy_window_set_text_input_active`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_text_input_area(SturdyEngine engine,
+                                                                          SturdySurface surface,
+                                                                          const SturdyTextInputArea *area);
+
 // ---------------------------------------------------------------------------------------------
 // RHI introspection
 // ---------------------------------------------------------------------------------------------
-
-/// Broad class of the physical device the engine is running on.
-typedef enum SturdyDeviceType {
-    STURDY_DEVICE_TYPE_OTHER = 0,
-    STURDY_DEVICE_TYPE_INTEGRATED_GPU = 1,
-    STURDY_DEVICE_TYPE_DISCRETE_GPU = 2,
-    STURDY_DEVICE_TYPE_VIRTUAL_GPU = 3,
-    STURDY_DEVICE_TYPE_CPU = 4,
-    STURDY_DEVICE_TYPE_FORCE_U32 = 0x7fffffff
-} SturdyDeviceType;
 
 /// Class of work a queue accepts.
 typedef enum SturdyQueueClass {

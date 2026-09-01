@@ -256,6 +256,37 @@ int main() {
               "sturdy_window_set_decorated must reject an expired handle");
         check(sturdy_window_set_transparent(dead, any_surface, STURDY_TRUE) == STURDY_ERROR_HANDLE_EXPIRED,
               "sturdy_window_set_transparent must reject an expired handle");
+        check(sturdy_window_set_relative_mouse_mode(dead, any_surface, STURDY_TRUE) == STURDY_ERROR_HANDLE_EXPIRED,
+              "sturdy_window_set_relative_mouse_mode must reject an expired handle");
+        check(sturdy_window_set_mouse_locked(dead, any_surface, STURDY_TRUE) == STURDY_ERROR_HANDLE_EXPIRED,
+              "sturdy_window_set_mouse_locked must reject an expired handle");
+        check(sturdy_window_set_cursor_grabbed(dead, any_surface, STURDY_TRUE) == STURDY_ERROR_HANDLE_EXPIRED,
+              "sturdy_window_set_cursor_grabbed must reject an expired handle");
+        check(sturdy_window_set_effect(dead, any_surface, STURDY_WINDOW_EFFECT_BLUR, STURDY_TRUE) ==
+                  STURDY_ERROR_HANDLE_EXPIRED,
+              "sturdy_window_set_effect must reject an expired handle");
+        check(sturdy_window_set_text_input_active(dead, any_surface, STURDY_TRUE) == STURDY_ERROR_HANDLE_EXPIRED,
+              "sturdy_window_set_text_input_active must reject an expired handle");
+        {
+            const SturdyTextInputArea area{0.0f, 0.0f, 100.0f, 20.0f, 0.0f};
+            check(sturdy_window_set_text_input_area(dead, any_surface, &area) == STURDY_ERROR_HANDLE_EXPIRED,
+                  "sturdy_window_set_text_input_area must reject an expired handle");
+        }
+        {
+            SturdyWindowConfig window_config{};
+            check(sturdy_window_config_init(&window_config) == STURDY_OK,
+                  "sturdy_window_config_init must succeed with a valid output pointer");
+            check(sturdy_window_spawn(dead, &window_config, nullptr) == STURDY_ERROR_HANDLE_EXPIRED,
+                  "sturdy_window_spawn must reject an expired handle");
+            check(sturdy_window_recreate_primary(dead, &window_config, nullptr) == STURDY_ERROR_HANDLE_EXPIRED,
+                  "sturdy_window_recreate_primary must reject an expired handle");
+        }
+        {
+            uint32_t completion_count = 0;
+            check(sturdy_window_take_completions(dead, nullptr, 0, &completion_count) ==
+                      STURDY_ERROR_HANDLE_EXPIRED,
+                  "sturdy_window_take_completions must reject an expired handle");
+        }
 
         // Values a foreign caller can pass that no engine state could make sensible are rejected
         // before the handle is even consulted.
@@ -270,6 +301,43 @@ int main() {
         check(sturdy_window_set_mode(dead, any_surface, static_cast<SturdyWindowMode>(9999)) ==
                   STURDY_ERROR_INVALID_ARGUMENT,
               "an unrecognized window mode must be rejected");
+        check(sturdy_window_set_effect(dead, any_surface, static_cast<SturdyWindowEffectKind>(9999),
+                                       STURDY_TRUE) == STURDY_ERROR_INVALID_ARGUMENT,
+              "an unrecognized window effect kind must be rejected");
+        check(sturdy_window_spawn(dead, nullptr, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a null window config must be rejected");
+        {
+            SturdyWindowConfig bad_size_config{};
+            check(sturdy_window_config_init(&bad_size_config) == STURDY_OK,
+                  "sturdy_window_config_init must succeed with a valid output pointer");
+            bad_size_config.struct_size = 1;
+            check(sturdy_window_spawn(dead, &bad_size_config, nullptr) ==
+                      STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
+                  "a mismatched SturdyWindowConfig struct_size must be rejected");
+
+            SturdyWindowConfig bad_mode_config{};
+            check(sturdy_window_config_init(&bad_mode_config) == STURDY_OK,
+                  "sturdy_window_config_init must succeed with a valid output pointer");
+            bad_mode_config.mode = static_cast<SturdyWindowMode>(9999);
+            check(sturdy_window_spawn(dead, &bad_mode_config, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+                  "an unrecognized window mode in SturdyWindowConfig must be rejected");
+        }
+        check(sturdy_window_take_completions(dead, nullptr, 1, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a null completions output count pointer must be rejected");
+        {
+            uint32_t completion_count = 0;
+            check(sturdy_window_take_completions(dead, nullptr, 1, &completion_count) ==
+                      STURDY_ERROR_INVALID_ARGUMENT,
+                  "a null completions buffer with nonzero capacity must be rejected");
+        }
+        check(sturdy_window_set_text_input_area(dead, any_surface, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a null text input area must be rejected");
+        {
+            const SturdyTextInputArea non_finite_area{std::numeric_limits<float>::quiet_NaN(), 0.0f, 0.0f, 0.0f, 0.0f};
+            check(sturdy_window_set_text_input_area(dead, any_surface, &non_finite_area) ==
+                      STURDY_ERROR_INVALID_ARGUMENT,
+                  "a non-finite text input area must be rejected");
+        }
 
         // Null outputs are caller bugs regardless of engine state.
         check(sturdy_window_count(dead, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,

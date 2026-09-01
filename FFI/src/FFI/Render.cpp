@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstring>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -548,6 +549,107 @@ SturdyResult STURDY_ABI_CALL sturdy_render_load_texture(SturdyEngine engine,
     });
 }
 
+SturdyResult STURDY_ABI_CALL sturdy_render_load_texture_from_memory(SturdyEngine engine,
+                                                                    const uint8_t *encoded_bytes,
+                                                                    size_t encoded_size,
+                                                                    SturdyBool srgb,
+                                                                    SturdyAsset *out_texture) {
+    return guarded([&]() -> SturdyResult {
+        if (encoded_bytes == nullptr || out_texture == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT,
+                             "encoded_bytes and output pointer must not be null");
+        }
+        if (encoded_size == 0) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "encoded_size must be nonzero");
+        }
+
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        const SturdyResult resolved = resolve(engine, &resolved_engine);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+
+        const SFT::Engine::TextureColorSpace color_space = srgb != STURDY_FALSE
+                                                               ? SFT::Engine::TextureColorSpace::Srgb
+                                                               : SFT::Engine::TextureColorSpace::Linear;
+        const std::span<const std::byte> encoded{reinterpret_cast<const std::byte *>(encoded_bytes),
+                                                 encoded_size};
+        auto texture = resolved_engine->assets().create_texture_from_encoded_bytes(encoded, color_space);
+        if (!texture) {
+            return set_error(STURDY_ERROR_NOT_AVAILABLE, texture.error().message.cpp_string_view());
+        }
+        *out_texture = to_abi_asset(*texture);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_render_texture_desc_init(SturdyRenderTextureDesc *desc) {
+    return guarded([&]() -> SturdyResult {
+        if (desc == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::Engine::TextureAssetDesc defaults{};
+        *desc = SturdyRenderTextureDesc{};
+        desc->struct_size = static_cast<uint32_t>(sizeof(SturdyRenderTextureDesc));
+        desc->width = defaults.width;
+        desc->height = defaults.height;
+        desc->srgb = defaults.color_space == SFT::Engine::TextureColorSpace::Srgb ? STURDY_TRUE : STURDY_FALSE;
+        desc->allow_compression = defaults.allow_compression ? STURDY_TRUE : STURDY_FALSE;
+        desc->generate_mipmaps = defaults.generate_mipmaps ? STURDY_TRUE : STURDY_FALSE;
+        desc->rgba8 = nullptr;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_render_create_texture(SturdyEngine engine,
+                                                          const SturdyRenderTextureDesc *desc,
+                                                          SturdyAsset *out_texture) {
+    return guarded([&]() -> SturdyResult {
+        if (desc == nullptr || out_texture == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "desc and output pointer must not be null");
+        }
+        if (desc->struct_size != sizeof(SturdyRenderTextureDesc)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
+                             "SturdyRenderTextureDesc size does not match this engine build");
+        }
+        // Capped so `width * height * 4` cannot overflow while building the byte span below; no
+        // real GPU's max_texture_dimension_2d comes anywhere close to this.
+        constexpr uint32_t max_dimension = 65536;
+        if (desc->width == 0 || desc->height == 0 || desc->width > max_dimension ||
+            desc->height > max_dimension) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT,
+                             "width and height must be nonzero and no greater than 65536");
+        }
+        if (desc->rgba8 == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "rgba8 must not be null");
+        }
+
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        const SturdyResult resolved = resolve(engine, &resolved_engine);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+
+        SFT::Engine::TextureAssetDesc engine_desc{};
+        engine_desc.width = desc->width;
+        engine_desc.height = desc->height;
+        engine_desc.color_space = desc->srgb != STURDY_FALSE ? SFT::Engine::TextureColorSpace::Srgb
+                                                              : SFT::Engine::TextureColorSpace::Linear;
+        const size_t pixel_bytes = static_cast<size_t>(desc->width) * static_cast<size_t>(desc->height) * 4;
+        const auto *pixels = reinterpret_cast<const std::byte *>(desc->rgba8);
+        engine_desc.rgba8.assign(pixels, pixels + pixel_bytes);
+        engine_desc.allow_compression = desc->allow_compression != STURDY_FALSE;
+        engine_desc.generate_mipmaps = desc->generate_mipmaps != STURDY_FALSE;
+
+        auto texture = resolved_engine->assets().create_texture(std::move(engine_desc));
+        if (!texture) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, texture.error().message.cpp_string_view());
+        }
+        *out_texture = to_abi_asset(*texture);
+        return STURDY_OK;
+    });
+}
+
 SturdyResult STURDY_ABI_CALL sturdy_render_model_info(SturdyEngine engine,
                                                       SturdyAsset model,
                                                       uint32_t *out_primitives,
@@ -572,6 +674,25 @@ SturdyResult STURDY_ABI_CALL sturdy_render_model_info(SturdyEngine engine,
         }
         if (out_triangles != nullptr) {
             *out_triangles = static_cast<uint32_t>(info->triangle_count);
+        }
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_render_unload_asset(SturdyEngine engine, SturdyAsset asset) {
+    return guarded([&]() -> SturdyResult {
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        const SturdyResult resolved = resolve(engine, &resolved_engine);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+
+        auto unloaded = resolved_engine->assets().unload(to_engine_asset(asset));
+        if (!unloaded) {
+            const SturdyResult code = unloaded.error().code == SFT::Engine::AssetErrorCode::InUse
+                                          ? STURDY_ERROR_BUSY
+                                          : STURDY_ERROR_INVALID_HANDLE;
+            return set_error(code, unloaded.error().message.cpp_string_view());
         }
         return STURDY_OK;
     });

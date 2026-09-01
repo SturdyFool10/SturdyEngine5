@@ -15,6 +15,13 @@ sturdy_add_package(Engine
         Sturdy::cgltf
         Sturdy::miniaudio
         Sturdy::bc7enc
+        Sturdy::WebP
+        Sturdy::WebPDemux
+        Sturdy::libavif
+        Sturdy::libjxl
+        Sturdy::openjpeg
+        Sturdy::libtiff
+        Sturdy::OpenEXR
         Sturdy::Tracy
 
     DEBUG_PUBLIC_DEPS
@@ -57,6 +64,14 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     sturdy_enable_warnings(EngineTextureStreamingCompressionTest)
     add_test(NAME EngineTextureStreamingCompressionTest COMMAND EngineTextureStreamingCompressionTest)
     set_tests_properties(EngineTextureStreamingCompressionTest PROPERTIES TIMEOUT 10)
+
+    # Exercises Engine::Detail::decode_image_rgba8 (ImageDecode.cpp) directly against hand-built
+    # encoded bytes, growing as image-format support (plans/image-format-support.md) is added.
+    add_executable(EngineImageDecodeTest tests/ImageDecodeTest.cpp)
+    target_link_libraries(EngineImageDecodeTest PRIVATE Sturdy::Engine)
+    sturdy_enable_warnings(EngineImageDecodeTest)
+    add_test(NAME EngineImageDecodeTest COMMAND EngineImageDecodeTest)
+    set_tests_properties(EngineImageDecodeTest PROPERTIES TIMEOUT 10)
 
     if(NOT STURDY_BUILD_SHARED_LIBS)
         add_executable(

@@ -443,6 +443,27 @@ namespace SFT::Engine {
                 continue;
             }
 
+            if (auto *relative_mouse = std::get_if<SetRelativeMouseModeRequest>(&request)) {
+                window_manager_.post_to_window(relative_mouse->window, [enabled = relative_mouse->enabled](WindowManager::Window &w) {
+                    return w.set_relative_mouse_mode(enabled);
+                });
+                continue;
+            }
+
+            if (auto *mouse_locked = std::get_if<SetMouseLockedRequest>(&request)) {
+                window_manager_.post_to_window(mouse_locked->window, [locked = mouse_locked->locked](WindowManager::Window &w) {
+                    return w.set_mouse_locked(locked);
+                });
+                continue;
+            }
+
+            if (auto *cursor_grabbed = std::get_if<SetCursorGrabbedRequest>(&request)) {
+                window_manager_.post_to_window(cursor_grabbed->window, [grabbed = cursor_grabbed->grabbed](WindowManager::Window &w) {
+                    return w.set_cursor_grabbed(grabbed);
+                });
+                continue;
+            }
+
             if (auto *blur = std::get_if<SetBlurRequest>(&request)) {
                 record_applied_effect(blur->window, WindowManager::WindowEffect{blur->kind, blur->enabled});
                 window_manager_.post_to_window(blur->window, [kind = blur->kind, enabled = blur->enabled](WindowManager::Window &w) {

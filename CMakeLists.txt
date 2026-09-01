@@ -30,6 +30,20 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # already pulled <limits> in.
 add_compile_definitions(_SILENCE_CXX23_DENORM_DEPRECATION_WARNING)
 
+# Forced empty and set as early as possible, before any dependency is fetched: several fetched
+# projects (freetype, OpenEXR, ...) set this themselves internally to suffix Debug-config library
+# filenames (e.g. "Imath-3_2_d.lib"), each guarded with its own "if (NOT DEFINED
+# CMAKE_DEBUG_POSTFIX)" check. Once any one of them sets it, every OTHER dependency processed
+# afterward sees it as already-defined and inherits that same suffix on its own output filenames --
+# but only for targets whose OWN CMakeLists.txt actually consults the variable when creating the
+# target, which was already true for most of them and NOT true for whichever specific new target
+# tripped this (empirically: adding OpenEXR was what finally surfaced it, as a hard link failure --
+# "Imath-3_2_d.lib" referenced by one generated ninja rule but never actually produced, because a
+# different rule for the same logical target computed its filename before the suffix propagated).
+# Forcing this to empty here, before any of that runs, keeps every fetched dependency's own
+# defensive "if (NOT DEFINED ...)" check finding it already decided and moving on.
+set(CMAKE_DEBUG_POSTFIX "" CACHE STRING "Suffix appended to library filenames in Debug configs." FORCE)
+
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 option(STURDY_FETCH_DEPENDENCIES "Download third-party dependencies with FetchContent when packages are not already available." ON)
@@ -70,6 +84,11 @@ option(STURDY_FETCH_UPDATES_DISCONNECTED "Skip FetchContent git update checks af
 # Force the Windows GUI (WinMain, no console) entry point in every configuration. When OFF, WinMain
 # is used only for Windows Dist builds; Debug/RelWithDebInfo/Release keep the console main().
 option(SFT_USE_WINMAIN "Always use the Windows WinMain entry point, regardless of build type." OFF)
+# Off by default: registers FfiNativeHandleProbe (see FFI/CMakeLists.txt) as real CTest cases
+# instead of a manual-only tool. It creates a real window and GPU device, which a headless CI
+# runner does not have — turn this ON on a developer machine with a GPU and a display to get
+# automatic pass/fail coverage of the RHI/pipeline paths CTest otherwise never exercises.
+option(STURDY_ENABLE_GPU_TESTS "Register GPU-backed FFI probe tests with CTest (requires a real GPU and display)." OFF)
 
 if(NOT STURDY_BUILD_SHARED_LIBS)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build third-party dependencies as shared libraries." FORCE)
