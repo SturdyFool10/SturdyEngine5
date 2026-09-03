@@ -416,7 +416,7 @@ namespace SFT::Engine {
                 .width = 1,
                 .height = 1,
                 .color_space = TextureColorSpace::Linear,
-                .rgba8 = std::vector<std::byte>{std::byte{128}, std::byte{128}, std::byte{255}, std::byte{255}},
+                .pixels = std::vector<std::byte>{std::byte{128}, std::byte{128}, std::byte{255}, std::byte{255}},
                 .label = UString{"gltf flat normal"_ustr},
             });
             if (created) {
@@ -648,7 +648,7 @@ namespace SFT::Engine {
                         if (occlusion_pixels && mr_pixels && occlusion_pixels->width == mr_pixels->width &&
                             occlusion_pixels->height == mr_pixels->height) {
                             AssetExpected<Asset> orm_asset = assets.create_orm_texture(
-                                occlusion_pixels->pixels, mr_pixels->pixels, occlusion_pixels->width,
+                                occlusion_pixels->pixels(), mr_pixels->pixels(), occlusion_pixels->width,
                                 occlusion_pixels->height, UString{"gltf orm"_ustr});
                             if (orm_asset) {
                                 packed_orm_texture = *orm_asset;
@@ -708,12 +708,12 @@ namespace SFT::Engine {
                             if (AssetExpected<Detail::DecodedImage> mr_pixels =
                                     decode_gltf_image_pixels(*mr_gltf_texture->image, base_dir)) {
                                 if (auto repacked = Detail::pack_metallic_roughness_rg(
-                                        mr_pixels->pixels, mr_pixels->width, mr_pixels->height)) {
+                                        mr_pixels->pixels(), mr_pixels->width, mr_pixels->height)) {
                                     AssetExpected<Asset> created = assets.create_texture(TextureAssetDesc{
                                         .width = mr_pixels->width,
                                         .height = mr_pixels->height,
                                         .color_space = TextureColorSpace::Linear,
-                                        .rgba8 = std::move(*repacked),
+                                        .pixels = std::move(*repacked),
                                         .label = UString{"gltf metallic_roughness (bc5)"_ustr},
                                         .kind = TextureKind::MetallicRoughness,
                                     });

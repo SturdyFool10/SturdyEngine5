@@ -89,6 +89,10 @@ namespace SFT::Renderer {
                 case RHI::Format::R8Unorm: texel_size = 1; break;
                 case RHI::Format::RGBA8Unorm:
                 case RHI::Format::RGBA8UnormSrgb: texel_size = 4; break;
+                // The format an HDR source texture (an EXR environment map, a PQ AVIF) is uploaded
+                // in: no 8-bit format can hold scene-linear light above display white, and no BC
+                // format this engine can encode holds float at all.
+                case RHI::Format::RGBA16Float: texel_size = 8; break;
                 default: return 0;
             }
             const u64 texels = static_cast<u64>(width) * height;
@@ -114,6 +118,7 @@ namespace SFT::Renderer {
                 case RHI::Format::R8Unorm:
                 case RHI::Format::RGBA8Unorm:
                 case RHI::Format::RGBA8UnormSrgb: return 4;
+                case RHI::Format::RGBA16Float: return 8;
                 default: return 0;
             }
         }
@@ -152,44 +157,45 @@ namespace SFT::Renderer {
             return levels;
         }
 
-        /// Computes the texture mip chain bytes required by the supplied values.
-        ///
-        /// @param format Format used for the resource, render target, or conversion.
-        /// @param width Width of the target extent.
-        /// @param height Height of the target extent.
-        /// @param mip_levels `mip_levels` value used by the operation.
-        ///
-        /// @return Returns the value produced by the operation.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] u64 texture_mip_chain_bytes(
-            RHI::Format format, u32 width, u32 height, u32 mip_levels) noexcept {
-            if (mip_levels == 0 || mip_levels > texture_mip_level_count(width, height)) {
-                return 0;
-            }
-            const u64 alignment = texture_copy_offset_alignment(format);
-            if (alignment == 0) {
-                return 0;
-            }
-            u64 total = 0;
-            for (u32 level = 0; level < mip_levels; ++level) {
-                if (level != 0) {
-                    total = align_up(total, alignment);
-                    if (total == 0) {
-                        return 0;
-                    }
-                }
-                const u64 level_bytes = texture_data_bytes(format, width, height);
-                if (level_bytes == 0 || total > std::numeric_limits<u64>::max() - level_bytes) {
-                    return 0;
-                }
-                total += level_bytes;
-                width = std::max(width / 2u, 1u);
-                height = std::max(height / 2u, 1u);
-            }
-            return total;
-        }
 
     } // namespace
+
+    /// Returns the number of bytes a complete mip chain occupies in `format`.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param mip_levels `mip_levels` value used by the operation.
+    ///
+    /// @return Returns the requested count or size; 0 when the format is unsupported.
+    /// @note This function does not throw exceptions.
+    u64 texture_mip_chain_byte_size(RHI::Format format, u32 width, u32 height, u32 mip_levels) noexcept {
+        if (mip_levels == 0 || mip_levels > texture_mip_level_count(width, height)) {
+            return 0;
+        }
+        const u64 alignment = texture_copy_offset_alignment(format);
+        if (alignment == 0) {
+            return 0;
+        }
+        u64 total = 0;
+        for (u32 level = 0; level < mip_levels; ++level) {
+            if (level != 0) {
+                total = align_up(total, alignment);
+                if (total == 0) {
+                    return 0;
+                }
+            }
+            const u64 level_bytes = texture_data_bytes(format, width, height);
+            if (level_bytes == 0 || total > std::numeric_limits<u64>::max() - level_bytes) {
+                return 0;
+            }
+            total += level_bytes;
+            width = std::max(width / 2u, 1u);
+            height = std::max(height / 2u, 1u);
+        }
+        return total;
+    }
+
 
     /// Creates a texture from the supplied parameters.
     ///
@@ -218,7 +224,7 @@ namespace SFT::Renderer {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Cannot create a texture with a zero dimension."});
         }
-        const u64 expected_bytes = texture_mip_chain_bytes(format, width, height, mip_levels);
+        const u64 expected_bytes = texture_mip_chain_byte_size(format, width, height, mip_levels);
         if (expected_bytes == 0) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Unsupported texture format or invalid mip count for renderer create_texture."});

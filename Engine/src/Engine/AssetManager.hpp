@@ -49,6 +49,33 @@ namespace SFT::Engine {
     };
 
 
+    /// The sample layout a texture asset's pixel data is in. Deliberately a much smaller set than
+    /// the image decoder can produce: these are the two the GPU texture path actually supports,
+    /// and anything a decoder hands back is converted into one of them before it gets here.
+    enum class TexturePixelFormat : u8 {
+        /// Four 8-bit unsigned-normalized channels. Every ordinary texture.
+        Rgba8,
+        /// Four IEEE binary16 channels holding scene-linear light. The only format that can carry
+        /// an HDR source's highlights above display white; not block-compressible by this engine
+        /// (that would need a BC6H encoder, which the bundled bc7enc does not provide), so it
+        /// trades VRAM for range.
+        Rgba16Float,
+    };
+
+
+    /// Whether a texture load should preserve the source file's high dynamic range.
+    enum class TextureDynamicRange : u8 {
+        /// Decode to 8-bit sRGB, clipping anything above display white. Correct for the
+        /// overwhelming majority of textures — albedo, UI, masks — and the only option that can be
+        /// block-compressed.
+        Sdr,
+        /// Decode to scene-linear half-float in the working primaries, keeping highlights and any
+        /// wide-gamut color the source carried. What an environment map or an HDR photograph wants;
+        /// costs 2x the VRAM of an uncompressed 8-bit texture and 8x a BC1-compressed one.
+        Hdr,
+    };
+
+
     enum class TextureKind : u8 {
 
 
@@ -71,7 +98,12 @@ namespace SFT::Engine {
         u32 width = 0;
         u32 height = 0;
         TextureColorSpace color_space = TextureColorSpace::Srgb;
-        std::vector<std::byte> rgba8;
+        /// Layout of `pixels`. `color_space` still describes how the GPU should interpret the
+        /// samples; an `Rgba16Float` texture is always scene-linear and so must pair with
+        /// `TextureColorSpace::Linear`.
+        TexturePixelFormat format = TexturePixelFormat::Rgba8;
+        /// Tightly packed pixel data in `format`, `width * height * bytes-per-pixel` bytes long.
+        std::vector<std::byte> pixels;
         UString label;
 
 
@@ -189,13 +221,15 @@ namespace SFT::Engine {
         /// @param color_space `color_space` value used by the operation.
         /// @param kind `kind` value used by the operation.
         /// @param label `label` value used by the operation.
+        /// @param dynamic_range Whether to preserve the source's high dynamic range.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] AssetExpected<Asset> load_texture(const std::filesystem::path &source,
                                                         TextureColorSpace color_space = TextureColorSpace::Srgb,
                                                         TextureKind kind = TextureKind::ColorAlpha,
-                                                        UString label = {});
+                                                        UString label = {},
+                                                        TextureDynamicRange dynamic_range = TextureDynamicRange::Sdr);
 
 
         /// Creates a orm texture from the supplied parameters.
@@ -222,6 +256,12 @@ namespace SFT::Engine {
         /// @param label `label` value used by the operation.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Always decodes 8-bit sRGB; there is no `TextureDynamicRange` here on purpose.
+        ///       Streaming exists to fit more texture into a VRAM budget, and it does that by
+        ///       block-compressing every level — which no HDR format this engine can encode
+        ///       supports. An HDR texture would stream as uncompressed half-float, i.e. at 8x the
+        ///       residency cost of the BC1 it replaces, defeating the point. Use `load_texture`
+        ///       with `TextureDynamicRange::Hdr` for those.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::IoFailure`.
         [[nodiscard]] AssetExpected<Asset> load_texture_streamed(const std::filesystem::path &source,
@@ -242,6 +282,7 @@ namespace SFT::Engine {
         /// @param color_space `color_space` value used by the operation.
         /// @param kind `kind` value used by the operation.
         /// @param label `label` value used by the operation.
+        /// @param dynamic_range Whether to preserve the source's high dynamic range.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
@@ -249,7 +290,8 @@ namespace SFT::Engine {
             std::span<const std::byte> encoded,
             TextureColorSpace color_space = TextureColorSpace::Srgb,
             TextureKind kind = TextureKind::ColorAlpha,
-            UString label = {});
+            UString label = {},
+            TextureDynamicRange dynamic_range = TextureDynamicRange::Sdr);
 
         /// Loads sound.
         ///

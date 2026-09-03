@@ -61,14 +61,31 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
 
     add_executable(EngineTextureStreamingCompressionTest tests/TextureStreamingCompressionTest.cpp)
     target_link_libraries(EngineTextureStreamingCompressionTest PRIVATE Sturdy::Engine)
+    # See EngineImageDecodeTest below for why -UNDEBUG is required for an assert-based test.
+    target_compile_options(EngineTextureStreamingCompressionTest PRIVATE -UNDEBUG)
     sturdy_enable_warnings(EngineTextureStreamingCompressionTest)
     add_test(NAME EngineTextureStreamingCompressionTest COMMAND EngineTextureStreamingCompressionTest)
     set_tests_properties(EngineTextureStreamingCompressionTest PROPERTIES TIMEOUT 10)
+
+    # Exercises the colorimetry in ColorSpace.cpp: matrix derivation from chromaticities, Bradford
+    # chromatic adaptation, and gamut mapping. Pure math with no I/O, so it is fast and hermetic.
+    add_executable(EngineColorSpaceTest tests/ColorSpaceTest.cpp)
+    target_link_libraries(EngineColorSpaceTest PRIVATE Sturdy::Engine)
+    # See EngineImageDecodeTest below for why -UNDEBUG is required for an assert-based test.
+    target_compile_options(EngineColorSpaceTest PRIVATE -UNDEBUG)
+    sturdy_enable_warnings(EngineColorSpaceTest)
+    add_test(NAME EngineColorSpaceTest COMMAND EngineColorSpaceTest)
+    set_tests_properties(EngineColorSpaceTest PROPERTIES TIMEOUT 10)
 
     # Exercises Engine::Detail::decode_image_rgba8 (ImageDecode.cpp) directly against hand-built
     # encoded bytes, growing as image-format support (plans/image-format-support.md) is added.
     add_executable(EngineImageDecodeTest tests/ImageDecodeTest.cpp)
     target_link_libraries(EngineImageDecodeTest PRIVATE Sturdy::Engine)
+    # This test states every expectation with assert(), which the Release and Dist configurations
+    # compile to nothing via NDEBUG -- the test then "passes" without checking anything at all.
+    # -UNDEBUG comes after the configuration's own flags, so the assertions stay live in every
+    # configuration. (Every other assert-based test in this repo has the same hole.)
+    target_compile_options(EngineImageDecodeTest PRIVATE -UNDEBUG)
     sturdy_enable_warnings(EngineImageDecodeTest)
     add_test(NAME EngineImageDecodeTest COMMAND EngineImageDecodeTest)
     set_tests_properties(EngineImageDecodeTest PROPERTIES TIMEOUT 10)

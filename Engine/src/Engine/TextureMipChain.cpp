@@ -1,7 +1,10 @@
 #include <Engine/TextureMipChain.hpp>
 
+#include <Engine/HdrTransfer.hpp>
+
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 
 namespace SFT::Engine::Detail {
@@ -190,6 +193,99 @@ namespace SFT::Engine::Detail {
                             chain.data[destination + channel] = static_cast<std::byte>(std::clamp(
                                 std::lround(channel_sums[channel] / total_weight), 0l, 255l));
                         }
+                    }
+                }
+            }
+
+            previous_offset = next_offset;
+            previous_width = next_width;
+            previous_height = next_height;
+        }
+
+        return chain;
+    }
+
+    /// Builds an area-averaged mip chain for an `RGBA16Float` scene-linear texture.
+    ///
+    /// @param rgba16f `rgba16f` value used by the operation.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    ///
+    /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
+    std::optional<TextureMipChain> generate_rgba16f_mip_chain(
+        std::span<const std::byte> rgba16f, u32 width, u32 height) {
+        if (width == 0 || height == 0) {
+            return std::nullopt;
+        }
+        // Every level is twice the bytes of the 8-bit case, so the same texel-count arithmetic
+        // (and its overflow checks) is reused and doubled rather than duplicated.
+        const std::optional<usize> rgba8_total = rgba8_mip_chain_bytes(width, height);
+        if (!rgba8_total || *rgba8_total > std::numeric_limits<usize>::max() / 2u) {
+            return std::nullopt;
+        }
+        const usize total_bytes = *rgba8_total * 2u;
+        const u64 base_bytes = static_cast<u64>(width) * height * 8u;
+        if (base_bytes > std::numeric_limits<usize>::max() || rgba16f.size() != static_cast<usize>(base_bytes)) {
+            return std::nullopt;
+        }
+
+        TextureMipChain chain{};
+        chain.data.reserve(total_bytes);
+        chain.data.assign(rgba16f.begin(), rgba16f.end());
+        chain.mip_levels = texture_mip_level_count(width, height);
+
+        const auto read_half = [&chain](usize offset) noexcept -> f32 {
+            u16 bits = 0;
+            std::memcpy(&bits, chain.data.data() + offset, sizeof(bits));
+            return half_to_float(bits);
+        };
+        const auto write_half = [&chain](usize offset, f32 value) noexcept {
+            const u16 bits = float_to_half(value);
+            std::memcpy(chain.data.data() + offset, &bits, sizeof(bits));
+        };
+
+        usize previous_offset = 0;
+        u32 previous_width = width;
+        u32 previous_height = height;
+        while (previous_width > 1 || previous_height > 1) {
+            const u32 next_width = std::max(previous_width / 2u, 1u);
+            const u32 next_height = std::max(previous_height / 2u, 1u);
+            const usize next_offset = chain.data.size();
+            chain.data.resize(next_offset + static_cast<usize>(next_width) * next_height * 8u);
+
+            for (u32 y = 0; y < next_height; ++y) {
+                const f64 source_y_start = static_cast<f64>(y) * previous_height / next_height;
+                const f64 source_y_finish = static_cast<f64>(y + 1u) * previous_height / next_height;
+                const u32 source_y_begin = static_cast<u32>(std::floor(source_y_start));
+                const u32 source_y_end = static_cast<u32>(std::ceil(source_y_finish));
+                for (u32 x = 0; x < next_width; ++x) {
+                    const f64 source_x_start = static_cast<f64>(x) * previous_width / next_width;
+                    const f64 source_x_finish = static_cast<f64>(x + 1u) * previous_width / next_width;
+                    const u32 source_x_begin = static_cast<u32>(std::floor(source_x_start));
+                    const u32 source_x_end = static_cast<u32>(std::ceil(source_x_finish));
+                    const f64 total_weight = (source_x_finish - source_x_start) *
+                                             (source_y_finish - source_y_start);
+                    const usize destination = next_offset + (static_cast<usize>(y) * next_width + x) * 8u;
+
+                    f64 channel_sums[4]{};
+                    for (u32 source_y = source_y_begin; source_y < source_y_end; ++source_y) {
+                        const f64 y_weight = std::min(source_y_finish, static_cast<f64>(source_y + 1u)) -
+                                             std::max(source_y_start, static_cast<f64>(source_y));
+                        for (u32 source_x = source_x_begin; source_x < source_x_end; ++source_x) {
+                            const f64 x_weight = std::min(source_x_finish, static_cast<f64>(source_x + 1u)) -
+                                                 std::max(source_x_start, static_cast<f64>(source_x));
+                            const f64 weight = x_weight * y_weight;
+                            const usize source = previous_offset +
+                                (static_cast<usize>(source_y) * previous_width + source_x) * 8u;
+                            for (u32 channel = 0; channel < 4; ++channel) {
+                                channel_sums[channel] +=
+                                    static_cast<f64>(read_half(source + channel * sizeof(u16))) * weight;
+                            }
+                        }
+                    }
+                    for (u32 channel = 0; channel < 4; ++channel) {
+                        write_half(destination + channel * sizeof(u16),
+                                   static_cast<f32>(channel_sums[channel] / total_weight));
                     }
                 }
             }

@@ -288,6 +288,8 @@ typedef enum SturdyBackend {
     STURDY_BACKEND_DEFAULT = 0,
     STURDY_BACKEND_VULKAN = 1,
     STURDY_BACKEND_D3D12 = 2,
+    STURDY_BACKEND_METAL = 3,
+    STURDY_BACKEND_WEBGPU = 4,
     STURDY_BACKEND_FORCE_U32 = 0x7fffffff
 } SturdyBackend;
 
@@ -496,6 +498,8 @@ typedef enum SturdyBackendMask {
     STURDY_BACKEND_MASK_NONE = 0,
     STURDY_BACKEND_MASK_VULKAN = 1u << 0,
     STURDY_BACKEND_MASK_D3D12 = 1u << 1,
+    STURDY_BACKEND_MASK_METAL = 1u << 2,
+    STURDY_BACKEND_MASK_WEBGPU = 1u << 3,
     STURDY_BACKEND_MASK_FORCE_U32 = 0x7fffffff
 } SturdyBackendMask;
 

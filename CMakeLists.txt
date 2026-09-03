@@ -44,6 +44,18 @@ add_compile_definitions(_SILENCE_CXX23_DENORM_DEPRECATION_WARNING)
 # defensive "if (NOT DEFINED ...)" check finding it already decided and moving on.
 set(CMAKE_DEBUG_POSTFIX "" CACHE STRING "Suffix appended to library filenames in Debug configs." FORCE)
 
+# Same shape of problem, same fix, different variables: openjpeg's own CMakeLists.txt does
+#     set(EXECUTABLE_OUTPUT_PATH ${OPENJPEG_BINARY_DIR}/bin CACHE PATH "...")
+# (and the same for LIBRARY_OUTPUT_PATH). Those are CMake's *legacy* global output-path variables,
+# not the modern per-target CMAKE_RUNTIME_OUTPUT_DIRECTORY, so they retarget the output location of
+# every target in this entire project -- engine libraries, demos, and every test executable -- into
+# openjpeg's own build directory. The visible symptom is the whole CTest suite failing as "Not Run"
+# / "does not exist", because each test's registered command still points at the path the target
+# was declared with. Seeding both as empty cache entries here makes openjpeg's own non-FORCE
+# set(... CACHE ...) calls find them already present and leave them alone.
+set(EXECUTABLE_OUTPUT_PATH "" CACHE PATH "Legacy global executable output path; deliberately unset." FORCE)
+set(LIBRARY_OUTPUT_PATH "" CACHE PATH "Legacy global library output path; deliberately unset." FORCE)
+
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 option(STURDY_FETCH_DEPENDENCIES "Download third-party dependencies with FetchContent when packages are not already available." ON)

@@ -637,7 +637,11 @@ SturdyResult STURDY_ABI_CALL sturdy_render_create_texture(SturdyEngine engine,
                                                               : SFT::Engine::TextureColorSpace::Linear;
         const size_t pixel_bytes = static_cast<size_t>(desc->width) * static_cast<size_t>(desc->height) * 4;
         const auto *pixels = reinterpret_cast<const std::byte *>(desc->rgba8);
-        engine_desc.rgba8.assign(pixels, pixels + pixel_bytes);
+        // The C ABI's SturdyTextureDesc is 8-bit by construction (its field is literally named
+        // rgba8), so this stays TexturePixelFormat::Rgba8, which is the default. Exposing HDR
+        // textures across the ABI needs a new descriptor field and is deliberately not smuggled in
+        // by reinterpreting this one.
+        engine_desc.pixels.assign(pixels, pixels + pixel_bytes);
         engine_desc.allow_compression = desc->allow_compression != STURDY_FALSE;
         engine_desc.generate_mipmaps = desc->generate_mipmaps != STURDY_FALSE;
 

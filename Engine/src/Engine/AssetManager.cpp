@@ -27,6 +27,51 @@ namespace SFT::Engine {
 
     namespace {
 
+        /// Returns the decode options that produce what `dynamic_range` asks for: an ordinary
+        /// 8-bit sRGB image, or a scene-linear half-float one with the source's highlights and
+        /// wide-gamut color preserved and color-managed into the working primaries.
+        ///
+        /// @param dynamic_range `dynamic_range` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] Detail::DecodeOptions decode_options_for(TextureDynamicRange dynamic_range) noexcept {
+            Detail::DecodeOptions options;
+            options.precision = dynamic_range == TextureDynamicRange::Hdr
+                                    ? Detail::DecodePrecision::SceneLinear
+                                    : Detail::DecodePrecision::Rgba8Srgb;
+            return options;
+        }
+
+        /// Returns the texture sample layout `dynamic_range` decodes into.
+        ///
+        /// @param dynamic_range `dynamic_range` value used by the operation.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] TexturePixelFormat texture_pixel_format_for(TextureDynamicRange dynamic_range) noexcept {
+            return dynamic_range == TextureDynamicRange::Hdr ? TexturePixelFormat::Rgba16Float
+                                                             : TexturePixelFormat::Rgba8;
+        }
+
+        /// Returns the color space a texture decoded for `dynamic_range` must be tagged with.
+        ///
+        /// An HDR decode always lands in scene-linear light, so `TextureColorSpace::Srgb` is not a
+        /// meaningful request for it -- a caller passing the default Srgb alongside
+        /// `TextureDynamicRange::Hdr` means "an sRGB-ish source file", not "apply the sRGB decode
+        /// again on the GPU", and honouring it literally would double-apply the transfer function.
+        ///
+        /// @param dynamic_range `dynamic_range` value used by the operation.
+        /// @param requested The color space the caller asked for.
+        ///
+        /// @return Returns the value produced by the operation.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] TextureColorSpace texture_color_space_for(TextureDynamicRange dynamic_range,
+                                                                TextureColorSpace requested) noexcept {
+            return dynamic_range == TextureDynamicRange::Hdr ? TextureColorSpace::Linear : requested;
+        }
+
+
         std::atomic<u64> next_asset_manager_id{1};
 
         /// Performs the path label operation for `Engine` using the supplied arguments.
@@ -471,39 +516,57 @@ namespace SFT::Engine {
             return std::unexpected(error(AssetErrorCode::InvalidDescription,
                                          "A texture asset requires non-zero dimensions."));
         }
-        const u64 required_bytes = static_cast<u64>(desc.width) * desc.height * 4u;
-        if (required_bytes > std::numeric_limits<usize>::max() || desc.rgba8.size() != required_bytes) {
+        const bool half_float = desc.format == TexturePixelFormat::Rgba16Float;
+        const u64 bytes_per_pixel = half_float ? 8u : 4u;
+        const u64 required_bytes = static_cast<u64>(desc.width) * desc.height * bytes_per_pixel;
+        if (required_bytes > std::numeric_limits<usize>::max() || desc.pixels.size() != required_bytes) {
             return std::unexpected(error(
                 AssetErrorCode::InvalidDescription,
-                "Texture RGBA8 byte count does not match width * height * 4."));
+                "Texture byte count does not match width * height * bytes-per-pixel for its format."));
+        }
+        if (half_float && desc.color_space == TextureColorSpace::Srgb) {
+            // There is no half-float sRGB texture format, and there should not be: the whole point
+            // of decoding to half-float is to hold scene-linear light. Rejected rather than
+            // silently re-tagged, because a caller asking for both has a mistaken model of one of
+            // them.
+            return std::unexpected(error(
+                AssetErrorCode::InvalidDescription,
+                "An Rgba16Float texture is scene-linear and cannot use TextureColorSpace::Srgb."));
         }
         if (desc.label.empty()) {
             desc.label = UString{"texture"_ustr};
         }
 
         const bool srgb = desc.color_space == TextureColorSpace::Srgb;
-        RHI::Format format = srgb ? RHI::Format::RGBA8UnormSrgb : RHI::Format::RGBA8Unorm;
+        RHI::Format format = half_float  ? RHI::Format::RGBA16Float
+                             : srgb ? RHI::Format::RGBA8UnormSrgb
+                                    : RHI::Format::RGBA8Unorm;
 
         Detail::TextureMipChain mip_chain{};
         if (desc.generate_mipmaps) {
-            auto generated = Detail::generate_rgba8_mip_chain(desc.rgba8, desc.width, desc.height, srgb);
+            auto generated = half_float
+                                 ? Detail::generate_rgba16f_mip_chain(desc.pixels, desc.width, desc.height)
+                                 : Detail::generate_rgba8_mip_chain(desc.pixels, desc.width, desc.height, srgb);
             if (!generated) {
                 return std::unexpected(error(AssetErrorCode::InvalidDescription,
                                              "Could not generate the texture mip chain."));
             }
             mip_chain = std::move(*generated);
         } else {
-            mip_chain.data = std::move(desc.rgba8);
+            mip_chain.data = std::move(desc.pixels);
             mip_chain.mip_levels = 1;
         }
-        std::vector<std::byte>{}.swap(desc.rgba8);
+        std::vector<std::byte>{}.swap(desc.pixels);
         std::span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
 
 
         std::optional<std::vector<std::byte>> compressed;
         RHI::RhiDevice *device = impl_->renderer.rhi_device();
-        if (desc.allow_compression && desc.width >= 4 && desc.height >= 4 && device != nullptr &&
-            device->limits().supports_bc_texture_compression) {
+        // Every BC codec bundled here (BC1/3/4/5/7) takes 8-bit input and produces an 8-bit-range
+        // result, so a half-float texture is uploaded uncompressed. Compressing it would need
+        // BC6H, which is the one BC format bc7enc does not implement.
+        if (!half_float && desc.allow_compression && desc.width >= 4 && desc.height >= 4 &&
+            device != nullptr && device->limits().supports_bc_texture_compression) {
             switch (desc.kind) {
                 case TextureKind::ColorOpaque:
                     compressed = Detail::compress_bc1_mip_chain(
@@ -590,7 +653,7 @@ namespace SFT::Engine {
             .width = width,
             .height = height,
             .color_space = TextureColorSpace::Linear,
-            .rgba8 = std::move(*packed),
+            .pixels = std::move(*packed),
             .label = std::move(label),
             .kind = TextureKind::ColorAlpha,
         });
@@ -608,9 +671,14 @@ namespace SFT::Engine {
     AssetExpected<Asset> AssetManager::load_texture(const std::filesystem::path &source,
                                                     TextureColorSpace color_space,
                                                     TextureKind kind,
-                                                    UString label) {
+                                                    UString label,
+                                                    TextureDynamicRange dynamic_range) {
+        // The dynamic range is part of the key: the same file loaded as SDR and as HDR produces
+        // genuinely different textures (different format, different VRAM cost), so sharing one
+        // cache entry between them would hand the second caller the first one's result.
         const std::string dedup_key = source.string() +
             (color_space == TextureColorSpace::Srgb ? "|srgb" : "|linear") +
+            (dynamic_range == TextureDynamicRange::Hdr ? "|hdr" : "|sdr") +
             "|kind" + std::to_string(static_cast<int>(kind));
         {
             std::shared_lock read_lock{impl_->mutex};
@@ -624,7 +692,7 @@ namespace SFT::Engine {
         if (!encoded) {
             return std::unexpected(encoded.error());
         }
-        auto decoded = Detail::decode_image_rgba8(*encoded, source);
+        auto decoded = Detail::decode_image(*encoded, decode_options_for(dynamic_range), source);
         if (!decoded) {
             return std::unexpected(decoded.error());
         }
@@ -637,8 +705,9 @@ namespace SFT::Engine {
         auto texture = create_texture(TextureAssetDesc{
             .width = decoded->width,
             .height = decoded->height,
-            .color_space = color_space,
-            .rgba8 = std::move(decoded->pixels),
+            .color_space = texture_color_space_for(dynamic_range, color_space),
+            .format = texture_pixel_format_for(dynamic_range),
+            .pixels = std::move(decoded->pixels()),
             .label = std::move(label),
             .kind = kind,
         });
@@ -716,8 +785,9 @@ namespace SFT::Engine {
         std::span<const std::byte> encoded,
         TextureColorSpace color_space,
         TextureKind kind,
-        UString label) {
-        auto decoded = Detail::decode_image_rgba8(encoded, {});
+        UString label,
+        TextureDynamicRange dynamic_range) {
+        auto decoded = Detail::decode_image(encoded, decode_options_for(dynamic_range), {});
         if (!decoded) {
             return std::unexpected(decoded.error());
         }
@@ -727,8 +797,9 @@ namespace SFT::Engine {
         return create_texture(TextureAssetDesc{
             .width = decoded->width,
             .height = decoded->height,
-            .color_space = color_space,
-            .rgba8 = std::move(decoded->pixels),
+            .color_space = texture_color_space_for(dynamic_range, color_space),
+            .format = texture_pixel_format_for(dynamic_range),
+            .pixels = std::move(decoded->pixels()),
             .label = std::move(label),
             .kind = kind,
         });

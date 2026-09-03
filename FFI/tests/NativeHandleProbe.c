@@ -518,6 +518,33 @@ static void probe_rhi_resources(SturdyEngine engine) {
         return;
     }
 
+    /* An RGBA16Float sampled texture: the format HDR source textures (an EXR environment map, a
+       PQ AVIF) are uploaded in. Checked on real hardware because it is the one texture format in
+       this engine that nothing else creates through the sampled-texture path -- RGBA16Float is
+       otherwise only ever a render-graph target -- so a driver or format-table gap in it would not
+       show up anywhere else in this probe. */
+    {
+        SturdyTextureDesc hdr_desc;
+        SturdyTexture hdr_texture;
+        SturdyResult hdr_result;
+
+        (void)sturdy_rhi_texture_desc_init(&hdr_desc);
+        hdr_desc.format = STURDY_FORMAT_RGBA16_FLOAT;
+        hdr_desc.width = width;
+        hdr_desc.height = height;
+        hdr_desc.usage = STURDY_TEXTURE_USAGE_SAMPLED | STURDY_TEXTURE_USAGE_TRANSFER_DST;
+        hdr_desc.label = "ffi probe hdr texture";
+        hdr_texture.id = 0;
+        hdr_result = sturdy_rhi_create_texture(engine, &hdr_desc, &hdr_texture);
+        printf("create_texture(rgba16f) -> %d\n", (int)hdr_result);
+        if (hdr_result != STURDY_OK) {
+            printf("  %s\n", sturdy_last_error_message());
+            g_scene_ok = 0;
+        } else {
+            sturdy_rhi_destroy_texture(engine, hdr_texture);
+        }
+    }
+
     (void)sturdy_rhi_buffer_desc_init(&buffer_desc);
     buffer_desc.size = (uint64_t)(width * height * 4);
     buffer_desc.usage = STURDY_BUFFER_USAGE_TRANSFER_DST;

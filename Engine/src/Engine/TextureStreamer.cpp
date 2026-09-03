@@ -210,13 +210,13 @@ namespace SFT::Engine {
         const bool srgb = color_space == TextureColorSpace::Srgb;
         RHI::Format format = srgb ? RHI::Format::RGBA8UnormSrgb : RHI::Format::RGBA8Unorm;
         auto generated_mips = Detail::generate_rgba8_mip_chain(
-            decoded->pixels, decoded->width, decoded->height, srgb);
+            decoded->pixels(), decoded->width, decoded->height, srgb);
         if (!generated_mips) {
             Foundation::log_error("TextureStreamer: failed to generate mip levels for '{}'.", source.string());
             return {};
         }
         Detail::TextureMipChain mip_chain = std::move(*generated_mips);
-        vector<std::byte>{}.swap(decoded->pixels);
+        vector<std::byte>{}.swap(decoded->pixels());
         const u32 mip_levels = mip_chain.mip_levels;
         span<const std::byte> upload_bytes{mip_chain.data.data(), mip_chain.data.size()};
 

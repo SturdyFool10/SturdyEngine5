@@ -50,6 +50,26 @@ using std::vector;
 
 namespace SFT::Renderer {
 
+    /// Returns the number of bytes `Renderer::create_texture` expects for a complete mip chain of
+    /// `mip_levels` levels in `format` at `width` x `height`, or 0 when the format or level count
+    /// is not one it can upload.
+    ///
+    /// Exposed rather than kept internal because it is the contract between whoever *builds* a mip
+    /// chain (`Engine::Detail::generate_rgba8_mip_chain` and its half-float sibling) and the
+    /// upload that consumes one: `create_texture` rejects a buffer whose size disagrees, so the two
+    /// have to be checkable against each other without a GPU.
+    ///
+    /// @param format Format used for the resource, render target, or conversion.
+    /// @param width Width of the target extent.
+    /// @param height Height of the target extent.
+    /// @param mip_levels `mip_levels` value used by the operation.
+    ///
+    /// @return Returns the requested count or size; 0 when the format is unsupported.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] u64 texture_mip_chain_byte_size(RHI::Format format, u32 width, u32 height,
+                                                  u32 mip_levels) noexcept;
+
+
     class Renderer {
       public:
         /// Constructs a `Renderer` in its default state.

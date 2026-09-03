@@ -1,12 +1,17 @@
 #include <Engine/AssetManager.hpp>
 #include <Engine/TextureCompression.hpp>
+#include <Engine/HdrTransfer.hpp>
 #include <Engine/TextureMipChain.hpp>
 
 #include <Core/Decompression.hpp>
 
 #include <RHI/RHI.hpp>
 
+#include <Renderer/RendererModule.hpp>
+
+#include <algorithm>
 #include <cassert>
+#include <cstring>
 #include <cstddef>
 #include <filesystem>
 #include <random>
@@ -23,7 +28,9 @@ int main() {
     namespace Core = SFT::Core;
     namespace Engine = SFT::Engine;
     namespace RHI = SFT::RHI;
+    using SFT::f32;
     using SFT::u8;
+    using SFT::u16;
     using SFT::u32;
     using SFT::usize;
 
@@ -224,6 +231,117 @@ int main() {
         auto decompressed = Core::decompress_gdeflate(std::span<const std::byte>{*first}, source.size());
         assert(decompressed.has_value());
         assert(*decompressed == source);
+    }
+
+
+    // --- RGBA16Float mip chain: the path an HDR source texture takes. The point of the format is
+    //     that highlights survive, so the properties worth pinning are that the average is taken
+    //     in linear light and that nothing is clamped on the way down the chain. ---
+    {
+        const auto half = [](f32 value) { return Engine::Detail::float_to_half(value); };
+        const auto value_at = [](const std::vector<std::byte> &data, usize texel, usize channel) {
+            u16 bits = 0;
+            std::memcpy(&bits, data.data() + (texel * 4 + channel) * sizeof(u16), sizeof(bits));
+            return Engine::Detail::half_to_float(bits);
+        };
+
+        // A 2x2 whose red channel is 8.0 in one texel and 0.0 in the other three -- an HDR
+        // highlight well outside anything an 8-bit texture could hold.
+        std::vector<std::byte> hdr(2 * 2 * 8);
+        const auto put = [&](usize texel, f32 r, f32 g, f32 b, f32 a) {
+            const f32 channels[4]{r, g, b, a};
+            for (usize c = 0; c < 4; ++c) {
+                const u16 bits = half(channels[c]);
+                std::memcpy(hdr.data() + (texel * 4 + c) * sizeof(u16), &bits, sizeof(bits));
+            }
+        };
+        put(0, 8.0f, 0.0f, 0.0f, 1.0f);
+        put(1, 0.0f, 0.0f, 0.0f, 1.0f);
+        put(2, 0.0f, 0.0f, 0.0f, 1.0f);
+        put(3, 0.0f, 0.0f, 0.0f, 1.0f);
+
+        auto mips = Engine::Detail::generate_rgba16f_mip_chain(hdr, 2, 2);
+        assert(mips.has_value());
+        assert(mips->mip_levels == 2);
+        // Level 0 (4 texels) plus level 1 (1 texel), at 8 bytes each.
+        assert(mips->data.size() == (4u + 1u) * 8u);
+
+        // The base level must be copied verbatim, including the out-of-range highlight.
+        assert(value_at(mips->data, 0, 0) == 8.0f);
+        assert(value_at(mips->data, 0, 3) == 1.0f);
+
+        // Level 1 is the average of the four: 8.0 / 4 == 2.0. Still above 1.0, which is exactly
+        // what an 8-bit chain could not have represented -- it would have clamped the source texel
+        // to 1.0 first and produced 0.25 here.
+        assert(value_at(mips->data, 4, 0) == 2.0f);
+        assert(value_at(mips->data, 4, 1) == 0.0f);
+        assert(value_at(mips->data, 4, 3) == 1.0f);
+    }
+
+    {
+        // Chain size and level count for a larger, non-square, non-power-of-two extent, against
+        // the same level count the 8-bit path reports for the same dimensions.
+        const u32 width = 5;
+        const u32 height = 3;
+        std::vector<std::byte> pixels(static_cast<usize>(width) * height * 8, std::byte{0});
+        auto mips = Engine::Detail::generate_rgba16f_mip_chain(pixels, width, height);
+        assert(mips.has_value());
+        assert(mips->mip_levels == Engine::Detail::texture_mip_level_count(width, height));
+
+        usize expected = 0;
+        u32 level_width = width;
+        u32 level_height = height;
+        while (true) {
+            expected += static_cast<usize>(level_width) * level_height * 8u;
+            if (level_width == 1 && level_height == 1) {
+                break;
+            }
+            level_width = std::max(level_width / 2u, 1u);
+            level_height = std::max(level_height / 2u, 1u);
+        }
+        assert(mips->data.size() == expected);
+
+        // A buffer whose length does not match the stated extent is rejected rather than read past.
+        std::vector<std::byte> truncated(pixels.size() - 8);
+        assert(!Engine::Detail::generate_rgba16f_mip_chain(truncated, width, height).has_value());
+        assert(!Engine::Detail::generate_rgba16f_mip_chain(pixels, 0, height).has_value());
+    }
+
+
+    // --- The contract between the two halves of the texture upload path: whatever the Engine's
+    //     mip generators produce, Renderer::create_texture must expect exactly that many bytes.
+    //     It rejects a buffer whose size disagrees, so a mismatch here is a hard runtime failure
+    //     for every texture of that format -- which is precisely how RGBA16Float was broken before
+    //     this, being present in RHI::Format but in neither of the renderer's size tables. ---
+    {
+        struct Case {
+            u32 width;
+            u32 height;
+        };
+        for (const Case &c : {Case{1, 1}, Case{2, 2}, Case{4, 4}, Case{5, 3}, Case{64, 16}, Case{17, 39}}) {
+            std::vector<std::byte> rgba8(static_cast<usize>(c.width) * c.height * 4u, std::byte{128});
+            auto srgb_chain = Engine::Detail::generate_rgba8_mip_chain(rgba8, c.width, c.height, true);
+            assert(srgb_chain.has_value());
+            assert(srgb_chain->data.size() == SFT::Renderer::texture_mip_chain_byte_size(
+                                                  RHI::Format::RGBA8UnormSrgb, c.width, c.height,
+                                                  srgb_chain->mip_levels));
+
+            auto linear_chain = Engine::Detail::generate_rgba8_mip_chain(rgba8, c.width, c.height, false);
+            assert(linear_chain.has_value());
+            assert(linear_chain->data.size() == SFT::Renderer::texture_mip_chain_byte_size(
+                                                    RHI::Format::RGBA8Unorm, c.width, c.height,
+                                                    linear_chain->mip_levels));
+
+            std::vector<std::byte> rgba16f(static_cast<usize>(c.width) * c.height * 8u, std::byte{0});
+            auto hdr_chain = Engine::Detail::generate_rgba16f_mip_chain(rgba16f, c.width, c.height);
+            assert(hdr_chain.has_value());
+            const SFT::u64 expected = SFT::Renderer::texture_mip_chain_byte_size(
+                RHI::Format::RGBA16Float, c.width, c.height, hdr_chain->mip_levels);
+            // Non-zero is the part that regressed: an unsupported format reports 0 here, and
+            // create_texture turns that into "unsupported texture format".
+            assert(expected != 0);
+            assert(hdr_chain->data.size() == expected);
+        }
     }
 
     return 0;

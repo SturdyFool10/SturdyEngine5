@@ -292,7 +292,7 @@ namespace SFT::Engine {
 
 
             .color_space = TextureColorSpace::Srgb,
-            .rgba8 = std::move(rasterized->rgba),
+            .pixels = std::move(rasterized->rgba),
             .label = UString{"ui svg icon"_ustr},
         });
         if (!asset) {
