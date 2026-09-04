@@ -21,6 +21,13 @@
 #if defined(STURDY_GLFW_WAYLAND_TEXT_INPUT_V3)
 #include <wayland-client.h>
 #include "text-input-unstable-v3-client-protocol.h"
+// The header above only *declares* zwp_text_input_v3_interface and its manager as extern; the
+// wayland-scanner "private-code" output is what defines them. It has to be included in exactly one
+// translation unit, and this is the only one that touches the protocol at all. Without it the
+// build compiles cleanly and then fails at link with undefined zwp_text_input_*_interface, which
+// is what happened -- every executable linking the GLFW provider failed to link, so only stale
+// binaries ran.
+#include "text-input-unstable-v3-client-protocol-code.h"
 #endif
 
 #if defined(Success)

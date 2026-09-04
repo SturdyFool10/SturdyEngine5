@@ -46,7 +46,25 @@ struct TextViewConstants {
     uint padding;
 };
 
+#ifdef SFT_EMULATE_PUSH_CONSTANTS
+
+// WebGPU has no push constants at all, so on that target the same block is carried as an
+
+// ordinary uniform buffer in the reserved set the WebGPU backend binds a per-draw slice of
+
+// (see WebGpuCommandEncoder.cpp). Note the layout rule changes with it: a push-constant
+
+// block is packed std430-style, a uniform buffer std140, so a struct whose members would
+
+// pad differently between the two must be laid out to agree under both.
+
+[[vk::binding(0, 3)]] ConstantBuffer<TextViewConstants> viewConstants;
+
+#else
+
 [[push_constant]] ConstantBuffer<TextViewConstants> viewConstants;
+
+#endif
 StructuredBuffer<GlyphInstance> instances;
 Texture2D<float4> atlasTexture;
 SamplerState atlasSampler;
@@ -92,20 +110,34 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID, uint instanceId : SV_Instan
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
+    // Both of these are taken up front, before any branch, rather than at their points of use
+    // further down.
+    //
+    // An implicit-LOD sample and a derivative are only defined when every invocation in the quad
+    // evaluates them, and `formatKind` varies per glyph, so the early return below and the median
+    // branch after it both put the original use sites in non-uniform control flow. SPIR-V tolerates
+    // that and produces the right answer in practice; WGSL's uniformity analysis rejects the shader
+    // outright, which is the stricter and more defensible reading of the same rule.
+    //
+    // Hoisting the sample costs nothing at all: all three paths below sampled the same texture with
+    // the same sampler at the same coordinate and differed only in which channels they read, so
+    // this is one sample where there used to be one per path. The derivative is one wasted fwidth
+    // on the emoji path.
+    float4 atlasSample = atlasTexture.Sample(atlasSampler, input.uv);
+    float2 uvDerivatives = fwidth(input.uv);
+
     if (input.formatKind > 1.5) {
         // Color (emoji): the atlas cell is already the final flat-shaded RGBA — no distance field,
         // no median, just sample and modulate alpha by the instance color (never tint the RGB,
         // emoji carry their own color).
-        float4 sampled = atlasTexture.Sample(atlasSampler, input.uv);
-        return float4(sampled.rgb, sampled.a * input.color.a);
+        return float4(atlasSample.rgb, atlasSample.a * input.color.a);
     }
 
     float signedDistance;
     if (input.formatKind > 0.5) {
-        float3 sampled = atlasTexture.Sample(atlasSampler, input.uv).rgb;
-        signedDistance = median3(sampled);
+        signedDistance = median3(atlasSample.rgb);
     } else {
-        signedDistance = atlasTexture.Sample(atlasSampler, input.uv).r;
+        signedDistance = atlasSample.r;
     }
 
     // 0.5 sits exactly on the glyph's true edge (Text::rasterize_glyph's distance mapping);
@@ -119,7 +151,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     uint atlasHeight;
     atlasTexture.GetDimensions(atlasWidth, atlasHeight);
     float2 unitRange = input.distancePixelRange / float2(atlasWidth, atlasHeight);
-    float2 screenTexelSpan = 1.0 / max(fwidth(input.uv), float2(SFT_EPSILON));
+    float2 screenTexelSpan = 1.0 / max(uvDerivatives, float2(SFT_EPSILON));
     float screenPxRange = max(0.5, 0.5 * dot(unitRange, screenTexelSpan));
     float screenPxDistance = screenPxRange * (signedDistance - 0.5);
     float coverage = clamp01(screenPxDistance + 0.5 + input.stemDarkeningPx);

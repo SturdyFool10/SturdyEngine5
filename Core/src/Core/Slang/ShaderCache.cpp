@@ -21,11 +21,18 @@ namespace SFT::Core::Slang {
     namespace {
 
 
-        constexpr u32 shader_cache_format_version = 2;
+        // Bumped to 3 when SFT_EMULATE_PUSH_CONSTANTS started being defined for WGSL sessions, and
+        // to 4 when a constant buffer's reflected size became its element's byte size rather than a
+        // descriptor-slot count. Both change what is cached without changing the source, the target,
+        // or anything else the cache key mixes in, so older entries would otherwise be served as
+        // fresh.
+        constexpr u32 shader_cache_format_version = 4;
         constexpr u32 shader_cache_magic = 0x53484341u;
 
 
-        constexpr u32 shader_reflection_cache_format_version = 3;
+        // Bumped to 4 alongside shader_cache_format_version: this cache stores the reflected
+        // parameter sizes that changed meaning for constant buffers.
+        constexpr u32 shader_reflection_cache_format_version = 4;
         constexpr u32 shader_reflection_cache_magic = 0x53484352u;
 
 

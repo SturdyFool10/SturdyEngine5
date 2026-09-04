@@ -1035,14 +1035,19 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::drain_pending_present(WindowSurfaceRecord &record,
                                                          vector<pair<string, f64>> *stage_timings_ms) {
         ZoneScopedN("Renderer::drain_pending_present");
-        if (!record.pending_present) {
+        if (!record.pending_present && !record.pending_present_inline) {
             return {};
         }
         RHI::RhiExpected<RHI::PresentOutcome> presented = [&]() {
+            if (record.pending_present_inline) {
+                // Already presented on this thread; nothing to wait for.
+                return *record.pending_present_inline;
+            }
             ScopedRendererStageTimer timer{"wait pending present", stage_timings_ms};
             return record.pending_present->wait();
         }();
         record.pending_present.reset();
+        record.pending_present_inline.reset();
         const optional<RHI::FenceHandle> completion_fence = record.pending_present_completion_fence;
         record.pending_present_completion_fence.reset();
         if (stage_timings_ms != nullptr) {
@@ -3343,8 +3348,16 @@ namespace SFT::Renderer {
                 .completion_fence = completion_fence,
                 .label = "renderer present",
             };
-            record.pending_present = presentation_coordinator_for(presentation.present_queue_is_compute).enqueue(
-                device, present_desc, &record.last_present_lock_wait_ms);
+            // A backend whose presentation shares queue state with ordinary submission cannot have
+            // present running while this thread carries on into the next frame -- on WebGPU the two
+            // would record into the same queue at once. Such a backend presents inline here.
+            if (backend_allows_async_presentation()) {
+                record.pending_present = presentation_coordinator_for(presentation.present_queue_is_compute).enqueue(
+                    device, present_desc, &record.last_present_lock_wait_ms);
+            } else {
+                record.pending_present_inline =
+                    device->present(present_desc, &record.last_present_lock_wait_ms);
+            }
         }
 
         if (submission.render_graph.wait_for_completion) {

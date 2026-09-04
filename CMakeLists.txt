@@ -96,6 +96,12 @@ option(STURDY_FETCH_UPDATES_DISCONNECTED "Skip FetchContent git update checks af
 # Force the Windows GUI (WinMain, no console) entry point in every configuration. When OFF, WinMain
 # is used only for Windows Dist builds; Debug/RelWithDebInfo/Release keep the console main().
 option(SFT_USE_WINMAIN "Always use the Windows WinMain entry point, regardless of build type." OFF)
+
+# Builds the WebGPU (Dawn) RHI backend. Off by default purely because of what it costs to build:
+# Dawn brings its own copies of Abseil, SPIRV-Tools, and Tint, which roughly doubles a clean
+# configure-and-build. The backend itself is complete when enabled; turning this off only removes
+# it from the backend registry, leaving Vulkan/D3D12 exactly as they were.
+option(STURDY_ENABLE_WEBGPU "Build the WebGPU (Dawn) RHI backend." OFF)
 # Off by default: registers FfiNativeHandleProbe (see FFI/CMakeLists.txt) as real CTest cases
 # instead of a manual-only tool. It creates a real window and GPU device, which a headless CI
 # runner does not have — turn this ON on a developer machine with a GPU and a display to get

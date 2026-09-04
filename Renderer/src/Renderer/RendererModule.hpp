@@ -257,6 +257,12 @@ namespace SFT::Renderer {
         ///
         /// @return Returns a pointer to the requested object/resource; ownership is not transferred unless the API explicitly states otherwise.
         /// @note This function does not throw exceptions.
+        /// Reports whether the active backend permits `present` to run off the render thread.
+        ///
+        /// @return Returns the boolean result of the operation.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] bool backend_allows_async_presentation() const noexcept;
+
         [[nodiscard]] Core::EngineBackend *graphics_backend() noexcept;
         /// Returns the current or globally available graphics backend value.
         ///
@@ -418,14 +424,14 @@ namespace SFT::Renderer {
         /// @param staging `staging` value used by the operation.
         /// @param staging_offset Offset from the beginning of the relevant range or buffer.
         /// @param queue Queue used or affected by the operation.
-        /// @param d3d12_padded_rows `d3d12_padded_rows` value used by the operation.
+        /// @param padded_rows `padded_rows` value used by the operation.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<TextureUploadSubmission> submit_texture_upload(
             TextureResource &resource, u32 width, u32 height, RHI::Format format,
             RHI::BufferHandle staging, u64 staging_offset = 0, RHI::QueueLane queue = {},
-            bool d3d12_padded_rows = false);
+            bool padded_rows = false);
 
         /// Creates a offscreen render target from the supplied parameters.
         ///
@@ -1079,6 +1085,10 @@ namespace SFT::Renderer {
 
 
             optional<Async::TaskHandle<RHI::RhiExpected<RHI::PresentOutcome>>> pending_present;
+            // Holds the outcome when the backend presents inline rather than on the presentation
+            // coordinator's thread (RenderThreadingCapabilities::backend_allows_async_presentation).
+            // `drain_pending_present` consumes whichever of the two is engaged.
+            optional<RHI::RhiExpected<RHI::PresentOutcome>> pending_present_inline;
 
 
             f64 last_present_lock_wait_ms = 0.0;

@@ -82,6 +82,12 @@ set(STURDY_BC7ENC_TAG "f66c2e489b07138f2673a2fb3d27c1aa1d565c48" CACHE STRING "b
 # add_subdirectory with the CLI-tool options turned off, keeping only the webp/webpdemux/
 # libwebpmux/sharpyuv libraries this engine actually links.
 set(STURDY_WEBP_TAG "v1.6.0" CACHE STRING "libwebp git tag to fetch.")
+
+# Dawn has no release tags at all -- it is branched per Chromium milestone. A branch name rather
+# than a commit because the shallow clone this uses (see sturdy_fetch_dawn) cannot fetch an
+# arbitrary SHA; chromium/NNNN branches are frozen once their milestone ships, so a named one is
+# stable in practice. Bumping means picking a newer branch from https://dawn.googlesource.com/dawn.
+set(STURDY_DAWN_BRANCH "chromium/8040" CACHE STRING "Dawn (WebGPU) git branch to fetch.")
 # google/libgav1 (BSD-3-Clause, Chromium's own AV1 decoder) — the AV1 decode backend for AVIF
 # support (part of plans/image-format-support.md). Chosen over dav1d (the other common AV1
 # decoder) specifically because libgav1 builds with plain CMake; dav1d's own build is Meson-based,
@@ -383,6 +389,9 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_libtiff()
         sturdy_fetch_gdeflate()
         sturdy_fetch_openexr()
+        if(STURDY_ENABLE_WEBGPU)
+            sturdy_fetch_dawn()
+        endif()
 
         sturdy_fetch_tracy()
 
@@ -1461,6 +1470,141 @@ function(sturdy_fetch_bc7enc)
     endif()
     sturdy_mark_dependency_targets_exclude_from_all(bc7enc)
     sturdy_register_license(bc7enc "${bc7enc_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_fetch_dawn)
+    # Dawn is Chromium's WebGPU implementation: a native library that speaks the webgpu.h C API and
+    # translates it onto a real driver. It is used here rather than wgpu-native because this is a
+    # C++/CMake project and Dawn builds with CMake and no Rust toolchain.
+    #
+    # Backends are restricted to Vulkan, Metal, and D3D12 -- the three modern explicit APIs. Dawn
+    # can also target D3D11, desktop GL, and GLES, and every one of those is deliberately off:
+    # they cannot express things the rest of this engine's RHI assumes (timeline semaphores,
+    # explicit barriers, bindless-ish descriptor updates), so a WebGPU device backed by one would
+    # silently be a much weaker device wearing the same interface. Off is also the only way to keep
+    # the dependency from dragging in an entire GL loader on Linux.
+    set(DAWN_ENABLE_D3D11 OFF CACHE BOOL "" FORCE)
+    set(DAWN_ENABLE_DESKTOP_GL OFF CACHE BOOL "" FORCE)
+    set(DAWN_ENABLE_OPENGLES OFF CACHE BOOL "" FORCE)
+    set(DAWN_ENABLE_NULL OFF CACHE BOOL "" FORCE)
+    if(STURDY_OS STREQUAL "Windows")
+        set(DAWN_ENABLE_D3D12 ON CACHE BOOL "" FORCE)
+        set(DAWN_ENABLE_VULKAN ON CACHE BOOL "" FORCE)
+        set(DAWN_ENABLE_METAL OFF CACHE BOOL "" FORCE)
+    elseif(STURDY_OS STREQUAL "MacOS")
+        set(DAWN_ENABLE_METAL ON CACHE BOOL "" FORCE)
+        set(DAWN_ENABLE_D3D12 OFF CACHE BOOL "" FORCE)
+        # MoltenVK only, on macOS -- not worth carrying a second translation layer under a
+        # translation layer when Metal is native here.
+        set(DAWN_ENABLE_VULKAN OFF CACHE BOOL "" FORCE)
+    else()
+        set(DAWN_ENABLE_VULKAN ON CACHE BOOL "" FORCE)
+        set(DAWN_ENABLE_D3D12 OFF CACHE BOOL "" FORCE)
+        set(DAWN_ENABLE_METAL OFF CACHE BOOL "" FORCE)
+    endif()
+
+    # Everything below just trims the build down to the library itself.
+    set(DAWN_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(DAWN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(DAWN_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+    set(DAWN_BUILD_NODE_BINDINGS OFF CACHE BOOL "" FORCE)
+    set(DAWN_USE_GLFW OFF CACHE BOOL "" FORCE)
+    # X11 and Wayland must stay ON on Linux: despite the "USE_" naming these are not about Dawn's
+    # own sample windowing, they gate whether the corresponding *surface source* is compiled into
+    # the library at all. With both off, wgpuInstanceCreateSurface rejects every Linux surface
+    # descriptor with "Unsupported sType (SType::SurfaceSourceWaylandSurface)" and the swapchain
+    # can never be configured.
+    if(STURDY_OS STREQUAL "Linux" OR STURDY_OS STREQUAL "FreeBSD")
+        set(DAWN_USE_X11 ON CACHE BOOL "" FORCE)
+        set(DAWN_USE_WAYLAND ON CACHE BOOL "" FORCE)
+    else()
+        set(DAWN_USE_X11 OFF CACHE BOOL "" FORCE)
+        set(DAWN_USE_WAYLAND OFF CACHE BOOL "" FORCE)
+    endif()
+    set(TINT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(TINT_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+    set(TINT_BUILD_CMD_TOOLS OFF CACHE BOOL "" FORCE)
+    # Tint's readers/writers are what actually decide which shading languages Dawn can accept and
+    # emit. WGSL in (this engine compiles Slang -> WGSL) and SPIR-V/MSL/HLSL out, matching the
+    # three enabled backends.
+    set(TINT_BUILD_WGSL_READER ON CACHE BOOL "" FORCE)
+    set(TINT_BUILD_WGSL_WRITER ON CACHE BOOL "" FORCE)
+    set(TINT_BUILD_SPV_READER OFF CACHE BOOL "" FORCE)
+
+    # Dawn vendors its dependencies through a Chromium DEPS file rather than git submodules, so it
+    # ships a Python script to fetch them and a CMake option to run it. Without this the configure
+    # fails on missing third_party/ directories.
+    set(DAWN_FETCH_DEPENDENCIES ON CACHE BOOL "" FORCE)
+
+    # Bypasses sturdy_fetchcontent_declare() to pass GIT_SUBMODULES "" and GIT_SHALLOW, neither of
+    # which that helper forwards. Both are load-bearing here:
+    #
+    #   GIT_SUBMODULES "" -- Dawn's checked-in git submodules are NOT how a CMake build of Dawn is
+    #   meant to get its dependencies (DAWN_FETCH_DEPENDENCIES above is), and FetchContent
+    #   otherwise clones them all *recursively*. That path pulls in ANGLE, which pulls in
+    #   Chromium's depot_tools and catapult, and its own second copy of Dawn -- measured at 13 GB
+    #   and still climbing before it was cut off. The empty string disables submodules entirely.
+    #
+    #   GIT_SHALLOW -- Dawn has a decade of Chromium history behind it; a full clone is ~7 GB of
+    #   .git for a tree that is a few hundred MB checked out. Shallow needs a ref rather than a raw
+    #   commit, which is why STURDY_DAWN_BRANCH exists alongside the pinned commit below.
+    # Honours the same shared source cache sturdy_fetchcontent_declare() uses, so a Dawn checkout is
+    # not re-fetched per build directory.
+    set(_dawn_cache_dirs)
+    if(STURDY_SHARED_DEPS_CACHE)
+        set(_dawn_cache_dirs
+            SOURCE_DIR "${STURDY_DEPS_CACHE_DIR}/dawn-src"
+            SUBBUILD_DIR "${STURDY_DEPS_CACHE_DIR}/dawn-subbuild")
+    endif()
+
+    FetchContent_Declare(dawn
+        GIT_REPOSITORY https://dawn.googlesource.com/dawn
+        GIT_TAG ${STURDY_DAWN_BRANCH}
+        GIT_SUBMODULES ""
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+        ${_dawn_cache_dirs}
+    )
+    FetchContent_MakeAvailable(dawn)
+
+    # Presented under the same target name the Emscripten path already uses
+    # (sturdy_configure_webgpu below), so Core/src/Core/WebGPU compiles against <webgpu/webgpu.h>
+    # unchanged whether it is talking to native Dawn or to the browser's WebGPU through
+    # emdawnwebgpu. The two are the same API by construction -- emdawnwebgpu *is* Dawn's own
+    # Emscripten port.
+    # An ALIAS of Dawn's own target rather than an IMPORTED INTERFACE wrapper: Dawn's include
+    # directories include a "gen/include" that its build produces, and CMake rejects an IMPORTED
+    # target whose INTERFACE_INCLUDE_DIRECTORIES names a path that does not exist yet at configure
+    # time. Aliasing a real target sidesteps that check entirely and keeps the dependency edge.
+    if(NOT TARGET Sturdy::WebGPU)
+        add_library(Sturdy::WebGPU ALIAS webgpu_dawn)
+    endif()
+
+    # Dawn's pinned vulkan-utility-libraries references Vulkan structures that only exist in a newer
+    # header revision than the system's (VkCooperativeMatrixProperties2EXT and friends, added after
+    # VK_HEADER_VERSION 357). Dawn ships the matching headers in third_party/vulkan-headers, but
+    # only adds them "if (NOT TARGET Vulkan::Headers)" -- and sturdy_find_vulkan() has already
+    # created that target from the system headers by the time this runs.
+    #
+    # Dawn cannot simply be fetched first to win that race: it also vendors SPIRV-Tools, and going
+    # first would make *its* copy define the targets that Slang's copy then collides with. So the
+    # ordering stays, and the header set is corrected here instead by prepending Dawn's bundled
+    # headers to the include path Vulkan::Headers carries. Prepending rather than replacing means
+    # the system headers still satisfy anything Dawn's copy lacks, and a newer Vulkan header
+    # revision is a superset of an older one, so this is safe for the engine's own Vulkan code too
+    # (which loads entry points through volk and declares none of them itself).
+    set(_dawn_vulkan_headers "${dawn_SOURCE_DIR}/third_party/vulkan-headers/src/include")
+    if(TARGET Vulkan::Headers AND EXISTS "${_dawn_vulkan_headers}")
+        get_target_property(_existing_vulkan_includes Vulkan::Headers INTERFACE_INCLUDE_DIRECTORIES)
+        if(NOT _existing_vulkan_includes)
+            set(_existing_vulkan_includes "")
+        endif()
+        set_target_properties(Vulkan::Headers PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${_dawn_vulkan_headers};${_existing_vulkan_includes}")
+        message(STATUS "Dawn: prepending bundled Vulkan headers at ${_dawn_vulkan_headers}")
+    endif()
+
+    sturdy_register_license(dawn "${dawn_SOURCE_DIR}")
 endfunction()
 
 function(sturdy_fetch_webp)

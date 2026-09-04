@@ -22,8 +22,25 @@ struct ComponentBarConstants {
     float4 cornerRadius;    // topLeft, topRight, bottomLeft, bottomRight.
 };
 
+#ifdef SFT_EMULATE_PUSH_CONSTANTS
+
+// WebGPU has no push constants at all, so on that target the same block is carried as an
+
+// ordinary uniform buffer in the reserved set the WebGPU backend binds a per-draw slice of
+
+// (see WebGpuCommandEncoder.cpp). Note the layout rule changes with it: a push-constant
+
+// block is packed std430-style, a uniform buffer std140, so a struct whose members would
+
+// pad differently between the two must be laid out to agree under both.
+
+[[vk::binding(0, 3)]] ConstantBuffer<ComponentBarConstants> constants;
+
+#else
+
 [[push_constant]] ConstantBuffer<ComponentBarConstants> constants;
 
+#endif
 struct VertexOutput {
     float4 position : SV_Position;
     float2 localPixelPos : TEXCOORD0;

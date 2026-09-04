@@ -63,8 +63,16 @@ struct ObjectHistoryDrawConstants {
 // register range of type CBV ... overlaps with another shader register range" — D3D12's exact
 // counterpart to the VUID-...-07990 collision described below for Vulkan, just never hit until a
 // D3D12 pipeline actually got far enough to build this specific combined layout.
+#ifdef SFT_EMULATE_PUSH_CONSTANTS
+// WebGPU has no push constants at all, so on that target the same block is carried as an
+// ordinary uniform buffer in the reserved set the WebGPU backend binds a per-draw slice of
+// (see WebGpuCommandEncoder.cpp). Note the layout rule changes with it: a push-constant
+// block is packed std430-style, a uniform buffer std140, so a struct whose members would
+// pad differently between the two must be laid out to agree under both.
+[[vk::binding(0, 3)]] ConstantBuffer<ObjectHistoryDrawConstants> objectDraw : register(b0, space1);
+#else
 [[push_constant]] ConstantBuffer<ObjectHistoryDrawConstants> objectDraw : register(b0, space1);
-
+#endif
 // Explicit set=1 (matching where Renderer::history_pipeline_for places this shader's hand-built
 // bind-group layout in the combined pipeline layout — RendererObjectHistory.cpp) — without this,
 // Slang's default Vulkan binding assignment puts every loose global-scope resource in a shader

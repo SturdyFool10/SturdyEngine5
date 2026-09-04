@@ -431,14 +431,14 @@ namespace SFT::Renderer {
     /// @param staging `staging` value used by the operation.
     /// @param staging_offset Offset from the beginning of the relevant range or buffer.
     /// @param queue Queue used or affected by the operation.
-    /// @param d3d12_padded_rows `d3d12_padded_rows` value used by the operation.
+    /// @param padded_rows `padded_rows` value used by the operation.
     ///
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererExpected<TextureUploadSubmission> Renderer::submit_texture_upload(
         TextureResource &resource, u32 width, u32 height, RHI::Format format, RHI::BufferHandle staging,
-        u64 staging_offset, RHI::QueueLane queue, bool d3d12_padded_rows) {
+        u64 staging_offset, RHI::QueueLane queue, bool padded_rows) {
         ZoneScopedN("Renderer::submit_texture_upload");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -474,7 +474,7 @@ namespace SFT::Renderer {
         u32 level_height = height;
         for (u32 level = 0; level < resource.mip_levels; ++level) {
             const u64 tight_row_bytes = texture_data_bytes(format, level_width, 1);
-            const u64 row_pitch = d3d12_padded_rows ? align_up(tight_row_bytes, 256) : tight_row_bytes;
+            const u64 row_pitch = padded_rows ? align_up(tight_row_bytes, 256) : tight_row_bytes;
             // Expressed so the backend recovers exactly `row_pitch` from it: it computes
             // ceil(row_length / block) * element_bytes, so row_length must be whole blocks.
             //
@@ -485,13 +485,13 @@ namespace SFT::Renderer {
             const u32 block_extent = RHI::format_is_block_compressed(format) ? 4u : 1u;
             const u64 element_bytes = texture_data_bytes(format, block_extent, block_extent);
             const u32 buffer_row_length =
-                d3d12_padded_rows && element_bytes != 0 && row_pitch % element_bytes == 0
+                padded_rows && element_bytes != 0 && row_pitch % element_bytes == 0
                     ? static_cast<u32>((row_pitch / element_bytes) * block_extent)
                     : 0;
             const RHI::BufferTextureCopy copy{
                 .buffer_offset = level_offset,
                 .buffer_row_length = buffer_row_length,
-                .buffer_image_height = d3d12_padded_rows ? level_height : 0,
+                .buffer_image_height = padded_rows ? level_height : 0,
                 .mip_level = level,
                 .base_array_layer = 0,
                 .array_layer_count = 1,
@@ -501,11 +501,11 @@ namespace SFT::Renderer {
             (*encoder)->copy_buffer_to_texture(staging, resource.texture, copy);
             // Must match upload_texture_rgba's packing stride exactly, including the block-row
             // count — the two walk the same buffer from opposite ends.
-            level_offset += d3d12_padded_rows
+            level_offset += padded_rows
                                 ? row_pitch * texture_row_count(format, level_height)
                                 : texture_data_bytes(format, level_width, level_height);
             if (level + 1u < resource.mip_levels) {
-                level_offset = align_up(level_offset, d3d12_padded_rows ? 512 : copy_alignment);
+                level_offset = align_up(level_offset, padded_rows ? 512 : copy_alignment);
             }
             level_width = std::max(level_width / 2u, 1u);
             level_height = std::max(level_height / 2u, 1u);
@@ -569,10 +569,14 @@ namespace SFT::Renderer {
                                                 "Cannot upload texture data without an RHI device.");
         }
 
-        const bool d3d12_padded_rows = device->backend_type() == RHI::BackendType::D3D12;
+        // D3D12 and WebGPU both require each row of a buffer-to-texture copy to start on a 256-byte
+        // boundary; Vulkan does not, and packing tightly there saves the repack below.
+        const RHI::BackendType backend = device->backend_type();
+        const bool padded_rows =
+            backend == RHI::BackendType::D3D12 || backend == RHI::BackendType::WebGpu;
         vector<std::byte> padded_data;
         span<const std::byte> upload_data = data;
-        if (d3d12_padded_rows) {
+        if (padded_rows) {
             u64 source_offset = 0;
             u64 destination_offset = 0;
             u32 level_width = width;
@@ -611,7 +615,7 @@ namespace SFT::Renderer {
             return unexpected(graphics_error_from_rhi(written.error(), "write texture staging buffer"));
         }
 
-        auto submitted = submit_texture_upload(resource, width, height, format, *staging, 0, {}, d3d12_padded_rows);
+        auto submitted = submit_texture_upload(resource, width, height, format, *staging, 0, {}, padded_rows);
         if (!submitted) {
             device->destroy_buffer(*staging);
             return unexpected(submitted.error());

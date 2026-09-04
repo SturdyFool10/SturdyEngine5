@@ -216,6 +216,18 @@ namespace SFT::Core {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     [[nodiscard]] unique_ptr<EngineBackend> create_engine_backend(RHI::BackendType backend);
 
+#if defined(STURDY_ENABLE_WEBGPU)
+
+    /// Creates the WebGPU backend.
+    ///
+    /// Only declared when the engine was built with `STURDY_ENABLE_WEBGPU`; without Dawn there is no
+    /// WebGPU implementation to construct.
+    ///
+    /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    [[nodiscard]] unique_ptr<EngineBackend> create_webgpu_backend();
+#endif
+
 #if defined(_WIN32)
 
     /// Creates a D3D12 backend from the supplied parameters.

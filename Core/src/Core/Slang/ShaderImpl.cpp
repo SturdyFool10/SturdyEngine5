@@ -977,11 +977,25 @@ namespace SFT::Core::Slang {
                 slang::TypeLayoutReflection *type_layout = layout->getTypeLayout();
 
 
-                if (has_push_constant_component && type_layout != nullptr) {
-                    slang::TypeLayoutReflection *element = type_layout->getElementTypeLayout();
-                    parameter.size = element != nullptr ? normalize_size(element->getSize()) : parameter.type->size;
+                // A push-constant block and a constant buffer both wrap an element type, and what a
+                // caller wants from either is the element's size in *bytes*. Asking the wrapper
+                // itself gives the size in its own category instead -- for a constant buffer that is
+                // a descriptor-slot count, so it reports 1 no matter how large the block is. That
+                // matters beyond tidiness on WebGPU, where a push-constant block is compiled as a
+                // constant buffer (see ReflectionBinding's emulated_push_constant_set) and this is
+                // the only place its byte size can still be recovered.
+                const bool wraps_an_element =
+                    has_push_constant_component ||
+                    (type_layout != nullptr &&
+                     type_layout->getKind() == slang::TypeReflection::Kind::ConstantBuffer);
+                slang::TypeLayoutReflection *element =
+                    type_layout != nullptr ? type_layout->getElementTypeLayout() : nullptr;
+                if (wraps_an_element && element != nullptr) {
+                    parameter.size = normalize_size(element->getSize());
+                } else if (type_layout != nullptr) {
+                    parameter.size = normalize_size(type_layout->getSize(effective_category));
                 } else {
-                    parameter.size = type_layout != nullptr ? normalize_size(type_layout->getSize(effective_category)) : parameter.type->size;
+                    parameter.size = parameter.type->size;
                 }
                 parameter.stride = parameter.type->stride;
                 parameter.binding_ranges = parameter.type->binding_ranges;
@@ -1313,12 +1327,37 @@ namespace SFT::Core::Slang {
                 search_paths.push_back(search_path.c_str());
             }
 
+            // WebGPU has no push constants, so every shader here that declares one carries an
+            // `#ifdef SFT_EMULATE_PUSH_CONSTANTS` alternative that binds the same block as an
+            // ordinary uniform buffer in the reserved set the WebGPU backend fills per draw. The
+            // macro is defined centrally rather than at each call site because it is a property of
+            // the target language, not of any caller's intent -- there is no WGSL consumer that
+            // could want the push-constant form, because it does not exist there.
+            //
+            // Session macros apply to every target in the session, so a session mixing WGSL with
+            // another target would silently miscompile the other one. Nothing does that today (the
+            // only multi-target session is D3D12's SPIR-V + DXIL pair), and this rejects it rather
+            // than letting it through quietly if that ever changes.
+            const bool targets_wgsl =
+                std::ranges::any_of(options.targets, [](const ShaderTarget &target) {
+                    return target.format == ShaderTargetFormat::Wgsl;
+                });
+            if (targets_wgsl && options.targets.size() > 1) {
+                return shader_error(
+                    ShaderErrorCode::InvalidArgument,
+                    "A Slang session cannot compile WGSL alongside another target: WGSL needs the "
+                    "SFT_EMULATE_PUSH_CONSTANTS macro, and preprocessor macros are session-wide.");
+            }
+
             vector<slang::PreprocessorMacroDesc> macros;
-            macros.reserve(options.macros.size());
+            macros.reserve(options.macros.size() + 1);
             for (const ShaderMacro &macro : options.macros) {
                 if (!macro.name.empty()) {
                     macros.push_back(slang::PreprocessorMacroDesc{macro.name.c_str(), macro.value.c_str()});
                 }
+            }
+            if (targets_wgsl) {
+                macros.push_back(slang::PreprocessorMacroDesc{"SFT_EMULATE_PUSH_CONSTANTS", "1"});
             }
 
 

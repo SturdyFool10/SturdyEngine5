@@ -30,7 +30,16 @@ struct SvgfAtrousConstants {
 };
 
 ConstantBuffer<SvgfFrameConstants> frame;
-[[vk::push_constant]] ConstantBuffer<SvgfAtrousConstants> atrousConstants;
+#ifdef SFT_EMULATE_PUSH_CONSTANTS
+// WebGPU has no push constants at all, so on that target the same block is carried as an
+// ordinary uniform buffer in the reserved set the WebGPU backend binds a per-draw slice of
+// (see WebGpuCommandEncoder.cpp). Note the layout rule changes with it: a push-constant
+// block is packed std430-style, a uniform buffer std140, so a struct whose members would
+// pad differently between the two must be laid out to agree under both.
+[[vk::binding(0, 3)]] ConstantBuffer<SvgfAtrousConstants> atrousConstants;
+#else
+[[push_constant]] ConstantBuffer<SvgfAtrousConstants> atrousConstants;
+#endif
 Texture2D<float2> gbufferNormal;
 Texture2D<float> gbufferDepth;
 Texture2D<float4> colorVarianceIn;

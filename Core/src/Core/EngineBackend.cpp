@@ -36,8 +36,12 @@ unique_ptr<EngineBackend> create_engine_backend(RHI::BackendType backend) {
 #if defined(_WIN32)
                 case RHI::BackendType::D3D12: return create_d3d12_backend();
 #endif
-                case RHI::BackendType::Metal:
+#if defined(STURDY_ENABLE_WEBGPU)
+                case RHI::BackendType::WebGpu: return create_webgpu_backend();
+#else
                 case RHI::BackendType::WebGpu: return nullptr;
+#endif
+                case RHI::BackendType::Metal: return nullptr;
             }
             return nullptr;
         }

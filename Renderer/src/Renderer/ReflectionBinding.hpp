@@ -69,6 +69,19 @@ namespace SFT::Renderer {
         u32 bindless_array_max_count = 4096);
 
 
+    /// Descriptor set reserved engine-wide for a push-constant block that a target cannot express
+    /// natively.
+    ///
+    /// WebGPU has no push constants, so every shader here that declares one also declares, behind
+    /// `SFT_EMULATE_PUSH_CONSTANTS`, the same block as an ordinary uniform buffer at
+    /// `[[vk::binding(0, 3)]]`. That set is reserved for exactly this: no shader binds anything else
+    /// there on any target, which is what lets `generate_bind_group_layouts` leave it out of the
+    /// layouts it reports and `generate_push_constant_ranges` read a range back out of it.
+    ///
+    /// Three is not arbitrary -- WebGPU only guarantees four bind groups, so it is the last index
+    /// available, and therefore the one least likely to collide with a real binding.
+    inline constexpr u32 emulated_push_constant_set = 3;
+
     /// Performs the generate push constant ranges operation using the supplied arguments.
     ///
     /// @param reflection `reflection` value used by the operation.

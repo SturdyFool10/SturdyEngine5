@@ -22,8 +22,17 @@ namespace SFT::Renderer {
                     .slang_target = {.format = Core::Slang::ShaderTargetFormat::Dxil, .profile = "sm_6_6"},
                     .module_language = RHI::ShaderLanguage::Dxil,
                 };
-            case RHI::BackendType::Metal:
             case RHI::BackendType::WebGpu:
+                // WGSL, not SPIR-V: Dawn is built here with only its WGSL front end enabled (see
+                // sturdy_fetch_dawn), and WGSL is the only shading language WebGPU itself defines.
+                // Slang emits it directly, so the same .slang sources feed this backend as every
+                // other one. The profile is empty because WGSL has no profile/version axis for
+                // Slang to select -- unlike SPIR-V's 1.x or Shader Model's 6.x.
+                return RendererShaderTarget{
+                    .slang_target = {.format = Core::Slang::ShaderTargetFormat::Wgsl, .profile = ""},
+                    .module_language = RHI::ShaderLanguage::Wgsl,
+                };
+            case RHI::BackendType::Metal:
                 return std::unexpected(Core::GraphicsBackendError{
                     .code = Core::GraphicsBackendErrorCode::Unsupported,
                     .message = string{"Renderer shader modules are not supported for the active "} +

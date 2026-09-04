@@ -1,5 +1,7 @@
 #include <RHI/Inventory.hpp>
 
+#include <algorithm>
+
 namespace SFT::RHI {
 
     namespace {
@@ -30,11 +32,39 @@ namespace SFT::RHI {
         /// @note Absence is represented by a null pointer rather than an exception.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] PhysicalGpu *find_physical_gpu(GpuInventory &inventory, const AdapterInfo &adapter) {
-            if (adapter.physical_device_id.empty()) {
+            if (!adapter.physical_device_id.empty()) {
+                for (PhysicalGpu &gpu : inventory.gpus) {
+                    if (gpu.physical_device_id == adapter.physical_device_id) {
+                        return &gpu;
+                    }
+                }
                 return nullptr;
             }
+
+            // No stable device identifier. Vulkan and D3D12 always have one (a device UUID or an
+            // adapter LUID), but WebGPU deliberately exposes neither -- it reports only the PCI
+            // vendor/device IDs and a name. Without a fallback the same physical GPU would appear
+            // once per backend, which defeats the point of an inventory keyed on physical GPUs.
+            //
+            // Matching on vendor/device/name alone would be wrong: two identical cards share all
+            // three. So a candidate only matches if it does not already list this adapter's
+            // backend. Two identical cards found by one backend still produce two entries (the
+            // first already has that backend, so the second cannot merge into it), and each is then
+            // matched in turn by the next backend.
             for (PhysicalGpu &gpu : inventory.gpus) {
-                if (gpu.physical_device_id == adapter.physical_device_id) {
+                const bool same_device = gpu.name == adapter.name &&
+                                         !gpu.api_support.empty() &&
+                                         gpu.api_support.front().adapter.vendor_id == adapter.vendor_id &&
+                                         gpu.api_support.front().adapter.device_id == adapter.device_id;
+                if (!same_device) {
+                    continue;
+                }
+                const bool backend_already_listed =
+                    std::any_of(gpu.api_support.begin(), gpu.api_support.end(),
+                                [&adapter](const GpuApiSupport &support) {
+                                    return support.adapter.backend == adapter.backend;
+                                });
+                if (!backend_already_listed) {
                     return &gpu;
                 }
             }

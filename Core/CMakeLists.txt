@@ -12,6 +12,16 @@ elseif(NOT STURDY_OS STREQUAL "Windows")
     list(APPEND _sturdy_core_excluded_source_dirs D3D12)
 endif()
 
+# The WebGPU RHI backend compiles on native only when Dawn was fetched to provide it; on Web the
+# same sources compile against the browser's WebGPU through the Emscripten port, which is always
+# present. Excluded rather than #if-d out inside each file so a build without Dawn does not pay
+# for parsing thousands of lines that would compile to nothing.
+if(STURDY_ENABLE_WEBGPU AND NOT STURDY_OS STREQUAL "Web")
+    list(APPEND _sturdy_core_graphics_deps Sturdy::WebGPU)
+elseif(NOT STURDY_OS STREQUAL "Web")
+    list(APPEND _sturdy_core_excluded_source_dirs WebGPU)
+endif()
+
 if(NOT STURDY_OS STREQUAL "Windows")
     list(APPEND _sturdy_core_excluded_source_dirs DirectStorage)
 endif()
@@ -27,6 +37,11 @@ set(_sturdy_core_graphics_platform_dirs
     GraphicsPlatform/FreeBSD
     GraphicsPlatform/Web)
 set(_sturdy_core_graphics_platform_definitions)
+# Gates the WebGPU backend's registration in BackendInventory.cpp. Public because Core's headers do
+# not expose it, but the definition has to match the sources that were actually compiled in.
+if(STURDY_ENABLE_WEBGPU)
+    list(APPEND _sturdy_core_graphics_platform_definitions STURDY_ENABLE_WEBGPU=1)
+endif()
 if(STURDY_OS STREQUAL "Windows")
     set(_sturdy_core_graphics_platform_active GraphicsPlatform/Windows)
     list(APPEND _sturdy_core_graphics_platform_definitions STURDY_GRAPHICS_PLATFORM_WINDOWS=1)
@@ -80,6 +95,7 @@ sturdy_add_package(Core
         "${STURDY_SHADERS_EMBED_CPP}"
 
     EXCLUDE_SOURCE_DIRS
+        tests
         ${_sturdy_core_excluded_source_dirs}
 
     PUBLIC_DEPS
@@ -111,4 +127,15 @@ sturdy_add_package(Core
 if(WIN32 AND STURDY_OS STREQUAL "Windows")
     # GraphicsPlatform's composition-present path uses DXGI + DirectComposition + D3D11 + DWM.
     target_link_libraries(Core PRIVATE dxgi dcomp d3d11 dwmapi)
+endif()
+
+# Exercises the WebGPU-specific resource rules that Dawn reports through its uncaptured-error
+# callback rather than through a return value. Needs a real Dawn device, so it skips (exit 0) rather
+# than failing when the machine has no Vulkan/Metal/D3D12 driver to put one on.
+if(BUILD_TESTING AND STURDY_ENABLE_WEBGPU AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
+    add_executable(CoreWebGpuResourceTest tests/WebGpuResourceTest.cpp)
+    target_link_libraries(CoreWebGpuResourceTest PRIVATE Sturdy::Core)
+    sturdy_enable_warnings(CoreWebGpuResourceTest)
+    add_test(NAME CoreWebGpuResourceTest COMMAND CoreWebGpuResourceTest)
+    set_tests_properties(CoreWebGpuResourceTest PROPERTIES TIMEOUT 60)
 endif()

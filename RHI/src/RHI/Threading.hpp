@@ -30,6 +30,15 @@ namespace SFT::RHI {
     struct RenderThreadingCapabilities {
         bool backend_allows_dedicated_render_thread = false;
         bool backend_allows_parallel_command_recording = false;
+        // Whether `RhiDevice::present` may run on a thread of the renderer's choosing while the
+        // render thread carries on into the next frame.
+        //
+        // False for a backend whose presentation shares mutable state with ordinary submission --
+        // WebGPU's single queue is the case in point, where presenting records and submits through
+        // the same queue the render thread is still using. Presentation then happens inline on the
+        // render thread instead, which costs the overlap a dedicated present thread would buy and
+        // is the only correct option when the two cannot run at once.
+        bool backend_allows_async_presentation = true;
         bool platform_allows_threads = compile_time_rhi_multithreading_allowed;
         bool requires_graphics_calls_on_owner_thread = true;
         RenderThreadingMode recommended_mode = RenderThreadingMode::SingleThreaded;

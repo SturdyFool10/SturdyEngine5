@@ -34,6 +34,28 @@ namespace {
         config.application.engine.features.presentation.latency = SFT::Core::LatencyMode::Ultra;
         config.application.primary_window_title_update_interval_seconds = 0.25;
         config.primary_window_title = UString{"SturdyEngine 5 UI Workbench"};
+
+        // Development override. The workbench's GPU picker can switch backends at runtime, but a
+        // problem in a backend's startup path has to be reproduced with the choice already made
+        // before the first frame, and clicking through the picker every launch does not scale while
+        // bringing one up. Unset in normal use, in which case the default above stands.
+        if (const char *requested = std::getenv("STURDY_GRAPHICS_BACKEND"); requested != nullptr) {
+            const std::string_view name{requested};
+            if (name == "webgpu") {
+                config.application.engine.graphics_backend = SFT::RHI::BackendType::WebGpu;
+            } else if (name == "vulkan") {
+                config.application.engine.graphics_backend = SFT::RHI::BackendType::Vulkan;
+            } else if (name == "d3d12") {
+                config.application.engine.graphics_backend = SFT::RHI::BackendType::D3D12;
+            } else if (name == "metal") {
+                config.application.engine.graphics_backend = SFT::RHI::BackendType::Metal;
+            } else {
+                SFT::Foundation::log_warn(
+                    "STURDY_GRAPHICS_BACKEND='{}' names no known backend; expected one of "
+                    "vulkan, webgpu, d3d12, metal. Using the default instead.",
+                    name);
+            }
+        }
         return config;
     }
 

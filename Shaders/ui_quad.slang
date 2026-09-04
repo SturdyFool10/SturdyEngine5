@@ -37,7 +37,25 @@ struct UiViewConstants {
     uint padding;
 };
 
+#ifdef SFT_EMULATE_PUSH_CONSTANTS
+
+// WebGPU has no push constants at all, so on that target the same block is carried as an
+
+// ordinary uniform buffer in the reserved set the WebGPU backend binds a per-draw slice of
+
+// (see WebGpuCommandEncoder.cpp). Note the layout rule changes with it: a push-constant
+
+// block is packed std430-style, a uniform buffer std140, so a struct whose members would
+
+// pad differently between the two must be laid out to agree under both.
+
+[[vk::binding(0, 3)]] ConstantBuffer<UiViewConstants> viewConstants;
+
+#else
+
 [[push_constant]] ConstantBuffer<UiViewConstants> viewConstants;
+
+#endif
 StructuredBuffer<UiQuadInstance> instances;
 Texture2D<float4> quadTexture;
 SamplerState quadSampler;
@@ -85,12 +103,19 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float edgeSoftness = max(fwidth(outerDist), SFT_EPSILON);
     float outerAlpha = clamp01(0.5 - outerDist / edgeSoftness);
 
+    // Sampled unconditionally, before the branch that actually wants it. An implicit-LOD sample is
+    // only defined when every invocation in the quad performs it, and `kind` varies per element, so
+    // sampling inside the branch is a uniformity violation: SPIR-V accepts it, WGSL rejects the
+    // shader outright. A quad's texture binding is always a valid texture -- UiRenderer binds a
+    // white fallback view for every untextured fill -- so the extra fetch on the non-image path is
+    // well-defined and its result simply goes unused.
+    float4 sampled = quadTexture.Sample(quadSampler, input.uv);
+
     float4 color = input.fillColor;
     if (input.kind > 0.5) {
         // Image (UI::Context::image(), also every UI::Context::svg()-drawn icon — an SVG-sourced
         // texture is rasterized to plain RGBA8 ahead of time by Engine::UiSvgCache, so it's
         // indistinguishable from any other image by the time it reaches this shader).
-        float4 sampled = quadTexture.Sample(quadSampler, input.uv);
         // Clay_ImageRenderData's default tint is (0,0,0,0), meaning "untinted" (see its own doc
         // comment) — only multiply-tint when the caller actually set a tint color.
         float3 tinted = input.fillColor.a > 0.0 ? sampled.rgb * input.fillColor.rgb : sampled.rgb;

@@ -528,7 +528,8 @@ namespace SFT::UiWorkbench {
         }
         auto sdr_renderer = UI::UiRenderer::create(*device, RHI::Format::BGRA8UnormSrgb);
         if (!sdr_renderer) {
-            Foundation::log_error("UiWorkbench: failed to create the SDR UI renderer for a window.");
+            Foundation::log_error("UiWorkbench: failed to create the SDR UI renderer for a window: {}",
+                                  sdr_renderer.error().message);
             context->destroy();
             return nullptr;
         }
@@ -536,7 +537,8 @@ namespace SFT::UiWorkbench {
 
         auto hdr_renderer = UI::UiRenderer::create(*device, RHI::Format::RGBA16Float);
         if (!hdr_renderer) {
-            Foundation::log_error("UiWorkbench: failed to create the HDR UI renderer for a window.");
+            Foundation::log_error("UiWorkbench: failed to create the HDR UI renderer for a window: {}",
+                                  hdr_renderer.error().message);
             sdr_renderer->destroy(*device);
             context->destroy();
             return nullptr;

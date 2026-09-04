@@ -20,6 +20,17 @@ namespace SFT::Renderer {
 /// @note This function does not throw exceptions.
 [[nodiscard]] const Core::EngineBackend *Renderer::graphics_backend() const noexcept { return graphics_backend_.get(); }
 
+/// Reports whether the active backend permits `present` to run off the render thread.
+///
+/// @return Returns the boolean result of the operation.
+/// @note This function does not throw exceptions.
+[[nodiscard]] bool Renderer::backend_allows_async_presentation() const noexcept {
+    const Core::EngineBackend *backend = graphics_backend();
+    // Defaulting to true when there is no backend keeps the pre-existing behaviour for every
+    // caller that reaches here before one is attached.
+    return backend == nullptr || backend->render_threading_capabilities().backend_allows_async_presentation;
+}
+
 } // namespace SFT::Renderer
 
 namespace SFT::Renderer {

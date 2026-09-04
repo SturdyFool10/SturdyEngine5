@@ -258,6 +258,13 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
         vector<GeneratedBindGroupLayout> layouts;
         layouts.reserve(reflection.descriptor_sets.size());
         for (const ReflectedDescriptorBinding &descriptor : collect_descriptor_bindings(reflection)) {
+            // The reserved set is not a bind group the caller owns: on a target that emulates push
+            // constants it holds the emulated block, which that backend binds itself, and on every
+            // other target nothing is bound there at all. Reporting it would make callers build a
+            // layout the backend then has to work around.
+            if (descriptor.set == emulated_push_constant_set) {
+                continue;
+            }
             auto layout = std::ranges::find(layouts, descriptor.set, &GeneratedBindGroupLayout::set);
             if (layout == layouts.end()) {
                 layouts.push_back(GeneratedBindGroupLayout{.set = descriptor.set});
@@ -353,6 +360,34 @@ vector<RHI::PushConstantRange> generate_push_constant_ranges(const slang::Shader
             ranges.push_back(RHI::PushConstantRange{
                 .stages = stages,
                 .offset = static_cast<u32>(parameter.offset),
+                .size = static_cast<u32>(parameter.size),
+                .shader_register = parameter.binding,
+                .register_space = parameter.binding_space,
+            });
+        }
+        if (!ranges.empty()) {
+            return ranges;
+        }
+
+        // Nothing reflected as a push constant. On a target that has them, that means the shader
+        // genuinely declares none. On one that does not -- WGSL -- the same block was compiled
+        // through the SFT_EMULATE_PUSH_CONSTANTS path into an ordinary uniform buffer in the
+        // reserved set, and reflection reports it as the constant buffer it now is. Recovering the
+        // range from there is what lets every caller keep asking for push constants and stay
+        // unaware of which target it is on; the backend that emulates them puts the block back
+        // together (see WebGpuDevicePushConstants.cpp).
+        for (const slang::ShaderParameterReflection &parameter : reflection.global_parameters) {
+            const bool is_reserved_uniform_block =
+                parameter.binding_space == emulated_push_constant_set && parameter.size != 0 &&
+                (parameter.category == slang::ShaderParameterCategory::ConstantBuffer ||
+                 parameter.category == slang::ShaderParameterCategory::DescriptorTableSlot ||
+                 parameter.category == slang::ShaderParameterCategory::Uniform);
+            if (!is_reserved_uniform_block) {
+                continue;
+            }
+            ranges.push_back(RHI::PushConstantRange{
+                .stages = stages,
+                .offset = 0,
                 .size = static_cast<u32>(parameter.size),
                 .shader_register = parameter.binding,
                 .register_space = parameter.binding_space,
