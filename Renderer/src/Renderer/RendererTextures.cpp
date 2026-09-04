@@ -15,6 +15,7 @@
 #pragma endregion
 
 #include <Renderer/RendererModule.hpp>
+#include <Renderer/TextureUploadPacking.hpp>
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 
@@ -570,34 +571,15 @@ namespace SFT::Renderer {
         }
 
         // D3D12 and WebGPU both require each row of a buffer-to-texture copy to start on a 256-byte
-        // boundary; Vulkan does not, and packing tightly there saves the repack below.
+        // boundary; Vulkan does not, and packing tightly there saves the repack. Shared with
+        // TextureStreamer, which stages its own upload buffer and needs the identical transform --
+        // see TextureUploadPacking.hpp for why the two must stay in exact agreement.
         const RHI::BackendType backend = device->backend_type();
-        const bool padded_rows =
-            backend == RHI::BackendType::D3D12 || backend == RHI::BackendType::WebGpu;
+        const bool padded_rows = backend_requires_padded_texture_rows(backend);
         vector<std::byte> padded_data;
         span<const std::byte> upload_data = data;
         if (padded_rows) {
-            u64 source_offset = 0;
-            u64 destination_offset = 0;
-            u32 level_width = width;
-            u32 level_height = height;
-            for (u32 level = 0; level < resource.mip_levels; ++level) {
-                const u64 tight_row_bytes = texture_data_bytes(format, level_width, 1);
-                const u64 row_pitch = align_up(tight_row_bytes, 256);
-                destination_offset = align_up(destination_offset, 512);
-                const u32 stored_rows = texture_row_count(format, level_height);
-                const u64 required = destination_offset + row_pitch * stored_rows;
-                padded_data.resize(static_cast<usize>(required));
-                for (u32 row = 0; row < stored_rows; ++row) {
-                    std::memcpy(padded_data.data() + destination_offset + static_cast<u64>(row) * row_pitch,
-                                data.data() + source_offset + static_cast<u64>(row) * tight_row_bytes,
-                                static_cast<usize>(tight_row_bytes));
-                }
-                source_offset += texture_data_bytes(format, level_width, level_height);
-                destination_offset = required;
-                level_width = std::max(level_width / 2u, 1u);
-                level_height = std::max(level_height / 2u, 1u);
-            }
+            padded_data = pack_texture_upload_rows(format, width, height, resource.mip_levels, data);
             upload_data = padded_data;
         }
 

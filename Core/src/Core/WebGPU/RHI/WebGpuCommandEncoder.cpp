@@ -3,6 +3,7 @@
 #include <Core/WebGPU/RHI/WebGpuConvert.hpp>
 #include <Core/WebGPU/RHI/WebGpuDevice.hpp>
 
+#include <algorithm>
 #include <cstring>
 #include <optional>
 #include <vector>
@@ -667,24 +668,137 @@ namespace SFT::Core::WebGpu {
         (void)device_.write_buffer(buffer, offset, data);
     }
 
+    /// Runs `body` once per mip level and array layer named by `range`.
+    ///
+    /// @param target The texture being cleared.
+    /// @param format Format the subresource views are created with.
+    /// @param mip_levels Total mip levels the texture has.
+    /// @param layer_total Total array layers the texture has.
+    /// @param range Subresource range the caller asked for.
+    /// @param body Invoked with each subresource's view, which is released afterwards.
+    ///
+    /// @note This function does not throw exceptions.
+    template <typename Body>
+    void WebGpuCommandEncoder::for_each_subresource(WGPUTexture target, rhi::Format format, u32 mip_levels,
+                                                    u32 layer_total,
+                                                    const rhi::TextureSubresourceRange &range,
+                                                    Body &&body) noexcept {
+        const u32 mip_count = range.mip_level_count == rhi::all_remaining
+                                  ? mip_levels - std::min(range.base_mip_level, mip_levels)
+                                  : range.mip_level_count;
+        const u32 layer_count = range.array_layer_count == rhi::all_remaining
+                                    ? layer_total - std::min(range.base_array_layer, layer_total)
+                                    : range.array_layer_count;
+
+        for (u32 mip = 0; mip < mip_count; ++mip) {
+            for (u32 layer = 0; layer < layer_count; ++layer) {
+                WGPUTextureViewDescriptor view_desc{};
+                view_desc.label = wgpu_string("clear subresource");
+                view_desc.format = to_wgpu(format);
+                view_desc.dimension = WGPUTextureViewDimension_2D;
+                view_desc.baseMipLevel = range.base_mip_level + mip;
+                view_desc.mipLevelCount = 1;
+                view_desc.baseArrayLayer = range.base_array_layer + layer;
+                view_desc.arrayLayerCount = 1;
+                view_desc.aspect = WGPUTextureAspect_All;
+
+                WGPUTextureView view = wgpuTextureCreateView(target, &view_desc);
+                if (view == nullptr) {
+                    continue;
+                }
+                body(view);
+                wgpuTextureViewRelease(view);
+            }
+        }
+    }
+
+    /// Begins and immediately ends a render pass.
+    ///
+    /// @param pass_desc The pass to open and close.
+    ///
+    /// @note This function does not throw exceptions.
+    void WebGpuCommandEncoder::end_empty_render_pass(const WGPURenderPassDescriptor &pass_desc) noexcept {
+        WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder_, &pass_desc);
+        if (pass == nullptr) {
+            return;
+        }
+        wgpuRenderPassEncoderEnd(pass);
+        wgpuRenderPassEncoderRelease(pass);
+    }
+
     void WebGpuCommandEncoder::clear_color_texture(rhi::TextureHandle texture, const rhi::ClearColor &color,
                                                    const rhi::TextureSubresourceRange &range) {
-        (void)texture;
-        (void)color;
-        (void)range;
-        // Clearing outside a render pass does not exist in WebGPU: a colour attachment is cleared
-        // by beginning a pass with LoadOp::Clear, which is how the render graph already expresses
-        // it on every backend.
-        report_unsupported_command("clear_color_texture (use a render pass with LoadOp::Clear)");
+        WebGpuDevice::TextureLayout layout{};
+        WGPUTexture target = device_.lookup_texture(texture);
+        if (target == nullptr || !device_.lookup_texture_layout(texture, layout)) {
+            return;
+        }
+        if ((wgpuTextureGetUsage(target) & WGPUTextureUsage_RenderAttachment) == 0) {
+            Foundation::log_error(
+                "WebGPU backend: clear_color_texture needs the texture to allow a render attachment, "
+                "because a clear outside a render pass is the one thing WebGPU has no command for.");
+            return;
+        }
+
+        const u32 layers = layout.extent.depth_or_layers != 0 ? layout.extent.depth_or_layers : 1u;
+        for_each_subresource(target, layout.format, layout.mip_levels, layers, range,
+                             [&](WGPUTextureView view) {
+            WGPURenderPassColorAttachment attachment{};
+            attachment.view = view;
+            attachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+            attachment.loadOp = WGPULoadOp_Clear;
+            attachment.storeOp = WGPUStoreOp_Store;
+            attachment.clearValue = WGPUColor{color.r, color.g, color.b, color.a};
+
+            WGPURenderPassDescriptor pass_desc{};
+            pass_desc.label = wgpu_string("clear color texture");
+            pass_desc.colorAttachmentCount = 1;
+            pass_desc.colorAttachments = &attachment;
+            end_empty_render_pass(pass_desc);
+        });
     }
 
     void WebGpuCommandEncoder::clear_depth_stencil_texture(rhi::TextureHandle texture,
                                                            const rhi::ClearDepthStencil &value,
                                                            const rhi::TextureSubresourceRange &range) {
-        (void)texture;
-        (void)value;
-        (void)range;
-        report_unsupported_command("clear_depth_stencil_texture (use a render pass with LoadOp::Clear)");
+        WebGpuDevice::TextureLayout layout{};
+        WGPUTexture target = device_.lookup_texture(texture);
+        if (target == nullptr || !device_.lookup_texture_layout(texture, layout)) {
+            return;
+        }
+        if ((wgpuTextureGetUsage(target) & WGPUTextureUsage_RenderAttachment) == 0) {
+            Foundation::log_error(
+                "WebGPU backend: clear_depth_stencil_texture needs the texture to allow a render "
+                "attachment, because a clear outside a render pass is the one thing WebGPU has no "
+                "command for.");
+            return;
+        }
+
+        const bool has_depth = rhi::format_has_depth(layout.format);
+        const bool has_stencil = rhi::format_has_stencil(layout.format);
+        const u32 layers = layout.extent.depth_or_layers != 0 ? layout.extent.depth_or_layers : 1u;
+        for_each_subresource(target, layout.format, layout.mip_levels, layers, range,
+                             [&](WGPUTextureView view) {
+            WGPURenderPassDepthStencilAttachment attachment{};
+            attachment.view = view;
+            // A load/store op may only be given for an aspect the format actually has; supplying one
+            // for a missing aspect is a validation error rather than a harmless no-op.
+            if (has_depth) {
+                attachment.depthLoadOp = WGPULoadOp_Clear;
+                attachment.depthStoreOp = WGPUStoreOp_Store;
+                attachment.depthClearValue = value.depth;
+            }
+            if (has_stencil) {
+                attachment.stencilLoadOp = WGPULoadOp_Clear;
+                attachment.stencilStoreOp = WGPUStoreOp_Store;
+                attachment.stencilClearValue = value.stencil;
+            }
+
+            WGPURenderPassDescriptor pass_desc{};
+            pass_desc.label = wgpu_string("clear depth stencil texture");
+            pass_desc.depthStencilAttachment = &attachment;
+            end_empty_render_pass(pass_desc);
+        });
     }
 
     void WebGpuCommandEncoder::build_acceleration_structures(

@@ -125,6 +125,7 @@ namespace SFT::Core::WebGpu {
                 }
                 limits_.supports_bc_texture_compression =
                     wgpuAdapterHasFeature(adapter_, WGPUFeatureName_TextureCompressionBC) != 0;
+                populate_features();
 
                 queue_infos_.push_back(rhi::QueueInfo{
                     .queue = rhi::QueueClass::Graphics,
@@ -169,7 +170,13 @@ namespace SFT::Core::WebGpu {
             /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
             [[nodiscard]] rhi::RhiExpected<std::unique_ptr<rhi::RhiDevice>> create_device(
                 const rhi::DeviceRequest &request) override {
-                (void)request;
+                // A caller that marked a feature *required* has to be told when this adapter cannot
+                // provide it, rather than being handed a device that silently lacks it.
+                if (!features_.contains_all(request.required_features)) {
+                    return std::unexpected(rhi::rhi_error(
+                        rhi::RhiErrorCode::Unsupported,
+                        "create_device: this WebGPU adapter cannot provide every required feature."));
+                }
 
                 // Only features this backend can actually use are requested, and only when the
                 // adapter has them: asking for one it lacks fails device creation outright.
@@ -231,6 +238,35 @@ namespace SFT::Core::WebGpu {
             }
 
           private:
+            /// Records the RHI features this adapter can actually honour.
+            ///
+            /// WebGPU's own optional-feature list is short and mostly does not line up with the
+            /// RHI's, which is modelled on Vulkan's. Only the ones with a genuine WebGPU
+            /// counterpart are claimed here; everything else stays unset, which is the honest
+            /// answer rather than an omission -- WebGPU has no ray tracing, mesh shaders, bindless
+            /// descriptors or timeline semaphores to report in the first place.
+            ///
+            /// @note This function does not throw exceptions.
+            void populate_features() noexcept {
+                const auto claim = [this](WGPUFeatureName dawn_feature, rhi::Feature rhi_feature) {
+                    if (wgpuAdapterHasFeature(adapter_, dawn_feature) != 0) {
+                        features_.set(rhi_feature);
+                    }
+                };
+                claim(WGPUFeatureName_TextureCompressionBC, rhi::Feature::TextureCompressionBC);
+                claim(WGPUFeatureName_TextureCompressionETC2, rhi::Feature::TextureCompressionETC2);
+                claim(WGPUFeatureName_TextureCompressionASTC, rhi::Feature::TextureCompressionASTC);
+                claim(WGPUFeatureName_TimestampQuery, rhi::Feature::TimestampQueries);
+                claim(WGPUFeatureName_IndirectFirstInstance, rhi::Feature::DrawIndirectFirstInstance);
+                claim(WGPUFeatureName_DualSourceBlending, rhi::Feature::DualSourceBlending);
+                claim(WGPUFeatureName_ClipDistances, rhi::Feature::ShaderClipDistance);
+                claim(WGPUFeatureName_Subgroups, rhi::Feature::SubgroupOperations);
+
+                // Not gated on an optional WebGPU feature: occlusion queries are part of the core
+                // API, so every adapter has them.
+                features_.set(rhi::Feature::OcclusionQueries);
+            }
+
             WGPUInstance instance_ = nullptr;
             WGPUAdapter adapter_ = nullptr;
             rhi::AdapterInfo info_{};

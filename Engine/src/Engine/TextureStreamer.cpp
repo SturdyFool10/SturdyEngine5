@@ -295,7 +295,7 @@ namespace SFT::Engine {
         const u32 height = decoded->height;
 
 
-        (void)impl_->thread.run([this, id, width, height, format,
+        (void)impl_->thread.run([this, id, width, height, format, mip_levels,
                             pixels = compressed_storage.empty() ? std::move(mip_chain.data) : std::move(compressed_storage)]() mutable {
             ZoneScopedN("TextureStreamer::upload_worker");
             RHI::RhiDevice *worker_device = impl_->renderer.rhi_device();
@@ -326,6 +326,18 @@ namespace SFT::Engine {
             if (worker_device == nullptr || !texture_handle) {
                 mark_failed();
                 return;
+            }
+
+            // D3D12 and WebGPU both require each copy row to start on a 256-byte boundary;
+            // `pixels` above is tightly packed, matching what Vulkan wants directly. Repacking here
+            // -- rather than leaving `pixels` tight and hoping `submit_texture_upload` sorts it out
+            // -- is what `Renderer::upload_texture_rgba` does for its own callers, and streamed
+            // textures need the identical transform for the same reason (see
+            // TextureUploadPacking.hpp).
+            const bool padded_rows = Renderer::backend_requires_padded_texture_rows(worker_device->backend_type());
+            if (padded_rows) {
+                pixels = Renderer::pack_texture_upload_rows(
+                    format, width, height, mip_levels, span<const std::byte>{pixels.data(), pixels.size()});
             }
 
             Impl::StagingChunk *ring_chunk = nullptr;
@@ -373,7 +385,8 @@ namespace SFT::Engine {
             }
             const RHI::QueueLane transfer_lane{RHI::QueueClass::Transfer, 0};
             auto submitted = impl_->renderer.submit_texture_upload(*resource, width, height, format,
-                                                                    staging_buffer, 0, transfer_lane);
+                                                                    staging_buffer, 0, transfer_lane,
+                                                                    padded_rows);
             if (!submitted) {
                 if (owned_staging_buffer) {
                     worker_device->destroy_buffer(owned_staging_buffer);

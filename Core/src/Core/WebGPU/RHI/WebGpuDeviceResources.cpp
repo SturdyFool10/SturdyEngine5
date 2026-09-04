@@ -351,7 +351,7 @@ namespace SFT::Core::WebGpu {
         if (entry == nullptr) {
             return false;
         }
-        out = TextureLayout{.format = entry->format, .extent = entry->extent};
+        out = TextureLayout{.format = entry->format, .extent = entry->extent, .mip_levels = entry->mip_levels};
         return true;
     }
 

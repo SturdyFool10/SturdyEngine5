@@ -172,6 +172,7 @@ namespace SFT::Core::WebGpu {
         struct TextureLayout {
             rhi::Format format = rhi::Format::Undefined;
             rhi::Extent3D extent{};
+            u32 mip_levels = 1;
         };
 
         /// Resolves a texture handle to the format and extent it was created with.

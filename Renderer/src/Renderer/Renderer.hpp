@@ -21,3 +21,4 @@
 #include <Renderer/Scene.hpp>
 #include <Renderer/RenderGraph.hpp>
 #include <Renderer/RendererModule.hpp>
+#include <Renderer/TextureUploadPacking.hpp>

@@ -216,6 +216,32 @@ namespace SFT::Core::WebGpu {
         [[nodiscard]] rhi::RhiExpected<rhi::CommandBufferHandle> finish() override;
 
       private:
+        /// Runs `body` once per mip level and array layer named by `range`, handing it a view of
+        /// that one subresource.
+        ///
+        /// WebGPU clears through a render pass, and a render pass attaches exactly one subresource,
+        /// so a range clear is a loop rather than a single command.
+        ///
+        /// @param target The texture being cleared.
+        /// @param format Format the subresource views are created with.
+        /// @param mip_levels Total mip levels the texture has.
+        /// @param layer_total Total array layers the texture has.
+        /// @param range Subresource range the caller asked for.
+        /// @param body Invoked with each subresource's view, which is released afterwards.
+        ///
+        /// @note This function does not throw exceptions.
+        template <typename Body>
+        void for_each_subresource(WGPUTexture target, rhi::Format format, u32 mip_levels, u32 layer_total,
+                                  const rhi::TextureSubresourceRange &range, Body &&body) noexcept;
+
+        /// Begins and immediately ends a render pass, which is how a clear-only pass is expressed:
+        /// the load op does the work and there is nothing to draw.
+        ///
+        /// @param pass_desc The pass to open and close.
+        ///
+        /// @note This function does not throw exceptions.
+        void end_empty_render_pass(const WGPURenderPassDescriptor &pass_desc) noexcept;
+
         WebGpuDevice &device_;
         WGPUCommandEncoder encoder_ = nullptr;
     };
