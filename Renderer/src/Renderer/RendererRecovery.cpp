@@ -68,23 +68,27 @@ namespace SFT::Renderer {
 
         recovering_from_device_loss_ = true;
 
-
+        // Every presentation-related handle a record holds -- the swapchain, its surface, any
+        // outstanding presentation-completion fences, and anything queued in
+        // retired_presentation_resources -- names an object on the *old* device. That device is
+        // about to be replaced wholesale below, and while its own destructor will eventually free
+        // everything it still owns, this destroys them explicitly first and while the old device
+        // and window are both still alive, matching how a window's surface is torn down on close
+        // (see WebGpuBackend::destroy_window_surface's own reasoning about Wayland ordering).
+        //
+        // What this replaces was narrower -- it only drained pending presents and destroyed each
+        // record's swapchain -- and left `active_presentation_completion_fences` and
+        // `retired_presentation_resources` untouched. Those are exactly the vectors
+        // `invalidate_gpu_resource_handles_no_destroy` below does *not* clear (its own scope is
+        // resources the new device's own construction implicitly discards), so their old handle
+        // values survived into the new device with nothing there to interpret them: later polling
+        // fed them to the new device's `wait_fences`, which correctly reported them unknown, on
+        // every single frame forever because the poll loop that logs the warning never removes an
+        // entry it failed to resolve.
         {
             auto guard = window_surfaces_.lock();
             for (auto &record_ptr : *guard) {
-                (void)drain_pending_present(*record_ptr, nullptr);
-            }
-        }
-        wait_idle();
-
-
-        if (RHI::RhiDevice *old_device = rhi_device()) {
-            auto guard = window_surfaces_.lock();
-            for (const auto &record : *guard) {
-                if (record->rhi_swapchain.is_valid()) {
-                    old_device->destroy_swapchain(record->rhi_swapchain);
-                    record->rhi_swapchain = {};
-                }
+                destroy_rhi_presentation_resources(*record_ptr);
             }
         }
         invalidate_gpu_resource_handles_no_destroy();

@@ -270,6 +270,13 @@ namespace SFT::UiWorkbench {
         UI::ButtonState reconstruct_graphics_button_state_;
         usize selected_graphics_adapter_index_ = 0;
         usize selected_graphics_api_index_ = 0;
+        // False until the dropdown indices above have been set to match whichever GPU/API the
+        // engine actually came up on -- both members default to 0, which is only correct if Vulkan
+        // on the first-listed adapter happens to be what started, e.g. via STURDY_GRAPHICS_BACKEND.
+        // Synced once, the first time the settings panel runs after a live device exists, and left
+        // alone after that so it doesn't fight a user's own dropdown clicks before they hit
+        // "Reconstruct graphics".
+        bool graphics_selection_synced_ = false;
 
 
         UI::DropdownState window_type_dropdown_state_;

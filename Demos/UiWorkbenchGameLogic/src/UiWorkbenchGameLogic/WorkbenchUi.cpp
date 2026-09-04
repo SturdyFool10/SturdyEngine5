@@ -1445,6 +1445,38 @@ namespace SFT::UiWorkbench {
 
         const std::span<const RHI::PhysicalGpu> adapters = engine.gpu_inventory().gpus;
         if (!adapters.empty()) {
+            // Both dropdown indices default to 0, which silently claims "Vulkan on the first-listed
+            // adapter" no matter what actually started -- including a STURDY_GRAPHICS_BACKEND
+            // override to WebGPU or any other non-default choice. Sync them to reality once, the
+            // first time a live device exists to read.
+            if (!graphics_selection_synced_) {
+                if (const RHI::RhiDevice *device = engine.rhi_device()) {
+                    const RHI::AdapterInfo &live = device->adapter_info();
+                    for (usize adapter_index = 0; adapter_index < adapters.size(); ++adapter_index) {
+                        const RHI::PhysicalGpu &candidate_gpu = adapters[adapter_index];
+                        for (usize api_index = 0; api_index < candidate_gpu.api_support.size(); ++api_index) {
+                            const RHI::AdapterInfo &candidate = candidate_gpu.api_support[api_index].adapter;
+                            // Matched per-backend entry, not the GPU-level physical_device_id: that
+                            // field is only ever as good as whichever backend first discovered the
+                            // GPU (see RHI::Inventory.cpp's find_physical_gpu), and WebGPU reports
+                            // none of its own, so a WebGPU-started session has to match on
+                            // name/vendor/device instead -- exactly what the inventory itself falls
+                            // back to when merging entries for the same physical GPU.
+                            const bool same_adapter = candidate.backend == live.backend &&
+                                                      candidate.name == live.name &&
+                                                      candidate.vendor_id == live.vendor_id &&
+                                                      candidate.device_id == live.device_id;
+                            if (same_adapter) {
+                                selected_graphics_adapter_index_ = adapter_index;
+                                selected_graphics_api_index_ = api_index;
+                                graphics_selection_synced_ = true;
+                                break;
+                            }
+                        }
+                        if (graphics_selection_synced_) break;
+                    }
+                }
+            }
             selected_graphics_adapter_index_ = std::min(selected_graphics_adapter_index_, adapters.size() - 1);
             UI::DropdownStyle graphics_dropdown_style{};
             graphics_dropdown_style.trigger = action_button_style();

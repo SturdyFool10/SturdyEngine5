@@ -2801,6 +2801,40 @@ namespace SFT::Renderer {
         /// @note This function does not throw exceptions.
         void destroy_custom_post_process_resources() noexcept;
 
+        /// Adds a render-graph pass that resamples the whole of `source` into the whole of
+        /// `destination`, at whatever size each already is.
+        ///
+        /// This is the cross-backend replacement for `RHI::CommandEncoder::blit_texture`: Vulkan is
+        /// the only backend with a native scaled/filtered blit, so `RenderGraph`'s own blit pass
+        /// (`add_blit_pass`/`PassKind::Blit`) refuses to run on D3D12 or WebGPU. This instead records
+        /// an ordinary full-screen-triangle render pass through the same
+        /// `ensure_custom_post_process`/`record_custom_post_process` machinery every other portable
+        /// shader-driven effect in this file already uses, so it costs no backend-specific code at
+        /// all and works everywhere `create_render_pipeline` does.
+        ///
+        /// @param graph Render graph to add the pass to.
+        /// @param source Texture read across its full extent.
+        /// @param destination Texture written across its full extent; entirely overwritten, so its
+        ///        prior contents do not need to be preserved.
+        /// @param destination_format Format `destination` was created with.
+        /// @param out_transient_bind_groups Bind groups this call creates are appended here, per the
+        ///        same convention `add_ui_glow_bloom_passes` documents: the caller destroys them once
+        ///        the frame's GPU work has completed.
+        /// @param label Debug label for the added pass.
+        ///
+        /// @note Always resampled with linear filtering -- this goes through the same
+        ///       `ensure_custom_post_process` cache every other portable shader-driven effect in this
+        ///       file shares, which creates one Linear/Linear sampler for all of them. Nearest
+        ///       filtering would need its own sampler and its own cache key, which nothing has asked
+        ///       for yet; add it if a caller genuinely needs a point-sampled copy.
+        ///
+        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        [[nodiscard]] Core::RendererResult add_texture_blit_pass(
+            RenderGraph &graph, RenderGraphTextureHandle source, RenderGraphTextureHandle destination,
+            RHI::Format destination_format, vector<RHI::BindGroupHandle> &out_transient_bind_groups,
+            const ustr &label = "portable texture blit"_ustr);
+
         /// Finds or creates the post process aa resources required by the operation.
         ///
         /// @param settings Configuration values controlling the operation.
