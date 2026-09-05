@@ -171,6 +171,15 @@ namespace SFT::Renderer {
             if (!static_cast<bool>(presentation.hdr_enabled)) {
                 return RHI::Format::BGRA8UnormSrgb;
             }
+#if defined(STURDY_PLATFORM_WEB)
+            // GPUCanvasContext.configure() only accepts "bgra8unorm"/"rgba8unorm"/"rgba16float" as
+            // a canvas's base format -- there is no browser equivalent of a 10-bit HDR10/PQ/HLG
+            // swapchain format at all (unlike Vulkan/D3D12, which accept RGB10A2Unorm directly).
+            // scRGB linear (RGBA16Float) is the only HDR path the web platform actually exposes, so
+            // every HDR mode maps to it here regardless of what was requested; requesting
+            // RGB10A2Unorm throws "is not a supported context format" and aborts the module.
+            return RHI::Format::RGBA16Float;
+#else
             switch (presentation.hdr_color_space) {
 
                 case Core::HdrColorSpaceMode::ScrgbLinear: return RHI::Format::RGBA16Float;
@@ -181,6 +190,7 @@ namespace SFT::Renderer {
                 case Core::HdrColorSpaceMode::DolbyVision:
                 default: return RHI::Format::RGB10A2Unorm;
             }
+#endif
         }
 
         /// Performs the HDR presentation color space operation for `Renderer` using the supplied arguments.
@@ -193,6 +203,10 @@ namespace SFT::Renderer {
             if (!static_cast<bool>(presentation.hdr_enabled)) {
                 return RHI::ColorSpace::SrgbNonlinear;
             }
+#if defined(STURDY_PLATFORM_WEB)
+            // Mirrors hdr_presentation_format() above: the web platform only ever gets scRGB linear.
+            return RHI::ColorSpace::ScrgbLinear;
+#else
             switch (presentation.hdr_color_space) {
                 case Core::HdrColorSpaceMode::ScrgbLinear: return RHI::ColorSpace::ScrgbLinear;
                 case Core::HdrColorSpaceMode::Hdr10Hlg: return RHI::ColorSpace::Hdr10Hlg;
@@ -200,6 +214,7 @@ namespace SFT::Renderer {
                 case Core::HdrColorSpaceMode::Hdr10St2084:
                 default: return RHI::ColorSpace::Hdr10St2084;
             }
+#endif
         }
 
         /// Returns a human-readable name for the supplied HDR color space value.
