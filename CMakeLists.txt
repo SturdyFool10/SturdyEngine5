@@ -203,6 +203,7 @@ include(SturdyPackage)
 # whole build is Dist. SturdyPackage.cmake consumes this list when it creates each target.
 set(STURDY_ENGINE_OPTIMIZED_TARGETS
     Foundation
+    Web
     Async
     Ecs
     WindowManager
@@ -221,6 +222,7 @@ sturdy_generate_shader_embeds()
 # sturdy_add_package() call consumes STURDY_FONTS_EMBED_CPP as one of its SOURCES.
 sturdy_generate_font_embeds()
 add_subdirectory(Foundation)
+add_subdirectory(Web)
 add_subdirectory(Async)
 add_subdirectory(Ecs)
 add_subdirectory(WindowManager)

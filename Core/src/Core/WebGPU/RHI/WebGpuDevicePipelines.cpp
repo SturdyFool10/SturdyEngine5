@@ -177,10 +177,37 @@ namespace SFT::Core::WebGpu {
             desc.multisample.alpha_to_coverage_enable ? 1u : 0u;
         pipeline_desc.fragment = fragment_module != nullptr ? &fragment : nullptr;
 
+#if defined(STURDY_PLATFORM_WEB)
+        // The browser's createRenderPipeline() genuinely compiles synchronously on the calling (JS
+        // main) thread -- unlike native Dawn, where the sync entry point is just as fast as the
+        // async one. createRenderPipelineAsync() lets the browser run shader compilation off the
+        // main thread/in idle time instead, so this Asyncify-suspends (same mechanism already used
+        // for wait_fences/buffer mapping) rather than stalling the whole tab for however long
+        // compilation takes. Native builds keep the plain synchronous call below.
+        struct CreateState {
+            WGPURenderPipeline pipeline = nullptr;
+            bool ok = false;
+        } state;
+        WGPUCreateRenderPipelineAsyncCallbackInfo info{};
+        info.mode = WGPUCallbackMode_WaitAnyOnly;
+        info.callback = [](WGPUCreatePipelineAsyncStatus status, WGPURenderPipeline result,
+                            WGPUStringView, void *user_data, void *) {
+            auto *create_state = static_cast<CreateState *>(user_data);
+            create_state->ok = status == WGPUCreatePipelineAsyncStatus_Success;
+            create_state->pipeline = result;
+        };
+        info.userdata1 = &state;
+        const WGPUFuture future = wgpuDeviceCreateRenderPipelineAsync(device_, &pipeline_desc, info);
+        if (!wait_for(future) || !state.ok) {
+            return std::unexpected(webgpu_error("create_render_pipeline"));
+        }
+        WGPURenderPipeline pipeline = state.pipeline;
+#else
         WGPURenderPipeline pipeline = wgpuDeviceCreateRenderPipeline(device_, &pipeline_desc);
         if (pipeline == nullptr) {
             return std::unexpected(webgpu_error("create_render_pipeline"));
         }
+#endif
         return render_pipelines_.insert(std::move(pipeline));
     }
 
@@ -227,10 +254,34 @@ namespace SFT::Core::WebGpu {
         pipeline_desc.compute.module = *module;
         pipeline_desc.compute.entryPoint = wgpu_string(desc.compute.entry_point);
 
+#if defined(STURDY_PLATFORM_WEB)
+        // See create_render_pipeline() above: the async entry point lets the browser compile off
+        // the main thread instead of stalling it, via the same Asyncify-suspend wait_for() already
+        // uses for fences/buffer mapping.
+        struct CreateState {
+            WGPUComputePipeline pipeline = nullptr;
+            bool ok = false;
+        } state;
+        WGPUCreateComputePipelineAsyncCallbackInfo info{};
+        info.mode = WGPUCallbackMode_WaitAnyOnly;
+        info.callback = [](WGPUCreatePipelineAsyncStatus status, WGPUComputePipeline result,
+                            WGPUStringView, void *user_data, void *) {
+            auto *create_state = static_cast<CreateState *>(user_data);
+            create_state->ok = status == WGPUCreatePipelineAsyncStatus_Success;
+            create_state->pipeline = result;
+        };
+        info.userdata1 = &state;
+        const WGPUFuture future = wgpuDeviceCreateComputePipelineAsync(device_, &pipeline_desc, info);
+        if (!wait_for(future) || !state.ok) {
+            return std::unexpected(webgpu_error("create_compute_pipeline"));
+        }
+        WGPUComputePipeline pipeline = state.pipeline;
+#else
         WGPUComputePipeline pipeline = wgpuDeviceCreateComputePipeline(device_, &pipeline_desc);
         if (pipeline == nullptr) {
             return std::unexpected(webgpu_error("create_compute_pipeline"));
         }
+#endif
         return compute_pipelines_.insert(std::move(pipeline));
     }
 
