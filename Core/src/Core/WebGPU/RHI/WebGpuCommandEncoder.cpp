@@ -520,9 +520,13 @@ namespace SFT::Core::WebGpu {
             depth_stencil.depthLoadOp = to_wgpu(desc.depth_stencil.depth_load_op);
             depth_stencil.depthStoreOp = to_wgpu(desc.depth_stencil.depth_store_op);
             depth_stencil.depthClearValue = desc.depth_stencil.clear_value.depth;
-            depth_stencil.stencilLoadOp = to_wgpu(desc.depth_stencil.stencil_load_op);
-            depth_stencil.stencilStoreOp = to_wgpu(desc.depth_stencil.stencil_store_op);
-            depth_stencil.stencilClearValue = desc.depth_stencil.clear_value.stencil;
+            // WebGPU validates strictly that a stencil-less format's attachment leaves both
+            // stencil ops undefined -- Vulkan/D3D12 treat setting them here as a harmless no-op.
+            if (rhi::format_has_stencil(device_.lookup_texture_view_format(desc.depth_stencil.view))) {
+                depth_stencil.stencilLoadOp = to_wgpu(desc.depth_stencil.stencil_load_op);
+                depth_stencil.stencilStoreOp = to_wgpu(desc.depth_stencil.stencil_store_op);
+                depth_stencil.stencilClearValue = desc.depth_stencil.clear_value.stencil;
+            }
         }
 
         WGPURenderPassDescriptor pass_desc{};

@@ -3,6 +3,8 @@
 #include <Ecs/Entity.hpp>
 #include <Ecs/World.hpp>
 
+#include <Foundation/MoveOnlyFunction.hpp>
+
 #include <functional>
 #include <tuple>
 #include <type_traits>
@@ -17,7 +19,7 @@ namespace SFT::Ecs {
 
     namespace Detail {
 
-        using DeferredCommand = std::move_only_function<void(World &) noexcept>;
+        using DeferredCommand = Foundation::move_only_function<void(World &) noexcept>;
 
 
         struct CommandBuffer {

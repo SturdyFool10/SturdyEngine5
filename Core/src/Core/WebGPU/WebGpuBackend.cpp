@@ -35,6 +35,7 @@ namespace SFT::Core::WebGpu {
                 case WindowManager::NativeWindowSystem::X11: return RHI::WindowSystem::Xlib;
                 case WindowManager::NativeWindowSystem::Wayland: return RHI::WindowSystem::Wayland;
                 case WindowManager::NativeWindowSystem::Cocoa: return RHI::WindowSystem::Cocoa;
+                case WindowManager::NativeWindowSystem::Web: return RHI::WindowSystem::WebCanvas;
                 case WindowManager::NativeWindowSystem::Unknown: break;
             }
             return RHI::WindowSystem::Unknown;
@@ -196,7 +197,9 @@ namespace SFT::Core::WebGpu {
         }
 
         const RHI::WindowSystem system = to_rhi_window_system(native->system);
-        if (system == RHI::WindowSystem::Unknown || native->window == nullptr) [[unlikely]] {
+        const bool has_native_surface_source =
+            system == RHI::WindowSystem::WebCanvas ? native->canvas_selector != nullptr : native->window != nullptr;
+        if (system == RHI::WindowSystem::Unknown || !has_native_surface_source) [[unlikely]] {
             return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
                                           "This window system has no WebGPU surface source.");
         }
@@ -212,6 +215,7 @@ namespace SFT::Core::WebGpu {
             .display = native->display,
             .window = native->window,
             .label = "Sturdy WebGPU surface",
+            .canvas_selector = native->canvas_selector,
         });
         if (!surface) [[unlikely]] {
             return graphics_backend_error(

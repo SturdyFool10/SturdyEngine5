@@ -16,12 +16,25 @@ import sturdy_common;
 import gtao_common;
 
 ConstantBuffer<GtaoConstants> gtao;
-Texture2D<float> sceneDepth;
-RWTexture2D<float> viewDepthMip0;
-RWTexture2D<float> viewDepthMip1;
-RWTexture2D<float> viewDepthMip2;
-RWTexture2D<float> viewDepthMip3;
-RWTexture2D<float> viewDepthMip4;
+// DepthTexture2D (not Texture2D<float>): this is always bound to the real resolved depth buffer's
+// view (Depth32Float, sample type Depth). WebGPU strictly matches a bind group's declared sample
+// type against the bound view's format, unlike Vulkan/D3D12 where a Float-typed binding harmlessly
+// accepts either. Depth textures support textureLoad in every shader stage including compute, so
+// this is a pure type-widening fix with no behavior change on any target.
+DepthTexture2D sceneDepth;
+// WGSL's texture_storage_2d requires a format in the type itself; must match the RHI::Format the
+// depth-pyramid mips are actually created with (RHI::Format::R32Float). Write-only: this pass never
+// reads back its own output.
+[format("r32f")]
+WTexture2D<float> viewDepthMip0;
+[format("r32f")]
+WTexture2D<float> viewDepthMip1;
+[format("r32f")]
+WTexture2D<float> viewDepthMip2;
+[format("r32f")]
+WTexture2D<float> viewDepthMip3;
+[format("r32f")]
+WTexture2D<float> viewDepthMip4;
 
 groupshared float gtaoSharedDepths[8][8];
 
@@ -50,13 +63,13 @@ void prefilterDepthMain(uint3 dispatchThreadId : SV_DispatchThreadID,
 
     // Writes outside the image are discarded by the API, so the 2x2 granularity costs nothing on
     // odd-sized targets.
-    viewDepthMip0[base + int2(0, 0)] = d00;
-    viewDepthMip0[base + int2(1, 0)] = d10;
-    viewDepthMip0[base + int2(0, 1)] = d01;
-    viewDepthMip0[base + int2(1, 1)] = d11;
+    viewDepthMip0.Store(base + int2(0, 0), d00);
+    viewDepthMip0.Store(base + int2(1, 0), d10);
+    viewDepthMip0.Store(base + int2(0, 1), d01);
+    viewDepthMip0.Store(base + int2(1, 1), d11);
 
     float mip1 = gtaoDepthMipFilter(d00, d10, d01, d11, gtao);
-    viewDepthMip1[int2(groupId.xy) * 8 + int2(groupThreadId.xy)] = mip1;
+    viewDepthMip1.Store(int2(groupId.xy) * 8 + int2(groupThreadId.xy), mip1);
     gtaoSharedDepths[groupThreadId.y][groupThreadId.x] = mip1;
 
     // Mips 2..4 are pure group-shared reductions: each step keeps its result at the same slot the
@@ -67,7 +80,7 @@ void prefilterDepthMain(uint3 dispatchThreadId : SV_DispatchThreadID,
         uint y = groupThreadId.y;
         float value = gtaoDepthMipFilter(gtaoSharedDepths[y][x], gtaoSharedDepths[y][x + 1],
                                          gtaoSharedDepths[y + 1][x], gtaoSharedDepths[y + 1][x + 1], gtao);
-        viewDepthMip2[int2(groupId.xy) * 4 + int2(groupThreadId.xy) / 2] = value;
+        viewDepthMip2.Store(int2(groupId.xy) * 4 + int2(groupThreadId.xy) / 2, value);
         gtaoSharedDepths[y][x] = value;
     }
 
@@ -77,7 +90,7 @@ void prefilterDepthMain(uint3 dispatchThreadId : SV_DispatchThreadID,
         uint y = groupThreadId.y;
         float value = gtaoDepthMipFilter(gtaoSharedDepths[y][x], gtaoSharedDepths[y][x + 2],
                                          gtaoSharedDepths[y + 2][x], gtaoSharedDepths[y + 2][x + 2], gtao);
-        viewDepthMip3[int2(groupId.xy) * 2 + int2(groupThreadId.xy) / 4] = value;
+        viewDepthMip3.Store(int2(groupId.xy) * 2 + int2(groupThreadId.xy) / 4, value);
         gtaoSharedDepths[y][x] = value;
     }
 
@@ -85,6 +98,6 @@ void prefilterDepthMain(uint3 dispatchThreadId : SV_DispatchThreadID,
     if (all((groupThreadId.xy % 8) == 0)) {
         float value = gtaoDepthMipFilter(gtaoSharedDepths[0][0], gtaoSharedDepths[0][4],
                                          gtaoSharedDepths[4][0], gtaoSharedDepths[4][4], gtao);
-        viewDepthMip4[int2(groupId.xy)] = value;
+        viewDepthMip4.Store(int2(groupId.xy), value);
     }
 }

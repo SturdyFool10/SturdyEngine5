@@ -1498,6 +1498,16 @@ namespace SFT::Renderer {
             RHI::PipelineLayoutHandle pipeline_layout{};
             RHI::RenderPipelineHandle pipeline{};
             u32 source_binding = 0;
+            // Mip 0 reduces the real depth buffer (Depth32Float, sample type Depth) rather than a
+            // pyramid mip (R32Float, sample type Float) -- WebGPU strictly matches a bind group's
+            // declared sample type against the bound view, so that path needs its own shader
+            // entry point/bind-group layout/pipeline (see hiz_build.slang's reduceFromDepthMain).
+            Core::Slang::Shader depth_shader;
+            RHI::ShaderModuleHandle depth_reduce_module{};
+            RHI::BindGroupLayoutHandle depth_bind_group_layout{};
+            RHI::PipelineLayoutHandle depth_pipeline_layout{};
+            RHI::RenderPipelineHandle depth_pipeline{};
+            u32 depth_source_binding = 0;
             RHI::Format color_format = RHI::Format::R32Float;
             bool ready = false;
         };

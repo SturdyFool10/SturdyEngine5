@@ -152,6 +152,8 @@ namespace SFT::WindowManager::SDL3 {
                     return "Metal";
                 case WindowGraphicsApi::Direct3D:
                     return "Direct3D";
+                case WindowGraphicsApi::WebGPU:
+                    return "WebGPU";
                 default:
                     return "None";
             }

@@ -840,7 +840,7 @@ namespace SFT::Core::Slang {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] ShaderBindingRangeReflection parse_binding_range(slang::TypeLayoutReflection *type_layout, SlangInt range_index) {
+        [[nodiscard]] ShaderBindingRangeReflection parse_binding_range(slang::TypeLayoutReflection *type_layout, SlangInt range_index, bool query_image_format = true) {
             ShaderBindingRangeReflection range{};
             if (!type_layout) {
                 return range;
@@ -861,10 +861,50 @@ namespace SFT::Core::Slang {
                 range.binding = normalize_slang_int(type_layout->getDescriptorSetDescriptorRangeIndexOffset(
                     static_cast<SlangInt>(range.descriptor_set),
                     static_cast<SlangInt>(range.descriptor_range_index)));
+
+                // Slang's WGSL emission lowers a CombinedTextureSampler into two separate `@binding`
+                // declarations -- texture then its own sampler, always contiguous -- inside
+                // slang-ir-lower-combined-texture-sampler.cpp, a lowering pass that runs during code
+                // *emission* (slang-emit.cpp), strictly after the layout this reflection API reads
+                // from was already computed. That means getBindingRangeDescriptorRangeCount() never
+                // reports more than 1 for this binding type on any target, including WGSL -- it is
+                // not a usable signal here, confirmed by dumping actual WGSL output (`slangc
+                // gbuffer_geometry.slang -target wgsl`) and its `-reflection-json`: a Sampler2D always
+                // reflects as one descriptorTableSlot at index N, and the *next* declared parameter's
+                // index silently skips N+1 (the sampler Slang placed right after it in the emitted
+                // text) to N+2. So "sampler binding = texture binding + 1" is Slang's own emission
+                // convention, not a guess this engine invented -- confirmed empirically, not
+                // discoverable through Slang's reflection API for this specific lowering pass.
+                if (range.type == ShaderBindingType::CombinedTextureSampler) {
+                    range.second_binding = range.binding + 1;
+                }
             }
 
             if (slang::TypeLayoutReflection *leaf = type_layout->getBindingRangeLeafTypeLayout(range_index)) {
                 range.category = from_slang_category(leaf->getParameterCategory());
+                range.access = from_slang_resource_access(leaf->getResourceAccess());
+                if (range.type == ShaderBindingType::Sampler) {
+                    if (const char *leaf_name = leaf->getName()) {
+                        range.is_comparison_sampler = std::string_view(leaf_name) == "SamplerComparisonState";
+                    }
+                } else if (range.type == ShaderBindingType::Texture) {
+                    range.is_depth_texture = (leaf->getResourceShape() & SLANG_TEXTURE_SHADOW_FLAG) != 0;
+                    range.is_multisampled_texture = (leaf->getResourceShape() & SLANG_TEXTURE_MULTISAMPLE_FLAG) != 0;
+                }
+            }
+            // getBindingRangeImageFormat() is only meaningful for a storage-texture binding range, and
+            // is only safe to call at all on a fully linked+composed program's layout: confirmed via
+            // two real crashes (one on a PushConstant range, one on a genuine MutableTexture range)
+            // that Slang's own C API implementation segfaults when called through
+            // ShaderCompiler::reflect()'s bare, unlinked module layout (used for shader *discovery*,
+            // which never needed image_format anyway) -- the same call is safe on
+            // ShaderCompiler::compile()'s linked_program layout, which is the only place this field's
+            // value is ever actually consumed (ReflectionBinding.cpp's to_rhi_storage_format()).
+            // `query_image_format` is false only on the discovery path (see ShaderCompiler::reflect()),
+            // true everywhere else; restricting to MutableTexture on top of that avoids calling into
+            // this API for any range kind the RHI binding path never reads it for anyway.
+            if (query_image_format && range.type == ShaderBindingType::MutableTexture) {
+                range.image_format = static_cast<u32>(type_layout->getBindingRangeImageFormat(range_index));
             }
 
             return range;
@@ -877,7 +917,7 @@ namespace SFT::Core::Slang {
         ///
         /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] shared_ptr<ShaderTypeReflection> parse_type_layout(slang::TypeLayoutReflection *type_layout, u32 depth = 0) {
+        [[nodiscard]] shared_ptr<ShaderTypeReflection> parse_type_layout(slang::TypeLayoutReflection *type_layout, u32 depth = 0, bool query_image_format = true) {
             auto type = make_shared<ShaderTypeReflection>();
             if (!type_layout) {
                 return type;
@@ -900,7 +940,7 @@ namespace SFT::Core::Slang {
 
             const SlangInt binding_range_count = type_layout->getBindingRangeCount();
             for (SlangInt index = 0; index < binding_range_count; ++index) {
-                type->binding_ranges.push_back(parse_binding_range(type_layout, index));
+                type->binding_ranges.push_back(parse_binding_range(type_layout, index, query_image_format));
             }
 
 
@@ -918,7 +958,7 @@ namespace SFT::Core::Slang {
 
                 ShaderFieldReflection field{};
                 field.name = field_layout->getName() ? field_layout->getName() : "";
-                field.type = parse_type_layout(field_layout->getTypeLayout(), depth + 1);
+                field.type = parse_type_layout(field_layout->getTypeLayout(), depth + 1, query_image_format);
                 field.offset = normalize_size(field_layout->getOffset());
                 if (field.type) {
                     field.size = field.type->size;
@@ -936,7 +976,7 @@ namespace SFT::Core::Slang {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] ShaderParameterReflection parse_parameter_layout(slang::VariableLayoutReflection *layout) {
+        [[nodiscard]] ShaderParameterReflection parse_parameter_layout(slang::VariableLayoutReflection *layout, bool query_image_format = true) {
             ShaderParameterReflection parameter{};
             if (!layout) {
                 return parameter;
@@ -946,7 +986,7 @@ namespace SFT::Core::Slang {
             const slang::ParameterCategory native_category = layout->getCategory();
 
             parameter.name = layout->getName() ? layout->getName() : "";
-            parameter.type = parse_type_layout(layout->getTypeLayout());
+            parameter.type = parse_type_layout(layout->getTypeLayout(), 0, query_image_format);
             parameter.category = from_slang_category(native_category);
             parameter.stage = from_slang_stage(layout->getStage());
 
@@ -999,6 +1039,26 @@ namespace SFT::Core::Slang {
                 }
                 parameter.stride = parameter.type->stride;
                 parameter.binding_ranges = parameter.type->binding_ranges;
+
+                // getBindingRangeImageFormat() reads a binding range's leafVariable, which Slang only
+                // threads through correctly when the range is reached via the whole program's
+                // aggregate global-scope type layout -- querying a *standalone* global resource
+                // variable's own isolated type layout (exactly what happens here, one parameter at a
+                // time) loses that linkage and always reports "unknown", even though the `[format(...)]`
+                // attribute is genuinely present (confirmed: the same linked program's ProgramLayout::
+                // toJson() dump correctly shows it). VariableLayoutReflection::getImageFormat() reads
+                // the attribute directly off this parameter's own AST variable instead of walking
+                // through that lossy path, so it works precisely in the single-binding-range case this
+                // guards -- a parameter wrapping more than one range (e.g. a struct/array of resources)
+                // has no single variable this fallback could unambiguously apply to.
+                if (query_image_format && parameter.binding_ranges.size() == 1 &&
+                    parameter.binding_ranges.front().type == ShaderBindingType::MutableTexture &&
+                    parameter.binding_ranges.front().image_format == 0) {
+                    const auto direct_format = static_cast<u32>(layout->getImageFormat());
+                    if (direct_format != 0) {
+                        parameter.binding_ranges.front().image_format = direct_format;
+                    }
+                }
             }
 
             return parameter;
@@ -1010,7 +1070,8 @@ namespace SFT::Core::Slang {
         /// @param layout `layout` value used by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void append_fields_as_parameters(vector<ShaderParameterReflection> &out, slang::VariableLayoutReflection *layout) {
+        void append_fields_as_parameters(vector<ShaderParameterReflection> &out, slang::VariableLayoutReflection *layout,
+                                         bool query_image_format = true) {
             if (!layout || !layout->getTypeLayout()) {
                 return;
             }
@@ -1018,14 +1079,14 @@ namespace SFT::Core::Slang {
             slang::TypeLayoutReflection *type_layout = layout->getTypeLayout();
             const unsigned int field_count = type_layout->getFieldCount();
             if (field_count == 0) {
-                out.push_back(parse_parameter_layout(layout));
+                out.push_back(parse_parameter_layout(layout, query_image_format));
                 return;
             }
 
             out.reserve(out.size() + field_count);
             for (unsigned int index = 0; index < field_count; ++index) {
                 if (slang::VariableLayoutReflection *field = type_layout->getFieldByIndex(index)) {
-                    out.push_back(parse_parameter_layout(field));
+                    out.push_back(parse_parameter_layout(field, query_image_format));
                 }
             }
         }
@@ -1067,7 +1128,8 @@ namespace SFT::Core::Slang {
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::ReflectionFailed`.
-        [[nodiscard]] ShaderExpected<ShaderReflection> parse_reflection(slang::IComponentType *linked_program, usize target_index) {
+        [[nodiscard]] ShaderExpected<ShaderReflection> parse_reflection(slang::IComponentType *linked_program, usize target_index,
+                                                                        bool query_image_format = true) {
             ::Slang::ComPtr<slang::IBlob> diagnostics;
             slang::ProgramLayout *layout = linked_program->getLayout(static_cast<SlangInt>(target_index), diagnostics.writeRef());
             if (!layout) {
@@ -1082,7 +1144,7 @@ namespace SFT::Core::Slang {
             const unsigned global_count = layout->getParameterCount();
             reflection.global_parameters.reserve(global_count);
             for (unsigned index = 0; index < global_count; ++index) {
-                reflection.global_parameters.push_back(parse_parameter_layout(layout->getParameterByIndex(index)));
+                reflection.global_parameters.push_back(parse_parameter_layout(layout->getParameterByIndex(index), query_image_format));
             }
 
             const SlangUInt entry_point_count = layout->getEntryPointCount();
@@ -1115,10 +1177,10 @@ namespace SFT::Core::Slang {
                 const unsigned parameter_count = entry_point->getParameterCount();
                 entry.parameters.reserve(parameter_count);
                 for (unsigned parameter_index = 0; parameter_index < parameter_count; ++parameter_index) {
-                    entry.parameters.push_back(parse_parameter_layout(entry_point->getParameterByIndex(parameter_index)));
+                    entry.parameters.push_back(parse_parameter_layout(entry_point->getParameterByIndex(parameter_index), query_image_format));
                 }
 
-                append_fields_as_parameters(entry.result_parameters, entry_point->getResultVarLayout());
+                append_fields_as_parameters(entry.result_parameters, entry_point->getResultVarLayout(), query_image_format);
                 reflection.entry_points.push_back(std::move(entry));
             }
 
@@ -1705,7 +1767,16 @@ namespace SFT::Core::Slang {
                 return unexpected(shader_state.error());
             }
 
-            ShaderExpected<ShaderReflection> reflection = parse_reflection((*shader_state)->module.get(), 0);
+            // query_image_format=false: this reflects the bare, unlinked module (discovery/cataloging
+            // only, never used to build an actual RHI pipeline) rather than a fully linked+composed
+            // program. Calling getBindingRangeImageFormat() on a type layout reached this way is not
+            // safe -- confirmed via two real crashes (a PushConstant range and a genuine
+            // MutableTexture range) inside Slang's own C API implementation, which dereferences that
+            // range's leafVariable unconditionally and gets a null one here. ShaderCompiler::compile()
+            // reflects the real linked_program instead, where the same call is safe and is the only
+            // place image_format's value is ever actually used (ReflectionBinding.cpp's
+            // to_rhi_storage_format()) -- see parse_binding_range's own comment for the full story.
+            ShaderExpected<ShaderReflection> reflection = parse_reflection((*shader_state)->module.get(), 0, false);
 
 
             Foundation::log_debug("Slang: reflected '{}' in {}", source.module_name, stopwatch.elapsed_human());
@@ -1806,7 +1877,18 @@ namespace SFT::Core::Slang {
                 return shader_error(ShaderErrorCode::CompilationFailed, "Failed to link Slang shader program.", blob_string(diagnostics));
             }
 
-            auto reflection = parse_reflection(shader_state->linked_program.get(), 0);
+            // image_format is only ever consumed for a WGSL target (ReflectionBinding.cpp's
+            // to_rhi_storage_format(), the sole reader, only matters to the WebGPU backend -- SPIR-V/
+            // DXIL storage images carry no format at all, so Vulkan/D3D12 never need it). Restricting
+            // the getBindingRangeImageFormat() call to exactly that case also happens to route around
+            // a real crash confirmed only on the SPIR-V-target reflection of a MutableTexture range
+            // with a `[format(...)]` attribute attached (segfaults inside Slang's own C API
+            // implementation on native Linux; the identical call against the same shader's WGSL-target
+            // reflection does not) -- since SPIR-V never needed this value anyway, not calling it there
+            // is the correct scope, not a narrow workaround for the crash alone.
+            const bool compiling_for_wgsl = std::ranges::any_of(
+                options.targets, [](const ShaderTarget &target) { return target.format == ShaderTargetFormat::Wgsl; });
+            auto reflection = parse_reflection(shader_state->linked_program.get(), 0, compiling_for_wgsl);
             if (!reflection) {
                 return unexpected(reflection.error());
             }
@@ -1820,7 +1902,11 @@ namespace SFT::Core::Slang {
                 [](const ShaderTarget &target) { return target.format == ShaderTargetFormat::Dxil; });
             if (spirv_target != options.targets.end() && dxil_target != options.targets.end()) {
                 const usize dxil_index = static_cast<usize>(std::distance(options.targets.begin(), dxil_target));
-                auto dxil_reflection = parse_reflection(shader_state->linked_program.get(), dxil_index);
+                // DXIL never needs a declared storage-image format any more than SPIR-V does (and this
+                // branch is mutually exclusive with WGSL -- see the "cannot compile WGSL alongside
+                // another target" check in load_shader_module), so this reflection query_image_format
+                // is always false, same reasoning as the primary reflection call above.
+                auto dxil_reflection = parse_reflection(shader_state->linked_program.get(), dxil_index, false);
                 if (!dxil_reflection) {
                     return unexpected(dxil_reflection.error());
                 }

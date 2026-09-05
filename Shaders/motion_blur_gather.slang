@@ -57,7 +57,12 @@ SamplerState sceneColorSampler;
 Texture2D<float2> gbufferMotion;
 Texture2D<float> gbufferDepth;
 Texture2D<float2> dilatedVelocity;
-RWTexture2D<float4> sceneColorOut;
+// WGSL's texture_storage_2d requires a format in the type itself; the scene-color target this writes
+// is always created as RHI::Format::RGBA16Float in practice (DeferredTargetFormats::scene_color's
+// only value anywhere in this codebase -- see Scene.hpp), even though the field is nominally
+// runtime-configurable. Write-only: this pass never reads back its own output.
+[format("rgba16f")]
+WTexture2D<float4> sceneColorOut;
 
 static const uint kMaxGatherTaps = 32;
 
@@ -87,7 +92,7 @@ void gatherMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
     }
 
     if (blurLength < 0.5) {
-        sceneColorOut[pixel] = centerColor;
+        sceneColorOut.Store(pixel, centerColor);
         return;
     }
 
@@ -112,5 +117,5 @@ void gatherMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
     }
 
     float3 resolvedColor = accumulatedWeight > 0.0 ? accumulatedColor * safeRcp(accumulatedWeight) : centerColor.rgb;
-    sceneColorOut[pixel] = float4(resolvedColor, centerColor.a);
+    sceneColorOut.Store(pixel, float4(resolvedColor, centerColor.a));
 }

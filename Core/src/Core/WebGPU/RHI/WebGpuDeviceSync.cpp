@@ -10,12 +10,14 @@ namespace SFT::Core::WebGpu {
     // resource usage and inserts whatever the underlying driver needs.
     //
     // So the RHI's synchronisation primitives are *satisfied* here rather than emulated: a caller
-    // that waits on a semaphore or a fence in the right order gets the ordering it asked for,
-    // because the queue already provides it. Rather than return "unsupported" and make the whole
-    // backend unusable, semaphores and fences are modelled as plain counters that the submit path
-    // advances, which is exactly what they mean on a single in-order queue. Timeline waits that
-    // would block for work not yet submitted are the one case that cannot be honoured, and those
-    // fall through to a device wait.
+    // that waits on a semaphore in the right order gets the ordering it asked for, because the queue
+    // already provides it. Semaphores are modelled as plain counters the submit path advances, which
+    // is exactly what they mean on a single in-order queue; a wait for a value not yet submitted
+    // falls through to a device wait, since ordering alone can't tell it that. Fences, unlike
+    // semaphores, need to answer "has the GPU actually finished this submission yet", which ordering
+    // doesn't give you either -- so each one tracks the real `WGPUFuture` from
+    // `wgpuQueueOnSubmittedWorkDone`, and `wait_fences` polls or blocks on it via
+    // `wgpuInstanceWaitAny` (see there for why `timeout_ns == 0` matters on Web specifically).
 
     /// Submits recorded command buffers.
     ///
@@ -57,8 +59,16 @@ namespace SFT::Core::WebGpu {
             }
         }
         if (desc.fence.value != 0) {
-            if (bool *signaled = fences_.find(desc.fence); signaled != nullptr) {
-                *signaled = true;
+            if (FenceState *state = fences_.find(desc.fence); state != nullptr) {
+                // The fence becomes signalled when this submission's work actually finishes on the
+                // GPU, not the instant it is attached here -- that distinction is exactly what lets
+                // wait_fences answer "not yet" instead of always being trivially true.
+                WGPUQueueWorkDoneCallbackInfo info{};
+                info.mode = WGPUCallbackMode_WaitAnyOnly;
+                info.callback = [](WGPUQueueWorkDoneStatus, WGPUStringView, void *, void *) {};
+                state->pending_future = wgpuQueueOnSubmittedWorkDone(queue_, info);
+                state->has_pending = true;
+                state->signaled = false;
             }
         }
         return {};
@@ -145,7 +155,7 @@ namespace SFT::Core::WebGpu {
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state.
     rhi::RhiExpected<rhi::FenceHandle> WebGpuDevice::create_fence(const rhi::FenceDesc &desc) {
-        return fences_.insert(bool{desc.signaled});
+        return fences_.insert(FenceState{.signaled = desc.signaled});
     }
 
     /// Destroys a fence.
@@ -154,10 +164,17 @@ namespace SFT::Core::WebGpu {
     ///
     /// @note This function does not throw exceptions.
     void WebGpuDevice::destroy_fence(rhi::FenceHandle handle) noexcept {
-        fences_.erase(handle, [](bool &) {});
+        fences_.erase(handle, [](FenceState &) {});
     }
 
     /// Waits for fences to be signalled.
+    ///
+    /// `timeout_ns == 0` is a real, non-blocking poll here: it is forwarded straight to
+    /// `wgpuInstanceWaitAny`, which -- per the Emscripten WebGPU port's own implementation -- only
+    /// goes through Asyncify suspension when `timeoutNS > 0`; a zero timeout is answered
+    /// synchronously from already-known future state. That distinction is what makes it safe to poll
+    /// this once per frame from inside a `requestAnimationFrame` callback without the suspend/resume
+    /// nesting that an unconditional blocking wait caused there.
     ///
     /// @param fences `fences` value used by the operation.
     /// @param wait_all `wait_all` value used by the operation.
@@ -167,20 +184,62 @@ namespace SFT::Core::WebGpu {
     /// @note Normal failures are returned through the type-specific error/status state.
     rhi::RhiExpected<bool> WebGpuDevice::wait_fences(span<const rhi::FenceHandle> fences, bool wait_all,
                                                      u64 timeout_ns) {
-        (void)wait_all;
-        (void)timeout_ns;
         if (fences.empty()) {
             return true;
         }
-        // A fence is signalled by the submission it was attached to. Waiting for one means waiting
-        // for that submission, and the only wait WebGPU offers is for all outstanding work.
-        wait_idle();
+
+        std::vector<WGPUFutureWaitInfo> waits;
+        std::vector<FenceState *> pending_states;
+        waits.reserve(fences.size());
+        pending_states.reserve(fences.size());
+
+        std::size_t signaled_count = 0;
         for (rhi::FenceHandle handle : fences) {
-            if (bool *signaled = fences_.find(handle); signaled != nullptr) {
-                *signaled = true;
+            FenceState *state = fences_.find(handle);
+            if (state == nullptr) {
+                return std::unexpected(webgpu_error("wait_fences", "unknown fence handle"));
             }
+            if (state->signaled) {
+                ++signaled_count;
+            } else if (state->has_pending) {
+                waits.push_back(WGPUFutureWaitInfo{.future = state->pending_future, .completed = 0});
+                pending_states.push_back(state);
+            }
+            // Neither signalled nor pending means nothing has been submitted against this fence
+            // since it was created/reset; it can only become signalled by a future submit(), so
+            // "not ready" is already the correct answer without waiting on anything.
         }
-        return true;
+
+        if (!waits.empty()) {
+            // Every real call site in this codebase waits on exactly one fence at a time, so the only
+            // timeouts that matter in practice are 0 (poll) and wait_forever (block). A single
+            // wgpuInstanceWaitAny call already gives exact "any" semantics for any timeout; for "all"
+            // with more than one still-pending fence and an unbounded timeout, loop until every one
+            // completes rather than stopping at the first.
+            do {
+                const WGPUWaitStatus status =
+                    wgpuInstanceWaitAny(instance_, waits.size(), waits.data(), timeout_ns);
+                std::size_t remaining = 0;
+                for (std::size_t i = 0; i < waits.size(); ++i) {
+                    if (waits[i].completed) {
+                        pending_states[i]->signaled = true;
+                        pending_states[i]->has_pending = false;
+                        ++signaled_count;
+                    } else {
+                        waits[remaining] = waits[i];
+                        pending_states[remaining] = pending_states[i];
+                        ++remaining;
+                    }
+                }
+                waits.resize(remaining);
+                pending_states.resize(remaining);
+                if (status != WGPUWaitStatus_Success) {
+                    break;
+                }
+            } while (wait_all && !waits.empty() && timeout_ns == rhi::wait_forever);
+        }
+
+        return wait_all ? signaled_count == fences.size() : signaled_count > 0;
     }
 
     /// Resets fences to the unsignalled state.
@@ -191,8 +250,8 @@ namespace SFT::Core::WebGpu {
     /// @note Normal failures are returned through the type-specific error/status state.
     rhi::RhiResult WebGpuDevice::reset_fences(span<const rhi::FenceHandle> fences) {
         for (rhi::FenceHandle handle : fences) {
-            if (bool *signaled = fences_.find(handle); signaled != nullptr) {
-                *signaled = false;
+            if (FenceState *state = fences_.find(handle); state != nullptr) {
+                *state = FenceState{};
             }
         }
         return {};

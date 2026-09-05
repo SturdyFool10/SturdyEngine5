@@ -27,8 +27,13 @@ Texture2D<float> viewDepthPyramid;
 // Octahedral-encoded world-space normal, exactly as gbuffer_geometry.slang wrote it.
 Texture2D<float2> gbufferNormal;
 SamplerState gtaoPointSampler;
-RWTexture2D<float> ambientOcclusionOut;
-RWTexture2D<float4> edgesOut;
+// WGSL's texture_storage_2d requires a format in the type itself; must match each texture's real
+// RHI::Format (R32Float / RGBA8Unorm, see Renderer's GTAO target creation). Both are write-only from
+// this pass.
+[format("r32f")]
+WTexture2D<float> ambientOcclusionOut;
+[format("rgba8")]
+WTexture2D<float4> edgesOut;
 
 // Per-axis depth discontinuity strength toward each of the four neighbours, in [0, 1]
 // (1 = continuous surface, 0 = hard discontinuity the denoiser must not blur across).
@@ -75,14 +80,14 @@ void gtaoMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
     float topZ = viewDepthPyramid.Load(int3(clamp(pixel + int2(0, -1), int2(0, 0), maxPixel), 0));
     float bottomZ = viewDepthPyramid.Load(int3(clamp(pixel + int2(0, 1), int2(0, 0), maxPixel), 0));
     float4 edges = calculateEdges(viewZ, leftZ, rightZ, topZ, bottomZ);
-    edgesOut[pixel] = edges;
+    edgesOut.Store(pixel, edges);
 
     // Sky/background: nothing is occluded, and running the search would only waste bandwidth on a
     // result the lighting pass discards anyway.
     float farPlane = gtao.depthLinearizeEdgeIntensity.x /
                      max(gtao.depthLinearizeEdgeIntensity.y - 1.0, SFT_EPSILON);
     if (viewZ >= farPlane * 0.999) {
-        ambientOcclusionOut[pixel] = 1.0;
+        ambientOcclusionOut.Store(pixel, 1.0);
         return;
     }
 
@@ -233,5 +238,5 @@ void gtaoMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
     // toward 1 commutes with the denoiser's normalized weighted average, so the result is identical
     // either way, and doing it here means the raw buffer is directly comparable to the denoised one
     // (which is what the denoise toggle exists for).
-    ambientOcclusionOut[pixel] = saturate(lerp(1.0, visibility, gtao.depthLinearizeEdgeIntensity.w));
+    ambientOcclusionOut.Store(pixel, saturate(lerp(1.0, visibility, gtao.depthLinearizeEdgeIntensity.w)));
 }

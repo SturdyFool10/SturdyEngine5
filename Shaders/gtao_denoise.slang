@@ -25,7 +25,12 @@ ConstantBuffer<GtaoConstants> gtao;
 Texture2D<float> rawAmbientOcclusion;
 Texture2D<float4> gtaoEdges;
 Texture2D<float2> gbufferNormal;
-RWTexture2D<float> ambientOcclusionOut;
+// WGSL's texture_storage_2d requires a format in the type itself, unlike HLSL/SPIR-V where a UAV's
+// format comes from the runtime-bound view -- must match the RHI::Format the AO texture is actually
+// created with (RHI::Format::R32Float, see Renderer's GTAO target creation). Write-only since this
+// pass only ever writes it.
+[format("r32f")]
+WTexture2D<float> ambientOcclusionOut;
 
 static const int SFT_GTAO_DENOISE_RADIUS = 2;
 static const int SFT_GTAO_TILE_WIDTH = 8 + 2 * SFT_GTAO_DENOISE_RADIUS;
@@ -143,5 +148,5 @@ void gtaoDenoiseMain(uint3 dispatchThreadId : SV_DispatchThreadID,
     // Intensity was already folded in by gtao_main.slang; a normalized weighted average of
     // lerp(1, ao, k) equals lerp(1, average, k), so nothing more is needed here.
     float denoised = sumWeight > SFT_EPSILON ? sum / sumWeight : gtaoTileAo[tileIndex(center)];
-    ambientOcclusionOut[pixel] = saturate(denoised);
+    ambientOcclusionOut.Store(pixel, saturate(denoised));
 }

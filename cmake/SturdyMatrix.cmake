@@ -198,6 +198,30 @@ macro(sturdy_apply_matrix)
                 "-DCMAKE_TOOLCHAIN_FILE=<emscripten-root>/cmake/Modules/Platform/Emscripten.cmake yourself."
             )
         endif()
+
+        # Without this, every Web executable's WASM linear memory is a fixed size set at link time
+        # (Emscripten's default INITIAL_MEMORY, ~16MB) and any allocation past it hard-aborts with
+        # "Aborted(OOM)" instead of failing an individual malloc -- fatal for an engine that loads
+        # real assets (e.g. RuntimeDemo's Sponza scene alone is ~200MB of textures on native).
+        # sturdy_fetch_slang() sets this same flag too, but only function-locally around its own
+        # add_subdirectory(slang) call (see its "NODERAWFS"/"ALLOW_MEMORY_GROWTH" comment in
+        # SturdyDependencies.cmake) -- that scoping keeps it off Slang's *build-time codegen tools*
+        # by accident of where the flag happened to be needed first, not because those tools ought
+        # to have a fixed heap; every other Web executable, including every demo, still needs it,
+        # which is why it belongs here instead.
+        add_link_options(-sALLOW_MEMORY_GROWTH=1)
+
+        # Emscripten's default wasm stack is a mere 64KB (settings.js: STACK_SIZE = 64*1024) --
+        # tiny next to native's multi-MB thread-stack defaults. Deeply recursive C++ (a shader
+        # compiler's AST teardown is the case that actually found this: Slang::Linkage/ASTBuilder
+        # destruction after compiling sturdy_atmosphere.slang's sky_transmittance_lut) silently
+        # overflows it, corrupting adjacent linear memory; the *symptom* that surfaces is not a
+        # clean stack-overflow message but an unrelated-looking "Uncaught RuntimeError: index out
+        # of bounds" the next time a corrupted vtable/function-table slot gets an indirect call --
+        # in the case that found this, several calls later, inside
+        # SinkSharedLibraryLoader::release()'s non-virtual thunk. 16MB matches a typical native
+        # thread-stack default and comfortably covers Slang's recursion depth.
+        add_link_options(-sSTACK_SIZE=16MB)
     else()
         if(STURDY_COMPILER STREQUAL "GCC" AND (NOT STURDY_ARCH STREQUAL STURDY_HOST_ARCH OR NOT STURDY_OS STREQUAL STURDY_HOST_OS))
             message(FATAL_ERROR

@@ -2,6 +2,7 @@
 
 #include <Core/WebGPU/RHI/WebGpuConvert.hpp>
 
+#include <algorithm>
 #include <vector>
 
 namespace SFT::Core::WebGpu {
@@ -47,23 +48,84 @@ namespace SFT::Core::WebGpu {
                     out.buffer.hasDynamicOffset = entry.has_dynamic_offset ? 1u : 0u;
                     break;
                 case rhi::BindingType::SampledTexture:
-                    out.texture.sampleType = WGPUTextureSampleType_Float;
+                    // WGSL's texture_depth_2d and texture_2d<f32> are distinct types WebGPU
+                    // validates strictly ("Texture class Sampled doesn't match the shader Depth");
+                    // Vulkan/D3D12 make no such distinction at the descriptor level, so
+                    // entry.sampled_texture_is_depth (see Renderer/ReflectionBinding.cpp) only
+                    // matters here.
+                    out.texture.sampleType = entry.sampled_texture_is_depth ? WGPUTextureSampleType_Depth
+                                                                             : WGPUTextureSampleType_Float;
                     out.texture.viewDimension = WGPUTextureViewDimension_2D;
+                    // Same story for multisampled vs non-multisampled: this was never set at all
+                    // (always defaulting to false), so any MSAA texture bound as a plain sampled
+                    // texture (e.g. reading an MSAA depth buffer for a custom resolve/reconstruction
+                    // pass) failed WebGPU validation ("Texture class Sampled ... doesn't match the
+                    // shader Sampled ... multi: true") the moment a real multisampled view was bound.
+                    out.texture.multisampled = entry.sampled_texture_is_multisampled;
                     break;
-                case rhi::BindingType::StorageTexture:
-                    out.storageTexture.access = WGPUStorageTextureAccess_WriteOnly;
-                    out.storageTexture.format = WGPUTextureFormat_RGBA8Unorm;
+                case rhi::BindingType::StorageTexture: {
+                    // The format/access here used to be hardcoded to RGBA8Unorm/WriteOnly
+                    // regardless of what the shader actually declared -- harmless on Vulkan/D3D12
+                    // (neither needs a format at layout-creation time; format compatibility is
+                    // enforced by the shader binary itself), but WGSL storage texture types are
+                    // format-parameterized (`texture_storage_2d<rgba32float, write>`), so a
+                    // mismatch here is a real WebGPU validation error the moment a pass uses any
+                    // storage format/access other than the one that was hardcoded. entry.
+                    // storage_format/storage_access now carry the shader's real declaration (see
+                    // Renderer/ReflectionBinding.cpp).
+                    const WGPUTextureFormat storage_format = to_wgpu(entry.storage_format);
+                    if (storage_format == WGPUTextureFormat_Undefined) {
+                        return std::unexpected(unsupported_by_webgpu(
+                            "A storage-texture binding with no reflected (or no WebGPU-representable) format"));
+                    }
+                    out.storageTexture.format = storage_format;
+                    switch (entry.storage_access) {
+                        case rhi::StorageTextureAccess::WriteOnly:
+                            out.storageTexture.access = WGPUStorageTextureAccess_WriteOnly;
+                            break;
+                        case rhi::StorageTextureAccess::ReadOnly:
+                            out.storageTexture.access = WGPUStorageTextureAccess_ReadOnly;
+                            break;
+                        case rhi::StorageTextureAccess::ReadWrite:
+                            out.storageTexture.access = WGPUStorageTextureAccess_ReadWrite;
+                            break;
+                    }
                     out.storageTexture.viewDimension = WGPUTextureViewDimension_2D;
                     break;
+                }
                 case rhi::BindingType::Sampler:
-                    out.sampler.type = WGPUSamplerBindingType_Filtering;
+                    // WGSL has two distinct sampler binding types, `sampler`/`sampler_comparison`;
+                    // WebGPU rejects a mismatch against what the shader actually declared
+                    // ("Comparison flag doesn't match the shader"), unlike Vulkan/D3D12 where a
+                    // comparison sampler is just a regular sampler object with compareEnable set,
+                    // unrelated to the descriptor/binding layout. entry.sampler_is_comparison
+                    // carries the shader's real declaration (see Renderer/ReflectionBinding.cpp).
+                    out.sampler.type = entry.sampler_is_comparison ? WGPUSamplerBindingType_Comparison
+                                                                    : WGPUSamplerBindingType_Filtering;
                     break;
-                case rhi::BindingType::CombinedImageSampler:
-                    // Vulkan's combined image+sampler has no WebGPU form: WGSL always takes a
-                    // texture and a sampler as separate bindings. Slang emits them that way for
-                    // the WGSL target, so a layout still asking for a combined one was built for a
-                    // different backend.
-                    return std::unexpected(unsupported_by_webgpu("A combined image/sampler binding"));
+                case rhi::BindingType::CombinedImageSampler: {
+                    // WebGPU has no combined image+sampler descriptor type: WGSL always takes a
+                    // texture and a sampler as separate bindings. Slang's WGSL target already
+                    // reflects this as two descriptor ranges (see
+                    // Core/src/Core/Slang/ShaderImpl.cpp's parse_binding_range and
+                    // Renderer/ReflectionBinding.cpp, which carry the second slot through as
+                    // entry.paired_binding), so this one RHI entry compiles to two real
+                    // WGPUBindGroupLayoutEntry slots below instead of being rejected.
+                    if (entry.paired_binding == std::numeric_limits<u32>::max()) {
+                        return std::unexpected(unsupported_by_webgpu(
+                            "A combined image/sampler binding with no reflected paired sampler slot"));
+                    }
+                    out.texture.sampleType = WGPUTextureSampleType_Float;
+                    out.texture.viewDimension = WGPUTextureViewDimension_2D;
+                    entries.push_back(out);
+
+                    WGPUBindGroupLayoutEntry sampler_out{};
+                    sampler_out.binding = entry.paired_binding;
+                    sampler_out.visibility = out.visibility;
+                    sampler_out.sampler.type = WGPUSamplerBindingType_Filtering;
+                    entries.push_back(sampler_out);
+                    continue;
+                }
                 case rhi::BindingType::AccelerationStructure:
                     return std::unexpected(unsupported_by_webgpu("An acceleration-structure binding"));
                 case rhi::BindingType::InputAttachment:
@@ -84,7 +146,10 @@ namespace SFT::Core::WebGpu {
         if (layout == nullptr) {
             return std::unexpected(webgpu_error("create_bind_group_layout"));
         }
-        return bind_group_layouts_.insert(std::move(layout));
+        return bind_group_layouts_.insert(BindGroupLayoutRecord{
+            .layout = layout,
+            .entries = std::vector<rhi::BindGroupLayoutEntry>(desc.entries.begin(), desc.entries.end()),
+        });
     }
 
     /// Destroys a bind group layout.
@@ -94,7 +159,7 @@ namespace SFT::Core::WebGpu {
     /// @note This function does not throw exceptions.
     void WebGpuDevice::destroy_bind_group_layout(rhi::BindGroupLayoutHandle handle) noexcept {
         bind_group_layouts_.erase(handle,
-                                  [](WGPUBindGroupLayout &l) { wgpuBindGroupLayoutRelease(l); });
+                                  [](BindGroupLayoutRecord &record) { wgpuBindGroupLayoutRelease(record.layout); });
     }
 
     /// Creates a bind group.
@@ -104,7 +169,7 @@ namespace SFT::Core::WebGpu {
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiExpected<rhi::BindGroupHandle> WebGpuDevice::create_bind_group(const rhi::BindGroupDesc &desc) {
-        WGPUBindGroupLayout *layout = bind_group_layouts_.find(desc.layout);
+        BindGroupLayoutRecord *layout = bind_group_layouts_.find(desc.layout);
         if (layout == nullptr) {
             return std::unexpected(webgpu_error("create_bind_group", "unknown bind group layout handle"));
         }
@@ -112,6 +177,41 @@ namespace SFT::Core::WebGpu {
         std::vector<WGPUBindGroupEntry> entries;
         entries.reserve(desc.entries.size());
         for (const rhi::BindGroupEntry &entry : desc.entries) {
+            // A combined-image-sampler RHI entry carries both a texture view and a sampler under
+            // one binding number (matching Vulkan/D3D12's contract, see RendererMaterial.cpp), but
+            // was compiled into two real WGPUBindGroupLayoutEntry slots by create_bind_group_layout
+            // above. A single WGPUBindGroupEntry may only ever populate one of buffer/sampler/
+            // textureView -- setting both on one entry is invalid, so this has to become two
+            // entries here too, at the same two binding numbers the layout used.
+            const auto layout_entry = std::ranges::find(layout->entries, entry.binding, &rhi::BindGroupLayoutEntry::binding);
+            const bool is_combined = layout_entry != layout->entries.end() &&
+                                     layout_entry->type == rhi::BindingType::CombinedImageSampler;
+            if (is_combined) {
+                if (entry.texture_view.value == 0 || entry.sampler.value == 0) {
+                    return std::unexpected(webgpu_error(
+                        "create_bind_group", "a combined image/sampler binding requires both a texture view and a sampler"));
+                }
+                WGPUTextureView texture_view = lookup_texture_view(entry.texture_view);
+                if (texture_view == nullptr) {
+                    return std::unexpected(webgpu_error("create_bind_group", "unknown texture view handle"));
+                }
+                WGPUSampler *sampler = samplers_.find(entry.sampler);
+                if (sampler == nullptr) {
+                    return std::unexpected(webgpu_error("create_bind_group", "unknown sampler handle"));
+                }
+
+                WGPUBindGroupEntry texture_out{};
+                texture_out.binding = entry.binding;
+                texture_out.textureView = texture_view;
+                entries.push_back(texture_out);
+
+                WGPUBindGroupEntry sampler_out{};
+                sampler_out.binding = layout_entry->paired_binding;
+                sampler_out.sampler = *sampler;
+                entries.push_back(sampler_out);
+                continue;
+            }
+
             WGPUBindGroupEntry out{};
             out.binding = entry.binding;
             if (entry.buffer.value != 0) {
@@ -146,7 +246,7 @@ namespace SFT::Core::WebGpu {
 
         WGPUBindGroupDescriptor group_desc{};
         group_desc.label = wgpu_string(desc.label);
-        group_desc.layout = *layout;
+        group_desc.layout = layout->layout;
         group_desc.entryCount = entries.size();
         group_desc.entries = entries.data();
 
@@ -188,11 +288,11 @@ namespace SFT::Core::WebGpu {
         std::vector<WGPUBindGroupLayout> layouts;
         layouts.reserve(desc.bind_group_layouts.size() + 1);
         for (rhi::BindGroupLayoutHandle handle : desc.bind_group_layouts) {
-            WGPUBindGroupLayout *layout = bind_group_layouts_.find(handle);
+            BindGroupLayoutRecord *layout = bind_group_layouts_.find(handle);
             if (layout == nullptr) {
                 return std::unexpected(webgpu_error("create_pipeline_layout", "unknown bind group layout handle"));
             }
-            layouts.push_back(*layout);
+            layouts.push_back(layout->layout);
         }
 
         // WebGPU has no push constants; the shader library's SFT_EMULATE_PUSH_CONSTANTS path

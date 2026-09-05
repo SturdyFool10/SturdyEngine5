@@ -23,7 +23,14 @@ struct NeighborMaxConstants {
 [[push_constant]] ConstantBuffer<NeighborMaxConstants> neighborMax;
 #endif
 Texture2D<float2> tileMaxVelocity;
-RWTexture2D<float2> dilatedVelocityOut;
+// No [format(...)] here deliberately: WGSL's storage-texture format list has no 2-component option
+// at all (confirmed via slangc -target wgsl, which silently substitutes rgba32float and warns
+// E31105) -- annotating "rg16f" would make Slang's own codegen and this engine's RHI reflection
+// disagree about the real format, a *worse* failure mode than the current clean "no reflected
+// format" RHI rejection. Fixing this for real needs the backing RHI::Format changed to a
+// WGSL-legal 4-channel one (e.g. RGBA16Float) at the texture's creation site, which also means
+// updating every shader that reads it as Texture2D<float2> -- tracked as follow-up, not done here.
+WTexture2D<float2> dilatedVelocityOut;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -49,5 +56,5 @@ void neighborMaxMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
             }
         }
     }
-    dilatedVelocityOut[tile] = best;
+    dilatedVelocityOut.Store(tile, best);
 }

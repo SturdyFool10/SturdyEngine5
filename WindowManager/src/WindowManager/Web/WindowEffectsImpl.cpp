@@ -2,6 +2,8 @@
 
 #pragma region Imports
 #include <expected>
+#include <string>
+#include <SDL3/SDL_video.h>
 #pragma endregion
 
 #include <WindowManager/WindowError.hpp>
@@ -81,8 +83,37 @@ namespace SFT::WindowManager::Detail {
     /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::Unsupported`.
     /// @note This function does not throw exceptions.
     expected<NativeWindowHandle, WindowError> native_window_handle_from_sdl(void *window_handle) noexcept {
-        (void)window_handle;
-        return unexpected(WindowError{WindowErrorCode::Unsupported, "Web builds have no native window handle; create WebGPU surfaces from the HTML canvas instead."});
+        auto *window = static_cast<SDL_Window *>(window_handle);
+        if (!window) [[unlikely]] {
+            Detail::window_error("SDL3 Web native handle rejected null window.");
+            return unexpected(WindowError{WindowErrorCode::OperationFailed, "SDL3 Web native handle requires a live window."});
+        }
+
+        const SDL_PropertiesID properties = SDL_GetWindowProperties(window);
+        // Despite its name, SDL already stores a full CSS selector here (it defaults to the literal
+        // string "#canvas", not a bare id -- see SDL_emscriptenvideo.c's SDL_CreateWindow, which
+        // reads SDL_PROP_WINDOW_CREATE_EMSCRIPTEN_CANVAS_ID_STRING with that same "#canvas" default
+        // and stores it back verbatim). Do not prepend another '#'.
+        const char *canvas_selector = SDL_GetStringProperty(properties, SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING, nullptr);
+        if (!canvas_selector || canvas_selector[0] == '\0') [[unlikely]] {
+            Detail::window_error("SDL3 Web native handle missing canvas selector: sdl_window={} properties={}", static_cast<void *>(window), properties);
+            return unexpected(WindowError{WindowErrorCode::OperationFailed, "SDL3 Web native handle has no Emscripten canvas selector."});
+        }
+
+        // Lifetime: NativeWindowHandle::canvas_selector must stay valid for as long as the Window
+        // that produced it (see WindowConfig.hpp). This static buffer satisfies that for the single
+        // canvas a WASM build actually has; it is overwritten on the next call, which is fine because
+        // nothing needs two live selectors from two different windows to compare simultaneously.
+        static thread_local std::string selector_storage;
+        selector_storage = canvas_selector;
+
+        Detail::window_debug("SDL3 Web native handle resolved canvas: sdl_window={} properties={} selector={}", static_cast<void *>(window), properties, selector_storage);
+        return NativeWindowHandle{
+            NativeWindowSystem::Web,
+            nullptr,
+            nullptr,
+            selector_storage.c_str(),
+        };
     }
 
 } // namespace SFT::WindowManager::Detail

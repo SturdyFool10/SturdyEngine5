@@ -15,7 +15,14 @@ static const uint2 LUT_SIZE = uint2(256, 64);
 static const uint SAMPLE_COUNT = 40;
 
 ConstantBuffer<AtmosphereGpuData> atmosphereData;
-RWTexture2D<float4> outputLut;
+// WGSL's texture_storage_2d requires a format in the type itself, unlike HLSL/SPIR-V where a UAV's
+// format comes from the view the runtime binds -- this must match the RHI::Format the LUT texture is
+// actually created with (RHI::Format::RGBA16Float, see Renderer::ensure_atmosphere_lut_resources).
+// WGSL also restricts rgba16float storage textures to read-only or write-only access (no read_write)
+// -- this shader only writes, so WTexture2D (write-only) rather than RWTexture2D is required, not
+// just cosmetic.
+[format("rgba16f")]
+WTexture2D<float4> outputLut;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -35,5 +42,5 @@ void mainCS(uint3 dispatchThreadId : SV_DispatchThreadID) {
     float tMax;
     distanceToAtmosphereTop(p, origin, dir, tMax);
     float3 transmittance = computeTransmittanceToAtmosphereTop(p, origin, dir, tMax, SAMPLE_COUNT);
-    outputLut[dispatchThreadId.xy] = float4(transmittance, 1.0);
+    outputLut.Store(dispatchThreadId.xy, float4(transmittance, 1.0));
 }

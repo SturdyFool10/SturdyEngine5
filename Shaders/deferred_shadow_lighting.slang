@@ -139,13 +139,30 @@ Texture2D<float4> gbufferAlbedo;
 Texture2D<float2> gbufferNormal;
 Texture2D<float4> gbufferMaterial;
 Texture2D<float4> gbufferEmissive;
-Texture2D<float> gbufferDepth;
+// DepthTexture2D (not Texture2D<float>): bound to the real resolved depth buffer's view
+// (Depth32Float, sample type Depth). WebGPU strictly matches a bind group's declared sample type
+// against the bound view's format, unlike Vulkan/D3D12 where a Float-typed binding harmlessly
+// accepts either. Both sample sites below use implicit-LOD `.Sample()` rather than
+// `.SampleLevel(..., 0.0)` for the same reason as `shadowAtlas` above -- valid because this file's
+// only entry point is the fragment shader -- sidestepping a Slang WGSL-backend gap where an
+// explicit-level sample on texture_depth_2d needs an i32 level, not the float literal SampleLevel
+// takes.
+DepthTexture2D gbufferDepth;
 Texture2D<float4> spectralEffect;
-// Spot/point shadow atlas.
-Texture2D<float> shadowAtlas;
+// Spot/point shadow atlas. DepthTexture2D (not Texture2D<float>): both atlases are sampled two
+// ways below -- a plain SampleLevel with shadowDepthSampler, and a hardware-compare
+// SampleCmpLevelZero with shadowCompareSampler. HLSL/SPIR-V accept a plain float texture for
+// both, but WGSL's textureSampleCompareLevel requires the strict texture_depth_2d type; Slang
+// only emits that for the WGSL target when the source type is DepthTexture2D (isShadow=1),
+// not Texture2D<float> -- confirmed via Dawn's real compilation diagnostics (`the type of
+// visible_1 is expected to be f32, but got vec4<f32>`, i.e. Dawn silently treats a
+// non-depth-typed textureSampleCompareLevel call as ill-typed rather than erroring on the
+// call itself). texture_depth_2d supports both SampleLevel and SampleCmpLevelZero equally,
+// so this is a pure type-widening fix with no behavior change on any target.
+DepthTexture2D shadowAtlas;
 // Dedicated directional cascade atlas. Kept separate from `shadowAtlas` so cascade resolution is
 // decided by configuration rather than by whatever the punctual atlas packer has left over.
-Texture2D<float> directionalShadowAtlas;
+DepthTexture2D directionalShadowAtlas;
 Texture2D<float4> transmittanceLut;
 Texture2D<float4> multiScatteringLut;
 Texture2D<float4> skyViewLut;
@@ -232,7 +249,7 @@ float receiverDepthAtTap(float receiverDepth, float2 receiverGradient, float2 of
 // it from texel counts gets the same perceived softness at every cascade resolution. Each tap
 // compares against the receiver *plane* evaluated at that tap rather than against the centre depth,
 // which is what keeps sloped receivers from needing a large constant bias.
-float filteredShadowVisibility(Texture2D<float> atlas, ShadowViewGpuData view, float2 atlasUv,
+float filteredShadowVisibility(DepthTexture2D atlas, ShadowViewGpuData view, float2 atlasUv,
                                float receiverDepth, float2 receiverGradient, float filterRadiusLocal,
                                float rotation, float depthEpsilon) {
     float visible = 0.0;
@@ -355,7 +372,7 @@ ShadowReceiver projectShadowReceiver(ShadowViewGpuData view, float3 worldPositio
 // Evaluates sun/spot/point occlusion for one receiver against one shadow view.
 //
 // `atlas` selects the physical atlas the view lives in; the two are never mixed within a call.
-float shadowVisibility(Texture2D<float> atlas, uint viewIndex, float3 worldPosition, float3 normal,
+float shadowVisibility(DepthTexture2D atlas, uint viewIndex, float3 worldPosition, float3 normal,
                        float3 lightVector, float3 worldDx, float3 worldDy) {
     if (viewIndex >= (uint)lightingData.counts.z) {
         return 1.0;
@@ -411,7 +428,13 @@ float shadowVisibility(Texture2D<float> atlas, uint viewIndex, float3 worldPosit
     for (uint i = 0; i < SFT_PCSS_BLOCKER_SAMPLES; ++i) {
         float2 offsetLocal = vogelDiskSample(i, SFT_PCSS_BLOCKER_SAMPLES, rotation) * searchRadiusLocal;
         float2 sampleUv = clampAtlasUv(receiver.atlasUv + offsetLocal * view.atlasScaleBias.xy, view);
-        float sampleDepth = atlas.SampleLevel(shadowDepthSampler, sampleUv, 0.0);
+        // Sample (implicit LOD 0), not SampleLevel(..., 0.0): valid here because this whole file's
+        // only entry point is the fragment shader (Slang can compute implicit derivatives), and
+        // it sidesteps a Slang WGSL-backend gap where an explicit-level sample on a DepthTexture2D
+        // emits a float LOD literal into a WGSL textureSampleLevel(texture_depth_2d, ...) call,
+        // which requires an i32 level -- Dawn rejects it ("Sample level (exact) type is invalid").
+        // Semantically identical here since the LOD was always the hardcoded constant 0 anyway.
+        float sampleDepth = atlas.Sample(shadowDepthSampler, sampleUv);
         float tapReceiverDepth = receiverDepthAtTap(receiver.depth, receiver.gradient, offsetLocal);
         if (sampleDepth + depthEpsilon < tapReceiverDepth) {
             blockerDepthSum += linearShadowDepth(sampleDepth, view);
@@ -565,7 +588,7 @@ float screenSpaceSunContactShadow(float3 worldPosition, float3 normal, float3 su
         float2 candidateUv = ndcToUv(candidateNdc.xy);
         if (any(candidateUv <= 0.0) || any(candidateUv >= 1.0)) break;
 
-        float sceneDepth = gbufferDepth.SampleLevel(gbufferSampler, candidateUv, 0.0);
+        float sceneDepth = gbufferDepth.Sample(gbufferSampler, candidateUv);
         // Sky: nothing occludes here.
         if (sceneDepth >= 0.999999) continue;
         float4 sceneWorldH = mul(float4(uvToNdc(candidateUv), sceneDepth, 1.0),
@@ -712,7 +735,10 @@ bool directionalShadowDebug(uint mode, float3 worldPosition, float3 normal, floa
     float baseRadiusLocal = max(lightingData.shadowParams.x, 0.5) / tileResolution;
     const float depthEpsilon = 2.0e-6;
     float comparisonDepth = saturate(receiver.depth - depthEpsilon);
-    float atlasDepth = directionalShadowAtlas.SampleLevel(shadowDepthSampler, receiver.atlasUv, 0.0);
+    // Sample (implicit LOD 0), not SampleLevel(..., 0.0) -- see the other DepthTexture2D
+    // SampleLevel call above for why (a Slang WGSL-backend gap with explicit-level sampling on
+    // texture_depth_2d, not a behavior change: the LOD here was always the constant 0).
+    float atlasDepth = directionalShadowAtlas.Sample(shadowDepthSampler, receiver.atlasUv);
 
     // Stages before filtering. They intentionally do not call the complete shadow path, so they
     // remain useful when diagnosing whether an artifact starts in projection/bias or in filtering.
@@ -853,7 +879,7 @@ float3 reconstructWorldRayDirection(float2 uv) {
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
-    float depth = gbufferDepth.SampleLevel(gbufferSampler, input.uv, 0.0);
+    float depth = gbufferDepth.Sample(gbufferSampler, input.uv);
     AtmosphereParams atmosphere = unpackAtmosphereParams(atmosphereData);
     float3 planetOrigin = atmosphereData.cameraPositionPlanetSpace.xyz;
     float3 sunDirToward = safeNormalizeOr(atmosphereData.sunDirectionAngularRadius.xyz, float3(0.0, 1.0, 0.0));

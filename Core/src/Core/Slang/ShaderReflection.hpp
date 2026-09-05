@@ -217,8 +217,39 @@ namespace SFT::Core::Slang {
         u32 descriptor_range_index = 0;
         u32 descriptor_range_count = 0;
         u32 binding = 0;
+        // Offset of the second descriptor range, valid only when descriptor_range_count > 1 (the
+        // WGSL target decomposes a CombinedTextureSampler into two independent descriptor ranges --
+        // texture then sampler -- unlike SPIR-V/Vulkan, which keeps it as one). ~0u otherwise.
+        u32 second_binding = ~0u;
         u32 count = 0;
+        // Raw SlangImageFormat value (see slang-image-format-defs.h), only meaningful for a
+        // StorageTexture/MutableTexture binding range -- WGSL storage texture types are
+        // format-parameterized, so this must be translated (Renderer/ReflectionBinding.cpp does
+        // this) into an RHI::Format for the WebGPU backend to declare the matching layout.
         u32 image_format = 0;
+        ShaderResourceAccess access = ShaderResourceAccess::Unknown;
+        // True only for a Sampler binding range whose declared type is SamplerComparisonState.
+        // Slang's reflection API has no dedicated flag or Kind for this (SamplerState and
+        // SamplerComparisonState both report ShaderTypeKind::SamplerState); this is set instead by
+        // checking the leaf type layout's own name in ShaderImpl.cpp::parse_binding_range, the only
+        // signal Slang's reflection surface actually exposes for the distinction. Needed because
+        // WGSL has two genuinely different sampler binding types (`sampler` vs
+        // `sampler_comparison`) and WebGPU rejects a mismatch outright ("Comparison flag doesn't
+        // match the shader"), unlike Vulkan/D3D12 where a sampler descriptor carries no such flag.
+        b8 is_comparison_sampler = false;
+        // True only for a SampledTexture binding range whose declared type is a Slang depth/shadow
+        // texture (DepthTexture2D and friends -- SLANG_TEXTURE_SHADOW_FLAG on the leaf type's
+        // resource shape). WGSL has two genuinely different sampled-texture kinds, `texture_2d<f32>`
+        // and `texture_depth_2d`, and WebGPU rejects a mismatch ("Texture class Sampled { kind:
+        // Float } doesn't match the shader Depth"); Vulkan/D3D12 make no such distinction at the
+        // descriptor level (a depth texture there is just a regular sampled image/SRV).
+        b8 is_depth_texture = false;
+        // True only for a SampledTexture binding range whose declared type is multisampled
+        // (Texture2DMS and friends, including DepthTexture2DMS -- SLANG_TEXTURE_MULTISAMPLE_FLAG on
+        // the leaf type's resource shape). WGSL has genuinely distinct multisampled texture types,
+        // and WebGPU rejects a mismatch ("Texture class Sampled ... doesn't match the shader
+        // Sampled ... multi: true"); Vulkan/D3D12 make no such distinction at the descriptor level.
+        b8 is_multisampled_texture = false;
         b8 specializable = false;
     };
 

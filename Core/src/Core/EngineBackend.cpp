@@ -32,7 +32,14 @@ namespace SFT::Core {
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 unique_ptr<EngineBackend> create_engine_backend(RHI::BackendType backend) {
             switch (backend) {
+#if !defined(STURDY_PLATFORM_WEB)
+                // Core/Vulkan is excluded from the Web build entirely (see Core/CMakeLists.txt's
+                // STURDY_OS STREQUAL "Web" branch) -- Emscripten's WebGPU port is Web's only
+                // graphics API, so create_vulkan_backend() has no definition to link against there.
                 case RHI::BackendType::Vulkan: return create_vulkan_backend();
+#else
+                case RHI::BackendType::Vulkan: return nullptr;
+#endif
 #if defined(_WIN32)
                 case RHI::BackendType::D3D12: return create_d3d12_backend();
 #endif

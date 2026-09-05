@@ -109,10 +109,10 @@ namespace SFT::Core::WebGpu {
         render_pipelines_.drain([](WGPURenderPipeline &p) { wgpuRenderPipelineRelease(p); });
         pipeline_layouts_.drain([](WGPUPipelineLayout &l) { wgpuPipelineLayoutRelease(l); });
         bind_groups_.drain([](WGPUBindGroup &g) { wgpuBindGroupRelease(g); });
-        bind_group_layouts_.drain([](WGPUBindGroupLayout &l) { wgpuBindGroupLayoutRelease(l); });
+        bind_group_layouts_.drain([](BindGroupLayoutRecord &record) { wgpuBindGroupLayoutRelease(record.layout); });
         shader_modules_.drain([](WGPUShaderModule &m) { wgpuShaderModuleRelease(m); });
         samplers_.drain([](WGPUSampler &s) { wgpuSamplerRelease(s); });
-        texture_views_.drain([](WGPUTextureView &v) { wgpuTextureViewRelease(v); });
+        texture_views_.drain([](TextureViewEntry &v) { wgpuTextureViewRelease(v.view); });
         textures_.drain([](TextureEntry &entry) {
             // Released whether or not the surface owns the storage: the reference is this backend's
             // either way (see acquire_next_texture).

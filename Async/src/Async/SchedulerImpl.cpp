@@ -338,6 +338,19 @@ namespace SFT::Async {
         }
         p.config = active_config;
 
+#if defined(STURDY_PLATFORM_WEB)
+        // Emscripten's std::thread construction throws/aborts unless the whole module is built
+        // with -pthread and the page is served with cross-origin-isolation headers (COOP/COEP) for
+        // SharedArrayBuffer -- a hard browser security requirement with no flag-level workaround.
+        // Rather than require that hosting setup just to run at all, Scheduler mirrors the same
+        // "no real thread, run inline" fallback Async::DedicatedThread already uses on Web (see
+        // AffinityImpl.cpp): p.running stays true and enqueue() executes tasks synchronously the
+        // moment they're pushed, so no deque/worker-thread state is ever needed here.
+        Foundation::log_info("Async::Scheduler running inline on Web (no real threads; browser "
+                             "pthreads need -pthread plus COOP/COEP hosting headers).");
+        return;
+#endif
+
         const u32 worker_count = active_config.worker_count;
         p.deques.reserve(worker_count);
         for (u32 i = 0; i < worker_count; ++i) {
@@ -462,6 +475,15 @@ namespace SFT::Async {
             initialize();
         }
 
+#if defined(STURDY_PLATFORM_WEB)
+        // No worker threads/deques exist on Web (see initialize() above) -- run the task inline,
+        // on the calling thread, right now. Every caller downstream already tolerates this: a
+        // TaskHandle::wait() checks TaskState::done first and returns immediately once it's already
+        // true (see wait_for_task below), which it always is by the time this function returns.
+        (void)weight;
+        task->execute();
+        return;
+#endif
 
         p.queued_count.fetch_add(1, std::memory_order_acq_rel);
 

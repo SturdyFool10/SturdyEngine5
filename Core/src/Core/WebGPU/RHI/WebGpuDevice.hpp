@@ -159,6 +159,14 @@ namespace SFT::Core::WebGpu {
         /// @note This function does not throw exceptions.
         [[nodiscard]] WGPUTextureView lookup_texture_view(rhi::TextureViewHandle handle) noexcept;
 
+        /// Resolves a texture view handle to the RHI format it was created with.
+        ///
+        /// @param handle Handle identifying the target object or resource.
+        ///
+        /// @return Returns the view's format, or `rhi::Format::Undefined` when the handle is unknown.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] rhi::Format lookup_texture_view_format(rhi::TextureViewHandle handle) noexcept;
+
         /// Resolves a texture handle to the Dawn texture behind it.
         ///
         /// @param handle Handle identifying the target object or resource.
@@ -385,6 +393,17 @@ namespace SFT::Core::WebGpu {
             bool owned_by_surface = false;
         };
 
+        /// One entry per live texture view, keeping the format it was created with alongside the
+        /// Dawn object -- needed to know whether a depth/stencil attachment's format actually has a
+        /// stencil aspect before honoring a stencil load/store op (see begin_render_pass): WebGPU
+        /// validates that strictly ("Stencil LoadOp and StoreOp must be None for attachments without
+        /// stencil aspect"), unlike Vulkan/D3D12 where setting one for a stencil-less format is a
+        /// harmless no-op.
+        struct TextureViewEntry {
+            WGPUTextureView view = nullptr;
+            rhi::Format format = rhi::Format::Undefined;
+        };
+
         /// One entry per live buffer, keeping the size and mapping state the RHI exposes.
         ///
         /// WebGPU makes its two host-mapping usages mutually exclusive with almost everything else:
@@ -410,6 +429,18 @@ namespace SFT::Core::WebGpu {
             WGPUBuffer readback = nullptr;
         };
 
+        /// One entry per live bind group layout, keeping the original RHI entries alongside the
+        /// compiled WGPUBindGroupLayout. Needed only to emulate CombinedImageSampler (see
+        /// create_bind_group_layout/create_bind_group in WebGpuDeviceBinding.cpp): WebGPU has no
+        /// combined-sampler descriptor type, so one such RHI entry compiles to two real
+        /// WGPUBindGroupLayoutEntry slots (texture at `binding`, sampler at `paired_binding`), and
+        /// create_bind_group later needs to know that split happened to also emit two
+        /// WGPUBindGroupEntry writes for the one incoming rhi::BindGroupEntry.
+        struct BindGroupLayoutRecord {
+            WGPUBindGroupLayout layout = nullptr;
+            vector<rhi::BindGroupLayoutEntry> entries{};
+        };
+
         /// One entry per live surface, holding the configuration a swapchain applied to it.
         struct SurfaceEntry {
             WGPUSurface surface = nullptr;
@@ -426,6 +457,20 @@ namespace SFT::Core::WebGpu {
             rhi::SwapchainHandle configured_by{};
         };
 
+        /// Tracks a fence's real GPU-completion state.
+        ///
+        /// `submit()` no longer marks a fence signalled the moment it is attached to a submission --
+        /// that made `wait_fences` a no-op check, since the flag was already true before any waiting
+        /// could happen. Instead it records the `WGPUFuture` from `wgpuQueueOnSubmittedWorkDone`, and
+        /// `wait_fences` polls or blocks on that future via `wgpuInstanceWaitAny` depending on the
+        /// caller's requested timeout, which is what lets a `timeout_ns = 0` caller get a real,
+        /// non-suspending answer instead of always draining the whole queue.
+        struct FenceState {
+            bool signaled = false;
+            bool has_pending = false;
+            WGPUFuture pending_future{};
+        };
+
         WGPUInstance instance_ = nullptr;
         WGPUDevice device_ = nullptr;
         WGPUQueue queue_ = nullptr;
@@ -439,10 +484,10 @@ namespace SFT::Core::WebGpu {
 
         WebGpuResourcePool<rhi::BufferHandle, BufferEntry> buffers_;
         WebGpuResourcePool<rhi::TextureHandle, TextureEntry> textures_;
-        WebGpuResourcePool<rhi::TextureViewHandle, WGPUTextureView> texture_views_;
+        WebGpuResourcePool<rhi::TextureViewHandle, TextureViewEntry> texture_views_;
         WebGpuResourcePool<rhi::SamplerHandle, WGPUSampler> samplers_;
         WebGpuResourcePool<rhi::ShaderModuleHandle, WGPUShaderModule> shader_modules_;
-        WebGpuResourcePool<rhi::BindGroupLayoutHandle, WGPUBindGroupLayout> bind_group_layouts_;
+        WebGpuResourcePool<rhi::BindGroupLayoutHandle, BindGroupLayoutRecord> bind_group_layouts_;
         WebGpuResourcePool<rhi::BindGroupHandle, WGPUBindGroup> bind_groups_;
         WebGpuResourcePool<rhi::PipelineLayoutHandle, WGPUPipelineLayout> pipeline_layouts_;
         WebGpuResourcePool<rhi::RenderPipelineHandle, WGPURenderPipeline> render_pipelines_;
@@ -457,7 +502,7 @@ namespace SFT::Core::WebGpu {
         // implementation derives every dependency itself. These pools model the RHI's primitives as
         // the plain counters they reduce to on such a queue (see WebGpuDeviceSync.cpp).
         WebGpuResourcePool<rhi::SemaphoreHandle, u64> semaphore_values_;
-        WebGpuResourcePool<rhi::FenceHandle, bool> fences_;
+        WebGpuResourcePool<rhi::FenceHandle, FenceState> fences_;
 
 
         Async::Mutex<PushConstantState> push_constants_;

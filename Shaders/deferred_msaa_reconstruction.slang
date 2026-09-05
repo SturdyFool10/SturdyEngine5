@@ -57,8 +57,15 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
 }
 
 Texture2D<float4> shadedColor;
-Texture2D<float> shadedDepth;
-Texture2DMS<float> geometryDepth;
+// Both of these are read from real depth-format textures (Depth32Float). WGSL strictly
+// distinguishes a depth-format view's sample type ("Depth") from an ordinary float texture's
+// ("Float") -- declaring these as plain Texture2D/Texture2DMS compiled fine but produced a
+// runtime bind-group mismatch the moment a real depth view was bound
+// ("expects sample type Float..., but was given a view with format Depth32Float"). Slang's real
+// depth-texture types make it emit texture_depth_2d/texture_depth_multisampled_2d in WGSL instead,
+// matching what the bound view actually is; .Load() works identically on both.
+DepthTexture2D shadedDepth;
+DepthTexture2DMS geometryDepth;
 
 float viewDepth(float deviceDepth) {
     // Conventional Vulkan/D3D 0..1 perspective depth used by this renderer (near=0,

@@ -368,11 +368,13 @@ namespace SFT::Core::WebGpu {
             return std::unexpected(webgpu_error("create_texture_view", "unknown texture handle"));
         }
 
-        WGPUTextureViewDescriptor view_desc{};
-        view_desc.label = wgpu_string(desc.label);
         // An Undefined format in the RHI means "same as the texture", which is also what WebGPU
         // reads Undefined as, so it passes through unchanged.
-        view_desc.format = to_wgpu(desc.format == rhi::Format::Undefined ? entry->format : desc.format);
+        const rhi::Format effective_format = desc.format == rhi::Format::Undefined ? entry->format : desc.format;
+
+        WGPUTextureViewDescriptor view_desc{};
+        view_desc.label = wgpu_string(desc.label);
+        view_desc.format = to_wgpu(effective_format);
         view_desc.dimension = to_wgpu(desc.view_type);
         view_desc.baseMipLevel = desc.base_mip_level;
         view_desc.mipLevelCount = desc.mip_level_count == rhi::all_remaining
@@ -389,7 +391,7 @@ namespace SFT::Core::WebGpu {
         if (view == nullptr) {
             return std::unexpected(webgpu_error("create_texture_view"));
         }
-        return texture_views_.insert(std::move(view));
+        return texture_views_.insert(TextureViewEntry{.view = view, .format = effective_format});
     }
 
     /// Destroys a texture view.
@@ -398,7 +400,7 @@ namespace SFT::Core::WebGpu {
     ///
     /// @note This function does not throw exceptions.
     void WebGpuDevice::destroy_texture_view(rhi::TextureViewHandle handle) noexcept {
-        texture_views_.erase(handle, [](WGPUTextureView &view) { wgpuTextureViewRelease(view); });
+        texture_views_.erase(handle, [](TextureViewEntry &entry) { wgpuTextureViewRelease(entry.view); });
     }
 
     /// Resolves a texture view handle to the Dawn texture view behind it.
@@ -408,8 +410,19 @@ namespace SFT::Core::WebGpu {
     /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
     /// @note This function does not throw exceptions.
     WGPUTextureView WebGpuDevice::lookup_texture_view(rhi::TextureViewHandle handle) noexcept {
-        WGPUTextureView *view = texture_views_.find(handle);
-        return view != nullptr ? *view : nullptr;
+        TextureViewEntry *entry = texture_views_.find(handle);
+        return entry != nullptr ? entry->view : nullptr;
+    }
+
+    /// Resolves a texture view handle to the RHI format it was created with.
+    ///
+    /// @param handle Handle identifying the target object or resource.
+    ///
+    /// @return Returns the view's format, or `rhi::Format::Undefined` when the handle is unknown.
+    /// @note This function does not throw exceptions.
+    rhi::Format WebGpuDevice::lookup_texture_view_format(rhi::TextureViewHandle handle) noexcept {
+        TextureViewEntry *entry = texture_views_.find(handle);
+        return entry != nullptr ? entry->format : rhi::Format::Undefined;
     }
 
     /// Creates a sampler.

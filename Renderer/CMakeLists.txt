@@ -19,6 +19,9 @@ endif()
 list(REMOVE_ITEM _sturdy_renderer_platform_font_dirs "${_sturdy_renderer_platform_font_active}")
 
 sturdy_add_package(Renderer
+    SOURCES
+        "${STURDY_FONTS_EMBED_CPP}"
+
     EXCLUDE_SOURCE_DIRS
         tests
         ${_sturdy_renderer_platform_font_dirs}

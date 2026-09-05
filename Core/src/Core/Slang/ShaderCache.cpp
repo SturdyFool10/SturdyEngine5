@@ -23,16 +23,24 @@ namespace SFT::Core::Slang {
 
         // Bumped to 3 when SFT_EMULATE_PUSH_CONSTANTS started being defined for WGSL sessions, and
         // to 4 when a constant buffer's reflected size became its element's byte size rather than a
-        // descriptor-slot count. Both change what is cached without changing the source, the target,
-        // or anything else the cache key mixes in, so older entries would otherwise be served as
-        // fresh.
-        constexpr u32 shader_cache_format_version = 4;
+        // descriptor-slot count, to 5 when ShaderBindingRangeReflection gained second_binding
+        // (the WGSL target's second descriptor range offset for a split combined-image-sampler),
+        // to 6 when it gained image_format/access (needed to declare a WebGPU storage-texture
+        // binding with the shader's real format/read-write mode instead of a hardcoded guess), and
+        // to 7 when it gained is_comparison_sampler (WebGPU needs to know a Sampler binding is a
+        // SamplerComparisonState to declare it as `sampler_comparison` rather than `sampler`), to 8
+        // when it gained is_depth_texture (same reasoning, for texture_2d vs texture_depth_2d), and
+        // to 9 when it gained is_multisampled_texture (same reasoning again, for texture_2d vs
+        // texture_multisampled_2d / texture_depth_2d vs texture_depth_multisampled_2d).
+        // All of these change what is cached without changing the source, the target, or anything
+        // else the cache key mixes in, so older entries would otherwise be served as fresh.
+        constexpr u32 shader_cache_format_version = 9;
         constexpr u32 shader_cache_magic = 0x53484341u;
 
 
-        // Bumped to 4 alongside shader_cache_format_version: this cache stores the reflected
-        // parameter sizes that changed meaning for constant buffers.
-        constexpr u32 shader_reflection_cache_format_version = 4;
+        // Bumped alongside shader_cache_format_version: this cache also stores
+        // ShaderBindingRangeReflection (see write_binding_range/read_binding_range).
+        constexpr u32 shader_reflection_cache_format_version = 9;
         constexpr u32 shader_reflection_cache_magic = 0x53484352u;
 
 
@@ -245,8 +253,13 @@ namespace SFT::Core::Slang {
             w.write(range.descriptor_range_index);
             w.write(range.descriptor_range_count);
             w.write(range.binding);
+            w.write(range.second_binding);
             w.write(range.count);
             w.write(range.image_format);
+            w.write(static_cast<u32>(range.access));
+            w.write(static_cast<u8>(range.is_comparison_sampler ? 1 : 0));
+            w.write(static_cast<u8>(range.is_depth_texture ? 1 : 0));
+            w.write(static_cast<u8>(range.is_multisampled_texture ? 1 : 0));
             w.write(static_cast<u8>(range.specializable ? 1 : 0));
         }
 
@@ -264,8 +277,13 @@ namespace SFT::Core::Slang {
             range.descriptor_range_index = r.read<u32>();
             range.descriptor_range_count = r.read<u32>();
             range.binding = r.read<u32>();
+            range.second_binding = r.read<u32>();
             range.count = r.read<u32>();
             range.image_format = r.read<u32>();
+            range.access = static_cast<ShaderResourceAccess>(r.read<u32>());
+            range.is_comparison_sampler = r.read<u8>() != 0;
+            range.is_depth_texture = r.read<u8>() != 0;
+            range.is_multisampled_texture = r.read<u8>() != 0;
             range.specializable = r.read<u8>() != 0;
             return range;
         }
@@ -407,7 +425,7 @@ namespace SFT::Core::Slang {
                 r, sizeof(u32) + sizeof(u8) + sizeof(u64) * 3,
                 [depth](ByteReader &reader) { return read_field(reader, depth + 1); });
             type->binding_ranges = read_vector<ShaderBindingRangeReflection>(
-                r, sizeof(u32) * 8 + sizeof(u8), read_binding_range);
+                r, sizeof(u32) * 10 + sizeof(u8) * 3, read_binding_range);
             return type;
         }
 
@@ -469,7 +487,7 @@ namespace SFT::Core::Slang {
                 param.categories.push_back(static_cast<ShaderParameterCategory>(r.read<u32>()));
             }
             param.binding_ranges = read_vector<ShaderBindingRangeReflection>(
-                r, sizeof(u32) * 8 + sizeof(u8), read_binding_range);
+                r, sizeof(u32) * 10 + sizeof(u8) * 3, read_binding_range);
             return param;
         }
 

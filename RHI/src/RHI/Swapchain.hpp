@@ -25,6 +25,7 @@ namespace SFT::RHI {
         Cocoa,
         Android,
         UIKit,
+        WebCanvas,
     };
 
     struct SurfaceDesc {
@@ -32,6 +33,9 @@ namespace SFT::RHI {
         void *display = nullptr;
         void *window = nullptr;
         const char *label = nullptr;
+        /// CSS selector (e.g. "#canvas") identifying the HTML canvas element to present into.
+        /// Only meaningful when `system == WindowSystem::WebCanvas`.
+        const char *canvas_selector = nullptr;
     };
 
 

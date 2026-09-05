@@ -14,6 +14,7 @@ namespace SFT::Core {
             case RHI::WindowSystem::Cocoa: return GraphicsPlatform::WindowSystem::Cocoa;
             case RHI::WindowSystem::Android: return GraphicsPlatform::WindowSystem::Android;
             case RHI::WindowSystem::UIKit: return GraphicsPlatform::WindowSystem::UIKit;
+            case RHI::WindowSystem::WebCanvas: return GraphicsPlatform::WindowSystem::WebCanvas;
         }
         return GraphicsPlatform::WindowSystem::Unknown;
     }

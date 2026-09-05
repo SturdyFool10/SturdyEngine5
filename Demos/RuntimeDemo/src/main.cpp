@@ -15,8 +15,18 @@ namespace {
         SFT::Runtime::RuntimeConfig config{};
         config.application.primary_window.title = "Sturdy Engine 5 Runtime Demo";
         config.application.primary_window.extent = {1280, 720};
+#if defined(STURDY_PLATFORM_WEB)
+        // WebGPU (reached through the browser's own canvas, not a native surface) is Web's only
+        // graphics API -- Core/Vulkan is excluded from the Web build entirely (see
+        // Core/CMakeLists.txt and EngineBackend.cpp's create_engine_backend()), and Emscripten's
+        // SDL3 video driver has no "vulkan" driver to satisfy SDL_WINDOW_VULKAN in the first place.
+        config.application.primary_window.graphics_api =
+            SFT::WindowManager::WindowGraphicsApi::WebGPU;
+        config.application.engine.graphics_backend = SFT::RHI::BackendType::WebGpu;
+#else
         config.application.primary_window.graphics_api =
             SFT::WindowManager::WindowGraphicsApi::Vulkan;
+#endif
         config.application.engine.app_name = "Sturdy Engine 5 Runtime Demo";
         config.application.engine.shaders_directory = "Shaders";
         config.application.engine.features.raytracing = true;

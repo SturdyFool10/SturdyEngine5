@@ -43,8 +43,12 @@ ConstantBuffer<SvgfFrameConstants> frame;
 Texture2D<float2> gbufferNormal;
 Texture2D<float> gbufferDepth;
 Texture2D<float4> colorVarianceIn;
-RWTexture2D<float4> colorVarianceOut;
-RWTexture2D<float4> historyColorOut;
+// WGSL's texture_storage_2d requires a format in the type itself; must match the RHI::Format both
+// targets are actually created with (RHI::Format::RGBA16Float). Both write-only.
+[format("rgba16f")]
+WTexture2D<float4> colorVarianceOut;
+[format("rgba16f")]
+WTexture2D<float4> historyColorOut;
 
 static const float3 SFT_LUMINANCE_WEIGHTS = float3(0.2126, 0.7152, 0.0722);
 static const float kKernel1D[3] = {0.375, 0.25, 0.0625}; // center, 1-tap, 2-tap weights of {1,4,6,4,1}/16
@@ -73,8 +77,8 @@ void atrousMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
     float4 center = colorVarianceIn.Load(int3(dispatchThreadId.xy, 0));
     float centerDepth = gbufferDepth.Load(int3(dispatchThreadId.xy, 0));
     if (centerDepth >= 0.999999) {
-        colorVarianceOut[dispatchThreadId.xy] = float4(0.0, 0.0, 0.0, 0.0);
-        if (atrousConstants.writeHistory != 0u) historyColorOut[dispatchThreadId.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        colorVarianceOut.Store(dispatchThreadId.xy, float4(0.0, 0.0, 0.0, 0.0));
+        if (atrousConstants.writeHistory != 0u) historyColorOut.Store(dispatchThreadId.xy, float4(0.0, 0.0, 0.0, 0.0));
         return;
     }
     float3 centerNormal = decodeOctahedralNormal(gbufferNormal.Load(int3(dispatchThreadId.xy, 0)));
@@ -121,8 +125,8 @@ void atrousMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
     float3 filteredColor = totalWeight > 1.0e-6 ? totalColor / totalWeight : center.rgb;
     float filteredVariance = totalVarianceWeight > 1.0e-6 ? totalVariance / totalVarianceWeight : center.a;
 
-    colorVarianceOut[dispatchThreadId.xy] = float4(filteredColor, filteredVariance);
+    colorVarianceOut.Store(dispatchThreadId.xy, float4(filteredColor, filteredVariance));
     if (atrousConstants.writeHistory != 0u) {
-        historyColorOut[dispatchThreadId.xy] = float4(filteredColor, filteredVariance);
+        historyColorOut.Store(dispatchThreadId.xy, float4(filteredColor, filteredVariance));
     }
 }

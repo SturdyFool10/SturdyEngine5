@@ -17,6 +17,7 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -53,7 +54,15 @@ namespace SFT::Engine::Detail {
         /// @note This function does not throw exceptions.
         template <typename T>
         [[nodiscard]] u64 fnv1a_append_pod(const T &value, u64 hash) noexcept {
-            return fnv1a_append(std::as_bytes(std::span{&value, 1}), hash);
+            // Reinterpreting through std::byte directly rather than via std::as_bytes(std::span{...}):
+            // that form has to pick an overload/deduction guide among std::span's several
+            // constructors, and which one it lands on for a two-argument (pointer, count) call is an
+            // implementation detail that differs between standard library versions -- observed to
+            // land on the wrong one under Emscripten's bundled libc++ specifically, misreading `value`
+            // itself as the span's backing storage when T = bool. A span of std::byte has no such
+            // ambiguity: every constructor candidate agrees on the element type already.
+            const auto *bytes = reinterpret_cast<const std::byte *>(std::addressof(value));
+            return fnv1a_append(std::span<const std::byte, sizeof(T)>{bytes, sizeof(T)}, hash);
         }
 
 

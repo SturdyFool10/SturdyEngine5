@@ -36,7 +36,10 @@ Texture2D<float> gbufferDepth;
 Texture2D<float4> gbufferAlbedo;
 Texture2D<float4> gbufferMaterial;
 StructuredBuffer<ReservoirGpuData> reservoirSpatial;
-RWTexture2D<float4> irradianceOut;
+// WGSL's texture_storage_2d requires a format in the type itself; must match the RHI::Format the
+// raw-irradiance target is actually created with (RHI::Format::RGBA16Float). Write-only.
+[format("rgba16f")]
+WTexture2D<float4> irradianceOut;
 
 float3 reconstructWorldPosition(uint2 pixel, uint2 extent, float depth) {
     float2 uv = (float2(pixel) + 0.5) / float2(extent);
@@ -53,14 +56,14 @@ void shadeResolveMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
 
     float depth = gbufferDepth.Load(int3(dispatchThreadId.xy, 0));
     if (depth >= 0.999999) {
-        irradianceOut[dispatchThreadId.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        irradianceOut.Store(dispatchThreadId.xy, float4(0.0, 0.0, 0.0, 0.0));
         return;
     }
 
     uint pixelIndex = dispatchThreadId.y * extent.x + dispatchThreadId.x;
     ReservoirGpuData reservoir = reservoirSpatial[pixelIndex];
     if (reservoir.normalYValid.y < 0.5 || reservoir.weightM.y <= 0.0) {
-        irradianceOut[dispatchThreadId.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        irradianceOut.Store(dispatchThreadId.xy, float4(0.0, 0.0, 0.0, 0.0));
         return;
     }
 
@@ -74,13 +77,13 @@ void shadeResolveMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
     float3 toSample = reservoir.samplePositionPdf.xyz - worldPosition;
     float sampleDistance = length(toSample);
     if (sampleDistance < 1.0e-4) {
-        irradianceOut[dispatchThreadId.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        irradianceOut.Store(dispatchThreadId.xy, float4(0.0, 0.0, 0.0, 0.0));
         return;
     }
     float3 direction = toSample / sampleDistance;
     float cosine = dot(normal, direction);
     if (cosine <= 0.0) {
-        irradianceOut[dispatchThreadId.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        irradianceOut.Store(dispatchThreadId.xy, float4(0.0, 0.0, 0.0, 0.0));
         return;
     }
 
@@ -90,5 +93,5 @@ void shadeResolveMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
                      * reservoir.sampleRadianceNormalX.xyz * reservoir.weightM.y
                      * max(frame.temporalSpatialParams.w, 0.0);
 
-    irradianceOut[dispatchThreadId.xy] = float4(max(indirect, float3(0.0, 0.0, 0.0)), 1.0);
+    irradianceOut.Store(dispatchThreadId.xy, float4(max(indirect, float3(0.0, 0.0, 0.0)), 1.0));
 }

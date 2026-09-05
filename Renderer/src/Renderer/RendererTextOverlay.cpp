@@ -22,6 +22,7 @@
 #include <WindowManager/WindowManager.hpp>
 #include <Renderer/Text/Text.hpp>
 #include <Renderer/Text/PlatformFonts.hpp>
+#include <Renderer/Text/EmbeddedFont.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -150,24 +151,40 @@ namespace SFT::Renderer {
 
         const Text::FontDatabase database = build_font_database();
 
+        // No on-disk font is available at all on Web (no filesystem to search -- see
+        // Text/Platform/Web/FontsImpl.cpp's font_search_directories()), and even on native
+        // platforms a from-scratch/minimal install can lack every family in the preferred list.
+        // Mirrors the shader-embedding fallback in Core/Slang/ShaderImpl.cpp: prefer the real
+        // on-disk font when one is found, fall back to the font embedded into the binary
+        // (cmake/SturdyFonts.cmake) rather than failing the whole debug overlay.
         optional<string> font_path = find_default_font_path(database);
-        if (!font_path) {
+        optional<vector<std::byte>> font_bytes_storage;
+        span<const std::byte> font_bytes;
+        string font_label;
+        if (font_path) {
+            font_bytes_storage = read_file_bytes(*font_path);
+            if (!font_bytes_storage) {
+                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                    "Failed to read the debug text overlay font file: " + *font_path);
+            }
+            font_bytes = span<const std::byte>{font_bytes_storage->data(), font_bytes_storage->size()};
+            font_label = *font_path;
+        } else {
+            Foundation::log_info("No on-disk font was found for the debug text overlay; using the embedded copy.");
+            font_bytes = Text::embedded_default_font_bytes();
+            font_label = "<embedded>";
+        }
+        if (font_bytes.empty()) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "No usable font was found for the debug text overlay.");
         }
-        optional<vector<std::byte>> font_bytes = read_file_bytes(*font_path);
-        if (!font_bytes) {
-            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "Failed to read the debug text overlay font file: " + *font_path);
-        }
 
-
-        auto font = Text::Font::load_hinted(span<const std::byte>{font_bytes->data(), font_bytes->size()}, overlay_pixel_size);
+        auto font = Text::Font::load_hinted(font_bytes, overlay_pixel_size);
         if (!font) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "Failed to parse the debug text overlay font: " + *font_path);
+                                                "Failed to parse the debug text overlay font: " + font_label);
         }
-        Foundation::log_info("Debug text overlay font: {}", *font_path);
+        Foundation::log_info("Debug text overlay font: {}", font_label);
 
         auto atlas = TextAtlas::create(*device, TextAtlas::Config{});
         if (!atlas) {

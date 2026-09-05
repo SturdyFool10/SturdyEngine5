@@ -33,7 +33,11 @@ struct TileMaxConstants {
 [[push_constant]] ConstantBuffer<TileMaxConstants> tileMax;
 #endif
 Texture2D<float2> gbufferMotion;
-RWTexture2D<float2> tileMaxVelocityOut;
+// No [format(...)] here deliberately -- see motion_blur_neighbor_max.slang's dilatedVelocityOut
+// comment: WGSL has no 2-component storage-texture format, so annotating "rg16f" would make Slang's
+// codegen (silently substitutes rgba32float) disagree with this engine's RHI reflection about the
+// real format. Needs the backing RHI::Format changed to a WGSL-legal 4-channel one; not done here.
+WTexture2D<float2> tileMaxVelocityOut;
 
 groupshared float2 sharedVelocity[kMaxTileAreaThreads];
 
@@ -67,6 +71,6 @@ void tileMaxMain(uint3 groupId : SV_GroupID, uint3 groupThreadId : SV_GroupThrea
     }
 
     if (linearIndex == 0) {
-        tileMaxVelocityOut[groupId.xy] = sharedVelocity[0];
+        tileMaxVelocityOut.Store(groupId.xy, sharedVelocity[0]);
     }
 }

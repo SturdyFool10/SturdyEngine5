@@ -217,7 +217,19 @@ namespace SFT::Foundation {
         /// @return Returns the current enumerate value.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] auto enumerate() {
+#ifdef __cpp_lib_ranges_enumerate
             auto result = std::views::enumerate(std::move(view_));
+#else
+            // Emscripten's bundled libc++ (as of the 6.0.9 packaging this was found against) has
+            // no std::views::enumerate yet, despite otherwise supporting C++23's ranges additions
+            // including zip -- this is the same shape zip(iota(...), view) already produces, just
+            // without a dedicated adaptor for it. index_type matches what enumerate() itself would
+            // have used (the range's own difference_type), so a caller structured-binding the
+            // result sees the same index type on every platform, not something that happens to
+            // differ only on Web.
+            using index_type = std::ranges::range_difference_t<V>;
+            auto result = std::views::zip(std::views::iota(index_type{0}), std::move(view_));
+#endif
             return Iter<decltype(result)>(std::move(result));
         }
 

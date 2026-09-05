@@ -191,9 +191,23 @@ function(sturdy_add_package package_name)
       add_library("${package_name}" STATIC ${_all_sources})
     endif()
 
+    # CXX_SCAN_FOR_MODULES buys nothing on its own merits -- this codebase has had zero C++20
+    # `import`/`module` translation units since the module-to-header refactor completed (see
+    # cmake/ClangdView.cmake's own note on that history) -- but leaving it on is otherwise harmless
+    # everywhere except Web: Ninja's P1689 dependency-scanning pre-pass (`emscan-deps`) invokes the
+    # underlying clang scanner directly rather than going through Emscripten's own em++ Python
+    # wrapper, so it never sees the wrapper's port-resolution step and fails outright on any source
+    # that needs one (`--use-port=emdawnwebgpu`'s <webgpu/webgpu.h>, concretely). Since scanning is
+    # pure overhead with nothing to find on this codebase, it is simply off for Web rather than
+    # worked around per-port.
+    if(STURDY_OS STREQUAL "Web")
+        set(_sturdy_package_scan_for_modules OFF)
+    else()
+        set(_sturdy_package_scan_for_modules ON)
+    endif()
     set_target_properties("${package_name}" PROPERTIES
             ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
-            CXX_SCAN_FOR_MODULES ON
+            CXX_SCAN_FOR_MODULES ${_sturdy_package_scan_for_modules}
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
             OPTIMIZE_DEPENDENCIES ON
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
@@ -229,8 +243,15 @@ function(sturdy_add_package package_name)
           "\"${_sturdy_archive_timeout_executable}\" --kill-after=5s ${STURDY_PACKAGE_ARCHIVE_TIMEOUT_SECONDS}s"
         )
       else()
-        message(FATAL_ERROR
-          "${package_name}: ARCHIVE_TIMEOUT_SECONDS is only supported for native Windows and Linux static libraries."
+        # The guard below exists for a specific, observed archiver-hang on native Windows/Linux
+        # hosts (see STURDY_STATIC_ARCHIVE_TIMEOUT_SECONDS's own doc comment in the top-level
+        # CMakeLists.txt); it has never been exercised against, and there is no evidence it applies
+        # to, any other host/target combination -- cross-compiling to Emscripten's emar included.
+        # Rather than block configuration entirely on every other platform, the guard is simply
+        # skipped there: an unguarded archive step is exactly what every platform already got before
+        # this option existed.
+        message(STATUS
+          "${package_name}: ARCHIVE_TIMEOUT_SECONDS is only implemented for native Windows and Linux static libraries; skipping the guard for this target/host combination."
         )
       endif()
     endif()

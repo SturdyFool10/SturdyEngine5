@@ -292,6 +292,28 @@ namespace SFT::Engine {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void sync_window_state(const vector<WindowManager::ManagedWindowEvents> &window_events);
 
+        /// Runs one iteration of the main loop's body: pumps platform events, settles any live
+        /// resizes, ticks the engine, submits a frame per window, retires windows finishing
+        /// close, and refreshes the primary window's title on its configured interval.
+        ///
+        /// Factored out of run() so a browser build can drive it from one requestAnimationFrame
+        /// callback at a time (via emscripten_set_main_loop_arg in ApplicationImpl.cpp) instead
+        /// of a blocking `while` loop, which would never yield back to the browser's single JS
+        /// thread and freeze the page.
+        ///
+        /// @param window_events Scratch buffer reused across calls to avoid a per-frame allocation.
+        /// @param last_title_update In/out timestamp of the last primary-window title refresh.
+        /// @param last_tick_time In/out timestamp of the previous call, used to compute this
+        ///        frame's tick delta.
+        ///
+        /// @return false when the loop should stop (a fatal platform event-pump error); true to
+        ///         keep going. Callers must also stop once `windows_` is empty.
+        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        [[nodiscard]] bool run_frame(
+            vector<WindowManager::ManagedWindowEvents> &window_events,
+            std::chrono::high_resolution_clock::time_point &last_title_update,
+            std::chrono::high_resolution_clock::time_point &last_tick_time);
+
         WindowManager::WindowManager window_manager_{
             WindowManager::WindowManagerPolicy{.event_pump_mode = WindowManager::WindowEventPumpMode::DedicatedEventThread,
                                                      .platform_allows_threads = true}};

@@ -31,9 +31,18 @@ Texture2D<float2> gbufferMotion;
 Texture2D<float4> colorHistoryPrev;
 Texture2D<float2> momentsHistoryPrev;
 Texture2D<float> historyLengthPrev;
-RWTexture2D<float4> accumulatedOut;
-RWTexture2D<float2> momentsHistoryOut;
-RWTexture2D<float> historyLengthOut;
+// WGSL's texture_storage_2d requires a format in the type itself; must match each texture's real
+// RHI::Format (RGBA16Float / RG32Float / R32Float, see Renderer's SVGF target creation). All
+// write-only from this pass.
+[format("rgba16f")]
+WTexture2D<float4> accumulatedOut;
+// No [format(...)] here deliberately: WGSL has no 2-component storage-texture format (confirmed via
+// slangc -target wgsl, which silently substitutes rgba32float and warns E31105) -- see
+// motion_blur_neighbor_max.slang's dilatedVelocityOut comment for the same issue. Needs the backing
+// RHI::Format changed to a WGSL-legal 4-channel one at its creation site; not done here.
+WTexture2D<float2> momentsHistoryOut;
+[format("r32f")]
+WTexture2D<float> historyLengthOut;
 
 static const float3 SFT_LUMINANCE_WEIGHTS = float3(0.2126, 0.7152, 0.0722);
 
@@ -99,7 +108,7 @@ void temporalAccumulateMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
         variance = spatialVarianceFallback(dispatchThreadId.xy, extent);
     }
 
-    accumulatedOut[dispatchThreadId.xy] = float4(blendedColor, variance);
-    momentsHistoryOut[dispatchThreadId.xy] = blendedMoments;
-    historyLengthOut[dispatchThreadId.xy] = historyLength;
+    accumulatedOut.Store(dispatchThreadId.xy, float4(blendedColor, variance));
+    momentsHistoryOut.Store(dispatchThreadId.xy, blendedMoments);
+    historyLengthOut.Store(dispatchThreadId.xy, historyLength);
 }

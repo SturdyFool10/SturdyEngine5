@@ -1,12 +1,16 @@
 // Builds a Hi-Z (hierarchical max-depth) pyramid via iterative 2x2 max-reduction fullscreen passes.
 //
-// Mip 0 is built directly from the resolved scene depth buffer, bound as `source` exactly like any
-// other mip — the reduction logic is identical either way, it just treats the real depth texture as
-// "mip -1" of the pyramid. Mips 1..N then each reduce the previous Hi-Z mip the same way. Max
-// reduction (not min/average) is required by this engine's depth convention (depth_compare = Less,
-// near = 0 / far = 1): storing the farthest already-covered depth per texel is what makes
-// Renderer::record_instance_cull's occlusion test conservative (never wrongly culls something still
-// visible) — see gpu_instance_cull.slang's occlusion test.
+// Mip 0 is built directly from the resolved scene depth buffer, reduced by hiz_build_from_depth.slang's
+// otherwise-identical shader (kept in a separate file because the depth buffer's view (Depth32Float,
+// sample type Depth) needs a DepthTexture2D binding that WebGPU cannot substitute for this file's
+// plain Texture2D<float> `source` -- and Slang's parameter reflection enumerates every module-scope
+// global regardless of which entry point actually references it, so the two textures can't safely
+// share a module even when only one entry point per file is ever linked). Mips 1..N then each reduce
+// the previous Hi-Z mip through this file. Max reduction (not min/average) is required by this
+// engine's depth convention (depth_compare = Less, near = 0 / far = 1): storing the farthest
+// already-covered depth per texel is what makes Renderer::record_instance_cull's occlusion test
+// conservative (never wrongly culls something still visible) — see gpu_instance_cull.slang's
+// occlusion test.
 
 import sturdy_common;
 
@@ -46,9 +50,9 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     return output;
 }
 
-// Single-channel float source: either the real resolved depth texture (building mip 0) or a
-// previous Hi-Z pyramid mip (building mip N>0) — both are plain Texture2D<float>, sampled with
-// point `.Load` (never filtered: averaging four depths would break the max-reduction invariant).
+// Single-channel float source: a previous Hi-Z pyramid mip (building mip N>0), plain Texture2D<float>,
+// sampled with point `.Load` (never filtered: averaging four depths would break the max-reduction
+// invariant).
 Texture2D<float> source;
 
 [shader("fragment")]

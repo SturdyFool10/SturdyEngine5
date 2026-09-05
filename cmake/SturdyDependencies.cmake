@@ -389,7 +389,11 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_libtiff()
         sturdy_fetch_gdeflate()
         sturdy_fetch_openexr()
-        if(STURDY_ENABLE_WEBGPU)
+        if(STURDY_ENABLE_WEBGPU AND NOT STURDY_OS STREQUAL "Web")
+            # Web reaches WebGPU through sturdy_configure_webgpu()'s Emscripten port below instead
+            # (STURDY_ENABLE_WEBGPU is forced ON for Web in the root CMakeLists.txt purely to gate
+            # the STURDY_ENABLE_WEBGPU=1 compile definition -- it was never meant to also pull in a
+            # real Dawn FetchContent checkout there, which sturdy_fetch_dawn() would otherwise do).
             sturdy_fetch_dawn()
         endif()
 
@@ -622,6 +626,17 @@ function(sturdy_configure_webgpu)
         add_library(Sturdy::WebGPU INTERFACE IMPORTED GLOBAL)
         target_compile_options(Sturdy::WebGPU INTERFACE "--use-port=emdawnwebgpu")
         target_link_options(Sturdy::WebGPU INTERFACE "--use-port=emdawnwebgpu")
+        # Core's WebGPU RHI backend (Core/src/Core/WebGPU/RHI/WebGpuAdapter.cpp) turns every async
+        # WebGPU entry point (instance/adapter/device request) into the synchronous call the RHI
+        # declares by requiring WGPUInstanceFeatureName_TimedWaitAny and blocking on
+        # wgpuInstanceWaitAny. The emdawnwebgpu port's JS glue only implements that wait
+        # (emwgpuWaitAny in library_webgpu.js) inside an `#if ASYNCIFY` block -- without it, the
+        # feature is simply never advertised as supported, so wgpuCreateInstance rejects it as an
+        # unsatisfiable *required* feature and every Web WebGPU backend fails to even construct an
+        # instance. ASYNCIFY lets the wasm call stack actually suspend while awaiting the
+        # corresponding JS Promise, which is what makes this true synchronous-looking wait work.
+        target_compile_options(Sturdy::WebGPU INTERFACE "-sASYNCIFY=1")
+        target_link_options(Sturdy::WebGPU INTERFACE "-sASYNCIFY=1")
     endif()
 endfunction()
 
@@ -725,6 +740,34 @@ function(sturdy_fetch_slang)
     set(SLANG_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_REPLAYER OFF CACHE BOOL "" FORCE)
     set(SLANG_ENABLE_SLANGC OFF CACHE BOOL "" FORCE)
+    # None of these vendor-specific paths are ever reached by this engine on any platform (no CUDA
+    # kernel compilation, no OptiX/NVAPI, no Nsight Aftermath crash dumps, no D3D-on-Vulkan
+    # translation), so they are forced off unconditionally rather than left at Slang's own AUTO
+    # default. That default is what breaks an Emscripten configure specifically: left on AUTO,
+    # Slang's auto_option() calls find_package(CUDAToolkit) unconditionally, and cross-compiling to
+    # Emscripten sends CMake's CUDAToolkit module down a path where it reports cudart missing and
+    # then crashes inside its own _CUDAToolkit_find_and_add_import_lib helper trying to build an
+    # imported target for it anyway (reproduced with CMake 4.4.3) -- a bug in a module this engine
+    # has no reason to invoke at all.
+    # CUDA/OptiX/NVAPI/Aftermath are declared via Slang's own auto_option() (cmake/AutoOption.cmake),
+    # which stores them as CACHE STRING with an AUTO/ON/OFF STRINGS property, not CACHE BOOL --
+    # matching that exactly rather than guessing avoids a stale mismatched-type cache entry.
+    set(SLANG_ENABLE_CUDA OFF CACHE STRING "" FORCE)
+    set(SLANG_ENABLE_OPTIX OFF CACHE STRING "" FORCE)
+    set(SLANG_ENABLE_NVAPI OFF CACHE STRING "" FORCE)
+    set(SLANG_ENABLE_AFTERMATH OFF CACHE STRING "" FORCE)
+    # Declared via advanced_option() -> option(), a plain CACHE BOOL, unlike the four above.
+    set(SLANG_ENABLE_DX_ON_VK OFF CACHE BOOL "" FORCE)
+    if(STURDY_OS STREQUAL "Web")
+        # Slang's own SlangTarget.cmake (slang_add_target()) runs a POST_BUILD objcopy/strip
+        # sequence on every EXECUTABLE/SHARED/MODULE target when this is on (its default), to split
+        # debug info into a sidecar .dwarf file -- a real, useful feature on a native ELF toolchain,
+        # but Emscripten's em++ produces a .js/.wasm pair, and llvm-objcopy rejects the .js file
+        # outright ("was not recognized as a valid object file"), failing every such target's link
+        # step, including Slang's own build-time code generators (slang-generate, slang-embed, etc.)
+        # that this build needs to actually produce Slang's generated sources.
+        set(SLANG_ENABLE_SPLIT_DEBUG_INFO OFF CACHE BOOL "" FORCE)
+    endif()
     # Build only the target backends the current platform can consume. The renderer still rejects
     # Metal/WebGPU until their RHI module creation paths exist, but keeping Slang capable of emitting
     # their formats lets those backends be integrated without rebuilding the compiler dependency.
@@ -758,6 +801,33 @@ function(sturdy_fetch_slang)
     FetchContent_MakeAvailable(slang)
     sturdy_patch_slang_header_copy_target("${slang_SOURCE_DIR}")
     if(NOT TARGET slang AND NOT TARGET slang::slang AND NOT TARGET Slang::slang)
+        if(STURDY_OS STREQUAL "Web")
+            # Slang's own build runs several of its executables *during the build* to generate
+            # sources it then compiles (slang-generate/slang-embed/slang-lookup-generator/
+            # slang-capability-generator/slang-spirv-embed-generator), invoked automatically through
+            # node via Emscripten's CMAKE_CROSSCOMPILING_EMULATOR. Those executables link fine, but
+            # without this flag their compiled-in file I/O only sees Emscripten's default virtual
+            # MEMFS/NODEFS sandbox, not the real host filesystem: an absolute path like the one CMake
+            # passes for the generated-source destination fails to open ("failed to open ... for
+            # reading" -- a fopen() for write, misreported), and a relative one silently resolves
+            # inside the sandbox and writes nothing anyone can find. -sNODERAWFS=1 makes libc's file
+            # calls go straight to Node's real fs module instead, which is exactly what a
+            # command-line code-generation tool needs.
+            #
+            # `sturdy_fetch_slang` is a function(), so this override is naturally scoped to this
+            # add_subdirectory call alone and reverts to the caller's value the moment the function
+            # returns -- it is meaningless -- Node is not present -- for this engine's own
+            # browser-facing executables, and actively wrong for slang-wasm, Slang's own
+            # browser-facing WASM module (EXCLUDE_FROM_ALL in its own CMakeLists, so it is never built
+            # here, but this still avoids relying on that to stay true upstream).
+            # slang-fiddle (Slang's own template/codegen tool, run the same way) processes large
+            # template files well past whatever fixed initial heap Emscripten sizes a WASM module's
+            # linear memory at by default, and aborts with "Aborted(OOM)" rather than growing it.
+            # -sALLOW_MEMORY_GROWTH=1 is Emscripten's flag for exactly that: let the WASM memory
+            # object grow on demand instead of failing at a size picked for a typical browser module,
+            # which is not the profile of a native-scale command-line tool.
+            string(APPEND CMAKE_EXE_LINKER_FLAGS " -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1")
+        endif()
         add_subdirectory("${slang_SOURCE_DIR}" "${slang_BINARY_DIR}" EXCLUDE_FROM_ALL SYSTEM)
     endif()
     sturdy_mark_dependency_targets_exclude_from_all(slang slang::slang Slang::slang slang-compiler)
@@ -1642,6 +1712,19 @@ function(sturdy_fetch_libgav1)
     set(LIBGAV1_THREADPOOL_USE_STD_MUTEX 1 CACHE BOOL "" FORCE)
     set(LIBGAV1_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(LIBGAV1_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+    if(STURDY_OS STREQUAL "Web")
+        # libgav1's own CMakeLists detects x86 purely from CMAKE_SYSTEM_PROCESSOR and enables real
+        # x86 SSE4.1/AVX2 intrinsic source files unconditionally on that basis -- it has no idea the
+        # actual compiler is Emscripten's em++ targeting wasm32. STURDY_ARCH stays "x86-64" for Web
+        # only as a preset-naming convention (see its own comment in cmake/SturdyMatrix.cmake), not
+        # because the target CPU really is x86, so those intrinsics do not apply and em++ rejects
+        # the raw -msse4.1/-mavx2 flags outright ("also requires passing -msimd128"). WASM has its
+        # own portable SIMD ISA instead of x86's, which libgav1's build does not offer a dispatch
+        # path for, so this is a real (if narrow) loss of libgav1's hand-optimized decode paths on
+        # Web specifically -- it falls back to its plain C implementation there.
+        set(LIBGAV1_ENABLE_AVX2 OFF CACHE BOOL "" FORCE)
+        set(LIBGAV1_ENABLE_SSE4_1 OFF CACHE BOOL "" FORCE)
+    endif()
 
     sturdy_fetchcontent_declare(libgav1
         GIT_REPOSITORY https://chromium.googlesource.com/codecs/libgav1
@@ -1872,11 +1955,32 @@ function(sturdy_fetch_openexr)
     # (set_source_files_properties() would not reach here: source-file properties are scoped to the
     # directory that adds the source to a target, and that's OpenEXRCore's own subdirectory, not
     # ours -- target_compile_options() has no such restriction.)
-    if(TARGET OpenEXRCore AND CMAKE_C_COMPILER_ID MATCHES "Clang")
+    # Emscripten's em++/emcc also report CMAKE_<LANG>_COMPILER_ID as "Clang" (they are clang-based),
+    # so both checks below need to exclude Web explicitly: wasm32 has no real x86 SSE, and em++
+    # rejects a bare -mssse3/-msse4.1 outright without -msimd128 alongside it ("also requires
+    # passing -msimd128"). The workaround is not even needed there regardless -- Emscripten's clang
+    # defines neither _MSC_VER nor _M_X64, so internal_zip.c's clang-cl-specific code path (the
+    # whole reason this exists) is not reachable on Web in the first place.
+    if(TARGET OpenEXRCore AND CMAKE_C_COMPILER_ID MATCHES "Clang" AND NOT STURDY_OS STREQUAL "Web")
         target_compile_options(OpenEXRCore PRIVATE -mssse3 -msse4.1)
     endif()
-    if(TARGET OpenEXR AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if(TARGET OpenEXR AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT STURDY_OS STREQUAL "Web")
         target_compile_options(OpenEXR PRIVATE -mssse3 -msse4.1)
+    endif()
+
+    # OpenEXR's ImfMisc.cpp still uses std::wstring_convert/std::codecvt_utf8 (deprecated since
+    # C++17, formally removed from the standard in C++26 -- two separate classes needing their own
+    # escape hatches, in <locale> and <codecvt> respectively). Native Linux/Windows builds do not
+    # notice at this engine's own -std=c++26 because their system libstdc++ still ships them
+    # regardless of -std; Emscripten's bundled libc++ enforces the removal exactly at the standard
+    # boundary, gated behind these macros (__locale_dir/wstring_convert.h, <codecvt>) for exactly
+    # this "old code, new standard" situation. Scoped to Web because both are libc++-specific escape
+    # hatches with no effect (and no need) elsewhere.
+    if(TARGET OpenEXR AND STURDY_OS STREQUAL "Web")
+        target_compile_definitions(OpenEXR PRIVATE
+            _LIBCPP_ENABLE_CXX26_REMOVED_WSTRING_CONVERT
+            _LIBCPP_ENABLE_CXX26_REMOVED_CODECVT
+        )
     endif()
 
     sturdy_register_license(openexr "${openexr_SOURCE_DIR}")

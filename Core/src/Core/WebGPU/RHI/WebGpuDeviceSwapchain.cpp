@@ -19,9 +19,18 @@ namespace SFT::Core::WebGpu {
         WGPUSurfaceDescriptor surface_desc{};
         surface_desc.label = wgpu_string(desc.label);
 
+#ifndef STURDY_PLATFORM_WEB
         // Each window system has its own chained source struct. Only the three that pair with the
         // enabled Dawn backends are handled; the rest have no way to reach a Vulkan, Metal, or
         // D3D12 device in this build anyway.
+        //
+        // These four source-struct types (WGPUSurfaceSourceXlibWindow and friends) are Dawn-native
+        // only: Emscripten's own webgpu.h (the `emdawnwebgpu` port this backend uses on Web instead
+        // of a fetched Dawn) has no desktop-windowing-system surface sources at all -- a browser has
+        // exactly one place to draw, a <canvas> element, reached through
+        // WGPUSurfaceSourceCanvasHTMLSelector instead. This whole block is therefore native-only,
+        // guarded out on Web rather than left to fail compiling against a header that never
+        // declares these types.
         WGPUSurfaceSourceXlibWindow xlib{};
         WGPUSurfaceSourceWaylandSurface wayland{};
         WGPUSurfaceSourceWindowsHWND win32{};
@@ -55,10 +64,25 @@ namespace SFT::Core::WebGpu {
             case rhi::WindowSystem::Xcb:
             case rhi::WindowSystem::Android:
             case rhi::WindowSystem::UIKit:
+            case rhi::WindowSystem::WebCanvas:
             case rhi::WindowSystem::Unknown:
                 return std::unexpected(webgpu_error(
                     "create_surface", "this window system has no surface source in this Dawn build"));
         }
+#else
+        // A browser has exactly one place to draw: an HTML <canvas> element, named by a CSS
+        // selector (e.g. "#canvas") rather than any native handle. WindowManager supplies that
+        // selector via NativeWindowHandle::canvas_selector (see WindowManager/Web/WindowEffectsImpl.cpp),
+        // which flows through here as desc.canvas_selector.
+        WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvas{};
+        if (desc.system != rhi::WindowSystem::WebCanvas || desc.canvas_selector == nullptr) {
+            return std::unexpected(webgpu_error(
+                "create_surface", "this window system has no surface source on Web; only a browser canvas is supported"));
+        }
+        canvas.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
+        canvas.selector = wgpu_string(desc.canvas_selector);
+        surface_desc.nextInChain = &canvas.chain;
+#endif
 
         WGPUSurface surface = wgpuInstanceCreateSurface(instance_, &surface_desc);
         if (surface == nullptr) {
@@ -111,7 +135,13 @@ namespace SFT::Core::WebGpu {
             }
         }
         wait_idle();
+#ifndef STURDY_PLATFORM_WEB
+        // wgpuDeviceTick is Dawn's own polling entry point, with no equivalent in Emscripten's
+        // webgpu.h -- a browser's WebGPU implementation drains its own callback/resource-cleanup
+        // queue as part of the browser's normal event loop, with nothing for embedding code to
+        // call explicitly.
         wgpuDeviceTick(device_);
+#endif
     }
 
     /// Configures a surface for presentation and returns the swapchain naming that configuration.
@@ -133,6 +163,27 @@ namespace SFT::Core::WebGpu {
         WGPUSurfaceConfiguration config{};
         config.device = device_;
         config.format = format;
+#if defined(STURDY_PLATFORM_WEB)
+        // A browser's GPUCanvasContext.configure() only accepts the two base 8-bit formats
+        // ("bgra8unorm"/"rgba8unorm") as the canvas's own format -- passing an sRGB variant
+        // directly throws "is not a supported context format" (unlike native Vulkan/Metal/D3D12
+        // swapchains, which accept an sRGB surface format outright). The browser's equivalent is to
+        // configure the base format and separately whitelist the sRGB variant in `viewFormats`,
+        // which is exactly what lets the wgpuTextureCreateView(..., format=srgb) call below (using
+        // entry->format, still the original sRGB RHI format) reinterpret the acquired texture.
+        WGPUTextureFormat srgb_view_format = WGPUTextureFormat_Undefined;
+        if (format == WGPUTextureFormat_BGRA8UnormSrgb) {
+            config.format = WGPUTextureFormat_BGRA8Unorm;
+            srgb_view_format = format;
+        } else if (format == WGPUTextureFormat_RGBA8UnormSrgb) {
+            config.format = WGPUTextureFormat_RGBA8Unorm;
+            srgb_view_format = format;
+        }
+        if (srgb_view_format != WGPUTextureFormat_Undefined) {
+            config.viewFormatCount = 1;
+            config.viewFormats = &srgb_view_format;
+        }
+#endif
         config.usage = to_wgpu(desc.usage);
         config.width = desc.width;
         config.height = desc.height;
@@ -304,7 +355,7 @@ namespace SFT::Core::WebGpu {
         return rhi::SurfaceTexture{
             .swapchain = swapchain,
             .texture = texture_handle,
-            .view = texture_views_.insert(std::move(view)),
+            .view = texture_views_.insert(TextureViewEntry{.view = view, .format = entry->format}),
             .image_index = 0,
             .suboptimal = suboptimal,
         };
@@ -334,13 +385,24 @@ namespace SFT::Core::WebGpu {
             return std::unexpected(webgpu_error("present", "unknown surface handle"));
         }
 
+#if !defined(STURDY_PLATFORM_WEB)
         wgpuSurfacePresent(entry->surface);
+#else
+        // Emscripten's WebGPU port has no wgpuSurfacePresent implementation at all -- it aborts
+        // unconditionally (see emdawnwebgpu's library_webgpu.js), because presentation on Web is
+        // implicit: whatever was last drawn into the canvas context's current texture is what the
+        // browser paints the moment this JS task yields control back to it (driven by the
+        // `requestAnimationFrame` callback returning, not by an explicit present call -- there is no
+        // equivalent of Vulkan/native WebGPU's explicit swapchain present here at all). Nothing to
+        // call; the acquired texture/view cleanup and fence signaling below is still correct and
+        // still needed on this path.
+#endif
 
         // The acquired texture and its view are invalid after the present, so their handles are
         // retired here rather than left for the caller to destroy. The texture is released -- not
         // destroyed -- because the surface owns its storage but this backend owns the reference
         // acquire_next_texture took out.
-        texture_views_.erase(desc.texture.view, [](WGPUTextureView &view) { wgpuTextureViewRelease(view); });
+        texture_views_.erase(desc.texture.view, [](TextureViewEntry &view) { wgpuTextureViewRelease(view.view); });
         textures_.erase(desc.texture.texture, [](TextureEntry &entry) {
             if (entry.texture != nullptr) {
                 wgpuTextureRelease(entry.texture);
@@ -348,8 +410,12 @@ namespace SFT::Core::WebGpu {
         });
 
         if (desc.completion_fence.value != 0) {
-            if (bool *signaled = fences_.find(desc.completion_fence); signaled != nullptr) {
-                *signaled = true;
+            // Unlike a frame-pacing fence attached to submit(), this one is genuinely done the
+            // instant wgpuSurfacePresent returns: presentation hands the texture off in submission
+            // order behind whatever work rendered into it, so there is nothing left to poll for.
+            if (FenceState *state = fences_.find(desc.completion_fence); state != nullptr) {
+                state->signaled = true;
+                state->has_pending = false;
             }
         }
         return desc.texture.suboptimal ? rhi::PresentOutcome::Suboptimal : rhi::PresentOutcome::Success;

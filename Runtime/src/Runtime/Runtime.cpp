@@ -111,6 +111,33 @@ namespace SFT::Runtime {
             return 1;
         }
 
+#if defined(STURDY_PLATFORM_WEB)
+        // On Web, ApplicationHost::run() registers a persistent requestAnimationFrame-driven main
+        // loop and returns immediately -- it does not block until the app closes the way the native
+        // path does. A stack-allocated `client` here would therefore be destroyed the instant this
+        // function returns, seconds before the first real frame callback ever fires, leaving the
+        // heap-allocated Application's `client_` pointer dangling: every later call through it reads
+        // a reused stack frame and dispatches through whatever garbage vtable pointer happens to be
+        // sitting there, which is indistinguishable from random corruption until traced. Heap-
+        // allocating and deliberately never freeing it is correct here for the same reason
+        // ApplicationHost::EntryPoint.cpp does the same for `Application` itself: there is no
+        // "process exit" to clean up before on a page the user just navigates away from.
+        auto *client = new RuntimeApplicationClient(std::move(config), game_logic_factory);
+        if (!client->has_game_logic()) {
+            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                .code = "runtime.game_logic.factory_returned_null",
+                .summary = "the GameLogic factory returned no session",
+                .context = "Runtime::run",
+                .cause_code = "engine.game_logic.null",
+                .cause = "the selected factory returned a null unique_ptr",
+                .details = {},
+                .help = "return a newly constructed GameLogic instance from the factory",
+            });
+            return 1;
+        }
+
+        return ApplicationHost::run(*client, args);
+#else
         RuntimeApplicationClient client{std::move(config), game_logic_factory};
         if (!client.has_game_logic()) {
             Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
@@ -126,6 +153,7 @@ namespace SFT::Runtime {
         }
 
         return ApplicationHost::run(client, args);
+#endif
     }
 
 } // namespace SFT::Runtime

@@ -14,7 +14,11 @@ static const uint SQRT_SAMPLE_COUNT = 8;
 ConstantBuffer<AtmosphereGpuData> atmosphereData;
 Texture2D<float4> transmittanceLut;
 SamplerState atmosphereSampler;
-RWTexture2D<float4> outputLut;
+// See sky_transmittance_lut.slang's outputLut comment: must match the RHI::Format the LUT texture is
+// actually created with (RHI::Format::RGBA16Float), and WTexture2D (write-only) rather than
+// RWTexture2D because WGSL disallows read_write access for rgba16float storage textures.
+[format("rgba16f")]
+WTexture2D<float4> outputLut;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -36,5 +40,5 @@ void mainCS(uint3 dispatchThreadId : SV_DispatchThreadID) {
     float sunZenithSinAngle = sqrt(saturate(1.0 - sunZenithCosAngle * sunZenithCosAngle));
     float3 sunDir = float3(sunZenithSinAngle, sunZenithCosAngle, 0.0);
     float3 multiScattering = computeMultipleScattering(p, origin, sunDir, SQRT_SAMPLE_COUNT, transmittanceLut, atmosphereSampler);
-    outputLut[dispatchThreadId.xy] = float4(multiScattering, 1.0);
+    outputLut.Store(dispatchThreadId.xy, float4(multiScattering, 1.0));
 }

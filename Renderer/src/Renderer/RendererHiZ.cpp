@@ -110,6 +110,76 @@ namespace SFT::Renderer {
         if (!reduce) { destroy_hiz_build_resources(); return unexpected(reduce.error()); }
         guard->reduce_module = *reduce;
 
+        // Separate file (hiz_build_from_depth.slang) and compile+link for the depth-source variant:
+        // Slang's parameter reflection enumerates every module-scope global regardless of which
+        // entry point references it, so a `depthSource` declared alongside `source` in the same
+        // module would show up in both variants' bind-group layouts even though each entry point
+        // only samples one of them. Keeping them in separate files/modules is what actually gets
+        // each variant a bind-group layout with exactly the one SampledTexture entry it uses. See
+        // hiz_build_from_depth.slang for the full rationale.
+        const slang::ShaderCompileOptions depth_options{
+            .targets = shader_compile_targets_for_device(device),
+            .entry_points = {
+                slang::ShaderEntryPointRequest{.name = "vertexMain", .stage = slang::ShaderStage::Vertex},
+                slang::ShaderEntryPointRequest{.name = "reduceFromDepthMain", .stage = slang::ShaderStage::Fragment},
+            },
+        };
+        slang::ShaderVariantCache depth_shader_cache{
+            slang::ShaderSource::from_file("Shaders/hiz_build_from_depth.slang", "hiz_build_from_depth"),
+            depth_options,
+            slang::ShaderCompiler{},
+            recovery_create_info_.enable_shader_disk_cache};
+        auto depth_shader = depth_shader_cache.get_or_compile_base();
+        if (!depth_shader) {
+            destroy_hiz_build_resources();
+            return unexpected(hiz_error("compile Hi-Z depth-source build shader failed: " + depth_shader.error().message + "\n" + depth_shader.error().diagnostics));
+        }
+        guard->depth_shader = *depth_shader;
+
+        auto create_depth_module = [&](string_view entry, const char *label) -> Core::RendererExpected<RHI::ShaderModuleHandle> {
+            auto code = guard->depth_shader.entry_point_code(entry, shader_target->slang_target.format);
+            if (!code) return unexpected(hiz_error("generate Hi-Z depth-source build bytecode failed: " + code.error().message));
+            auto module = device->create_shader_module(RHI::ShaderModuleDesc{
+                .language = shader_target->module_language,
+                .code = span<const std::byte>{code->bytes.data(), code->bytes.size()},
+                .label = label,
+            });
+            if (!module) return unexpected(graphics_error_from_rhi(module.error(), label));
+            return *module;
+        };
+        auto depth_reduce = create_depth_module("reduceFromDepthMain", "hiz build depth-source reduce module");
+        if (!depth_reduce) { destroy_hiz_build_resources(); return unexpected(depth_reduce.error()); }
+        guard->depth_reduce_module = *depth_reduce;
+
+        const slang::ShaderReflection &depth_reflection = guard->depth_shader.reflection();
+        const vector<GeneratedBindGroupLayout> depth_generated = generate_bind_group_layouts(depth_reflection, reflected_stage_mask(depth_reflection));
+        if (depth_generated.empty()) {
+            destroy_hiz_build_resources();
+            return unexpected(hiz_error("Hi-Z depth-source build shader reflection produced no bind-group layout."));
+        }
+        auto depth_handle = device->create_bind_group_layout(RHI::BindGroupLayoutDesc{
+            .entries = span<const RHI::BindGroupLayoutEntry>{depth_generated.front().entries.data(), depth_generated.front().entries.size()},
+            .label = "hiz build depth-source bind group layout",
+        });
+        if (!depth_handle) { destroy_hiz_build_resources(); return unexpected(graphics_error_from_rhi(depth_handle.error(), "create hiz build depth-source bind group layout")); }
+        guard->depth_bind_group_layout = *depth_handle;
+        for (const RHI::BindGroupLayoutEntry &entry : depth_generated.front().entries) {
+            if (entry.type == RHI::BindingType::SampledTexture) {
+                guard->depth_source_binding = entry.binding;
+                break;
+            }
+        }
+
+        const vector<RHI::PushConstantRange> depth_push_ranges = generate_push_constant_ranges(depth_reflection, RHI::ShaderStage::Fragment);
+        const array<RHI::BindGroupLayoutHandle, 1> depth_layouts{guard->depth_bind_group_layout};
+        auto depth_pipeline_layout = device->create_pipeline_layout(RHI::PipelineLayoutDesc{
+            .bind_group_layouts = span<const RHI::BindGroupLayoutHandle>{depth_layouts.data(), depth_layouts.size()},
+            .push_constant_ranges = span<const RHI::PushConstantRange>{depth_push_ranges.data(), depth_push_ranges.size()},
+            .label = "hiz build depth-source pipeline layout",
+        });
+        if (!depth_pipeline_layout) { destroy_hiz_build_resources(); return unexpected(graphics_error_from_rhi(depth_pipeline_layout.error(), "create hiz build depth-source pipeline layout")); }
+        guard->depth_pipeline_layout = *depth_pipeline_layout;
+
         const slang::ShaderReflection &reflection = guard->shader.reflection();
         const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(reflection, reflected_stage_mask(reflection));
         if (generated.empty()) {
@@ -154,7 +224,22 @@ namespace SFT::Renderer {
         if (!pipeline) { destroy_hiz_build_resources(); return unexpected(graphics_error_from_rhi(pipeline.error(), "create hiz build pipeline")); }
         guard->pipeline = *pipeline;
 
+        auto depth_pipeline = device->create_render_pipeline(RHI::RenderPipelineDesc{
+            .layout = guard->depth_pipeline_layout,
+            .vertex = RHI::ShaderEntry{.module = guard->vertex_module, .entry_point = "vertexMain", .stage = RHI::ShaderStage::Vertex},
+            .fragment = RHI::ShaderEntry{.module = guard->depth_reduce_module, .entry_point = "reduceFromDepthMain", .stage = RHI::ShaderStage::Fragment},
+            .vertex_buffers = {},
+            .topology = RHI::PrimitiveTopology::TriangleList,
+            .rasterization = RHI::RasterizationState{.cull_mode = RHI::CullMode::None},
+            .depth_stencil = RHI::DepthStencilState{},
+            .color_targets = span<const RHI::ColorTargetState>{&target, 1},
+            .label = "hiz build depth-source pipeline",
+        });
+        if (!depth_pipeline) { destroy_hiz_build_resources(); return unexpected(graphics_error_from_rhi(depth_pipeline.error(), "create hiz build depth-source pipeline")); }
+        guard->depth_pipeline = *depth_pipeline;
+
         guard->shader.release_compiler_state();
+        guard->depth_shader.release_compiler_state();
         guard->ready = true;
         return {};
     }
@@ -168,9 +253,13 @@ namespace SFT::Renderer {
         auto guard = hiz_build_.lock();
         if (RHI::RhiDevice *device = rhi_device()) {
             if (guard->pipeline) device->destroy_render_pipeline(guard->pipeline);
+            if (guard->depth_pipeline) device->destroy_render_pipeline(guard->depth_pipeline);
             if (guard->pipeline_layout) device->destroy_pipeline_layout(guard->pipeline_layout);
+            if (guard->depth_pipeline_layout) device->destroy_pipeline_layout(guard->depth_pipeline_layout);
             if (guard->bind_group_layout) device->destroy_bind_group_layout(guard->bind_group_layout);
+            if (guard->depth_bind_group_layout) device->destroy_bind_group_layout(guard->depth_bind_group_layout);
             if (guard->reduce_module) device->destroy_shader_module(guard->reduce_module);
+            if (guard->depth_reduce_module) device->destroy_shader_module(guard->depth_reduce_module);
             if (guard->vertex_module) device->destroy_shader_module(guard->vertex_module);
         }
         *guard = HiZBuildResources{};
@@ -305,13 +394,19 @@ namespace SFT::Renderer {
         }
 
         RHI::BindGroupLayoutHandle bind_group_layout{};
+        RHI::BindGroupLayoutHandle depth_bind_group_layout{};
         u32 source_binding = 0;
+        u32 depth_source_binding = 0;
         RHI::RenderPipelineHandle pipeline{};
+        RHI::RenderPipelineHandle depth_pipeline{};
         {
             auto guard = hiz_build_.lock();
             bind_group_layout = guard->bind_group_layout;
+            depth_bind_group_layout = guard->depth_bind_group_layout;
             source_binding = guard->source_binding;
+            depth_source_binding = guard->depth_source_binding;
             pipeline = guard->pipeline;
+            depth_pipeline = guard->depth_pipeline;
         }
 
 
@@ -322,6 +417,9 @@ namespace SFT::Renderer {
             const bool from_real_depth = level == 0;
             const RHI::TextureViewHandle source_view_for_bind = from_real_depth ? depth_view : pyramid.mip_views[level - 1];
             const Core::Extent2D this_source_extent = source_extent;
+            const RHI::BindGroupLayoutHandle level_bind_group_layout = from_real_depth ? depth_bind_group_layout : bind_group_layout;
+            const u32 level_source_binding = from_real_depth ? depth_source_binding : source_binding;
+            const RHI::RenderPipelineHandle level_pipeline = from_real_depth ? depth_pipeline : pipeline;
 
             graph.add_render_pass("hiz build"_ustr)
                 .add_color_attachment(RenderGraphColorAttachmentDesc{
@@ -340,15 +438,15 @@ namespace SFT::Renderer {
                         : RHI::TextureSubresourceRange{.base_mip_level = level - 1, .mip_level_count = 1},
                 })
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.x, .height = destination_extent.y})
-                .set_execute([this, bind_group_layout, source_binding, pipeline, source_view_for_bind,
+                .set_execute([this, level_bind_group_layout, level_source_binding, level_pipeline, source_view_for_bind,
                               this_source_extent, destination_extent, &transient_bind_groups](RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RhiDevice *device = rhi_device();
                     if (device == nullptr) return unexpected(hiz_error("Cannot record hiz build without an RHI device."));
                     const array<RHI::BindGroupEntry, 1> entries{
-                        RHI::BindGroupEntry{.binding = source_binding, .texture_view = source_view_for_bind},
+                        RHI::BindGroupEntry{.binding = level_source_binding, .texture_view = source_view_for_bind},
                     };
                     auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
-                        .layout = bind_group_layout,
+                        .layout = level_bind_group_layout,
                         .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
                         .lifetime = RHI::BindGroupLifetime::FrameTransient,
             .label = "hiz build bind group",
@@ -361,7 +459,7 @@ namespace SFT::Renderer {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{.width = static_cast<f32>(destination_extent.x), .height = static_cast<f32>(destination_extent.y), .min_depth = 0.0f, .max_depth = 1.0f});
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = destination_extent.x, .height = destination_extent.y});
-                    pass.set_pipeline(pipeline);
+                    pass.set_pipeline(level_pipeline);
                     pass.set_bind_group(0, *bind_group);
                     struct HiZBuildConstants { u32 source_extent[2]; };
                     const HiZBuildConstants constants{.source_extent = {this_source_extent.x, this_source_extent.y}};

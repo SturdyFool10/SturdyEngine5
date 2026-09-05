@@ -82,6 +82,65 @@ optional<RHI::BindingType> to_rhi_binding_type(slang::ShaderBindingType type) no
 
 namespace {
 
+    /// Converts a raw SlangImageFormat value (see slang-image-format-defs.h) to the closest
+    /// matching RHI::Format, for a StorageTexture/MutableTexture binding range's reflected
+    /// image_format. Only formats this engine's storage-texture passes actually use need to be
+    /// covered precisely; anything else safely falls back to Undefined (the WebGPU backend already
+    /// rejects a StorageTexture binding with no usable format rather than misconfiguring one).
+    ///
+    /// @param slang_image_format Raw SlangImageFormat enumerator value.
+    ///
+    /// @return Returns the closest matching RHI::Format, or RHI::Format::Undefined if none map cleanly.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] RHI::Format to_rhi_storage_format(u32 slang_image_format) noexcept {
+        // Mirrors slang-image-format-defs.h's SLANG_FORMAT(...) declaration order exactly (that
+        // header has no explicit numeric values -- the enum is declared in this same order, so the
+        // index here must match the include order 1:1).
+        switch (slang_image_format) {
+            case 0: return RHI::Format::Undefined; // unknown
+            case 1: return RHI::Format::RGBA32Float; // rgba32f
+            case 2: return RHI::Format::RGBA16Float; // rgba16f
+            case 3: return RHI::Format::RG32Float; // rg32f
+            case 4: return RHI::Format::RG16Float; // rg16f
+            case 5: return RHI::Format::RG11B10Float; // r11f_g11f_b10f
+            case 6: return RHI::Format::R32Float; // r32f
+            case 7: return RHI::Format::R16Float; // r16f
+            case 8: return RHI::Format::RGBA16Uint; // rgba16 (unorm16x4, closest available RHI format)
+            case 9: return RHI::Format::RGB10A2Unorm; // rgb10_a2
+            case 10: return RHI::Format::RGBA8Unorm; // rgba8
+            case 21: return RHI::Format::RGBA32Sint; // rgba32i
+            case 27: return RHI::Format::R32Sint; // r32i
+            case 30: return RHI::Format::RGBA32Uint; // rgba32ui
+            case 37: return RHI::Format::R32Uint; // r32ui
+            case 42: return RHI::Format::BGRA8Unorm; // bgra8
+            default: return RHI::Format::Undefined;
+        }
+    }
+
+    /// Converts the reflected resource access of a StorageTexture binding range to the RHI's
+    /// coarser write/read/read-write classification WebGPU's WGSL storage texture types require.
+    ///
+    /// @param access Reflected Slang resource access.
+    ///
+    /// @return Returns the corresponding RHI::StorageTextureAccess.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] RHI::StorageTextureAccess to_rhi_storage_access(slang::ShaderResourceAccess access) noexcept {
+        switch (access) {
+            case slang::ShaderResourceAccess::Read: return RHI::StorageTextureAccess::ReadOnly;
+            case slang::ShaderResourceAccess::ReadWrite:
+            case slang::ShaderResourceAccess::RasterOrdered:
+                return RHI::StorageTextureAccess::ReadWrite;
+            case slang::ShaderResourceAccess::Write:
+            case slang::ShaderResourceAccess::None:
+            case slang::ShaderResourceAccess::Append:
+            case slang::ShaderResourceAccess::Consume:
+            case slang::ShaderResourceAccess::Feedback:
+            case slang::ShaderResourceAccess::Unknown:
+                return RHI::StorageTextureAccess::WriteOnly;
+        }
+        return RHI::StorageTextureAccess::WriteOnly;
+    }
+
     struct ReflectedDescriptorBinding {
         string name;
         u32 set = 0;
@@ -89,6 +148,22 @@ namespace {
         u32 shader_register = 0;
         RHI::BindingType type = RHI::BindingType::SampledTexture;
         u32 count = 1;
+        // Only set (!= ~0u) for a CombinedImageSampler on a target (WGSL) that splits it into two
+        // descriptor ranges; see RHI::BindGroupLayoutEntry::paired_binding's own doc comment.
+        u32 paired_binding = ~0u;
+        // Only meaningful for a StorageTexture binding; see RHI::BindGroupLayoutEntry's own doc
+        // comment on the fields these get copied to.
+        RHI::Format storage_format = RHI::Format::Undefined;
+        RHI::StorageTextureAccess storage_access = RHI::StorageTextureAccess::WriteOnly;
+        // Only meaningful for a Sampler binding; see RHI::BindGroupLayoutEntry::
+        // sampler_is_comparison's own doc comment.
+        bool sampler_is_comparison = false;
+        // Only meaningful for a SampledTexture binding; see RHI::BindGroupLayoutEntry::
+        // sampled_texture_is_depth's own doc comment.
+        bool sampled_texture_is_depth = false;
+        // Only meaningful for a SampledTexture binding; see RHI::BindGroupLayoutEntry::
+        // sampled_texture_is_multisampled's own doc comment.
+        bool sampled_texture_is_multisampled = false;
     };
 
     /// Groups a binding type by the register space D3D12 would place it in.
@@ -181,6 +256,16 @@ namespace {
                     .shader_register = parameter.binding + range.binding,
                     .type = *type,
                     .count = range.count,
+                    .paired_binding = range.second_binding != std::numeric_limits<u32>::max()
+                                           ? parameter.binding + range.second_binding
+                                           : std::numeric_limits<u32>::max(),
+                    .storage_format = *type == RHI::BindingType::StorageTexture
+                                           ? to_rhi_storage_format(range.image_format)
+                                           : RHI::Format::Undefined,
+                    .storage_access = to_rhi_storage_access(range.access),
+                    .sampler_is_comparison = static_cast<bool>(range.is_comparison_sampler),
+                    .sampled_texture_is_depth = static_cast<bool>(range.is_depth_texture),
+                    .sampled_texture_is_multisampled = static_cast<bool>(range.is_multisampled_texture),
                 });
             }
         }
@@ -221,8 +306,19 @@ namespace {
                 u32 next_binding = 0;
                 u32 next_register[4] = {0, 0, 0, 0};
                 for (usize i = begin; i < end; ++i) {
+                    const u32 old_binding = descriptors[i].binding;
                     descriptors[i].binding = next_binding++;
                     descriptors[i].shader_register = next_register[register_class_index(descriptors[i].type)]++;
+                    // Preserve the paired binding's offset relative to its own entry rather than
+                    // leaving it pointing at the pre-renumbering slot. This does not guard against
+                    // the paired slot colliding with another entry's newly assigned binding --
+                    // this whole branch is already a rare fallback for a Slang-side numbering
+                    // collision (see the comment above), and a collision on top of a split
+                    // combined-sampler within it is stacking two edge cases at once.
+                    if (descriptors[i].paired_binding != std::numeric_limits<u32>::max()) {
+                        const u32 offset = descriptors[i].paired_binding - old_binding;
+                        descriptors[i].paired_binding = descriptors[i].binding + offset;
+                    }
                 }
             }
             begin = end;
@@ -281,6 +377,12 @@ vector<GeneratedBindGroupLayout> generate_bind_group_layouts(
                              ? (RHI::BindingFlags::PartiallyBound | RHI::BindingFlags::UpdateAfterBind |
                                 RHI::BindingFlags::VariableDescriptorCount)
                              : RHI::BindingFlags::None,
+                .paired_binding = descriptor.paired_binding,
+                .storage_format = descriptor.storage_format,
+                .storage_access = descriptor.storage_access,
+                .sampler_is_comparison = descriptor.sampler_is_comparison,
+                .sampled_texture_is_depth = descriptor.sampled_texture_is_depth,
+                .sampled_texture_is_multisampled = descriptor.sampled_texture_is_multisampled,
             });
         }
         if (const optional<std::pair<u32, u32>> uniform_location = find_global_constant_buffer_location(reflection)) {

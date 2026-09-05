@@ -43,12 +43,17 @@ namespace SFT::WindowManager {
         X11,
         Wayland,
         Cocoa,
+        Web,
     };
 
     struct NativeWindowHandle {
         NativeWindowSystem system = NativeWindowSystem::Unknown;
         void *display = nullptr;
         void *window = nullptr;
+        /// CSS selector (e.g. "#canvas") identifying the HTML canvas backing this window.
+        /// Only meaningful when `system == NativeWindowSystem::Web`; owned by the Window that
+        /// returned this handle, valid for at least as long as that Window.
+        const char *canvas_selector = nullptr;
     };
 
     struct WindowConfig {

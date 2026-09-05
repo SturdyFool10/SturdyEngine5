@@ -185,7 +185,16 @@ namespace SFT::Core::WebGpu {
                                                   WGPUFeatureName_TimestampQuery,
                                                   WGPUFeatureName_Depth32FloatStencil8,
                                                   WGPUFeatureName_IndirectFirstInstance,
-                                                  WGPUFeatureName_Float32Filterable}) {
+                                                  WGPUFeatureName_Float32Filterable,
+                                                  // WebGPU's base spec marks rg11b10ufloat
+                                                  // non-renderable; the renderer uses it as a
+                                                  // render-attachment format for bloom
+                                                  // (RendererLifecycle.cpp's bloom_format), which
+                                                  // Vulkan/D3D12 both allow natively. Requesting
+                                                  // this optional feature when the adapter has it
+                                                  // keeps that one format working unchanged instead
+                                                  // of needing a WebGPU-specific format substitution.
+                                                  WGPUFeatureName_RG11B10UfloatRenderable}) {
                     if (wgpuAdapterHasFeature(adapter_, candidate) != 0) {
                         features.push_back(candidate);
                     }
@@ -196,10 +205,24 @@ namespace SFT::Core::WebGpu {
                     std::string message;
                 } result;
 
+                // Without an explicit requiredLimits, WebGPU hands out a device capped at the
+                // spec-minimum guaranteed limits (e.g. maxStorageTexturesPerShaderStage=4) rather
+                // than whatever this adapter can actually provide (Dawn on native commonly supports
+                // 8+) -- real render passes using more than the guaranteed minimum then fail
+                // pipeline-layout validation outright. Requesting the adapter's own reported limits
+                // back is always satisfiable by definition (they came from this same adapter) and
+                // gives every pass access to the real hardware limits instead of the floor.
+                WGPULimits adapter_limits{};
+                const bool have_adapter_limits =
+                    wgpuAdapterGetLimits(adapter_, &adapter_limits) == WGPUStatus_Success;
+
                 WGPUDeviceDescriptor device_desc{};
                 device_desc.label = wgpu_string(request.label);
                 device_desc.requiredFeatureCount = features.size();
                 device_desc.requiredFeatures = features.data();
+                if (have_adapter_limits) {
+                    device_desc.requiredLimits = &adapter_limits;
+                }
                 // A lost device is fatal for the frame loop above; logged here so it is not silent.
                 device_desc.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowSpontaneous;
                 device_desc.deviceLostCallbackInfo.callback =
@@ -256,7 +279,19 @@ namespace SFT::Core::WebGpu {
                 claim(WGPUFeatureName_TextureCompressionBC, rhi::Feature::TextureCompressionBC);
                 claim(WGPUFeatureName_TextureCompressionETC2, rhi::Feature::TextureCompressionETC2);
                 claim(WGPUFeatureName_TextureCompressionASTC, rhi::Feature::TextureCompressionASTC);
+#if !defined(STURDY_PLATFORM_WEB)
+                // The adapter genuinely reports this feature on Web too (confirmed: Firefox/Dawn's
+                // WGPUFeatureName_TimestampQuery bit is set), but the standalone
+                // wgpuCommandEncoderWriteTimestamp() this backend's write_timestamp() calls has been
+                // removed from the real WebGPU spec (timestamps now go through a pass descriptor's
+                // timestampWrites instead) -- Emscripten's JS binding for it simply doesn't exist,
+                // throwing "commandEncoder.writeTimestamp is not a function" the first time any GPU
+                // timing pass runs. Not claiming the RHI feature on Web lets the Renderer's existing
+                // "is TimestampQueries enabled" gating skip GPU timing entirely there instead of
+                // crashing on first use -- the adapter bit alone isn't a reliable signal on this
+                // backend for this specific capability.
                 claim(WGPUFeatureName_TimestampQuery, rhi::Feature::TimestampQueries);
+#endif
                 claim(WGPUFeatureName_IndirectFirstInstance, rhi::Feature::DrawIndirectFirstInstance);
                 claim(WGPUFeatureName_DualSourceBlending, rhi::Feature::DualSourceBlending);
                 claim(WGPUFeatureName_ClipDistances, rhi::Feature::ShaderClipDistance);
@@ -398,8 +433,13 @@ namespace SFT::Core::WebGpu {
             instance_desc.requiredFeatureCount = required.size();
             instance_desc.requiredFeatures = required.data();
 
+#ifndef STURDY_PLATFORM_WEB
             // Dawn's toggles are how validation is controlled; the RHI's enable_validation maps onto
-            // *disabling* Dawn's "skip_validation" rather than enabling anything.
+            // *disabling* Dawn's "skip_validation" rather than enabling anything. WGPUDawnTogglesDescriptor
+            // is a Dawn-native extension with no equivalent in Emscripten's own webgpu.h (the
+            // `emdawnwebgpu` port this backend uses on Web instead of a fetched Dawn) -- a browser's
+            // WebGPU implementation has no such knob to turn from outside it, validation is however
+            // much the browser itself decides to do, so there is nothing to configure here on Web.
             const char *enabled_toggles[] = {"allow_unsafe_apis"};
             const char *disabled_toggles[] = {"skip_validation"};
             WGPUDawnTogglesDescriptor toggles{};
@@ -411,6 +451,7 @@ namespace SFT::Core::WebGpu {
                 toggles.disabledToggles = disabled_toggles;
             }
             instance_desc.nextInChain = &toggles.chain;
+#endif
 
             WGPUInstance instance = wgpuCreateInstance(&instance_desc);
             if (instance == nullptr) {

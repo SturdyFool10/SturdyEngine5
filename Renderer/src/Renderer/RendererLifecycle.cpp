@@ -1332,6 +1332,23 @@ namespace SFT::Renderer {
 
 
         if (slot.submitted) {
+#if defined(STURDY_PLATFORM_WEB)
+            // A blocking wait here suspends via Asyncify, and that suspension is driven once per
+            // requestAnimationFrame callback -- it does not fully unwind before the next tick fires,
+            // so an unconditional block nests one level deeper every single frame until the WASM
+            // stack traps. Poll instead (timeout_ns = 0 is a real, non-suspending check on this
+            // backend, see WebGpuDevice::wait_fences): if the GPU hasn't caught up yet, skip reusing
+            // this slot for this tick rather than ever blocking in the steady-state per-frame path.
+            // The dropped tick costs one frame's presentation, not a stall.
+            ScopedRendererStageTimer timer{"poll in-flight frame fence", &current_frame_cpu_stage_timings_ms};
+            auto polled = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true, 0);
+            if (!polled) {
+                return unexpected(graphics_error_from_rhi(polled.error(), "poll in-flight frame fence"));
+            }
+            if (!*polled) {
+                return {};
+            }
+#else
             {
                 ScopedRendererStageTimer timer{"wait in-flight frame fence", &current_frame_cpu_stage_timings_ms};
                 auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true);
@@ -1345,6 +1362,7 @@ namespace SFT::Renderer {
                                                         "wait in-flight frame fence: vkWaitForFences timed out.");
                 }
             }
+#endif
             if (auto reset = device->reset_fences(span<const RHI::FenceHandle>{&slot.fence, 1}); !reset) {
                 return unexpected(graphics_error_from_rhi(reset.error(), "reset in-flight frame fence"));
             }
@@ -1821,7 +1839,15 @@ namespace SFT::Renderer {
         }
 
 
-        const bool gpu_timing_enabled = submission.render_graph.debug_overlay;
+        // GPU timing needs real timestamp-query support: on WebGPU this feature isn't reliably
+        // available (see WebGpuAdapter.cpp's populate_features() -- the standalone
+        // wgpuCommandEncoderWriteTimestamp() call this needs was removed from the spec and isn't
+        // implemented in Emscripten's JS binding even where the adapter still reports the capability
+        // bit), and unconditionally trying it here regardless of debug_overlay's request threw
+        // "commandEncoder.writeTimestamp is not a function" the moment any frame with the debug
+        // overlay visible tried to record a timing query -- this was never checked at all before.
+        const bool gpu_timing_enabled =
+            submission.render_graph.debug_overlay && device->is_enabled(RHI::Feature::TimestampQueries);
         if (gpu_timing_enabled) {
             if (Core::RendererResult pregraph_timing = ensure_frame_pregraph_gpu_timing_target(slot);
                 !pregraph_timing.has_value()) {
@@ -4035,10 +4061,34 @@ namespace SFT::Renderer {
             return;
         }
 
+#if defined(STURDY_PLATFORM_WEB)
+        // This is reachable from the ordinary per-frame retired-swapchain flush
+        // (maybe_flush_retired_swapchains' "opportunistic" threshold of 1 fires as soon as anything
+        // is retired, not just at shutdown), so an unconditional device->wait_idle() here suspends
+        // via Asyncify on almost any frame that resizes or reconfigures -- the same per-frame
+        // suspend/resume nesting problem as the steady-state fence wait this backend already works
+        // around, just reached through a different call site. Poll each slot's own fence instead of
+        // blocking the whole device: a slot with live submitted work that isn't confirmed done yet is
+        // left alone (and its retired resources stay attached to it) to retry on a later call, rather
+        // than ever suspending here.
+        for (FrameInFlight &slot : record.frames_in_flight) {
+            if (slot.submitted) {
+                auto polled = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true, 0);
+                if (!polled || !*polled) {
+                    continue;
+                }
+            }
+            reclaim_frame_slot(slot, true);
+            slot.submitted = false;
+            if (slot.fence) {
+                if (auto reset = device->reset_fences(span<const RHI::FenceHandle>{&slot.fence, 1}); !reset) {
+                    Foundation::log_warn("Failed to reset drained frame fence: {}", reset.error().message);
+                }
+            }
+        }
+#else
         device->wait_idle();
         for (FrameInFlight &slot : record.frames_in_flight) {
-
-
             reclaim_frame_slot(slot, true);
             slot.submitted = false;
 
@@ -4049,6 +4099,7 @@ namespace SFT::Renderer {
                 }
             }
         }
+#endif
     }
 
     /// Reclaims completed presentation fences using the supplied arguments and current state.

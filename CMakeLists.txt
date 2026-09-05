@@ -102,6 +102,15 @@ option(SFT_USE_WINMAIN "Always use the Windows WinMain entry point, regardless o
 # configure-and-build. The backend itself is complete when enabled; turning this off only removes
 # it from the backend registry, leaving Vulkan/D3D12 exactly as they were.
 option(STURDY_ENABLE_WEBGPU "Build the WebGPU (Dawn) RHI backend." OFF)
+if(STURDY_OS STREQUAL "Web")
+    # Web reaches WebGPU through Emscripten's own emdawnwebgpu port (see sturdy_configure_webgpu()
+    # in SturdyDependencies.cmake), not the Dawn/Abseil/SPIRV-Tools/Tint FetchContent checkout the
+    # option's cost comment above is about -- so none of that build-cost tradeoff applies here.
+    # WebGPU is also Web's *only* possible backend (Core/Vulkan is excluded from the Web build
+    # entirely, D3D12/Metal are platform-gated to Windows/never reached on Web), so leaving this at
+    # its native-facing OFF default would leave create_engine_backend() with nothing to return.
+    set(STURDY_ENABLE_WEBGPU ON CACHE BOOL "Build the WebGPU (Dawn) RHI backend." FORCE)
+endif()
 # Off by default: registers FfiNativeHandleProbe (see FFI/CMakeLists.txt) as real CTest cases
 # instead of a manual-only tool. It creates a real window and GPU device, which a headless CI
 # runner does not have — turn this ON on a developer machine with a GPU and a display to get
@@ -185,6 +194,7 @@ sturdy_configure_compiler_launcher()
 include(SturdyDependencies)
 include(SturdyLicenses)
 include(SturdyShaders)
+include(SturdyFonts)
 include(SturdyPackage)
 
 # The reusable engine stack is performance-sensitive infrastructure. Product layers above it
@@ -207,6 +217,9 @@ sturdy_configure_dependencies()
 # Must run before add_subdirectory(Core) below, since Core/CMakeLists.txt's sturdy_add_package()
 # call consumes STURDY_SHADERS_EMBED_CPP as one of its SOURCES.
 sturdy_generate_shader_embeds()
+# Must run before add_subdirectory(Renderer) below, since Renderer/CMakeLists.txt's
+# sturdy_add_package() call consumes STURDY_FONTS_EMBED_CPP as one of its SOURCES.
+sturdy_generate_font_embeds()
 add_subdirectory(Foundation)
 add_subdirectory(Async)
 add_subdirectory(Ecs)

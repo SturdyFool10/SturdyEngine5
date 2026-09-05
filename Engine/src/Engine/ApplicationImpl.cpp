@@ -18,6 +18,10 @@
 
 #include <tracy/Tracy.hpp>
 
+#if defined(STURDY_PLATFORM_WEB)
+#include <emscripten/emscripten.h>
+#endif
+
 using SFT::Foundation::f64;
 using std::make_shared;
 using std::make_unique;
@@ -752,26 +756,22 @@ namespace SFT::Engine {
         return true;
     }
 
-    /// Runs the requested work.
+    /// Runs one iteration of the main loop body. See the declaration in Application.hpp for the
+    /// full contract; this is the code shared by both the native blocking `while` loop and Web's
+    /// per-requestAnimationFrame callback in Application::run() below.
     ///
-    /// @return Returns the current run value.
+    /// @return false on a fatal platform event-pump error; true otherwise.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void Application::run() {
+    bool Application::run_frame(
+        vector<WindowManager::ManagedWindowEvents> &window_events,
+        std::chrono::high_resolution_clock::time_point &last_title_update,
+        std::chrono::high_resolution_clock::time_point &last_tick_time) {
         using WindowManager::ManagedWindowEvents;
         using WindowManager::WindowEventKind;
         using WindowManager::WindowExtent;
         using WindowManager::window_error_code_name;
 
-        if (windows_.empty() || !engine_) {
-            return;
-        }
-
-        auto last_title_update = high_resolution_clock::now();
-        auto last_tick_time = last_title_update;
-
-        vector<ManagedWindowEvents> window_events;
-
-        while (!windows_.empty()) {
+        {
 
 
             Async::pump_main_thread();
@@ -786,7 +786,7 @@ namespace SFT::Engine {
                     .details = {},
                     .help = "the application will stop cleanly; inspect the window backend state",
                 });
-                break;
+                return false;
             }
 
             for (const ManagedWindowEvents &events : window_events) {
@@ -1014,6 +1014,81 @@ namespace SFT::Engine {
 
             FrameMark;
         }
+        return true;
+    }
+
+    void Application::run() {
+        if (windows_.empty() || !engine_) {
+            return;
+        }
+
+#if defined(STURDY_PLATFORM_WEB)
+        // A blocking `while` loop never returns control to the browser's single JS thread, so the
+        // page would freeze solid (no repaints, no input, and the WebGPU surface never presents).
+        // emscripten_set_main_loop_arg instead schedules run_frame() to run once per
+        // requestAnimationFrame and returns immediately; the trampoline below runs the same
+        // teardown the native while-loop runs after it exits, once windows_ is empty or
+        // run_frame() reports a fatal error.
+        struct WebRunLoopState {
+            Application *app;
+            vector<WindowManager::ManagedWindowEvents> window_events;
+            std::chrono::high_resolution_clock::time_point last_title_update;
+            std::chrono::high_resolution_clock::time_point last_tick_time;
+        };
+        auto *state = new WebRunLoopState{
+            .app = this,
+            .window_events = {},
+            .last_title_update = high_resolution_clock::now(),
+            .last_tick_time = high_resolution_clock::now(),
+        };
+        emscripten_set_main_loop_arg(
+            [](void *arg) {
+                auto *loop_state = static_cast<WebRunLoopState *>(arg);
+                Application &app = *loop_state->app;
+                const bool keep_going = !app.windows_.empty() &&
+                    app.run_frame(loop_state->window_events, loop_state->last_title_update, loop_state->last_tick_time);
+                if (!keep_going) {
+                    for (auto &managed : app.windows_) {
+                        managed->surface.reset();
+                    }
+                    app.shutdown_client();
+                    app.engine_.reset();
+                    Async::Scheduler::shutdown();
+                    emscripten_cancel_main_loop();
+                    delete loop_state;
+                }
+            },
+            state,
+            0,   // drive from the browser's own requestAnimationFrame cadence rather than a fixed rate
+            0); // simulate_infinite_loop must be 0 here, not 1: that mode fakes an infinite C loop by
+                // unwinding the JS stack via an internal exception and resuming it on each rAF tick --
+                // which nests a NEW resume on top of whatever the *previous* frame's suspension left
+                // behind whenever the loop body itself also suspends via Asyncify (every WebGPU call
+                // this backend makes through wgpuInstanceWaitAny does exactly that, see
+                // WebGpuAdapter.cpp). The two suspension mechanisms compounding meant the JS call
+                // stack grew by a large, unbounded increment every single frame, surfacing several
+                // frames in as an unrelated-looking "Uncaught RuntimeError: index out of bounds"
+                // once something else got corrupted by the runaway depth -- confirmed by symbolizing
+                // the crash (a real wasm build with -g2) to a call chain of nested
+                // doRewind/handleAsync/handleSleep/_emwgpuWaitAny frames, one full main-loop
+                // iteration deep per repeat. With simulate_infinite_loop=0, this call registers the
+                // callback and returns immediately (matching what this function already assumed --
+                // run() just falls off the end right after this call either way), and Emscripten
+                // invokes it via a plain, unnested rAF callback each frame instead.
+
+        // Emscripten's runtime stays alive via the callback registered above even though run()
+        // (and eventually main()) returns right here -- returning from main() does not exit a
+        // Web module the way it does a native process.
+#else
+        auto last_title_update = high_resolution_clock::now();
+        auto last_tick_time = last_title_update;
+        vector<WindowManager::ManagedWindowEvents> window_events;
+
+        while (!windows_.empty()) {
+            if (!run_frame(window_events, last_title_update, last_tick_time)) {
+                break;
+            }
+        }
 
         for (auto &managed : windows_) {
             managed->surface.reset();
@@ -1021,6 +1096,7 @@ namespace SFT::Engine {
         shutdown_client();
         engine_.reset();
         Async::Scheduler::shutdown();
+#endif
     }
 
 } // namespace SFT::Engine
