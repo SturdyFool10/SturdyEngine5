@@ -66,11 +66,17 @@ namespace {
         case SFT::RHI::BackendType::D3D12:
             *out_backend = STURDY_BACKEND_D3D12;
             return true;
-        case SFT::RHI::BackendType::Metal:
         case SFT::RHI::BackendType::WebGpu:
+            *out_backend = STURDY_BACKEND_WEBGPU;
+            return true;
+        case SFT::RHI::BackendType::Metal:
         default:
-            // Metal and WebGPU have no ABI spelling yet. Reporting that honestly is better than
-            // mapping them onto Vulkan, which would make a caller's backend check silently wrong.
+            // Metal has an ABI spelling (STURDY_BACKEND_METAL) but no backend implementation at
+            // all yet (Core/Metal does not exist as a package -- see the D3D12/Vulkan completeness
+            // audits in [[project_webgpu_backend]]), so device->backend_type() can never actually
+            // report it; this branch is unreachable today, not a gap. Reporting an unrecognized
+            // value as unavailable is still correct in general, rather than silently mapping it
+            // onto Vulkan and making a caller's backend check wrong.
             return false;
         }
     }

@@ -118,8 +118,18 @@ namespace SFT::Core::WebGpu {
         // produce a device request that cannot be satisfied. Anything the caller marked *required*
         // is still honoured below, which is what makes a renderer that genuinely needs one of them
         // fail here with a clear message rather than midway through a frame.
+        //
+        // Requested as optional rather than required, matching D3D12Backend.cpp's identical
+        // native-access gate: a caller that asked for raw handles should still get a working device
+        // if this adapter somehow cannot publish them, and find that out by querying
+        // sturdy_native_available() rather than failing device creation outright.
+        std::vector<RHI::ExtensionId> optional_extensions;
+        if (init.features.enable_native_access_extension) {
+            optional_extensions.push_back(WebGpuNativeAccessExtension::id());
+        }
         const RHI::DeviceRequest device_request{
             .required_features = init.features.required_rhi_features,
+            .optional_extensions = optional_extensions,
             .label = "Sturdy WebGPU device",
         };
 

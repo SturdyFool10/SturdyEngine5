@@ -68,6 +68,12 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
             add_test(NAME FfiNativeHandleProbeD3D12 COMMAND FfiNativeHandleProbe d3d12)
             set_tests_properties(FfiNativeHandleProbeD3D12 PROPERTIES TIMEOUT 120)
         endif()
+        # Web itself has no ctest runner (no browser in CI); this only covers WebGPU-via-Dawn on a
+        # native desktop, same restriction STURDY_ENABLE_WEBGPU already carries everywhere else.
+        if(STURDY_ENABLE_WEBGPU AND NOT STURDY_OS STREQUAL "Web")
+            add_test(NAME FfiNativeHandleProbeWebGpu COMMAND FfiNativeHandleProbe webgpu)
+            set_tests_properties(FfiNativeHandleProbeWebGpu PROPERTIES TIMEOUT 120)
+        endif()
     endif()
 
     # Reaches the internal handle table to construct an expired handle, which the public header

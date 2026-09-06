@@ -12,6 +12,7 @@
 
 #include <RHI/RHI.hpp>
 #include <Core/WebGPU/RHI/WebGpuCommon.hpp>
+#include <Core/WebGPU/RHI/WebGpuNativeAccessExtension.hpp>
 
 namespace SFT::Core::WebGpu {
 
@@ -42,14 +43,21 @@ namespace SFT::Core::WebGpu {
         ///
         /// @param instance The Dawn instance the device came from; retained for surface creation
         ///        and for the future-waiting the async entry points need.
+        /// @param adapter The Dawn adapter `device` was requested from. Retained only to publish
+        ///        through `WebGpuNativeAccessExtension` when `enable_native_access` is set; not
+        ///        otherwise used by this class, which is why every existing call site may pass
+        ///        `nullptr` and lose nothing but that one escape hatch.
         /// @param device The Dawn device, whose ownership passes to this object.
         /// @param info Adapter description reported upward.
         /// @param limits Device limits reported upward.
         /// @param features Features negotiated at creation.
+        /// @param enable_native_access Whether to publish `WebGpuNativeAccessExtension` through
+        ///        `extension_interface()` -- mirrors `Vulkan`/`D3D12`'s own
+        ///        `enable_native_access_extension` gate (see `Core::Renderer::RendererFeatures`).
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        WebGpuDevice(WGPUInstance instance, WGPUDevice device, rhi::AdapterInfo info,
-                     rhi::DeviceLimits limits, rhi::FeatureSet features);
+        WebGpuDevice(WGPUInstance instance, WGPUAdapter adapter, WGPUDevice device, rhi::AdapterInfo info,
+                     rhi::DeviceLimits limits, rhi::FeatureSet features, bool enable_native_access = false);
 
         /// Destroys the `WebGpuDevice` and releases every WebGPU object it still owns.
         ///
@@ -472,8 +480,10 @@ namespace SFT::Core::WebGpu {
         };
 
         WGPUInstance instance_ = nullptr;
+        WGPUAdapter adapter_ = nullptr;
         WGPUDevice device_ = nullptr;
         WGPUQueue queue_ = nullptr;
+        std::optional<WebGpuNativeAccessExtension> native_access_extension_;
 
         rhi::AdapterInfo adapter_info_{};
         rhi::DeviceLimits limits_{};

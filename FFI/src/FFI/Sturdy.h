@@ -5331,6 +5331,30 @@ typedef struct SturdyD3D12Handles {
     void *graphics_queue;
 } SturdyD3D12Handles;
 
+/// The engine's raw WebGPU objects.
+///
+/// Fields are `void *` for the same reason as `SturdyVulkanHandles`/`SturdyD3D12Handles`, and carry
+/// the same borrowing rules. Unlike those two, this deliberately stops at the WebGPU objects
+/// themselves rather than reaching beneath them to whatever native API Dawn chose (Vulkan, Metal, or
+/// D3D12) -- that is fundamentally unavailable on the Web target (a browser's WebGPU implementation
+/// exposes no native handles to any embedder) and would defeat the point of the backend even on
+/// native Dawn. Cast each field to its documented `webgpu.h` type. There is exactly one queue:
+/// WebGPU has no separate graphics/compute/transfer queues to distinguish, so there is no
+/// `sturdy_native_webgpu_queue` counterpart to `sturdy_native_vulkan_queue`.
+typedef struct SturdyWebGpuHandles {
+    /// Set by the engine to `sizeof(SturdyWebGpuHandles)` as this build sees it.
+    uint32_t struct_size;
+    uint32_t reserved;
+    /// `WGPUInstance`.
+    void *instance;
+    /// `WGPUAdapter`.
+    void *adapter;
+    /// `WGPUDevice`.
+    void *device;
+    /// `WGPUQueue`, the one queue every WebGPU device exposes.
+    void *queue;
+} SturdyWebGpuHandles;
+
 /// Reports whether raw native handles are available.
 ///
 /// False when `SturdyRuntimeConfig::enable_native_access` was not set, or when the backend could
@@ -5375,6 +5399,13 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_native_d3d12_queue(SturdyEngine e
                                                                   SturdyQueueClass queue_class,
                                                                   uint32_t lane_index,
                                                                   void **out_queue);
+
+/// Reads the engine's raw WebGPU objects.
+///
+/// @return `STURDY_ERROR_NOT_AVAILABLE` when the active backend is not WebGPU, or when native
+///         access was not enabled.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_native_webgpu(SturdyEngine engine,
+                                                             SturdyWebGpuHandles *out_handles);
 
 #ifdef __cplusplus
 } // extern "C"

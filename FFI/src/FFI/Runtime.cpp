@@ -268,6 +268,23 @@ namespace {
             // runtime capability question — the backend does not exist in this binary.
             return false;
 #endif
+        case STURDY_BACKEND_WEBGPU:
+#if defined(STURDY_ENABLE_WEBGPU)
+            *out_backend = SFT::RHI::BackendType::WebGpu;
+            *out_graphics_api = SFT::WindowManager::WindowGraphicsApi::WebGPU;
+            return true;
+#else
+            // WebGPU sources are excluded from this build entirely (STURDY_ENABLE_WEBGPU was not
+            // set and the target is not Web, which forces it on unconditionally) -- not a runtime
+            // capability question, the backend does not exist in this binary.
+            return false;
+#endif
+        case STURDY_BACKEND_METAL:
+            // Core/Metal does not exist as a package at all yet (see
+            // [[project_webgpu_backend]]'s completeness audit) -- macOS is still fully served via
+            // Vulkan-over-MoltenVK or STURDY_BACKEND_WEBGPU (Dawn-over-Metal), so this is a real,
+            // named "not yet" rather than a silent gap.
+            return false;
         case STURDY_BACKEND_DEFAULT:
         case STURDY_BACKEND_FORCE_U32:
         default:
@@ -349,10 +366,12 @@ namespace {
     [[nodiscard]] uint32_t backend_mask_for(const std::vector<SFT::RHI::GpuApiSupport> &api_support) noexcept {
         uint32_t mask = 0;
         for (const SFT::RHI::GpuApiSupport &support : api_support) {
-            if (support.adapter.backend == SFT::RHI::BackendType::Vulkan) {
-                mask |= STURDY_BACKEND_MASK_VULKAN;
-            } else if (support.adapter.backend == SFT::RHI::BackendType::D3D12) {
-                mask |= STURDY_BACKEND_MASK_D3D12;
+            switch (support.adapter.backend) {
+                case SFT::RHI::BackendType::Vulkan: mask |= STURDY_BACKEND_MASK_VULKAN; break;
+                case SFT::RHI::BackendType::D3D12: mask |= STURDY_BACKEND_MASK_D3D12; break;
+                case SFT::RHI::BackendType::Metal: mask |= STURDY_BACKEND_MASK_METAL; break;
+                case SFT::RHI::BackendType::WebGpu: mask |= STURDY_BACKEND_MASK_WEBGPU; break;
+                default: break;
             }
         }
         return mask;

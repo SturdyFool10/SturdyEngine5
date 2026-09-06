@@ -22,6 +22,14 @@
 #if defined(_WIN32)
 #include <Core/D3D12/RHI/D3D12NativeAccessExtension.hpp>
 #endif
+#if defined(STURDY_ENABLE_WEBGPU)
+// Only compiled into Core at all when STURDY_ENABLE_WEBGPU is set (native) or the target is Web
+// (which forces it on unconditionally) -- see Core/CMakeLists.txt's EXCLUDE_SOURCE_DIRS logic and
+// the identical guard BackendInventory.cpp/EngineBackend.cpp already use. Without this guard, a
+// default build (Dawn not fetched, STURDY_ENABLE_WEBGPU OFF) would fail to find <webgpu/webgpu.h>
+// at all, since nothing in that configuration provides the include path for it.
+#include <Core/WebGPU/RHI/WebGpuNativeAccessExtension.hpp>
+#endif
 
 #include <FFI/AbiSupport.hpp>
 
@@ -123,6 +131,24 @@ namespace {
     }
 #endif
 
+#if defined(STURDY_ENABLE_WEBGPU)
+    /// Resolves the WebGPU native-access extension published by `device`.
+    ///
+    /// @param device Active RHI device.
+    ///
+    /// @return The extension, or null when this is not a WebGPU device or native access was not
+    ///         enabled.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] SFT::Core::WebGpu::WebGpuNativeAccessExtension *webgpu_native_access(
+        SFT::RHI::RhiDevice &device) noexcept {
+        if (device.backend_type() != SFT::RHI::BackendType::WebGpu) {
+            return nullptr;
+        }
+        return static_cast<SFT::Core::WebGpu::WebGpuNativeAccessExtension *>(
+            device.extension_interface(SFT::Core::WebGpu::WebGpuNativeAccessExtension::id()));
+    }
+#endif
+
     /// Builds the failure returned when native access was requested but is not published.
     ///
     /// @return Always `STURDY_ERROR_NOT_AVAILABLE`.
@@ -155,6 +181,9 @@ SturdyResult STURDY_ABI_CALL sturdy_native_available(SturdyEngine engine, Sturdy
 #endif
 #if defined(_WIN32)
         available = available || d3d12_native_access(*device) != nullptr;
+#endif
+#if defined(STURDY_ENABLE_WEBGPU)
+        available = available || webgpu_native_access(*device) != nullptr;
 #endif
         *out_available = available ? STURDY_TRUE : STURDY_FALSE;
         return STURDY_OK;
@@ -298,6 +327,41 @@ SturdyResult STURDY_ABI_CALL sturdy_native_d3d12_queue(SturdyEngine engine,
             return native_unavailable();
         }
         *out_queue = access->native_queue(SFT::RHI::QueueLane{engine_queue, lane_index});
+        return STURDY_OK;
+#endif
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_native_webgpu(SturdyEngine engine, SturdyWebGpuHandles *out_handles) {
+    return guarded([&]() -> SturdyResult {
+        if (out_handles == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+
+        SFT::RHI::RhiDevice *device = nullptr;
+        const SturdyResult resolved = resolve_device(engine, &device);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+
+#if !defined(STURDY_ENABLE_WEBGPU)
+        (void)device;
+        // WebGPU sources are excluded from this build entirely (STURDY_ENABLE_WEBGPU was not set and
+        // the target is not Web) -- this is not a runtime capability question, the backend does not
+        // exist in this binary at all.
+        return native_unavailable();
+#else
+        auto *access = webgpu_native_access(*device);
+        if (access == nullptr) {
+            return native_unavailable();
+        }
+
+        *out_handles = SturdyWebGpuHandles{};
+        out_handles->struct_size = static_cast<uint32_t>(sizeof(SturdyWebGpuHandles));
+        out_handles->instance = access->native_instance();
+        out_handles->adapter = access->native_adapter();
+        out_handles->device = access->native_device();
+        out_handles->queue = access->native_queue();
         return STURDY_OK;
 #endif
     });

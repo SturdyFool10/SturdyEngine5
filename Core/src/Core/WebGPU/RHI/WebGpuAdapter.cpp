@@ -3,6 +3,7 @@
 #include <Core/WebGPU/RHI/WebGpuCommon.hpp>
 #include <Core/WebGPU/RHI/WebGpuDevice.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -87,23 +88,52 @@ namespace SFT::Core::WebGpu {
             ///
             /// @param instance The instance the adapter came from.
             /// @param adapter The Dawn adapter, whose ownership passes to this object.
+            /// @param fallback_name A human-readable label to use for `info().name` when the
+            /// browser reports every `WGPUAdapterInfo` string field as empty (see the long comment
+            /// below) -- typically distinguishes *which* of the two requested power preferences this
+            /// adapter came from, since that is otherwise the only surviving distinguishing detail.
             ///
             /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-            WebGpuAdapter(WGPUInstance instance, WGPUAdapter adapter)
+            WebGpuAdapter(WGPUInstance instance, WGPUAdapter adapter, std::string_view fallback_name = "WebGPU Adapter")
                 : instance_(instance), adapter_(adapter) {
                 wgpuInstanceAddRef(instance_);
 
                 WGPUAdapterInfo info{};
                 if (wgpuAdapterGetInfo(adapter_, &info) == WGPUStatus_Success) {
-                    info_.name = to_string(info.device);
-                    info_.vendor = to_string(info.vendor);
-                    info_.driver_version = to_string(info.description);
+                    std::string device_name = to_string(info.device);
+                    std::string vendor_name = to_string(info.vendor);
+                    std::string description = to_string(info.description);
+
+                    // Confirmed empirically (not assumed): real WebGPU-enabled Firefox returns every
+                    // one of vendor/architecture/device/description as an empty string, backendType
+                    // as the generic WGPUBackendType_WebGPU rather than the real native backend
+                    // Dawn picked, adapterType as Unknown, and vendorID/deviceID as 0 -- a
+                    // fingerprinting-resistance stance, not a bug in this engine's reflection of it.
+                    // Native Dawn (desktop) does populate `device` with the real GPU name, which is
+                    // why `RhiAdapter::info().name` was blank specifically on Web and not elsewhere:
+                    // the old code took `device` unconditionally and never had a fallback for a
+                    // browser that legitimately has nothing else to offer. Fall back through
+                    // whichever field the browser *did* populate before resorting to a generic label.
+                    if (!device_name.empty()) {
+                        info_.name = device_name;
+                    } else if (!description.empty()) {
+                        info_.name = description;
+                    } else if (!vendor_name.empty()) {
+                        info_.name = vendor_name;
+                    } else {
+                        info_.name = std::string{fallback_name};
+                    }
+                    info_.vendor = std::move(vendor_name);
+                    info_.driver_version = std::move(description);
                     info_.vendor_id = info.vendorID;
                     info_.device_id = info.deviceID;
                     info_.device_type = to_rhi_device_type(info.adapterType);
                     info_.is_discrete = info.adapterType == WGPUAdapterType_DiscreteGPU;
                     // Names which of the three enabled native APIs Dawn actually chose, which is the
-                    // single most useful thing to know when a WebGPU-only bug appears.
+                    // single most useful thing to know when a WebGPU-only bug appears. On a browser
+                    // that withholds this (backendType comes back as the generic WGPUBackendType_
+                    // WebGPU value above, not a real native backend), this correctly falls through
+                    // to the plain "WebGPU" label instead of guessing.
                     switch (info.backendType) {
                         case WGPUBackendType_Vulkan: info_.api_version = "WebGPU (Vulkan)"; break;
                         case WGPUBackendType_Metal: info_.api_version = "WebGPU (Metal)"; break;
@@ -111,6 +141,8 @@ namespace SFT::Core::WebGpu {
                         default: info_.api_version = "WebGPU"; break;
                     }
                     wgpuAdapterInfoFreeMembers(info);
+                } else {
+                    info_.name = std::string{fallback_name};
                 }
                 info_.backend = rhi::BackendType::WebGpu;
                 // Deliberately left empty: WebGPU exposes no device UUID or adapter LUID, and the
@@ -256,8 +288,17 @@ namespace SFT::Core::WebGpu {
                 device_limits.supports_bc_texture_compression =
                     wgpuDeviceHasFeature(result.device, WGPUFeatureName_TextureCompressionBC) != 0;
 
-                return std::make_unique<WebGpuDevice>(instance_, result.device, info_, device_limits,
-                                                      features_);
+                // Requested as optional rather than required, matching how the Vulkan/D3D12 backends
+                // treat their own native-access extensions: a caller that asked for raw handles
+                // should still get a working device rather than failing outright, and find out this
+                // was not published by checking sturdy_native_available()/enabled_extensions().
+                const bool enable_native_access = std::ranges::any_of(
+                    request.optional_extensions, [](rhi::ExtensionId candidate) {
+                        return rhi::extension_matches(WebGpuNativeAccessExtension::id(), candidate);
+                    });
+
+                return std::make_unique<WebGpuDevice>(instance_, adapter_, result.device, info_,
+                                                      device_limits, features_, enable_native_access);
             }
 
           private:
@@ -378,19 +419,29 @@ namespace SFT::Core::WebGpu {
                     }
 
                     // The two preferences commonly resolve to the same physical adapter; comparing
-                    // the reported device IDs avoids listing it twice.
+                    // the reported device IDs avoids listing it twice. On a browser that withholds
+                    // this information (confirmed live: real WebGPU-enabled Firefox reports
+                    // vendorID=deviceID=0 for every adapter, see the fallback-name comment in
+                    // WebGpuAdapter's constructor above), a 0==0 match would falsely call every
+                    // later preference a "duplicate" of the first regardless of whether the browser
+                    // actually picked the same physical GPU -- so an all-zero pair is treated as "no
+                    // signal" rather than "a match," at the cost of possibly listing one adapter
+                    // twice on such a browser instead of silently dropping a real second GPU.
                     WGPUAdapterInfo info{};
                     bool duplicate = false;
                     if (wgpuAdapterGetInfo(result.adapter, &info) == WGPUStatus_Success) {
-                        for (WGPUAdapter existing : seen) {
-                            WGPUAdapterInfo other{};
-                            if (wgpuAdapterGetInfo(existing, &other) == WGPUStatus_Success) {
-                                duplicate = other.deviceID == info.deviceID &&
-                                            other.vendorID == info.vendorID;
-                                wgpuAdapterInfoFreeMembers(other);
-                            }
-                            if (duplicate) {
-                                break;
+                        const bool has_real_id = info.vendorID != 0 || info.deviceID != 0;
+                        if (has_real_id) {
+                            for (WGPUAdapter existing : seen) {
+                                WGPUAdapterInfo other{};
+                                if (wgpuAdapterGetInfo(existing, &other) == WGPUStatus_Success) {
+                                    duplicate = other.deviceID == info.deviceID &&
+                                                other.vendorID == info.vendorID;
+                                    wgpuAdapterInfoFreeMembers(other);
+                                }
+                                if (duplicate) {
+                                    break;
+                                }
                             }
                         }
                         wgpuAdapterInfoFreeMembers(info);
@@ -401,7 +452,11 @@ namespace SFT::Core::WebGpu {
                     }
 
                     seen.push_back(result.adapter);
-                    adapters.push_back(std::make_unique<WebGpuAdapter>(instance_, result.adapter));
+                    adapters.push_back(std::make_unique<WebGpuAdapter>(
+                        instance_, result.adapter,
+                        preference == WGPUPowerPreference_HighPerformance
+                            ? "WebGPU Adapter (High Performance)"
+                            : "WebGPU Adapter (Low Power)"));
                 }
 
                 if (adapters.empty()) {

@@ -43,21 +43,35 @@ namespace SFT::Core::WebGpu {
     /// Constructs a device around an already-created Dawn device.
     ///
     /// @param instance The Dawn instance the device came from.
+    /// @param adapter The Dawn adapter `device` was requested from.
     /// @param device The Dawn device, whose ownership passes to this object.
     /// @param info Adapter description reported upward.
     /// @param limits Device limits reported upward.
     /// @param features Features negotiated at creation.
+    /// @param enable_native_access Whether to publish `WebGpuNativeAccessExtension`.
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    WebGpuDevice::WebGpuDevice(WGPUInstance instance, WGPUDevice device, rhi::AdapterInfo info,
-                               rhi::DeviceLimits limits, rhi::FeatureSet features)
+    WebGpuDevice::WebGpuDevice(WGPUInstance instance, WGPUAdapter adapter, WGPUDevice device, rhi::AdapterInfo info,
+                               rhi::DeviceLimits limits, rhi::FeatureSet features, bool enable_native_access)
         : instance_(instance),
+          adapter_(adapter),
           device_(device),
           queue_(wgpuDeviceGetQueue(device)),
           adapter_info_(std::move(info)),
           limits_(limits),
           enabled_features_(features) {
         wgpuInstanceAddRef(instance_);
+        // The adapter that requested `device` is otherwise only owned by the `RhiAdapter` wrapper
+        // (`WebGpuAdapter`), which the backend that called this constructor does not keep around
+        // past `create_device()` returning (see WebGpuBackend::initialize()'s local `adapters`
+        // vector) -- without this addref, the handle stored here (and handed out through
+        // `WebGpuNativeAccessExtension`) would dangle the moment that vector goes out of scope.
+        if (adapter_ != nullptr) {
+            wgpuAdapterAddRef(adapter_);
+        }
+        if (enable_native_access) {
+            native_access_extension_.emplace(instance_, adapter_, device_, queue_);
+        }
 
         // WebGPU exposes exactly one queue, which accepts render, compute, and copy work alike.
         // Reported as a single entry that claims all three classes so the renderer's queue
@@ -138,6 +152,9 @@ namespace SFT::Core::WebGpu {
         if (device_ != nullptr) {
             wgpuDeviceRelease(device_);
         }
+        if (adapter_ != nullptr) {
+            wgpuAdapterRelease(adapter_);
+        }
         if (instance_ != nullptr) {
             wgpuInstanceRelease(instance_);
         }
@@ -205,23 +222,36 @@ namespace SFT::Core::WebGpu {
 
     /// Returns the extensions enabled on this device.
     ///
+    /// WebGPU has no extension mechanism of its own (the kind Vulkan/D3D12 negotiate at device
+    /// creation) -- the one entry this can ever report is this engine's own native-access escape
+    /// hatch, published only when `enable_native_access` was set at construction. Everything else
+    /// this RHI models as a backend-specific extension (full-screen exclusive, composition, ...)
+    /// genuinely has no WebGPU counterpart and stays unreported.
+    ///
     /// @return Returns a non-owning view of the underlying data.
     /// @note This function does not throw exceptions.
-    span<const rhi::ExtensionId> WebGpuDevice::enabled_extensions() const noexcept { return {}; }
+    span<const rhi::ExtensionId> WebGpuDevice::enabled_extensions() const noexcept {
+        static constexpr rhi::ExtensionId native_access_id = WebGpuNativeAccessExtension::id();
+        return native_access_extension_.has_value() ? span<const rhi::ExtensionId>{&native_access_id, 1}
+                                                     : span<const rhi::ExtensionId>{};
+    }
 
     /// Returns the interface for a device extension.
     ///
-    /// WebGPU has no extension mechanism of the kind the RHI models here (native-handle access,
-    /// full-screen exclusive, composition): those are all explicitly backend-specific escape
-    /// hatches, and reaching through WebGPU to the driver underneath would defeat the point of
-    /// running on it.
+    /// The one real hatch here is `WebGpuNativeAccessExtension` (raw `WGPUInstance`/`WGPUAdapter`/
+    /// `WGPUDevice`/`WGPUQueue`), gated by `enable_native_access` the same way Vulkan/D3D12 gate
+    /// their own -- see WebGpuNativeAccessExtension.hpp for why this deliberately stops at the
+    /// WebGPU objects rather than reaching beneath them to whatever native API Dawn chose.
     ///
     /// @param extension `extension` value used by the operation.
     ///
-    /// @return Returns `nullptr` in every case.
+    /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
     /// @note This function does not throw exceptions.
     rhi::RhiDeviceExtension *WebGpuDevice::extension_interface(rhi::ExtensionId extension) noexcept {
-        (void)extension;
+        if (native_access_extension_.has_value() &&
+            rhi::extension_matches(WebGpuNativeAccessExtension::id(), extension)) {
+            return &*native_access_extension_;
+        }
         return nullptr;
     }
 

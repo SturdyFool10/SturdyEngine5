@@ -142,15 +142,29 @@ Texture2D<float4> gbufferEmissive;
 // DepthTexture2D (not Texture2D<float>): bound to the real resolved depth buffer's view
 // (Depth32Float, sample type Depth). WebGPU strictly matches a bind group's declared sample type
 // against the bound view's format, unlike Vulkan/D3D12 where a Float-typed binding harmlessly
-// accepts either. Both sample sites below use implicit-LOD `.Sample()` rather than
-// `.SampleLevel(..., 0.0)` for the same reason as `shadowAtlas` above -- valid because this file's
-// only entry point is the fragment shader -- sidestepping a Slang WGSL-backend gap where an
-// explicit-level sample on texture_depth_2d needs an i32 level, not the float literal SampleLevel
-// takes.
+// accepts either. Every sample of this (and every other DepthTexture2D in this file) uses
+// implicit-LOD `.Sample()`, not `.SampleLevel(sampler, uv, 0.0)`: the vendored Slang always emits a
+// float LOD literal for SampleLevel regardless of the literal type at the call site, and WGSL's
+// texture_depth_2d overload of textureSampleLevel requires an i32/u32 level -- confirmed via a live
+// Dawn compile, not just `slangc` (which does not validate this strictly enough to catch it; a
+// standalone `.SampleLevel(..., 0.0)` compiled clean through `slangc -target wgsl` and still failed
+// against real Dawn, so always cross-check a WGSL-portability fix against the actual browser/Dawn
+// backend before trusting `slangc` alone here specifically).
+//
+// The cost of implicit-LOD is that WGSL's textureSample requires *uniform* control flow at the call
+// site (every invocation in a subgroup must reach the same call) -- this fragment shader deliberately
+// keeps every DepthTexture2D sample reachable without passing through a per-pixel-varying branch
+// first (no early `return`/`break`/`continue` keyed on a per-pixel value in between the function's
+// uniform entry and a sample call): the top-of-function sky check below computes `isSky` but does
+// not `return` on it, the screen-space contact-shadow march samples unconditionally every fixed
+// iteration (see its own comment), and every other DepthTexture2D sample here sits before any
+// per-pixel branch reaches it. This is a real, previously-hit crash, not theoretical: WebGPU aborted
+// the whole process the first time this file grew a per-pixel-varying early return ahead of one of
+// these samples, root-caused live via Dawn's own WGSL parser diagnostics.
 DepthTexture2D gbufferDepth;
 Texture2D<float4> spectralEffect;
 // Spot/point shadow atlas. DepthTexture2D (not Texture2D<float>): both atlases are sampled two
-// ways below -- a plain SampleLevel with shadowDepthSampler, and a hardware-compare
+// ways below -- an explicit-LOD SampleLevel with shadowDepthSampler, and a hardware-compare
 // SampleCmpLevelZero with shadowCompareSampler. HLSL/SPIR-V accept a plain float texture for
 // both, but WGSL's textureSampleCompareLevel requires the strict texture_depth_2d type; Slang
 // only emits that for the WGSL target when the source type is DepthTexture2D (isShadow=1),
@@ -428,13 +442,26 @@ float shadowVisibility(DepthTexture2D atlas, uint viewIndex, float3 worldPositio
     for (uint i = 0; i < SFT_PCSS_BLOCKER_SAMPLES; ++i) {
         float2 offsetLocal = vogelDiskSample(i, SFT_PCSS_BLOCKER_SAMPLES, rotation) * searchRadiusLocal;
         float2 sampleUv = clampAtlasUv(receiver.atlasUv + offsetLocal * view.atlasScaleBias.xy, view);
-        // Sample (implicit LOD 0), not SampleLevel(..., 0.0): valid here because this whole file's
-        // only entry point is the fragment shader (Slang can compute implicit derivatives), and
-        // it sidesteps a Slang WGSL-backend gap where an explicit-level sample on a DepthTexture2D
-        // emits a float LOD literal into a WGSL textureSampleLevel(texture_depth_2d, ...) call,
-        // which requires an i32 level -- Dawn rejects it ("Sample level (exact) type is invalid").
-        // Semantically identical here since the LOD was always the hardcoded constant 0 anyway.
-        float sampleDepth = atlas.Sample(shadowDepthSampler, sampleUv);
+        // Texel fetch (`.Load()`), not `.Sample()`/`.SampleLevel()`: this function (via
+        // `shadowVisibility`'s per-pixel-varying `viewIndex`/`receiver.valid` early-outs above it)
+        // is reached from control flow WGSL cannot prove uniform, and both of the sampling
+        // alternatives need it -- `.Sample()` (textureSample) requires it outright, and
+        // `.SampleLevel()` is separately unusable here at all (the vendored Slang always emits a
+        // float LOD literal, which WGSL's texture_depth_2d overload of textureSampleLevel rejects,
+        // requiring i32/u32 instead -- confirmed via a live Dawn compile, not just `slangc`, which
+        // does not validate this strictly enough to catch it). `.Load()`/textureLoad takes an
+        // integer texel coordinate instead of a filtered UV and has no uniformity requirement at
+        // all, which is why every other DepthTexture2D read in this shader library that isn't a
+        // full-screen 1:1 gbuffer lookup already uses it (deferred_msaa_reconstruction.slang,
+        // gtao_prefilter_depth.slang, hiz_build*.slang). A PCSS blocker search is a coverage
+        // heuristic, not something that benefits from bilinear-filtered depth in the first place
+        // (blending raw depth values across a discontinuity is a well-known artifact source), so
+        // switching to a point-sampled texel fetch here is quality-neutral to strictly better, not
+        // a regression.
+        uint atlasWidth, atlasHeight;
+        atlas.GetDimensions(atlasWidth, atlasHeight);
+        int2 sampleTexel = int2(sampleUv * float2(atlasWidth, atlasHeight));
+        float sampleDepth = atlas.Load(int3(sampleTexel, 0));
         float tapReceiverDepth = receiverDepthAtTap(receiver.depth, receiver.gradient, offsetLocal);
         if (sampleDepth + depthEpsilon < tapReceiverDepth) {
             blockerDepthSum += linearShadowDepth(sampleDepth, view);
@@ -544,20 +571,19 @@ float screenSpaceSunContactShadow(float3 worldPosition, float3 normal, float3 su
         geometricNormal = -geometricNormal;
     }
 
-    // A surface already turned away from the sun is shadowed by the N.L term. Marching it can only
-    // manufacture false occlusion at silhouettes, so skip it outright.
+    // A surface already turned away from the sun is shadowed by the N.L term, and past the fade
+    // distance the cascades are strictly the better answer (one shadow texel is already finer than
+    // the detail this march recovers) -- both used to `return 1.0` early. Both `nDotL` (from the
+    // per-pixel normal) and `distanceFade` (from the per-pixel `viewDepth`) are non-uniform, and
+    // this function's marching loop below contains an implicit-LOD DepthTexture2D sample that must
+    // stay reachable via control flow WGSL can prove uniform -- confirmed live via Dawn's WGSL
+    // parser rejecting exactly this shape. Folded into a mask applied at the final return instead:
+    // the loop still runs (harmlessly, contributing nothing meaningful) when either condition
+    // fails, rather than skipping it.
     float nDotL = dot(geometricNormal, sunVector);
-    if (nDotL <= 0.0) {
-        return 1.0;
-    }
-
-    // Near-field only. Past the fade distance one shadow texel is already finer than the detail
-    // this march recovers, so the cascades are strictly the better answer and this is switched off.
     float fadeDistance = max(lightingData.contactShadowParamsExtra.y, SFT_EPSILON);
     float distanceFade = 1.0 - saturate((viewDepth - fadeDistance * 0.75) / (fadeDistance * 0.25));
-    if (distanceFade <= 0.0) {
-        return 1.0;
-    }
+    bool contactShadowActive = nDotL > 0.0 && distanceFade > 0.0;
 
     uint stepCount = clamp((uint)lightingData.contactShadowParams.z, 2u, 12u);
     float rayLength = lightingData.contactShadowParams.x;
@@ -575,32 +601,74 @@ float screenSpaceSunContactShadow(float3 worldPosition, float3 normal, float3 su
     float dither = contactShadowDither(worldPosition);
 
     float occlusion = 0.0;
+    // WGSL requires a texture sample to run from *uniform* control flow: every invocation in a
+    // subgroup must reach the same sample instruction, which a `break`/`continue` keyed on a
+    // per-pixel-varying value (candidateClip/candidateNdc/candidateUv all derive from this pixel's
+    // own worldPosition) violates -- confirmed live against Dawn/Firefox, not assumed. HLSL/SPIR-V
+    // have no such restriction, so this loop always ran a data-dependent early-out per pixel before
+    // sampling. Rewritten to sample unconditionally every iteration and fold each former
+    // `break`/`continue` into a boolean mask instead, computed *after* the sample so it can still
+    // depend on candidateUv/sceneDepth freely -- only the sample call itself has to be unconditional.
+    //
+    // `rayLeftValidDomain` reproduces the three `break`s exactly: once the marched ray leaves the
+    // camera's front half-space, the depth range, or the screen, it never re-enters (this march only
+    // ever moves away from the camera along one direction), so "sticky once true" is the same
+    // early-termination `break` gave, just expressed without actually exiting the loop. Everything
+    // else reproduces a `continue`: it only ever suppresses this one iteration's contribution.
+    bool rayLeftValidDomain = false;
+    // Texel fetch, not `.Sample()`: `gbufferSampler` is shared with the non-depth gbuffer textures
+    // (albedo/normal/material/...), which WebGPU requires a `Filtering`-type sampler binding for,
+    // while a `texture_depth_2d` read via a plain (non-comparison) sample requires the *opposite*
+    // `NonFiltering` binding type -- confirmed live (Dawn: "Texture binding ... is
+    // TextureSampleType::Depth but used statically with a sampler ... SamplerBindingType::
+    // Filtering"). One shared sampler binding cannot satisfy both requirements at once, so
+    // `.Load()` (no sampler at all) is the correct fix, not a workaround -- and it is what every
+    // other DepthTexture2D read that isn't paired with a comparison sampler already uses in this
+    // shader library. Harmless here too: `input.uv`/`candidateUv` are always exact screen-pixel
+    // coordinates against a same-resolution depth buffer, so there was never real sub-texel
+    // filtering happening to lose.
+    uint gbufferDepthWidth, gbufferDepthHeight;
+    gbufferDepth.GetDimensions(gbufferDepthWidth, gbufferDepthHeight);
     [unroll]
     for (uint i = 0; i < 12u; ++i) {
+        // stepCount comes from a ConstantBuffer, uniform across the whole draw, so branching on it
+        // alone is not what WGSL's analysis objects to -- this one is left as a real early-out.
         if (i >= stepCount) break;
+
         float t = ((float)i + dither) * stepLength;
         float3 candidate = origin + sunVector * t;
 
         float4 candidateClip = mul(float4(candidate, 1.0), lightingData.viewProjection);
-        if (candidateClip.w <= SFT_EPSILON) break;
-        float3 candidateNdc = candidateClip.xyz / candidateClip.w;
-        if (candidateNdc.z <= 0.0 || candidateNdc.z >= 1.0) break;
+        bool behindCamera = candidateClip.w <= SFT_EPSILON;
+        // Guarded so an already-invalid iteration cannot divide by (near-)zero and carry a NaN/Inf
+        // into candidateUv -- harmless for the math below since `active` masks it out regardless,
+        // but avoids relying on that instead of on well-defined arithmetic.
+        float3 candidateNdc = candidateClip.xyz / (behindCamera ? 1.0 : candidateClip.w);
+        bool outOfDepthRange = candidateNdc.z <= 0.0 || candidateNdc.z >= 1.0;
         float2 candidateUv = ndcToUv(candidateNdc.xy);
-        if (any(candidateUv <= 0.0) || any(candidateUv >= 1.0)) break;
+        bool outOfScreen = any(candidateUv <= 0.0) || any(candidateUv >= 1.0);
+        rayLeftValidDomain = rayLeftValidDomain || behindCamera || outOfDepthRange || outOfScreen;
+        bool active = !rayLeftValidDomain;
 
-        float sceneDepth = gbufferDepth.Sample(gbufferSampler, candidateUv);
+        // Always sampled -- clamped into range so an inactive iteration still performs a defined
+        // (if discarded) fetch instead of reading outside the valid UV domain.
+        float2 sampleUv = clamp(candidateUv, float2(0.0005), float2(0.9995));
+        float sceneDepth = gbufferDepth.Load(
+            int3(int2(sampleUv * float2(gbufferDepthWidth, gbufferDepthHeight)), 0));
         // Sky: nothing occludes here.
-        if (sceneDepth >= 0.999999) continue;
+        active = active && sceneDepth < 0.999999;
+
         float4 sceneWorldH = mul(float4(uvToNdc(candidateUv), sceneDepth, 1.0),
                                  lightingData.inverseViewProjection);
-        if (abs(sceneWorldH.w) <= SFT_EPSILON) continue;
-        float3 sceneWorld = sceneWorldH.xyz / sceneWorldH.w;
+        bool degenerateWorldH = abs(sceneWorldH.w) <= SFT_EPSILON;
+        float3 sceneWorld = sceneWorldH.xyz / (degenerateWorldH ? 1.0 : sceneWorldH.w);
+        active = active && !degenerateWorldH;
 
         float candidateViewDepth = -mul(float4(candidate, 1.0), lightingData.view).z;
         float sceneViewDepth = -mul(float4(sceneWorld, 1.0), lightingData.view).z;
         float confidence = contactOccluderConfidence(candidateViewDepth - sceneViewDepth,
                                                      thickness, maxSeparation);
-        if (confidence <= 0.0) continue;
+        active = active && confidence > 0.0;
 
         // Receiver-plane rejection.
         //
@@ -624,23 +692,24 @@ float screenSpaceSunContactShadow(float3 worldPosition, float3 normal, float3 su
         // grazing light angles: rayHeight then grows very slowly, so a ratio-only test can mistake
         // reconstruction noise from the receiver itself for a second, dithered shadow.
         float receiverPlaneTolerance = max(originOffset * 2.0, worldSizePerPixel(viewDepth) * 2.0);
-        if (abs(sampleHeight) <= receiverPlaneTolerance) continue;
+        active = active && abs(sampleHeight) > receiverPlaneTolerance;
 
         // Measure only height beyond the receiver-plane slab. A real raised occluder still has to
         // reach the marched ray; the receiver's own plane has already been rejected above.
         float occluderHeight = max(sampleHeight - receiverPlaneTolerance, 0.0);
         float requiredHeight = max(rayHeight - receiverPlaneTolerance, receiverPlaneTolerance);
         confidence *= smoothstep(0.15, 0.5, occluderHeight / requiredHeight);
-        if (confidence <= 0.0) continue;
+        active = active && confidence > 0.0;
 
         // Occluders found near the receiver are what this effect is for; ones at the far end of the
         // ray are increasingly likely to be unrelated geometry, so their contribution tapers off.
         float rangeFade = 1.0 - smoothstep(0.5, 1.0, t / max(rayLength, SFT_EPSILON));
-        occlusion = max(occlusion, confidence * rangeFade * screenBorderFade(candidateUv));
+        float contribution = confidence * rangeFade * screenBorderFade(candidateUv);
+        occlusion = active ? max(occlusion, contribution) : occlusion;
     }
 
     float intensity = saturate(lightingData.contactShadowParamsExtra.x);
-    return saturate(1.0 - occlusion * intensity * distanceFade);
+    return contactShadowActive ? saturate(1.0 - occlusion * intensity * distanceFade) : 1.0;
 }
 
 // Cascade selection plus the cross-fade weight for a given view-space distance.
@@ -713,45 +782,58 @@ bool directionalShadowDebug(uint mode, float3 worldPosition, float3 normal, floa
     uint cascade;
     float blend;
     selectShadowCascade(viewDepth, cascade, blend);
-    if (viewDepth > lightingData.sun.cascadeSplits[cascade]) {
-        return false;
-    }
 
+    // The three checks below (cascade coverage, view-index range, receiver validity) all used to
+    // `return false`/`return true` early -- every one of them is non-uniform (`viewDepth`,
+    // `worldPosition`), and this function reaches `fwidth()` further down for two of its debug
+    // modes, which -- like `textureSample` -- requires uniform control flow at the call site
+    // (confirmed live: WebGPU aborted the whole process on exactly this shape, even though these
+    // are debug-only visualizations -- WGSL validates an entire shader module, unreached branches
+    // included, so a debug-only uniformity bug still fails the whole compile). Folded into a single
+    // `coverageOk` flag instead: every mode branch below still runs unconditionally (`mode` alone,
+    // a ConstantBuffer field, is genuinely uniform and safe to branch/return on), but only paints
+    // real data into `debugColor` when coverage actually holds, otherwise leaving the loud magenta
+    // "coverage invariant violated" flag already set below -- the same visual result as before for
+    // every mode, just decided once up front instead of via an early return.
+    bool inRange = viewDepth <= lightingData.sun.cascadeSplits[cascade];
     uint viewIndex = (uint)lightingData.sun.cascadeParams.z + cascade;
-    if (viewIndex >= (uint)lightingData.counts.z) {
-        return false;
-    }
-    ShadowViewGpuData view = lightingData.shadowViews[viewIndex];
+    bool viewIndexValid = viewIndex < (uint)lightingData.counts.z;
+    ShadowViewGpuData view = lightingData.shadowViews[viewIndexValid ? viewIndex : 0u];
     ShadowReceiver receiver = projectShadowReceiver(view, worldPosition, normal, lightVector,
                                                     worldDx, worldDy);
-    if (!receiver.valid) {
-        // Inside the cascade's depth range but outside its projection: the coverage invariant has
-        // been violated. Flag it loudly rather than blending it away.
-        debugColor = float3(1.0, 0.0, 1.0);
-        return true;
-    }
+    bool coverageOk = inRange && viewIndexValid && receiver.valid;
+    // Inside the cascade's depth range but outside its projection (or otherwise miscovered): the
+    // coverage invariant has been violated. Flag it loudly rather than blending it away; overwritten
+    // below for whichever mode actually matches, if coverage is fine.
+    debugColor = float3(1.0, 0.0, 1.0);
 
     float tileResolution = max(view.filterParams.y, 1.0);
     float baseRadiusLocal = max(lightingData.shadowParams.x, 0.5) / tileResolution;
     const float depthEpsilon = 2.0e-6;
     float comparisonDepth = saturate(receiver.depth - depthEpsilon);
-    // Sample (implicit LOD 0), not SampleLevel(..., 0.0) -- see the other DepthTexture2D
-    // SampleLevel call above for why (a Slang WGSL-backend gap with explicit-level sampling on
-    // texture_depth_2d, not a behavior change: the LOD here was always the constant 0).
-    float atlasDepth = directionalShadowAtlas.Sample(shadowDepthSampler, receiver.atlasUv);
+    // Texel fetch, not `.Sample()`/`.SampleLevel()` -- this debug-only visualization path is
+    // reached past several per-pixel-varying conditions above (`viewDepth`/`receiver.valid`, now
+    // folded into `coverageOk` rather than early-returning, but this call must still not depend on
+    // reaching it only when they hold), so it needs the same fix as the PCSS blocker search's
+    // identical call; see that comment for why `.Load()` is the correct (not just convenient)
+    // choice here, not a workaround.
+    uint directionalAtlasWidth, directionalAtlasHeight;
+    directionalShadowAtlas.GetDimensions(directionalAtlasWidth, directionalAtlasHeight);
+    float atlasDepth = directionalShadowAtlas.Load(
+        int3(int2(receiver.atlasUv * float2(directionalAtlasWidth, directionalAtlasHeight)), 0));
 
     // Stages before filtering. They intentionally do not call the complete shadow path, so they
     // remain useful when diagnosing whether an artifact starts in projection/bias or in filtering.
     if (mode == SFT_SHADOW_DEBUG_SHADOW_UV) {
-        debugColor = float3(receiver.atlasUv, 0.25);
+        if (coverageOk) debugColor = float3(receiver.atlasUv, 0.25);
         return true;
     }
     if (mode == SFT_SHADOW_DEBUG_RECEIVER_DEPTH) {
-        debugColor = receiver.depth.xxx;
+        if (coverageOk) debugColor = receiver.depth.xxx;
         return true;
     }
     if (mode == SFT_SHADOW_DEBUG_ATLAS_DEPTH) {
-        debugColor = atlasDepth.xxx;
+        if (coverageOk) debugColor = atlasDepth.xxx;
         return true;
     }
     if (mode == SFT_SHADOW_DEBUG_DEPTH_DELTA) {
@@ -760,49 +842,55 @@ bool directionalShadowDebug(uint mode, float3 worldPosition, float3 normal, floa
         // disagreement without requiring a scene-specific depth-range constant.
         float delta = receiver.depth - atlasDepth;
         float normalizedDelta = saturate(abs(delta) / max(fwidth(receiver.depth) * 8.0, 1.0e-5));
-        debugColor = delta >= 0.0 ? float3(0.5 + 0.5 * normalizedDelta, 0.5, 0.5 - 0.5 * normalizedDelta)
-                                  : float3(0.5 - 0.5 * normalizedDelta, 0.5, 0.5 + 0.5 * normalizedDelta);
+        if (coverageOk) {
+            debugColor = delta >= 0.0 ? float3(0.5 + 0.5 * normalizedDelta, 0.5, 0.5 - 0.5 * normalizedDelta)
+                                      : float3(0.5 - 0.5 * normalizedDelta, 0.5, 0.5 + 0.5 * normalizedDelta);
+        }
         return true;
     }
     if (mode == SFT_SHADOW_DEBUG_NORMAL_BIAS) {
         float4 unbiasedClip = mul(float4(worldPosition, 1.0), view.viewProjection);
         float2 unbiasedUv = ndcToUv(unbiasedClip.xy / max(unbiasedClip.w, SFT_EPSILON));
         float offsetTexels = length((receiver.localUv - unbiasedUv) * tileResolution);
-        debugColor = float3(saturate(offsetTexels / 3.0), saturate(abs(receiver.depth -
-                            unbiasedClip.z / max(unbiasedClip.w, SFT_EPSILON)) * 8192.0), 0.0);
+        if (coverageOk) {
+            debugColor = float3(saturate(offsetTexels / 3.0), saturate(abs(receiver.depth -
+                                unbiasedClip.z / max(unbiasedClip.w, SFT_EPSILON)) * 8192.0), 0.0);
+        }
         return true;
     }
     if (mode == SFT_SHADOW_DEBUG_RECEIVER_PLANE_GRADIENT) {
-        debugColor = float3(saturate(receiver.gradient * 8.0 + 0.5), 0.5);
+        if (coverageOk) debugColor = float3(saturate(receiver.gradient * 8.0 + 0.5), 0.5);
         return true;
     }
     if (mode == SFT_SHADOW_DEBUG_HARD_COMPARISON) {
         float hardVisibility = directionalShadowAtlas.SampleCmpLevelZero(
             shadowCompareSampler, receiver.atlasUv, comparisonDepth);
-        debugColor = hardVisibility.xxx;
+        if (coverageOk) debugColor = hardVisibility.xxx;
         return true;
     }
     if (mode == SFT_SHADOW_DEBUG_PCF) {
         float pcfVisibility = filteredShadowVisibility(
             directionalShadowAtlas, view, receiver.atlasUv, receiver.depth, receiver.gradient,
             baseRadiusLocal, shadowFilterRotation(receiver.localUv, tileResolution), depthEpsilon);
-        debugColor = pcfVisibility.xxx;
+        if (coverageOk) debugColor = pcfVisibility.xxx;
         return true;
     }
 
-    float visibility = shadowVisibility(directionalShadowAtlas, viewIndex, worldPosition, normal,
-                                        lightVector, worldDx, worldDy);
+    float visibility = shadowVisibility(directionalShadowAtlas, viewIndexValid ? viewIndex : 0u,
+                                        worldPosition, normal, lightVector, worldDx, worldDy);
     float3 tint = cascadeDebugColor(cascade);
 
     if (mode == SFT_SHADOW_DEBUG_CASCADE_INDEX) {
-        debugColor = tint * (0.25 + 0.75 * visibility);
+        if (coverageOk) debugColor = tint * (0.25 + 0.75 * visibility);
         return true;
     }
     if (mode == SFT_SHADOW_DEBUG_CASCADE_FADE) {
         float3 nextTint = cascade + 1 < cascadeCount ? cascadeDebugColor(cascade + 1) : float3(1.0);
         // White banding marks the fade region so its width is directly measurable on screen.
-        debugColor = lerp(tint, nextTint, blend) * (0.25 + 0.75 * visibility) +
-                     float3(blend * (1.0 - blend) * 2.0);
+        if (coverageOk) {
+            debugColor = lerp(tint, nextTint, blend) * (0.25 + 0.75 * visibility) +
+                         float3(blend * (1.0 - blend) * 2.0);
+        }
         return true;
     }
     if (mode == SFT_SHADOW_DEBUG_TEXEL_GRID) {
@@ -813,12 +901,16 @@ bool directionalShadowDebug(uint mode, float3 worldPosition, float3 normal, floa
         float2 distanceToLine = abs(frac(texel) - 0.5) / texelWidth;
         float line = 1.0 - saturate(min(distanceToLine.x, distanceToLine.y) - 0.5);
         float resolvable = 1.0 - smoothstep(0.5, 1.0, max(texelWidth.x, texelWidth.y));
-        debugColor = lerp(tint * (0.25 + 0.75 * visibility), float3(1.0), line * resolvable * 0.85);
+        if (coverageOk) {
+            debugColor = lerp(tint * (0.25 + 0.75 * visibility), float3(1.0), line * resolvable * 0.85);
+        }
         return true;
     }
     // SFT_SHADOW_DEBUG_DIRECTIONAL_CSM: the selected cascade before its fade is visualized above;
     // this mode deliberately evaluates the full cascade-selection and blend stage.
-    debugColor = directionalShadow(worldPosition, normal, lightVector, worldDx, worldDy, viewDepth).xxx;
+    if (coverageOk) {
+        debugColor = directionalShadow(worldPosition, normal, lightVector, worldDx, worldDy, viewDepth).xxx;
+    }
     return true;
 }
 
@@ -879,25 +971,49 @@ float3 reconstructWorldRayDirection(float2 uv) {
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
-    float depth = gbufferDepth.Sample(gbufferSampler, input.uv);
+    // Texel fetch, not `.Sample()` -- see the contact-shadow march's identical fix for why a shared
+    // sampler with the other (Filtering-requiring) gbuffer textures cannot also satisfy WebGPU's
+    // NonFiltering requirement for a plain depth-texture sample.
+    uint gbufferDepthWidth, gbufferDepthHeight;
+    gbufferDepth.GetDimensions(gbufferDepthWidth, gbufferDepthHeight);
+    float depth = gbufferDepth.Load(
+        int3(int2(input.uv * float2(gbufferDepthWidth, gbufferDepthHeight)), 0));
     AtmosphereParams atmosphere = unpackAtmosphereParams(atmosphereData);
     float3 planetOrigin = atmosphereData.cameraPositionPlanetSpace.xyz;
     float3 sunDirToward = safeNormalizeOr(atmosphereData.sunDirectionAngularRadius.xyz, float3(0.0, 1.0, 0.0));
     float atmosphereViewHeight = max(length(planetOrigin), atmosphere.planetRadiusMeters + 1.0);
 
-    if (depth >= 0.999999) {
+    // Deliberately not an early `return` here (a previous version returned `float4(sky, 1.0)`
+    // directly): `depth` comes from an implicit-LOD DepthTexture2D sample, so it varies per pixel,
+    // and every gbufferDepth/shadow-atlas sample later in this function (the CSM cascades, the
+    // spot/point light shadowVisibility calls, the screen-space contact-shadow march) is also
+    // implicit-LOD -- WGSL requires those to run from *uniform* control flow, which a per-pixel
+    // divergent `return` ahead of them breaks. Confirmed live: WebGPU aborted the whole process on
+    // exactly this shape. The fix is to never let a per-pixel-varying condition gate a `return`
+    // anywhere before the last implicit-LOD sample in the function; the debug-mode `return`s below
+    // are fine to keep since `shadowDebugMode` is a ConstantBuffer field, uniform across the draw.
+    //
+    // The cost: every pixel, sky included, now runs the full lighting/shadow pipeline below on a
+    // reconstructed "surface" at the far clip plane, whose result is simply discarded in favor of
+    // `skyColor` at the very end for a sky pixel. Wasteful for sky-heavy frames, but correct on
+    // every backend and identical in shape everywhere rather than diverging per target -- a
+    // genuine early-out (e.g. a depth/stencil test skipping this pass's rasterization for sky
+    // pixels at the pipeline level) would recover the cost without reintroducing the same bug, but
+    // that is a render-graph change, not a shader one, and is out of scope here.
+    bool isSky = depth >= 0.999999;
+    float3 skyColor = float3(0.0);
+    if (isSky) {
         float3 rayDir = reconstructWorldRayDirection(input.uv);
         float tGroundUnused;
         bool rayIntersectsGround = distanceToGround(atmosphere, planetOrigin, rayDir, tGroundUnused);
         float2 skyUv = skyViewLutUv(atmosphere, rayDir, float3(0.0, 1.0, 0.0), sunDirToward,
                                     atmosphereViewHeight, rayIntersectsGround, SFT_SKY_VIEW_LUT_SIZE);
-        float3 sky = skyViewLut.SampleLevel(atmosphereSampler, skyUv, 0.0).rgb;
+        skyColor = skyViewLut.SampleLevel(atmosphereSampler, skyUv, 0.0).rgb;
         float3 upVector = planetOrigin * safeRcp(atmosphereViewHeight);
         float3 transmittanceToSpace = sampleTransmittanceLut(transmittanceLut, atmosphereSampler, atmosphere,
                                                               atmosphereViewHeight, dot(upVector, rayDir));
-        sky += sunDiskLuminance(rayDir, sunDirToward, atmosphereData.sunDirectionAngularRadius.w,
-                                atmosphereData.sunIlluminance.rgb, transmittanceToSpace);
-        return float4(sky, 1.0);
+        skyColor += sunDiskLuminance(rayDir, sunDirToward, atmosphereData.sunDirectionAngularRadius.w,
+                                     atmosphereData.sunIlluminance.rgb, transmittanceToSpace);
     }
 
     float4 clip = float4(uvToNdc(input.uv), depth, 1.0);
@@ -1008,17 +1124,25 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         hdr += max(tracedEffect.rgb, 0.0) * specularTint * (1.0 - saturate(roughness));
     }
 
+    // Both light loops below used to `continue` past `shadowVisibility()`'s implicit-LOD shadow-
+    // atlas sample whenever this pixel was out of the light's range/cone -- a per-pixel-varying
+    // condition (worldPosition-derived), which is exactly the same uniformity violation the
+    // top-of-function sky check had. `shadowVisibility` still only runs when `shadowView >= 0`,
+    // which stays a real `if`: that value comes from the light's own ConstantBuffer entry, so it is
+    // identical for every pixel evaluating loop iteration `i` and introduces no divergence. Only the
+    // per-pixel range/cone rejection moves into a mask applied to the accumulated contribution
+    // instead of skipping the call.
     uint spotCount = min((uint)lightingData.counts.x, SFT_MAX_SPOT_LIGHTS);
     [loop]
     for (uint i = 0; i < spotCount; ++i) {
         SpotLightGpuData light = lightingData.spotLights[i];
         float3 toLight = light.positionRange.xyz - worldPosition;
         float distanceToLight = length(toLight);
-        if (distanceToLight >= light.positionRange.w) continue;
         float3 lightVector = toLight / max(distanceToLight, SFT_EPSILON);
         float coneCos = dot(safeNormalizeOr(light.directionOuterCos.xyz, float3(0.0, -1.0, 0.0)), -lightVector);
         float cone = smoothstep(light.directionOuterCos.w, light.radianceInnerCos.w, coneCos);
-        if (cone <= 0.0) continue;
+        bool active = distanceToLight < light.positionRange.w && cone > 0.0;
+
         float visibility = 1.0;
         int shadowView = (int)light.shadowParams.x;
         if (shadowView >= 0) {
@@ -1027,8 +1151,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         }
         float3 radiance = light.radianceInnerCos.rgb * punctualAttenuation(distanceToLight, light.positionRange.w) * cone;
         float spotSphereAngleTangent = light.shadowParams.y / max(distanceToLight, SFT_EPSILON);
-        hdr += evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal, viewVector,
-                              lightVector, radiance, spotSphereAngleTangent) * visibility;
+        float3 contribution = evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal,
+                                             viewVector, lightVector, radiance, spotSphereAngleTangent) * visibility;
+        hdr += active ? contribution : float3(0.0);
     }
 
     uint pointCount = min((uint)lightingData.counts.y, SFT_MAX_POINT_LIGHTS);
@@ -1037,7 +1162,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         PointLightGpuData light = lightingData.pointLights[i];
         float3 toLight = light.positionRange.xyz - worldPosition;
         float distanceToLight = length(toLight);
-        if (distanceToLight >= light.positionRange.w) continue;
+        bool active = distanceToLight < light.positionRange.w;
         float3 lightVector = toLight / max(distanceToLight, SFT_EPSILON);
         float visibility = 1.0;
         int firstShadowView = (int)light.shadowParams.x;
@@ -1048,8 +1173,9 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         }
         float3 radiance = light.radianceSourceRadius.rgb * punctualAttenuation(distanceToLight, light.positionRange.w);
         float pointSphereAngleTangent = light.radianceSourceRadius.w / max(distanceToLight, SFT_EPSILON);
-        hdr += evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal, viewVector,
-                              lightVector, radiance, pointSphereAngleTangent) * visibility;
+        float3 contribution = evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal,
+                                             viewVector, lightVector, radiance, pointSphereAngleTangent) * visibility;
+        hdr += active ? contribution : float3(0.0);
     }
 
     hdr *= lightingData.ambientRadianceExposure.w;
@@ -1075,5 +1201,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         /*useMultiScattering*/ true, /*includeGroundBounce*/ false);
     hdr = hdr * aerial.transmittance + aerial.luminance;
 
-    return float4(max(hdr, 0.0), albedoSample.a);
+    // Sky pixels discard everything computed above (see the top-of-function comment) and take
+    // skyColor/alpha=1 instead -- a plain select, not a branch, so it introduces no further
+    // uniformity concerns of its own.
+    return isSky ? float4(skyColor, 1.0) : float4(max(hdr, 0.0), albedoSample.a);
 }

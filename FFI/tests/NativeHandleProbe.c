@@ -2,7 +2,7 @@
 /// prints what the RHI, native-handle, window and time queries actually return.
 ///
 /// Not a CI test — it creates a window and a graphics device. Run by hand on a machine with a GPU:
-///   FfiNativeHandleProbe [vulkan|d3d12] [physical_device_id] [nonative]
+///   FfiNativeHandleProbe [vulkan|d3d12|webgpu] [physical_device_id] [nonative]
 ///
 /// `nonative` turns off `enable_native_access`, letting the same probe verify the RHI/window/time
 /// surface without exercising the raw-handle extension.
@@ -22,6 +22,7 @@ static void report_startup(SturdyEngine engine) {
     SturdyBool native = STURDY_FALSE;
     SturdyVulkanHandles vk;
     SturdyD3D12Handles dx;
+    SturdyWebGpuHandles wgpu;
     char text[256];
     size_t length = 0;
     uint32_t count = 0;
@@ -113,6 +114,12 @@ static void report_startup(SturdyEngine engine) {
     result = sturdy_native_vulkan(engine, &vk);
     printf("native_vulkan          -> %d\n", (int)result);
     printf("  instance=%p device=%p\n", vk.instance, vk.device);
+
+    memset(&wgpu, 0, sizeof(wgpu));
+    result = sturdy_native_webgpu(engine, &wgpu);
+    printf("native_webgpu          -> %d\n", (int)result);
+    printf("  instance=%p adapter=%p device=%p queue=%p\n", wgpu.instance, wgpu.adapter, wgpu.device,
+           wgpu.queue);
 
     queue = NULL;
     result = sturdy_native_d3d12_queue(engine, STURDY_QUEUE_CLASS_COMPUTE, 0, &queue);
@@ -1285,6 +1292,8 @@ int main(int argc, char **argv) {
         config.graphics_backend = STURDY_BACKEND_VULKAN;
     } else if (argc > 1 && strcmp(argv[1], "d3d12") == 0) {
         config.graphics_backend = STURDY_BACKEND_D3D12;
+    } else if (argc > 1 && strcmp(argv[1], "webgpu") == 0) {
+        config.graphics_backend = STURDY_BACKEND_WEBGPU;
     }
     if (argc > 2 && strcmp(argv[2], "nonative") != 0 && strcmp(argv[2], "hold") != 0) {
         config.physical_device_id = argv[2];
