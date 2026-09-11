@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 27u
+#define STURDY_ABI_VERSION_MINOR 28u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -5406,6 +5406,453 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_native_d3d12_queue(SturdyEngine e
 ///         access was not enabled.
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_native_webgpu(SturdyEngine engine,
                                                              SturdyWebGpuHandles *out_handles);
+
+// ---------------------------------------------------------------------------------------------
+// Reflection
+// ---------------------------------------------------------------------------------------------
+//
+// Runtime introspection over C++ types reflected via SFT_REFLECT_TYPE/FIELD/METHOD/EVENT — the
+// actual modding surface: a foreign-language mod finds a type by name, reads/writes its fields,
+// invokes its methods, and installs overrides/hooks/event listeners entirely through this
+// section, without ever needing to know the type's real C++ definition.
+//
+// Independent of any running engine: `SFT::Reflection::TypeRegistry` is a process-wide singleton,
+// not something owned by a `SturdyEngine` session, so every function below may be called before
+// `sturdy_runtime_run`, after it returns, or concurrently with it, from any thread — the same
+// shape as the logging section above. IDs are correspondingly **not** scope-bound handles like
+// `SturdyEngine`/`SturdyFrame`: once a type/field/method/event is registered, its id is stable for
+// the process lifetime (or until explicitly unregistered) and there is nothing to "expire".
+//
+// **Object pointers are the caller's responsibility.** `sturdy_reflection_get_field` and friends
+// take a raw `void *object` — this ABI has no entity/handle system for arbitrary reflected C++
+// objects (unlike ECS components, which live in archetype storage `sturdy_ecs_get_component`
+// copies out of). A mod is expected to reach an object through some other part of this ABI that
+// legitimately hands out a pointer (or to own the memory itself, for a type it registered via
+// `sturdy_reflection_type_builder_*`). Passing a dangling or wrongly-typed pointer is exactly as
+// unsafe here as it would be in C++ — this boundary cannot detect it.
+//
+// **A macro-reflected C++ type must already be registered before `sturdy_reflection_find_type`
+// can see it.** `SFT_REFLECT_TYPE` only specializes a C++ template at compile time — by design,
+// it performs no registration of its own (see the type's own header for why). Registration
+// happens lazily, the first time C++ code calls `TypeRegistry::instance().type<T>()`/
+// `try_register<T>()` — and *only* C++ code can do that, since it is a template requiring
+// compile-time knowledge of `T` that a foreign caller fundamentally does not have. In practice
+// this means: the game/engine's own C++ startup code must explicitly "touch" every type it wants
+// moddable at least once (however briefly) before any mod can find it through this section — a
+// type nobody ever asked about in C++ is invisible here, not because of a permissions boundary,
+// but because it was never registered. Types built entirely at runtime through
+// `sturdy_reflection_type_builder_*` have no such requirement — `_finish` registers them itself.
+
+/// Identifies a reflected type, field, method, event, or enum. Derived from its canonical name
+/// and stable for the process lifetime (or until unregistered) — the same shape as
+/// `SturdyResourceId`, since both wrap the engine's underlying 128-bit name hash identically.
+typedef struct SturdyReflectionId {
+    uint64_t high;
+    uint64_t low;
+} SturdyReflectionId;
+
+/// A reflected id known to be invalid — `{0, 0}` can never be produced by hashing a real name.
+/// Useful for initializing an `out_*` parameter before a call that might fail.
+///
+/// @note Deliberately spelled as a bare brace-init-list, not a C99 compound-literal cast: this
+///       form is valid as a declaration's initializer (`SturdyReflectionId id =
+///       STURDY_REFLECTION_ID_NONE;`) in both C99 and C++, whereas a compound literal
+///       (`(SturdyReflectionId){0, 0}`) is C-only and would not compile in a C++ translation
+///       unit — this header must work as both. It is *not* valid as a bare function argument in
+///       C (only in C++); pass a named variable instead if you need that.
+#define STURDY_REFLECTION_ID_NONE {0, 0}
+
+/// What the engine knows about a reflected field.
+typedef struct SturdyReflectionFieldInfo {
+    /// Set by the engine to `sizeof(SturdyReflectionFieldInfo)` as this build sees it.
+    uint32_t struct_size;
+    SturdyReflectionId field;
+    /// Identifies the field's declared type. If this also resolves via
+    /// `sturdy_reflection_find_type`/`_find_enum`, the field is a nested reflected struct/enum;
+    /// otherwise it is a primitive or an opaque type this ABI does not further describe.
+    SturdyReflectionId field_type;
+    uint32_t size;
+    uint32_t align;
+    /// True for a static data member — access it with `sturdy_reflection_get_static_field`/
+    /// `_set_static_field` instead of the instance versions.
+    SturdyBool is_static;
+    /// True when the field rejects writes (`sturdy_reflection_set_field` returns
+    /// `STURDY_ERROR_INVALID_ARGUMENT`).
+    SturdyBool is_read_only;
+    /// True when the field is a recognized container (`std::vector<T>` with a trivially-copyable
+    /// `T`, in the current engine) — see the container section below.
+    SturdyBool is_container;
+    uint8_t reserved;
+} SturdyReflectionFieldInfo;
+
+/// What the engine knows about a reflected method.
+typedef struct SturdyReflectionMethodInfo {
+    /// Set by the engine to `sizeof(SturdyReflectionMethodInfo)` as this build sees it.
+    uint32_t struct_size;
+    SturdyReflectionId method;
+    SturdyReflectionId return_type;
+    uint32_t param_count;
+    /// True for a static member function — call it with `sturdy_reflection_invoke_static_method`
+    /// instead of the instance version.
+    SturdyBool is_static;
+    uint8_t reserved[3];
+} SturdyReflectionMethodInfo;
+
+/// A type-erased method call/override/hook body: `object` is the receiver (null for a static
+/// method), `args` is one already-typed, caller-marshalled pointer per parameter (see
+/// `SturdyReflectionMethodInfo::param_count`), `out_return` is uninitialized storage for the
+/// return value (ignored when the method returns nothing), `user_data` is whatever was passed to
+/// `sturdy_reflection_register_override`.
+typedef void(STURDY_ABI_CALL *SturdyReflectionMethodFn)(void *object,
+                                                         const void *const *args,
+                                                         void *out_return,
+                                                         void *user_data);
+
+/// A type-erased *observer* body — used for both a method before/after hook and an event
+/// listener, which share this exact shape (unlike `SturdyReflectionMethodFn`, there is no
+/// `out_return`: neither a hook nor an event listener produces a value, only observes `args`).
+/// `object` is the method's receiver (null for a static method) or whatever
+/// `sturdy_reflection_fire_event` was called with; `args` is one already-typed pointer per
+/// parameter; `user_data` is whatever was passed to `_add_before_hook`/`_add_after_hook`/
+/// `_subscribe_event`.
+typedef void(STURDY_ABI_CALL *SturdyReflectionObserverFn)(void *object,
+                                                           const void *const *args,
+                                                           void *user_data);
+
+/// Handle to an installed before-hook/after-hook/event-listener subscription, for later removal
+/// with the matching `_remove_*`/`_unsubscribe_event` call. Not scope-bound — stays valid until
+/// explicitly removed or the type it was installed on is unregistered.
+typedef struct SturdyReflectionSubscription {
+    uint64_t id;
+} SturdyReflectionSubscription;
+
+// ---- Type lookup ----
+
+/// Looks up a reflected type by canonical name.
+///
+/// @return `STURDY_ERROR_NOT_AVAILABLE` when nothing is registered under that name.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_find_type(const char *name, SturdyReflectionId *out_type);
+
+/// Reads a type's canonical name. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_name(SturdyReflectionId type,
+                                                                    char *buffer,
+                                                                    size_t capacity,
+                                                                    size_t *out_length);
+
+/// Reads a type's instance size/alignment — what `object` must point at `size` bytes of, aligned
+/// to `align`, for every instance-field/method call below.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_size(SturdyReflectionId type,
+                                                                    uint32_t *out_size,
+                                                                    uint32_t *out_align);
+
+/// Unregisters a type, so no future `find_type`/field/method/event lookup can reach it — the
+/// mod-unload primitive. See `TypeRegistry::unregister_type`'s C++ doc comment for the full
+/// quiescence requirement: stop dispatching to this type (no calls in flight against it on any
+/// thread) *before* calling this, and only unload any shared library it came from after.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_unregister_type(SturdyReflectionId type);
+
+// ---- Field/method/event lookup ----
+
+/// Looks up a field by name, walking `type`'s reflected base chain if not declared directly on it
+/// (the same behavior as `TypeRegistry::find_field`).
+///
+/// @return `STURDY_ERROR_NOT_AVAILABLE` when no such field is declared on `type` or any ancestor.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_find_field(SturdyReflectionId type,
+                                                                     const char *name,
+                                                                     SturdyReflectionId *out_field);
+
+/// Reads what the engine knows about a field.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_field_info(SturdyReflectionId type,
+                                                                     SturdyReflectionId field,
+                                                                     SturdyReflectionFieldInfo *out_info);
+
+/// Looks up a method by name, walking `type`'s reflected base chain. See `sturdy_reflection_find_field`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_find_method(SturdyReflectionId type,
+                                                                      const char *name,
+                                                                      SturdyReflectionId *out_method);
+
+/// Reads what the engine knows about a method.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_method_info(SturdyReflectionId type,
+                                                                      SturdyReflectionId method,
+                                                                      SturdyReflectionMethodInfo *out_info);
+
+/// Looks up a declared hook point by name, walking `type`'s reflected base chain. See
+/// `sturdy_reflection_find_field`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_find_event(SturdyReflectionId type,
+                                                                     const char *name,
+                                                                     SturdyReflectionId *out_event);
+
+// ---- Field access ----
+
+/// Copies a field's current value out of `object` into `out_data`.
+///
+/// @param size Must equal the field's registered size (`SturdyReflectionFieldInfo::size`) — a
+///        mismatch is rejected rather than partially copied.
+/// @return `STURDY_ERROR_INVALID_ARGUMENT` on a size mismatch or a field with no readable
+///         representation (an opaque non-`Trivial`, non-container field this ABI cannot copy).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_get_field(SturdyReflectionId type,
+                                                                    void *object,
+                                                                    SturdyReflectionId field,
+                                                                    void *out_data,
+                                                                    uint32_t size);
+
+/// Overwrites a field's value in place on `object`. See `sturdy_reflection_get_field`.
+///
+/// @return `STURDY_ERROR_INVALID_ARGUMENT` on a size mismatch, a `ReadOnly` field, or a field with
+///         no writable representation.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_set_field(SturdyReflectionId type,
+                                                                    void *object,
+                                                                    SturdyReflectionId field,
+                                                                    const void *data,
+                                                                    uint32_t size);
+
+/// Copies a static field's current value out. There is no per-instance object — the field has one
+/// true address, tracked internally.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_get_static_field(SturdyReflectionId type,
+                                                                           SturdyReflectionId field,
+                                                                           void *out_data,
+                                                                           uint32_t size);
+
+/// Overwrites a static field's value. See `sturdy_reflection_get_static_field`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_set_static_field(SturdyReflectionId type,
+                                                                           SturdyReflectionId field,
+                                                                           const void *data,
+                                                                           uint32_t size);
+
+// ---- Container access ----
+//
+// For a field where SturdyReflectionFieldInfo::is_container is true (currently: std::vector<T>
+// with a trivially-copyable T — see Reflection/ContainerInfo.hpp's doc comment for why other
+// shapes are not yet supported). `object` is the same field-owning instance
+// sturdy_reflection_get_field/_set_field would take; element access goes through the field, not
+// through a separate container handle.
+
+/// Returns a container field's current element count.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_container_size(SturdyReflectionId type,
+                                                                         void *object,
+                                                                         SturdyReflectionId field,
+                                                                         uint32_t *out_count);
+
+/// Reads the element at `index` out of a container field.
+///
+/// @param element_size Must equal the container's declared element size.
+/// @return `STURDY_ERROR_OUT_OF_RANGE` when `index >= sturdy_reflection_container_size(...)`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_container_get_element(SturdyReflectionId type,
+                                                                                void *object,
+                                                                                SturdyReflectionId field,
+                                                                                uint32_t index,
+                                                                                void *out_data,
+                                                                                uint32_t element_size);
+
+/// Writes `data` into the element at `index` of a container field. See
+/// `sturdy_reflection_container_get_element`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_container_set_element(SturdyReflectionId type,
+                                                                                void *object,
+                                                                                SturdyReflectionId field,
+                                                                                uint32_t index,
+                                                                                const void *data,
+                                                                                uint32_t element_size);
+
+/// Resizes a container field to exactly `new_size` elements (default-constructing new ones,
+/// destroying truncated ones).
+///
+/// @return `STURDY_ERROR_NOT_AVAILABLE` when the element type has no default constructor.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_container_resize(SturdyReflectionId type,
+                                                                           void *object,
+                                                                           SturdyReflectionId field,
+                                                                           uint32_t new_size);
+
+// ---- Method invocation ----
+
+/// Calls an instance method on `object`, dispatching to a mod-installed override
+/// (`sturdy_reflection_register_override`) instead of the real implementation when one is
+/// present, and firing any before/after hooks around it either way.
+///
+/// @param args One already-typed pointer per parameter, in declared order
+///        (`SturdyReflectionMethodInfo::param_count` entries). Pass null when `param_count` is 0.
+/// @param out_return Receives the return value (`out_return_size` bytes), ignored when the method
+///        returns nothing. May be null if you do not need it.
+/// @return `STURDY_ERROR_INVALID_ARGUMENT` when `arg_count` does not match `param_count`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_invoke_method(SturdyReflectionId type,
+                                                                        void *object,
+                                                                        SturdyReflectionId method,
+                                                                        const void *const *args,
+                                                                        uint32_t arg_count,
+                                                                        void *out_return,
+                                                                        uint32_t out_return_size);
+
+/// Calls a static method. See `sturdy_reflection_invoke_method`; there is no receiver.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_invoke_static_method(SturdyReflectionId type,
+                                                                               SturdyReflectionId method,
+                                                                               const void *const *args,
+                                                                               uint32_t arg_count,
+                                                                               void *out_return,
+                                                                               uint32_t out_return_size);
+
+// ---- Overrides and hooks ----
+
+/// Installs a full replacement for a method — `sturdy_reflection_invoke_method`/
+/// `_invoke_static_method` call `override_fn` instead of the real implementation from this point
+/// on. Only one override may be active per method; installing a second silently replaces the
+/// first (there is no chain — a mod that wants "wrap, not replace" should call through the
+/// before/after hooks instead, or capture and call the previous override itself before
+/// installing its own).
+///
+/// @param override_fn Must not be null. Pass a null-checking no-op and call
+///        `sturdy_reflection_clear_override` instead of passing null here to remove an override.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_register_override(SturdyReflectionId type,
+                                                                            SturdyReflectionId method,
+                                                                            SturdyReflectionMethodFn override_fn,
+                                                                            void *user_data);
+
+/// Removes a previously installed override, restoring the real implementation.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_clear_override(SturdyReflectionId type,
+                                                                         SturdyReflectionId method);
+
+/// Adds a listener that fires just before a method runs (with the same `args` the real call
+/// receives), in addition to — not instead of — the real implementation/override. Unlike
+/// `sturdy_reflection_register_override`, any number of mods may add hooks without clobbering
+/// each other's.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_add_before_hook(SturdyReflectionId type,
+                                                                          SturdyReflectionId method,
+                                                                          SturdyReflectionObserverFn hook,
+                                                                          void *user_data,
+                                                                          SturdyReflectionSubscription *out_subscription);
+
+/// Removes a hook added by `sturdy_reflection_add_before_hook`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_remove_before_hook(SturdyReflectionId type,
+                                                                             SturdyReflectionId method,
+                                                                             SturdyReflectionSubscription subscription);
+
+/// Adds a listener that fires just after a method returns. See `sturdy_reflection_add_before_hook`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_add_after_hook(SturdyReflectionId type,
+                                                                         SturdyReflectionId method,
+                                                                         SturdyReflectionObserverFn hook,
+                                                                         void *user_data,
+                                                                         SturdyReflectionSubscription *out_subscription);
+
+/// Removes a hook added by `sturdy_reflection_add_after_hook`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_remove_after_hook(SturdyReflectionId type,
+                                                                            SturdyReflectionId method,
+                                                                            SturdyReflectionSubscription subscription);
+
+// ---- Events ----
+
+/// Subscribes a listener to a declared hook point (`SFT_REFLECT_EVENT`). Any number of mods may
+/// subscribe to the same event independently.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_subscribe_event(SturdyReflectionId type,
+                                                                          SturdyReflectionId event,
+                                                                          SturdyReflectionObserverFn listener,
+                                                                          void *user_data,
+                                                                          SturdyReflectionSubscription *out_subscription);
+
+/// Removes a listener added by `sturdy_reflection_subscribe_event`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_unsubscribe_event(SturdyReflectionId type,
+                                                                            SturdyReflectionId event,
+                                                                            SturdyReflectionSubscription subscription);
+
+/// Fires an event, calling every subscribed listener in registration order. A no-op — cheap, no
+/// error — when nobody has subscribed.
+///
+/// @param args One already-typed pointer per event parameter. Pass null when the event takes none.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_fire_event(SturdyReflectionId type,
+                                                                     void *object,
+                                                                     SturdyReflectionId event,
+                                                                     const void *const *args,
+                                                                     uint32_t arg_count);
+
+// ---- Dynamic type registration ----
+//
+// The mods-can-have-mods primitive: a foreign-language mod with no C++ type behind it at all (a
+// scripted mod adding an item type, say) describes fields/methods by hand — offsets into a
+// buffer it allocates and owns, plus type-erased accessor callbacks — instead of reflecting an
+// existing struct. Once finished, the resulting type is indistinguishable from a macro-reflected
+// one to every other mod: findable by name, readable/writable, invocable, hookable. Mirrors
+// `SFT::Reflection::TypeInfoBuilder` exactly; see its C++ doc comment for the full rationale.
+
+/// Handle to an in-progress type description. Owned by the caller — build it up with the
+/// `_add_*` calls below, then either `_finish` it (consuming the builder, registering the type)
+/// or `_discard` it (consuming the builder without registering anything).
+typedef struct SturdyReflectionTypeBuilder {
+    uint64_t token;
+} SturdyReflectionTypeBuilder;
+
+/// Same shape as `SturdyReflectionMethodFn`'s two data-access halves — a non-`Trivial` field's
+/// copy-out implementation, called with `object` = the field-owning instance.
+typedef void(STURDY_ABI_CALL *SturdyReflectionFieldGetFn)(const void *object, void *out_value);
+/// Copy-in counterpart to `SturdyReflectionFieldGetFn`.
+typedef void(STURDY_ABI_CALL *SturdyReflectionFieldSetFn)(void *object, const void *in_value);
+
+/// Starts building a type descriptor.
+///
+/// @param canonical_name Stable name other code will look this type up by. Must not collide with
+///        an already-registered name.
+/// @param size Size in bytes of one instance.
+/// @param align Required alignment of one instance.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_builder_create(const char *canonical_name,
+                                                                              uint32_t size,
+                                                                              uint32_t align,
+                                                                              SturdyReflectionTypeBuilder *out_builder);
+
+/// Sets the construct/destroy callbacks for the type being built.
+///
+/// @param move_construct Must not be null — every registered type needs a working move
+///        constructor (used internally by the registry's own bookkeeping, independently of
+///        whether your mod ever calls a "construct/destroy an instance" entry point itself).
+/// @param destroy Must not be null — every registered type needs a working destructor.
+/// @param default_construct May be null when the type does not support default construction.
+/// @param copy_construct May be null when the type does not support copy construction.
+typedef void(STURDY_ABI_CALL *SturdyReflectionMoveConstructFn)(void *destination, void *source, void *user_data);
+typedef void(STURDY_ABI_CALL *SturdyReflectionDestroyFn)(void *object, void *user_data);
+typedef void(STURDY_ABI_CALL *SturdyReflectionDefaultConstructFn)(void *destination, void *user_data);
+typedef void(STURDY_ABI_CALL *SturdyReflectionCopyConstructFn)(void *destination, const void *source, void *user_data);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_builder_set_constructors(SturdyReflectionTypeBuilder builder,
+                                                                                        SturdyReflectionMoveConstructFn move_construct,
+                                                                                        SturdyReflectionDestroyFn destroy,
+                                                                                        SturdyReflectionDefaultConstructFn default_construct,
+                                                                                        SturdyReflectionCopyConstructFn copy_construct,
+                                                                                        void *user_data);
+
+/// Declares one field on the type being built.
+///
+/// @param is_trivial True when raw offset+memcpy access is safe (`copy_get`/`copy_set` are then
+///        ignored and may be null); false requires both callbacks.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_builder_add_field(SturdyReflectionTypeBuilder builder,
+                                                                                 const char *name,
+                                                                                 uint32_t offset,
+                                                                                 uint32_t size,
+                                                                                 uint32_t align,
+                                                                                 SturdyReflectionId field_type,
+                                                                                 SturdyBool is_trivial,
+                                                                                 SturdyReflectionFieldGetFn copy_get,
+                                                                                 SturdyReflectionFieldSetFn copy_set);
+
+/// Declares one method on the type being built.
+///
+/// @param param_types One id per parameter, in call order. May be null when `param_count` is 0.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_builder_add_method(SturdyReflectionTypeBuilder builder,
+                                                                                  const char *name,
+                                                                                  SturdyReflectionId return_type,
+                                                                                  const SturdyReflectionId *param_types,
+                                                                                  uint32_t param_count,
+                                                                                  SturdyReflectionMethodFn invoke);
+
+/// Declares one hook point on the type being built. See `SFT_REFLECT_EVENT`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_builder_add_event(SturdyReflectionTypeBuilder builder,
+                                                                                 const char *name,
+                                                                                 const SturdyReflectionId *param_types,
+                                                                                 uint32_t param_count);
+
+/// Finishes building and registers the type, consuming `builder`.
+///
+/// @return `STURDY_ERROR_INVALID_ARGUMENT` when the descriptor is incomplete (no `destroy`
+///         callback set) or `canonical_name` collides with a different, already-registered type.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_builder_finish(SturdyReflectionTypeBuilder builder,
+                                                                              SturdyReflectionId *out_type);
+
+/// Discards `builder` without registering anything. Safe to call on an already-finished or
+/// already-discarded builder (a no-op).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_builder_discard(SturdyReflectionTypeBuilder builder);
 
 #ifdef __cplusplus
 } // extern "C"

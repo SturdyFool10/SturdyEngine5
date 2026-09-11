@@ -3,6 +3,8 @@
 #include <Foundation/Types.hpp>
 #include <Foundation/Concepts.hpp>
 #include <Foundation/Cxx26.hpp>
+#include <Foundation/DynamicLibrary.hpp>
+#include <Foundation/Hash.hpp>
 #include <Foundation/Wide.hpp>
 #include <Foundation/WideTraits.hpp>
 #include <Foundation/Constants.hpp>

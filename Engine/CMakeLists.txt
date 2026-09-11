@@ -4,6 +4,7 @@ sturdy_add_package(Engine
 
     PUBLIC_DEPS
         Sturdy::Foundation
+        Sturdy::Reflection
         Sturdy::Async
         Sturdy::Ecs
         Sturdy::Core
@@ -40,6 +41,45 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
     sturdy_enable_warnings(EngineGameLogicContractTest)
     add_test(NAME EngineGameLogicContractTest COMMAND EngineGameLogicContractTest)
     set_tests_properties(EngineGameLogicContractTest PROPERTIES TIMEOUT 10)
+
+    add_executable(EngineEcsReflectionBridgeTest tests/EcsReflectionBridgeTest.cpp)
+    target_link_libraries(EngineEcsReflectionBridgeTest PRIVATE Sturdy::Engine)
+    sturdy_enable_warnings(EngineEcsReflectionBridgeTest)
+    add_test(NAME EngineEcsReflectionBridgeTest COMMAND EngineEcsReflectionBridgeTest)
+    set_tests_properties(EngineEcsReflectionBridgeTest PROPERTIES TIMEOUT 10)
+
+    # Two real, separately built shared libraries standing in for "the game logic got rebuilt" —
+    # HotReloadTest.cpp loads/unloads/reloads them for real (real dlopen/LoadLibrary), not a
+    # simulation. Deliberately built by hand with add_library(... MODULE ...) rather than through
+    # sturdy_add_package(): that helper only offers one global STATIC/SHARED toggle
+    # (STURDY_BUILD_SHARED_LIBS) applied uniformly to every package, with no per-package "always
+    # build this one as a loadable module" option, and a hot-reload fixture must always be a real
+    # shared library regardless of how the rest of the build is configured. Linked against
+    # Sturdy::Reflection only (not Sturdy::Engine) — the fixture only needs TypeRegistry/TypeInfo,
+    # and linking the whole Engine static archive into every loadable module would be enormously
+    # wasteful and risks duplicate-symbol clashes with graphics/platform globals it never uses.
+    add_library(EngineHotReloadFixtureV1 MODULE tests/fixtures/HotReloadFixtureModule.cpp)
+    target_link_libraries(EngineHotReloadFixtureV1 PRIVATE Sturdy::Reflection)
+    target_include_directories(EngineHotReloadFixtureV1 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_definitions(EngineHotReloadFixtureV1 PRIVATE FIXTURE_VERSION=1)
+    sturdy_enable_warnings(EngineHotReloadFixtureV1)
+
+    add_library(EngineHotReloadFixtureV2 MODULE tests/fixtures/HotReloadFixtureModule.cpp)
+    target_link_libraries(EngineHotReloadFixtureV2 PRIVATE Sturdy::Reflection)
+    target_include_directories(EngineHotReloadFixtureV2 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_definitions(EngineHotReloadFixtureV2 PRIVATE FIXTURE_VERSION=2)
+    sturdy_enable_warnings(EngineHotReloadFixtureV2)
+
+    add_executable(EngineHotReloadTest tests/HotReloadTest.cpp)
+    target_link_libraries(EngineHotReloadTest PRIVATE Sturdy::Engine)
+    add_dependencies(EngineHotReloadTest EngineHotReloadFixtureV1 EngineHotReloadFixtureV2)
+    target_compile_definitions(EngineHotReloadTest PRIVATE
+        "STURDY_HOT_RELOAD_FIXTURE_V1=\"$<TARGET_FILE:EngineHotReloadFixtureV1>\""
+        "STURDY_HOT_RELOAD_FIXTURE_V2=\"$<TARGET_FILE:EngineHotReloadFixtureV2>\""
+    )
+    sturdy_enable_warnings(EngineHotReloadTest)
+    add_test(NAME EngineHotReloadTest COMMAND EngineHotReloadTest)
+    set_tests_properties(EngineHotReloadTest PROPERTIES TIMEOUT 20)
 
     add_executable(EngineWindowRequestTest tests/WindowRequestTest.cpp)
     target_link_libraries(EngineWindowRequestTest PRIVATE Sturdy::Engine)

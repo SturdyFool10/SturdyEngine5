@@ -68,6 +68,9 @@ namespace SFT::Ffi {
         /// resource handle (`SturdyRenderBundle`), not a token, so it needs no `HandleKind` of its
         /// own — same split as `CommandEncoder` (owned) vs. `SturdyCommandBuffer` (resource).
         RenderBundleEncoder = 10,
+        /// Also owned: an in-progress `SFT::Reflection::TypeInfoBuilder`. Lives until
+        /// `sturdy_reflection_type_builder_finish`/`_discard`.
+        ReflectionTypeBuilder = 11,
     };
 
     /// Mints a token referring to `pointer`, valid until `revoke_handle`.

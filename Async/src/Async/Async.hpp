@@ -8,6 +8,7 @@
 #include <Async/Runtime.hpp>
 #include <Async/Ranges.hpp>
 #include <Async/ParIter.hpp>
+#include <Async/Execution.hpp>
 #include <Async/Affinity.hpp>
 #include <Async/IoError.hpp>
 #include <Async/File.hpp>

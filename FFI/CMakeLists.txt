@@ -76,6 +76,15 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
         endif()
     endif()
 
+    # Unlike the rest of the FFI, TypeRegistry is a process-wide singleton rather than something
+    # owned by a SturdyEngine session, so this needs no window/GPU/engine handle at all and builds
+    # fine in both static and shared configurations — only public sturdy_reflection_* entry points.
+    add_executable(FfiReflectionTest tests/ReflectionFfiTest.cpp)
+    target_link_libraries(FfiReflectionTest PRIVATE Sturdy::FFI)
+    sturdy_enable_warnings(FfiReflectionTest)
+    add_test(NAME FfiReflectionTest COMMAND FfiReflectionTest)
+    set_tests_properties(FfiReflectionTest PROPERTIES TIMEOUT 30)
+
     # Reaches the internal handle table to construct an expired handle, which the public header
     # deliberately makes impossible. Those symbols carry no STURDY_ABI marking and so are hidden in
     # a shared build — correctly, since they are not part of the ABI — leaving this test buildable
