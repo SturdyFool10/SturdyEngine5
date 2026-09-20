@@ -5,12 +5,8 @@ include_guard(GLOBAL)
 # CMAKE_BUILD_TYPE. Appending RelWithDebInfo's language flags after the active configuration flags is
 # the supported target-level equivalent: -O/-g/NDEBUG override Debug or Release for this target while
 # the executable and product code retain the profile the user selected. Dist already has its own
-# shipping flags and must never be overridden.
+# shipping flags and must never be overridden. Packages opt in with sturdy_add_package(ENGINE_OPTIMIZED).
 function(sturdy_apply_engine_optimized_profile target_name)
-  if(NOT target_name IN_LIST STURDY_ENGINE_OPTIMIZED_TARGETS)
-    return()
-  endif()
-
   get_target_property(_sturdy_target_type "${target_name}" TYPE)
   if(_sturdy_target_type STREQUAL "INTERFACE_LIBRARY")
     return()
@@ -30,8 +26,75 @@ function(sturdy_apply_engine_optimized_profile target_name)
   endforeach()
 endfunction()
 
+# file(GLOB) honouring STURDY_GLOB_CONFIGURE_DEPENDS, so every glob in the build re-checks (or does
+# not) on the same switch. Results are sorted. Usage: sturdy_glob(<out> [RECURSE] <pattern>...)
+function(sturdy_glob out_var)
+  cmake_parse_arguments(GLOB "RECURSE" "" "" ${ARGN})
+  set(_sturdy_glob_options)
+  if(STURDY_GLOB_CONFIGURE_DEPENDS)
+    list(APPEND _sturdy_glob_options CONFIGURE_DEPENDS)
+  endif()
+  if(GLOB_RECURSE)
+    file(GLOB_RECURSE _matches ${_sturdy_glob_options} ${GLOB_UNPARSED_ARGUMENTS})
+  else()
+    file(GLOB _matches ${_sturdy_glob_options} ${GLOB_UNPARSED_ARGUMENTS})
+  endif()
+  list(SORT _matches)
+  set(${out_var} ${_matches} PARENT_SCOPE)
+endfunction()
+
+# add_subdirectory() for every immediate child of <root> that has a CMakeLists.txt, so adding a package
+# (or a demo) is just creating its directory. Order is alphabetical and must not matter: packages
+# refer to each other only through Sturdy:: targets, which resolve at generate time.
+# Usage: sturdy_add_subdirectories(<root> [EXCLUDE <dir-name>...])
+function(sturdy_add_subdirectories root)
+  cmake_parse_arguments(SUB "" "" "EXCLUDE" ${ARGN})
+  sturdy_glob(_lists "${root}/*/CMakeLists.txt")
+  foreach(_list IN LISTS _lists)
+    cmake_path(GET _list PARENT_PATH _dir)
+    cmake_path(GET _dir FILENAME _name)
+    if(NOT _name IN_LIST SUB_EXCLUDE AND NOT _name MATCHES "^\\.")
+      add_subdirectory("${_dir}")
+    endif()
+  endforeach()
+endfunction()
+
+# Per-OS / per-arch source trees. <out> receives every directory in DIRS that is NOT the one named
+# <key> (matched on the last path component, so DIRS may be prefixed: GraphicsPlatform/Linux), ready
+# for sturdy_add_package(EXCLUDE_SOURCE_DIRS). A key matching nothing is a configuration error.
+# Usage: sturdy_inactive_dirs(<out> KEY <name> DIRS <dir>...)
+function(sturdy_inactive_dirs out_var)
+  cmake_parse_arguments(INACTIVE "" "KEY" "DIRS" ${ARGN})
+  set(_inactive)
+  set(_found FALSE)
+  foreach(_dir IN LISTS INACTIVE_DIRS)
+    cmake_path(GET _dir FILENAME _name)
+    if(_name STREQUAL INACTIVE_KEY)
+      set(_found TRUE)
+    else()
+      list(APPEND _inactive "${_dir}")
+    endif()
+  endforeach()
+  if(NOT _found)
+    message(FATAL_ERROR "No '${INACTIVE_KEY}' directory among: ${INACTIVE_DIRS}")
+  endif()
+  set(${out_var} ${_inactive} PARENT_SCOPE)
+endfunction()
+
+# sturdy_inactive_dirs() keyed on STURDY_OS. FreeBSD shares the Linux (POSIX) tree unless DIRS has a
+# FreeBSD directory of its own.
+function(sturdy_inactive_os_dirs out_var)
+  cmake_parse_arguments(OS "" "" "DIRS" ${ARGN})
+  set(_key "${STURDY_OS}")
+  if(_key STREQUAL "FreeBSD" AND NOT "${OS_DIRS}" MATCHES "(^|;|/)FreeBSD(;|$)")
+    set(_key Linux)
+  endif()
+  sturdy_inactive_dirs(_inactive KEY "${_key}" DIRS ${OS_DIRS})
+  set(${out_var} ${_inactive} PARENT_SCOPE)
+endfunction()
+
 function(sturdy_add_package package_name)
-  set(options EXECUTABLE)
+  set(options EXECUTABLE ENGINE_OPTIMIZED)
   set(one_value_args ARCHIVE_TIMEOUT_SECONDS)
   set(multi_value_args
         SOURCES
@@ -58,10 +121,14 @@ function(sturdy_add_package package_name)
     )
   endif()
 
-  set(_sturdy_glob_options)
-  if(STURDY_GLOB_CONFIGURE_DEPENDS)
-    list(APPEND _sturdy_glob_options CONFIGURE_DEPENDS)
-  endif()
+  # Never part of the package's own sources: its tests (see SturdyTests.cmake) and any nested
+  # directory with a CMakeLists.txt of its own, which is a separate package/target.
+  list(APPEND STURDY_PACKAGE_EXCLUDE_SOURCE_DIRS tests)
+  sturdy_glob(_nested_lists RECURSE "${CMAKE_CURRENT_SOURCE_DIR}/*/CMakeLists.txt")
+  foreach(_nested_list IN LISTS _nested_lists)
+    cmake_path(GET _nested_list PARENT_PATH _nested_dir)
+    list(APPEND STURDY_PACKAGE_EXCLUDE_SOURCE_DIRS "${_nested_dir}")
+  endforeach()
 
   set(_sturdy_source_globs
         "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
@@ -78,10 +145,8 @@ function(sturdy_add_package package_name)
     )
   endif()
 
-  file(GLOB_RECURSE _auto_sources ${_sturdy_glob_options}
-        ${_sturdy_source_globs}
-    )
-  file(GLOB_RECURSE _auto_modules ${_sturdy_glob_options}
+  sturdy_glob(_auto_sources RECURSE ${_sturdy_source_globs})
+  sturdy_glob(_auto_modules RECURSE
         "${CMAKE_CURRENT_SOURCE_DIR}/*.ixx"
         "${CMAKE_CURRENT_SOURCE_DIR}/*.cppm"
     )
@@ -303,7 +368,12 @@ function(sturdy_add_package package_name)
     add_library("Sturdy::${package_name}" ALIAS "${package_name}")
   endif()
 
+  set(_sturdy_engine_optimized)
+  if(STURDY_PACKAGE_ENGINE_OPTIMIZED)
+    set(_sturdy_engine_optimized ENGINE_OPTIMIZED)
+  endif()
   sturdy_configure_package_target("${package_name}"
+        ${_sturdy_engine_optimized}
         PUBLIC_DEPS ${STURDY_PACKAGE_PUBLIC_DEPS}
         PRIVATE_DEPS ${STURDY_PACKAGE_PRIVATE_DEPS}
         DEBUG_PUBLIC_DEPS ${STURDY_PACKAGE_DEBUG_PUBLIC_DEPS}
@@ -311,7 +381,9 @@ function(sturdy_add_package package_name)
         PUBLIC_DEFINES ${STURDY_PACKAGE_PUBLIC_DEFINES}
         PRIVATE_DEFINES ${STURDY_PACKAGE_PRIVATE_DEFINES}
     )
-  sturdy_apply_engine_optimized_profile("${package_name}")
+  if(STURDY_PACKAGE_ENGINE_OPTIMIZED)
+    sturdy_apply_engine_optimized_profile("${package_name}")
+  endif()
   sturdy_enable_static_dead_stripping("${package_name}")
 
   if(STURDY_PACKAGE_EXECUTABLE AND _compile_sources)
@@ -384,7 +456,7 @@ function(sturdy_add_package package_name)
 endfunction()
 
 function(sturdy_configure_package_target target_name)
-  set(options)
+  set(options ENGINE_OPTIMIZED)
   set(one_value_args)
   set(multi_value_args
         PUBLIC_DEPS
@@ -434,7 +506,7 @@ function(sturdy_configure_package_target target_name)
   endforeach()
 
   set(_sturdy_debug_definition "$<$<CONFIG:Debug>:DEBUG>")
-  if(target_name IN_LIST STURDY_ENGINE_OPTIMIZED_TARGETS)
+  if(STURDY_TARGET_ENGINE_OPTIMIZED)
     # The engine stack is compiled with RelWithDebInfo flags even while a consuming product is Debug,
     # so DEBUG would incorrectly enable debug-only behavior (notably Vulkan validation) in optimized
     # engine code. RelWithDebInfo's own -DNDEBUG flag is added by sturdy_apply_engine_optimized_profile.
@@ -525,5 +597,30 @@ function(sturdy_enable_warnings target_name)
     if(STURDY_WARNINGS_AS_ERRORS)
       target_compile_options("${target_name}" PRIVATE -Werror)
     endif()
+  endif()
+endfunction()
+
+# Executable composition root for a product: links Runtime and one GameLogic package and applies the
+# per-platform entry-point plumbing every such host needs. Extra per-host settings go on the target
+# afterwards. Usage: sturdy_add_host_executable(<name> <GameLogic package>)
+function(sturdy_add_host_executable name game_logic)
+  sturdy_add_package("${name}"
+    EXECUTABLE
+    PUBLIC_DEPS
+      Sturdy::Foundation
+      Sturdy::Runtime
+      "Sturdy::${game_logic}"
+  )
+
+  if(WIN32)
+    # Foundation's WinMain command-line tokenizer currently uses CommandLineToArgvW.
+    target_link_libraries("${name}" PRIVATE Shell32)
+    target_link_options("${name}" PRIVATE
+      "$<$<OR:$<CONFIG:Dist>,$<BOOL:${SFT_USE_WINMAIN}>>:LINKER:/subsystem:windows>")
+  endif()
+
+  if(UNIX AND NOT APPLE AND STURDY_BUILD_GLFW_WINDOW_PROVIDER)
+    # SDL3 and GLFW both vendor generated Wayland protocol symbols when both providers are selected.
+    target_link_options("${name}" PRIVATE "LINKER:--allow-multiple-definition")
   endif()
 endfunction()

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Reflection/ArrayReflection.hpp>
 #include <Reflection/Attribute.hpp>
 #include <Reflection/ConstructorInfo.hpp>
 #include <Reflection/ContainerInfo.hpp>
@@ -8,6 +9,9 @@
 #include <Reflection/EnumInfo.hpp>
 #include <Reflection/EventInfo.hpp>
 #include <Reflection/FieldInfo.hpp>
+#include <Reflection/FixedString.hpp>
+#include <Reflection/GenericType.hpp>
+#include <Reflection/Handle.hpp>
 #include <Reflection/Invoke.hpp>
 #include <Reflection/InvokeException.hpp>
 #include <Reflection/Json.hpp>
@@ -18,9 +22,19 @@
 #include <Reflection/OptionalInfo.hpp>
 #include <Reflection/PrimitiveKind.hpp>
 #include <Reflection/Proxy.hpp>
+#include <Reflection/RuntimeOverlay.hpp>
+#include <Reflection/SchemaHash.hpp>
 #include <Reflection/Serialize.hpp>
 #include <Reflection/SetInfo.hpp>
+#include <Reflection/StaticEnum.hpp>
+#include <Reflection/StaticProperty.hpp>
+#include <Reflection/StaticReflection.hpp>
+#include <Reflection/StaticSerialize.hpp>
+#include <Reflection/StaticTypeId.hpp>
+#include <Reflection/StructuralTypeId.hpp>
 #include <Reflection/TypeId.hpp>
 #include <Reflection/TypeInfo.hpp>
 #include <Reflection/TypeInfoBuilder.hpp>
+#include <Reflection/TypeRef.hpp>
 #include <Reflection/TypeRegistry.hpp>
+#include <Reflection/TypeShape.hpp>

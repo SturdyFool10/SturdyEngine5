@@ -5,22 +5,6 @@ sturdy_add_package(Runtime
         Sturdy::Foundation
         Sturdy::Engine
         Sturdy::ApplicationHost
-
-    DEBUG_PUBLIC_DEPS
 )
 
-if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web" AND NOT STURDY_BUILD_SHARED_LIBS)
-    add_executable(
-        RuntimeStaticUnusedProbe
-        "${CMAKE_SOURCE_DIR}/cmake/tests/StaticAggregateUnused.cpp"
-    )
-    target_link_libraries(RuntimeStaticUnusedProbe PRIVATE Sturdy::Runtime)
-    sturdy_enable_warnings(RuntimeStaticUnusedProbe)
-    add_test(
-        NAME RuntimeStaticUnusedTest
-        COMMAND "${CMAKE_COMMAND}"
-            "-DSTURDY_STATIC_PROBE=$<TARGET_FILE:RuntimeStaticUnusedProbe>"
-            -P "${CMAKE_SOURCE_DIR}/cmake/tests/AssertStaticAggregateUnused.cmake"
-    )
-    set_tests_properties(RuntimeStaticUnusedTest PROPERTIES TIMEOUT 60)
-endif()
+sturdy_add_static_unused_test(Runtime NAME_STEM RuntimeStaticUnused)

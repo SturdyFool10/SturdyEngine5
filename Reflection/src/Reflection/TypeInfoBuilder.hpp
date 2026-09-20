@@ -5,6 +5,7 @@
 #include <Foundation/Foundation.hpp>
 
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -62,6 +63,20 @@ namespace SFT::Reflection {
         /// @return Returns `*this` so calls can be chained.
         TypeInfoBuilder &base(TypeId base_type) noexcept {
             info_.base_type = base_type;
+            return *this;
+        }
+
+        /// Adds one additional (non-primary) reflected base to `TypeInfo::secondary_bases` — the
+        /// dynamic-type counterpart of `SFT_REFLECT_TYPE_WITH_BASES`. Since a dynamically-built
+        /// type has no real C++ class behind it for the compiler to generate a `static_cast`-based
+        /// `BaseInfo::cast` from, the caller supplies the adjustment directly; pass an identity
+        /// cast (`[](const void *derived) noexcept { return derived; }`) when the dynamic type's
+        /// layout genuinely places `base_type`'s fields at the same address (the common case for a
+        /// hand-built type with no real secondary storage of its own before the base's fields).
+        ///
+        /// @return Returns `*this` so calls can be chained.
+        TypeInfoBuilder &secondary_base(TypeId base_type, BaseCastFn cast) noexcept {
+            info_.secondary_bases.push_back(BaseInfo{.type = base_type, .cast = cast});
             return *this;
         }
 
@@ -233,10 +248,22 @@ namespace SFT::Reflection {
         }
 
         /// Adds one attribute to the type itself (as opposed to one of its fields/methods/events).
+        /// Accepts either an already-built `Attribute` or an `SFT_ATTR_BOOL`/`_INT`/`_FLOAT`/
+        /// `_STRING` factory (a captureless lambda returning `Attribute` — see `Attribute.hpp`'s
+        /// doc comment on those macros for why they expand to a factory rather than a value);
+        /// this is a runtime-only builder call either way, so invoking the factory immediately
+        /// here costs nothing extra and needs no `consteval`-safety of its own.
         ///
         /// @return Returns `*this` so calls can be chained.
         TypeInfoBuilder &type_attribute(Attribute attribute) {
             info_.attributes.push_back(std::move(attribute));
+            return *this;
+        }
+        /// @overload
+        template <class Factory>
+            requires std::is_invocable_r_v<Attribute, Factory>
+        TypeInfoBuilder &type_attribute(Factory &&factory) {
+            info_.attributes.push_back(std::forward<Factory>(factory)());
             return *this;
         }
 

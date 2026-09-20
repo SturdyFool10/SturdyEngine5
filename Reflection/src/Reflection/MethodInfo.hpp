@@ -4,6 +4,7 @@
 #include <Reflection/InvokeException.hpp>
 #include <Reflection/Multicast.hpp>
 #include <Reflection/TypeId.hpp>
+#include <Reflection/TypeRef.hpp>
 
 #include <Foundation/Foundation.hpp>
 
@@ -26,6 +27,21 @@ namespace SFT::Reflection {
         UString name;
         TypeId return_type{};
         std::vector<TypeId> param_types;
+        /// The qualifier-preserving view of the same signature `return_type`/`param_types`
+        /// describe: `const Player &` stays `const Player &` here, where `param_types` has already
+        /// erased it to `Player` via `remove_cvref_t`.
+        ///
+        /// Populated only when every parameter and the return type are structurally identifiable
+        /// (see `StructurallyIdentifiable` in `StructuralTypeId.hpp`) — a method taking a type with
+        /// no canonical identity (an unreflected struct, a `std::function`) leaves these empty
+        /// rather than failing to register, since `param_types`' erased identities are enough for
+        /// dispatch and this is strictly additional fidelity for callers that need it (an FFI
+        /// marshaller deciding by-value vs. by-reference, a script binding generator, an RPC stub).
+        /// Check `has_qualified_signature` before reading.
+        std::vector<TypeRef> param_type_refs;
+        TypeRef return_type_ref{};
+        /// Whether `param_type_refs`/`return_type_ref` were populated — see their doc comment.
+        bool has_qualified_signature = false;
         /// The compiled-in real implementation. Never null once built by `Detail::build_method_info`.
         MethodInvokeFn invoke = nullptr;
         /// A mod-installed override, checked before `invoke` at every reflected call site. Null in
@@ -65,6 +81,9 @@ namespace SFT::Reflection {
               name(std::move(other.name)),
               return_type(other.return_type),
               param_types(std::move(other.param_types)),
+              param_type_refs(std::move(other.param_type_refs)),
+              return_type_ref(other.return_type_ref),
+              has_qualified_signature(other.has_qualified_signature),
               invoke(other.invoke),
               override_fn(other.override_fn.load(std::memory_order_relaxed)),
               override_user_data(other.override_user_data),
@@ -82,6 +101,9 @@ namespace SFT::Reflection {
             name = std::move(other.name);
             return_type = other.return_type;
             param_types = std::move(other.param_types);
+            param_type_refs = std::move(other.param_type_refs);
+            return_type_ref = other.return_type_ref;
+            has_qualified_signature = other.has_qualified_signature;
             invoke = other.invoke;
             override_fn.store(other.override_fn.load(std::memory_order_relaxed), std::memory_order_relaxed);
             override_user_data = other.override_user_data;

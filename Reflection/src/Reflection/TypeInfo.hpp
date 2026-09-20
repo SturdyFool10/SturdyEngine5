@@ -49,6 +49,29 @@ namespace SFT::Reflection {
     using TypeDestroyFn = void (*)(void *object, void *user_data) noexcept;
 
 
+    /// Adjusts a `const void *` known to point at some derived object into a pointer to one of
+    /// its secondary base subobjects. Always a `static_cast<const Base *>(static_cast<const
+    /// Derived *>(derived))` baked in by the compiler at registration time (see
+    /// `Detail::make_type_info`) — never manual offset arithmetic. This is deliberate: a
+    /// hand-rolled `offsetof`-style computation for a non-standard-layout base is not portable and
+    /// this codebase already avoids exactly that class of trick elsewhere (`Detail::member_offset`'s
+    /// doc comment explains the same reasoning for why it needs a real, compiler-performed
+    /// operation rather than raw pointer arithmetic). Letting the compiler perform the `static_cast`
+    /// once, inside a function template instantiated for the exact `(Derived, Base)` pair, gets a
+    /// correct adjustment for free — including virtual bases, multiple levels of inheritance, and
+    /// whatever else the ABI actually does, none of which this package needs to know about.
+    using BaseCastFn = const void *(*)(const void *derived) noexcept;
+
+    /// One additional (non-primary) reflected base — see `TypeInfo::secondary_bases`. Unlike the
+    /// single `base_type`, whose subobject this package assumes sits at offset `0` (true for the
+    /// first base in every ABI this engine targets), a secondary base's subobject is generally at
+    /// some other offset within the derived object, so reaching a field/method declared on it
+    /// requires adjusting the object pointer first via `cast`.
+    struct BaseInfo {
+        TypeId type{};
+        BaseCastFn cast = nullptr;
+    };
+
     struct TypeInfo {
         TypeId key{};
         UString canonical_name;
@@ -56,9 +79,20 @@ namespace SFT::Reflection {
         usize size = 0;
         usize align = 0;
         TypeFlags flags = TypeFlags::None;
-        /// Invalid (default-constructed) `TypeId` when this type has no reflected base.
-        /// Single inheritance only in v1.
+        /// Invalid (default-constructed) `TypeId` when this type has no reflected base. This is
+        /// the *primary* base: its subobject is always at offset `0` within the derived object
+        /// (matches how every existing `FieldInfo::offset`/`MethodInfo` reached through it was
+        /// computed — directly against the derived type, per `Detail::member_offset`'s doc
+        /// comment), so no pointer adjustment is ever needed to use a primary-base-inherited
+        /// field/method against a derived object pointer. See `secondary_bases` for additional
+        /// bases, which do not get this guarantee.
         TypeId base_type{};
+        /// Additional reflected bases beyond the primary one — real multiple inheritance, or
+        /// (the far more common case) several unrelated "interface" types a type implements. See
+        /// `BaseInfo`'s doc comment for why these need pointer adjustment where `base_type` does
+        /// not, and `TypeRegistry::find_field_adjusted`/`find_method_adjusted` for the lookup path
+        /// that actually applies it.
+        std::vector<BaseInfo> secondary_bases;
         void *user_data = nullptr;
         TypeDefaultConstructFn default_construct = nullptr;
         TypeCopyConstructFn copy_construct = nullptr;

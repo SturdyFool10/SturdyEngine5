@@ -4,13 +4,10 @@
 # without pulling in a heavier chain. Every function here is safe to call unconditionally on native
 # platforms too -- it simply no-ops there (see JsBridge.hpp).
 sturdy_add_package(Web
-    EXCLUDE_SOURCE_DIRS
-        tests
+    ENGINE_OPTIMIZED
 
     PUBLIC_DEPS
         Sturdy::Foundation
-
-    DEBUG_PUBLIC_DEPS
 )
 
 if(STURDY_OS STREQUAL "Web")
@@ -30,10 +27,4 @@ if(STURDY_OS STREQUAL "Web")
     set_target_properties(WebJsBridgeWebManualTest PROPERTIES SUFFIX ".html")
 endif()
 
-if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
-    add_executable(WebJsBridgeNativeStubTest tests/JsBridgeNativeStubTest.cpp)
-    target_link_libraries(WebJsBridgeNativeStubTest PRIVATE Sturdy::Web)
-    sturdy_enable_warnings(WebJsBridgeNativeStubTest)
-    add_test(NAME WebJsBridgeNativeStubTest COMMAND WebJsBridgeNativeStubTest)
-    set_tests_properties(WebJsBridgeNativeStubTest PROPERTIES TIMEOUT 10)
-endif()
+sturdy_add_tests(Web EXCLUDE JsBridgeWebManualTest)

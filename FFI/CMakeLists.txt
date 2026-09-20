@@ -5,9 +5,6 @@
 # restates them in a form a foreign language can call. Widening it means adding more translation
 # here, never moving logic into it.
 sturdy_add_package(FFI
-    EXCLUDE_SOURCE_DIRS
-        tests
-
     PUBLIC_DEPS
         Sturdy::Runtime
 
@@ -16,8 +13,6 @@ sturdy_add_package(FFI
         # the tests below, which link the target and therefore see only the PUBLIC define) get the
         # importing half instead.
         STURDY_FFI_BUILD
-
-    DEBUG_PUBLIC_DEPS
 )
 
 if(STURDY_BUILD_SHARED_LIBS)
@@ -35,76 +30,54 @@ if(STURDY_BUILD_SHARED_LIBS)
     )
 endif()
 
-if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
-    # Compiled as C, not C++. This is the only thing that actually proves the header is valid C and
-    # free of C++-only constructs — compiling it as C++ (which every other test does implicitly)
-    # would happily accept declarations no C consumer could use.
-    add_executable(FfiHeaderCTest tests/AbiHeaderC.c)
-    target_link_libraries(FfiHeaderCTest PRIVATE Sturdy::FFI)
-    set_target_properties(FfiHeaderCTest PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
-    sturdy_enable_warnings(FfiHeaderCTest)
-    add_test(NAME FfiHeaderCTest COMMAND FfiHeaderCTest)
-    set_tests_properties(FfiHeaderCTest PROPERTIES TIMEOUT 30)
+# Compiled as C, not C++. This is the only thing that actually proves the header is valid C and
+# free of C++-only constructs — compiling it as C++ (which every other test does implicitly)
+# would happily accept declarations no C consumer could use.
+sturdy_add_test(FFI tests/AbiHeaderC.c NAME FfiHeaderCTest TIMEOUT 30 C_STANDARD 99)
 
-    # Brings up a real window and graphics device, so it needs a GPU and a display that headless CI
-    # does not have — always built (it also doubles as the worked C example for the native-access
-    # surface), but only registered with add_test() below when STURDY_ENABLE_GPU_TESTS is ON. Run it
-    # by hand ("FfiNativeHandleProbe vulkan" / "... d3d12") to see what the RHI and native-handle
-    # queries actually return on a given machine.
-    add_executable(FfiNativeHandleProbe tests/NativeHandleProbe.c)
-    target_link_libraries(FfiNativeHandleProbe PRIVATE Sturdy::FFI)
-    set_target_properties(FfiNativeHandleProbe PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
-    sturdy_enable_warnings(FfiNativeHandleProbe)
+# Brings up a real window and graphics device, so it needs a GPU and a display that headless CI
+# does not have — always built (it also doubles as the worked C example for the native-access
+# surface), but only registered with add_test() below when STURDY_ENABLE_GPU_TESTS is ON. Run it
+# by hand ("FfiNativeHandleProbe vulkan" / "... d3d12") to see what the RHI and native-handle
+# queries actually return on a given machine.
+sturdy_add_test(FFI tests/NativeHandleProbe.c NAME FfiNativeHandleProbe C_STANDARD 99 NO_TEST)
 
-    if(STURDY_ENABLE_GPU_TESTS)
-        # Exercises real shader compilation, bind-group-layout/pipeline creation and a few rendered
-        # frames end to end on each backend — the one thing the rest of the FFI test suite can't
-        # touch without a GPU. Exits nonzero (see `g_scene_ok` in NativeHandleProbe.c) if the scene
-        # build fails on either backend, so a regression here fails the build instead of only
-        # showing up as a log line nobody reads.
-        add_test(NAME FfiNativeHandleProbeVulkan COMMAND FfiNativeHandleProbe vulkan)
-        set_tests_properties(FfiNativeHandleProbeVulkan PROPERTIES TIMEOUT 120)
-        if(STURDY_OS STREQUAL "Windows")
-            add_test(NAME FfiNativeHandleProbeD3D12 COMMAND FfiNativeHandleProbe d3d12)
-            set_tests_properties(FfiNativeHandleProbeD3D12 PROPERTIES TIMEOUT 120)
-        endif()
-        # Web itself has no ctest runner (no browser in CI); this only covers WebGPU-via-Dawn on a
-        # native desktop, same restriction STURDY_ENABLE_WEBGPU already carries everywhere else.
-        if(STURDY_ENABLE_WEBGPU AND NOT STURDY_OS STREQUAL "Web")
-            add_test(NAME FfiNativeHandleProbeWebGpu COMMAND FfiNativeHandleProbe webgpu)
-            set_tests_properties(FfiNativeHandleProbeWebGpu PROPERTIES TIMEOUT 120)
-        endif()
+if(STURDY_TESTS_ENABLED AND STURDY_ENABLE_GPU_TESTS)
+    # Exercises real shader compilation, bind-group-layout/pipeline creation and a few rendered
+    # frames end to end on each backend — the one thing the rest of the FFI test suite can't
+    # touch without a GPU. Exits nonzero (see `g_scene_ok` in NativeHandleProbe.c) if the scene
+    # build fails on either backend, so a regression here fails the build instead of only
+    # showing up as a log line nobody reads.
+    add_test(NAME FfiNativeHandleProbeVulkan COMMAND FfiNativeHandleProbe vulkan)
+    set_tests_properties(FfiNativeHandleProbeVulkan PROPERTIES TIMEOUT 120)
+    if(STURDY_OS STREQUAL "Windows")
+        add_test(NAME FfiNativeHandleProbeD3D12 COMMAND FfiNativeHandleProbe d3d12)
+        set_tests_properties(FfiNativeHandleProbeD3D12 PROPERTIES TIMEOUT 120)
     endif()
-
-    # Unlike the rest of the FFI, TypeRegistry is a process-wide singleton rather than something
-    # owned by a SturdyEngine session, so this needs no window/GPU/engine handle at all and builds
-    # fine in both static and shared configurations — only public sturdy_reflection_* entry points.
-    add_executable(FfiReflectionTest tests/ReflectionFfiTest.cpp)
-    target_link_libraries(FfiReflectionTest PRIVATE Sturdy::FFI)
-    sturdy_enable_warnings(FfiReflectionTest)
-    add_test(NAME FfiReflectionTest COMMAND FfiReflectionTest)
-    set_tests_properties(FfiReflectionTest PROPERTIES TIMEOUT 30)
-
-    # Reaches the internal handle table to construct an expired handle, which the public header
-    # deliberately makes impossible. Those symbols carry no STURDY_ABI marking and so are hidden in
-    # a shared build — correctly, since they are not part of the ABI — leaving this test buildable
-    # only for static configurations.
-    if(NOT STURDY_BUILD_SHARED_LIBS)
-        # The ECS is pure CPU state, so unlike the rest of the FFI its real behavior - not just its
-        # argument validation - can be exercised without a GPU or a window. Mints its engine handle
-        # through the internal handle table, so it shares the static-only restriction below.
-        add_executable(FfiEcsTest tests/EcsFfiTest.cpp)
-        target_link_libraries(FfiEcsTest PRIVATE Sturdy::FFI)
-        sturdy_enable_warnings(FfiEcsTest)
-        add_test(NAME FfiEcsTest COMMAND FfiEcsTest)
-        # Timeout kept short so a regression that hangs is caught too; the observed failure mode
-        # for a missing reentrancy guard is actually a fatal engine contract check.
-        set_tests_properties(FfiEcsTest PROPERTIES TIMEOUT 30)
-
-        add_executable(FfiContractTest tests/AbiContractTest.cpp)
-        target_link_libraries(FfiContractTest PRIVATE Sturdy::FFI)
-        sturdy_enable_warnings(FfiContractTest)
-        add_test(NAME FfiContractTest COMMAND FfiContractTest)
-        set_tests_properties(FfiContractTest PROPERTIES TIMEOUT 30)
+    # Web itself has no ctest runner (no browser in CI); this only covers WebGPU-via-Dawn on a
+    # native desktop, same restriction STURDY_ENABLE_WEBGPU already carries everywhere else.
+    if(STURDY_ENABLE_WEBGPU)
+        add_test(NAME FfiNativeHandleProbeWebGpu COMMAND FfiNativeHandleProbe webgpu)
+        set_tests_properties(FfiNativeHandleProbeWebGpu PROPERTIES TIMEOUT 120)
     endif()
 endif()
+
+# AbiContractTest reaches the internal handle table to construct an expired handle, which the public
+# header deliberately makes impossible, and EcsFfiTest mints its engine handle the same way. Those
+# symbols carry no STURDY_ABI marking and so are hidden in a shared build — correctly, since they
+# are not part of the ABI — leaving both buildable only for static configurations. (The ECS is pure
+# CPU state, so EcsFfiTest exercises real behavior, not just argument validation, with no GPU or
+# window.) ReflectionFfiTest needs neither: TypeRegistry is a process-wide singleton rather than
+# something owned by a SturdyEngine session, so it builds in both configurations.
+set(_sturdy_ffi_static_only_tests AbiContractTest EcsFfiTest)
+set(_sturdy_ffi_excluded_tests)
+if(STURDY_BUILD_SHARED_LIBS)
+    set(_sturdy_ffi_excluded_tests ${_sturdy_ffi_static_only_tests})
+endif()
+sturdy_add_tests(FFI
+    TIMEOUT 30
+    EXCLUDE ${_sturdy_ffi_excluded_tests}
+    NAMES
+        AbiContractTest=FfiContractTest
+        EcsFfiTest=FfiEcsTest
+        ReflectionFfiTest=FfiReflectionTest)

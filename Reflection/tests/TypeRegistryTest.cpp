@@ -34,8 +34,7 @@ namespace {
         }
     }
 
-    /// Deliberately data-less: standard-layout single inheritance (v1's supported case) requires
-    /// at most one class in the hierarchy to carry non-static data members.
+    /// Deliberately data-less: single-inheritance test fixture.
     struct Entity {
         int describe() noexcept {
             return 1;
@@ -88,6 +87,55 @@ namespace {
 SFT_REFLECT_TYPE(Position, "test.reflection.position");
 SFT_REFLECT_FIELD(x);
 SFT_REFLECT_FIELD(y);
+SFT_REFLECT_END();
+
+namespace {
+
+    // ── Multiple inheritance ───────────────────────────────────────────────────────────────────
+    // Two unrelated "interface" bases, and a type implementing both alongside its own primary
+    // base — the common case this exists for (a type implementing several unrelated interfaces),
+    // not diamond inheritance.
+
+    struct Damageable {
+        int hit_points = 50;
+
+        int take_hit(int amount) noexcept {
+            hit_points -= amount;
+            return hit_points;
+        }
+    };
+
+    struct Targetable {
+        float priority = 1.0F;
+
+        [[nodiscard]] float targeting_priority() const noexcept {
+            return priority;
+        }
+    };
+
+    /// `Entity` (declared above) is the primary base — its subobject sits at offset 0, exactly
+    /// like single inheritance always worked. `Damageable`/`Targetable` are secondary bases: real
+    /// additional subobjects at nonzero offsets (guaranteed nonzero here since `Entity` itself has
+    /// no data members but `Turret` does, and multiple inheritance lays out base subobjects before
+    /// the derived type's own members) — the exact case that needs pointer adjustment.
+    struct Turret : Entity, Damageable, Targetable {
+        int ammo = 10;
+    };
+
+} // namespace
+
+SFT_REFLECT_TYPE(Damageable, "test.reflection.damageable");
+SFT_REFLECT_FIELD(hit_points);
+SFT_REFLECT_METHOD(take_hit);
+SFT_REFLECT_END();
+
+SFT_REFLECT_TYPE(Targetable, "test.reflection.targetable");
+SFT_REFLECT_FIELD(priority);
+SFT_REFLECT_METHOD(targeting_priority);
+SFT_REFLECT_END();
+
+SFT_REFLECT_TYPE_WITH_BASES(Turret, "test.reflection.turret", Entity, Damageable, Targetable);
+SFT_REFLECT_FIELD(ammo);
 SFT_REFLECT_END();
 
 namespace {
@@ -382,9 +430,145 @@ int main() {
           "checked invoke must reject a mismatched parameter type");
     check(player.health == 70, "a rejected checked invoke must not run anything");
 
+    // ── Stable handles (TypeHandle/FieldHandle/MethodHandle) ──────────────────────────────────
+    const TypeHandle player_handle = registry.handle_for(type.key);
+    check(static_cast<bool>(player_handle), "handle_for must return a valid handle for a registered type");
+    check(registry.resolve(player_handle) == &type, "resolving a fresh TypeHandle must return the same TypeInfo find() would");
+    check(!static_cast<bool>(registry.handle_for(TypeId::from_name("test.reflection.does_not_exist"))),
+          "handle_for must return an invalid handle for an unregistered TypeId");
+    check(registry.resolve(TypeHandle{}) == nullptr, "resolving a default-constructed (invalid) TypeHandle must fail");
+
+    const FieldHandle health_field_handle = registry.field_handle(player_handle, health_field->key);
+    check(static_cast<bool>(health_field_handle), "field_handle must find a declared field by key");
+    check(registry.resolve(health_field_handle) == health_field, "resolving a FieldHandle must return the same FieldInfo find_field() would");
+    check(!static_cast<bool>(registry.field_handle(player_handle, TypeId::from_name("does_not_exist"))),
+          "field_handle must return an invalid handle for an unknown field name");
+
+    // ── Runtime field overlays (mod-mutable name/attributes over an unmutated FieldInfo) ──────
+    check(registry.effective_field_name(health_field_handle).cpp_string_view() == "health",
+          "effective_field_name must equal the static name before any override is installed");
+    check(registry.set_field_name_override(health_field_handle, UString{"HP"}),
+          "set_field_name_override must succeed for a resolvable handle");
+    check(registry.effective_field_name(health_field_handle).cpp_string_view() == "HP",
+          "effective_field_name must reflect the installed override");
+    check(health_field != nullptr && health_field->name.cpp_string_view() == "health",
+          "installing a name override must NOT mutate the underlying FieldInfo::name");
+    check(registry.find_field(type, "health") == health_field,
+          "find_field must still resolve by the field's real (un-overridden) name after an overlay is installed");
+
+    const usize static_attribute_count = health_field != nullptr ? health_field->attributes.size() : 0;
+    check(registry.add_field_attribute_override(health_field_handle, Detail::make_attribute("modder_added", true)),
+          "add_field_attribute_override must succeed for a resolvable handle");
+    const std::vector<Attribute> effective_attrs = registry.effective_field_attributes(health_field_handle);
+    check(effective_attrs.size() == static_attribute_count + 1,
+          "effective_field_attributes must be the static attributes plus the overlay attribute, additive");
+    check(health_field != nullptr && health_field->attributes.size() == static_attribute_count,
+          "adding an attribute overlay must NOT mutate the underlying FieldInfo::attributes");
+
+    check(registry.clear_field_name_override(health_field_handle), "clear_field_name_override must succeed when an override was present");
+    check(registry.effective_field_name(health_field_handle).cpp_string_view() == "health",
+          "effective_field_name must fall back to the static name once the override is cleared");
+    check(!registry.clear_field_name_override(health_field_handle),
+          "clear_field_name_override must report false when no override is present");
+
+    check(registry.clear_field_overlay(health_field_handle), "clear_field_overlay must remove the remaining attribute overlay");
+    check(registry.effective_field_attributes(health_field_handle).size() == static_attribute_count,
+          "effective_field_attributes must be back to just the static attributes after clear_field_overlay");
+
+    check(!registry.set_field_name_override(FieldHandle{}, UString{"nope"}),
+          "set_field_name_override must fail for an invalid FieldHandle");
+    check(registry.effective_field_name(FieldHandle{}).cpp_string_view().empty(),
+          "effective_field_name must return an empty UString for an invalid FieldHandle");
+
+    const MethodHandle take_damage_handle = registry.method_handle(player_handle, take_damage_method->key);
+    check(static_cast<bool>(take_damage_handle), "method_handle must find a declared method by key");
+    check(registry.resolve(take_damage_handle) == take_damage_method, "resolving a MethodHandle must return the same MethodInfo find_method() would");
+
+    // ── Runtime type-level overlays (mod-mutable name/attributes over an unmutated TypeInfo) ──
+    check(registry.effective_type_name(player_handle).cpp_string_view() == type.canonical_name.cpp_string_view(),
+          "effective_type_name must equal the static canonical_name before any override is installed");
+    check(registry.set_type_name_override(player_handle, UString{"PlayerCharacter"}),
+          "set_type_name_override must succeed for a resolvable handle");
+    check(registry.effective_type_name(player_handle).cpp_string_view() == "PlayerCharacter",
+          "effective_type_name must reflect the installed override");
+    check(type.canonical_name.cpp_string_view() != "PlayerCharacter",
+          "installing a type name override must NOT mutate the underlying TypeInfo::canonical_name");
+    check(registry.find(type.key) == &type,
+          "find must still resolve by the type's real (un-overridden) name after an overlay is installed");
+
+    const usize static_type_attribute_count = type.attributes.size();
+    check(registry.add_type_attribute_override(player_handle, Detail::make_attribute("modder_renamed", true)),
+          "add_type_attribute_override must succeed for a resolvable handle");
+    check(registry.effective_type_attributes(player_handle).size() == static_type_attribute_count + 1,
+          "effective_type_attributes must be the static attributes plus the overlay attribute, additive");
+    check(type.attributes.size() == static_type_attribute_count,
+          "adding a type attribute overlay must NOT mutate the underlying TypeInfo::attributes");
+
+    check(registry.clear_type_name_override(player_handle), "clear_type_name_override must succeed when an override was present");
+    check(registry.effective_type_name(player_handle).cpp_string_view() == type.canonical_name.cpp_string_view(),
+          "effective_type_name must fall back to the static name once the override is cleared");
+    check(!registry.clear_type_name_override(player_handle),
+          "clear_type_name_override must report false when no override is present");
+
+    check(registry.clear_type_overlay(player_handle), "clear_type_overlay must remove the remaining attribute overlay");
+    check(registry.effective_type_attributes(player_handle).size() == static_type_attribute_count,
+          "effective_type_attributes must be back to just the static attributes after clear_type_overlay");
+
+    check(!registry.set_type_name_override(TypeHandle{}, UString{"nope"}),
+          "set_type_name_override must fail for an invalid TypeHandle");
+    check(registry.effective_type_name(TypeHandle{}).cpp_string_view().empty(),
+          "effective_type_name must return an empty UString for an invalid TypeHandle");
+
+    // ── Runtime method-level overlays (mod-mutable name/attributes over an unmutated MethodInfo) ──
+    check(registry.effective_method_name(take_damage_handle).cpp_string_view() == "take_damage",
+          "effective_method_name must equal the static name before any override is installed");
+    check(registry.set_method_name_override(take_damage_handle, UString{"apply_damage"}),
+          "set_method_name_override must succeed for a resolvable handle");
+    check(registry.effective_method_name(take_damage_handle).cpp_string_view() == "apply_damage",
+          "effective_method_name must reflect the installed override");
+    check(take_damage_method->name.cpp_string_view() == "take_damage",
+          "installing a method name override must NOT mutate the underlying MethodInfo::name");
+    check(registry.find_method(type, "take_damage") == take_damage_method,
+          "find_method must still resolve by the method's real (un-overridden) name after an overlay is installed");
+
+    const usize static_method_attribute_count = take_damage_method->attributes.size();
+    check(registry.add_method_attribute_override(take_damage_handle, Detail::make_attribute("modder_renamed", true)),
+          "add_method_attribute_override must succeed for a resolvable handle");
+    check(registry.effective_method_attributes(take_damage_handle).size() == static_method_attribute_count + 1,
+          "effective_method_attributes must be the static attributes plus the overlay attribute, additive");
+    check(take_damage_method->attributes.size() == static_method_attribute_count,
+          "adding a method attribute overlay must NOT mutate the underlying MethodInfo::attributes");
+
+    check(registry.clear_method_name_override(take_damage_handle), "clear_method_name_override must succeed when an override was present");
+    check(registry.effective_method_name(take_damage_handle).cpp_string_view() == "take_damage",
+          "effective_method_name must fall back to the static name once the override is cleared");
+    check(!registry.clear_method_name_override(take_damage_handle),
+          "clear_method_name_override must report false when no override is present");
+
+    check(registry.clear_method_overlay(take_damage_handle), "clear_method_overlay must remove the remaining attribute overlay");
+    check(registry.effective_method_attributes(take_damage_handle).size() == static_method_attribute_count,
+          "effective_method_attributes must be back to just the static attributes after clear_method_overlay");
+
+    check(!registry.set_method_name_override(MethodHandle{}, UString{"nope"}),
+          "set_method_name_override must fail for an invalid MethodHandle");
+    check(registry.effective_method_name(MethodHandle{}).cpp_string_view().empty(),
+          "effective_method_name must return an empty UString for an invalid MethodHandle");
+
+    // A handle obtained *before* a type is unregistered must stop resolving afterward, even
+    // though the underlying TypeInfo/FieldInfo storage is never physically freed — this is the
+    // whole point of a generation-checked handle over a bare pointer (see TypeHandle's doc
+    // comment). Exercised against the dynamically-built type since it's the one this test
+    // deliberately unregisters below.
+    check(dynamic_type != nullptr, "dynamic_type must exist before testing handle staleness across unregister");
+    const TypeHandle dynamic_handle = dynamic_type != nullptr ? registry.handle_for(dynamic_type->key) : TypeHandle{};
+    check(static_cast<bool>(dynamic_handle), "handle_for must resolve the dynamically-built type before it is unregistered");
+    check(registry.resolve(dynamic_handle) == dynamic_type, "the dynamic type's handle must resolve while it is still registered");
+
     // ── unregister_type / mod unload ──────────────────────────────────────────────────────────
     check(dynamic_type != nullptr && registry.unregister_type(dynamic_type->key),
           "unregistering a type must succeed");
+    check(static_cast<bool>(dynamic_handle) && registry.resolve(dynamic_handle) == nullptr,
+          "a TypeHandle obtained before unregister_type must stop resolving afterward");
     check(registry.find(TypeId::from_name("test.reflection.mod.dynamic_item")) == nullptr,
           "an unregistered type must no longer be findable by TypeId");
     const UString dynamic_item_name{"test.reflection.mod.dynamic_item"};
@@ -419,11 +603,113 @@ int main() {
     check(speed_field != nullptr && speed_field->attributes.empty(),
           "a field with no declared attributes must have an empty attributes vector");
 
+    // ── Static/runtime TypeId agreement ───────────────────────────────────────────────────────
+    // The compile-time layer (`reflect<T>().field<"name">().type()`) and the runtime layer
+    // (`FieldInfo::field_type`) must assign the *same* identity to the same field. They did not
+    // before `Detail::erased_type_id` stopped deriving identity from `typeid(M).name()`: the
+    // runtime path hashed a compiler-mangled name while the static path hashed the canonical one,
+    // so the two silently disagreed for every non-reflected field type (`int`, `UString`,
+    // containers) — making a static-side type check and a runtime-side one answer differently
+    // about the very same field.
+    check(health_field != nullptr && health_field->field_type == reflect<PlayerController>().field<"health">().type(),
+          "runtime FieldInfo::field_type must equal the static layer's field type for an int field");
+    check(speed_field != nullptr && speed_field->field_type == reflect<PlayerController>().field<"speed">().type(),
+          "runtime and static field type identity must agree for a float field");
+    check(type_id_for<int>() == type_id<int>(),
+          "the runtime type_id_for<T>() and compile-time type_id<T>() must be the same identity");
+    check(type_id_for<UString>() == type_id<UString>(),
+          "UString must have one identity across both layers, not a mangled one and a canonical one");
+
     // ── Reflected-nested-type TypeId identity ─────────────────────────────────────────────────
     const TypeInfo &position_type = registry.type<Position>();
     check(position_type.key == type_id_for<Position>(),
           "a reflected type's own TypeInfo::key must equal type_id_for<T>() for that same type, "
           "so a field/return TypeId of that type resolves back through TypeRegistry::find");
+
+    // ── Multiple inheritance ───────────────────────────────────────────────────────────────────
+    const TypeInfo &turret_type = registry.type<Turret>();
+    check(turret_type.base_type == type_id_for<Entity>(),
+          "the primary base (first in SFT_REFLECT_TYPE_WITH_BASES) must still populate base_type exactly as single inheritance always did");
+    check(turret_type.secondary_bases.size() == 2, "both secondary bases must be recorded");
+
+    // isInstance/isAssignableFrom-style checks: a Turret is-a Entity, is-a Damageable, is-a
+    // Targetable, reachable through the primary chain OR either secondary base.
+    check(registry.is_assignable_from(type_id_for<Entity>(), turret_type.key),
+          "is_assignable_from must still find the primary base (unchanged single-inheritance behavior)");
+    check(registry.is_assignable_from(type_id_for<Damageable>(), turret_type.key),
+          "is_assignable_from must find a type reachable only through a secondary base");
+    check(registry.is_assignable_from(type_id_for<Targetable>(), turret_type.key),
+          "is_assignable_from must find a type reachable through a DIFFERENT secondary base");
+    check(!registry.is_assignable_from(turret_type.key, type_id_for<Damageable>()),
+          "is_assignable_from must not report the relationship backwards");
+    struct Unrelated1 {};
+    check(!registry.is_assignable_from(TypeId::from_name("nonexistent"), turret_type.key),
+          "is_assignable_from must fail cleanly against an unregistered base");
+
+    Turret turret{};
+    turret.ammo = 7;
+    turret.hit_points = 50;
+    turret.priority = 2.5F;
+
+    // Fields reached through the primary base need no adjustment — object and adjusted-object
+    // must be the exact same address, matching single inheritance's existing guarantee.
+    {
+        auto [field, adjusted] = registry.find_field_adjusted(turret_type, "describe_nonexistent_field", &turret);
+        check(field == nullptr && adjusted == nullptr, "find_field_adjusted must fail cleanly for an unknown field");
+    }
+
+    // Fields reached through secondary bases: THIS is the actual test of pointer adjustment. If
+    // the adjustment were wrong (e.g. the raw Turret* were used unmodified against Damageable's
+    // own hit_points offset), this would read garbage or corrupt memory instead of the real value.
+    {
+        auto [field, adjusted] = registry.find_field_adjusted(turret_type, "hit_points", &turret);
+        check(field != nullptr, "hit_points must be found through the Damageable secondary base");
+        int read_hp = 0;
+        check(field != nullptr && adjusted != nullptr && copy_field_out(*field, adjusted, &read_hp, sizeof(read_hp)),
+              "reading a field through a secondary base must succeed");
+        check(read_hp == 50, "reading a field through a secondary base must return the REAL value, proving the pointer adjustment was correct");
+
+        const int new_hp = 33;
+        check(field != nullptr && adjusted != nullptr && copy_field_in(*field, adjusted, &new_hp, sizeof(new_hp)),
+              "writing a field through a secondary base must succeed");
+        check(turret.hit_points == 33, "writing through the adjusted pointer must land in the REAL Damageable subobject inside turret, not some other address");
+    }
+    {
+        auto [field, adjusted] = registry.find_field_adjusted(turret_type, "priority", &turret);
+        check(field != nullptr, "priority must be found through the Targetable secondary base");
+        float read_priority = 0.0F;
+        check(field != nullptr && adjusted != nullptr && copy_field_out(*field, adjusted, &read_priority, sizeof(read_priority)),
+              "reading a field through a DIFFERENT secondary base must also succeed");
+        check(read_priority == 2.5F, "reading through Targetable's adjustment must return the real value, not Damageable's or Entity's");
+    }
+    {
+        // The type's OWN field, for contrast: no base walk needed at all, object == adjusted.
+        auto [field, adjusted] = registry.find_field_adjusted(turret_type, "ammo", &turret);
+        check(field != nullptr && adjusted == static_cast<void *>(&turret),
+              "a field declared directly on the type itself must need no adjustment");
+    }
+
+    // Methods reached through secondary bases: same pointer-adjustment hazard, for invocation
+    // instead of field offsets — take_hit()'s implicit `this` must point at the real Damageable
+    // subobject, or it corrupts unrelated memory instead of mutating turret.hit_points.
+    {
+        auto [method, adjusted] = registry.find_method_adjusted(turret_type, "take_hit", &turret);
+        check(method != nullptr && adjusted != nullptr, "take_hit must be found and adjusted through Damageable");
+        turret.hit_points = 100;
+        const int damage = 40;
+        const void *args[] = {&damage};
+        int result = 0;
+        check(invoke_method(*method, adjusted, args, 1, &result), "invoking a method through a secondary base must dispatch");
+        check(result == 60 && turret.hit_points == 60,
+              "invoking through the adjusted receiver must mutate the REAL Damageable subobject inside turret");
+    }
+    {
+        auto [method, adjusted] = registry.find_method_adjusted(turret_type, "targeting_priority", &turret);
+        check(method != nullptr && adjusted != nullptr, "targeting_priority must be found through Targetable, a different secondary base");
+        float result = 0.0F;
+        check(invoke_method(*method, adjusted, nullptr, 0, &result), "invoking through Targetable's adjustment must dispatch");
+        check(result == 2.5F, "the result must be Targetable's real value, not corrupted by a wrong adjustment");
+    }
 
     if (failures != 0) {
         (void)std::fprintf(stderr, "TypeRegistryTest: %d check(s) failed\n", failures);

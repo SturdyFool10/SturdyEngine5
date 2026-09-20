@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Reflection/FixedString.hpp>
 #include <Reflection/Macros.hpp>
 #include <Reflection/MethodInfo.hpp>
 #include <Reflection/TypeRegistry.hpp>
@@ -25,26 +26,10 @@
 namespace SFT::Reflection::Detail {
 
 
-    /// A compile-time string usable as a non-type template parameter (a "structural type" per
-    /// C++20's NTTP rules), letting `SFT_REFLECT_FIRE_EVENT` cache its `EventInfo*` per
-    /// `(T, event name)` pair the same way `invoke_reflected` caches per `(T, Member)` — events
-    /// have no member pointer to template on, so the name itself becomes the template argument.
-    template <usize N>
-    struct FixedString {
-        char data[N]{};
-
-        consteval FixedString(const char (&str)[N]) noexcept {
-            for (usize i = 0; i < N; ++i) {
-                data[i] = str[i];
-            }
-        }
-
-        [[nodiscard]] constexpr std::string_view view() const noexcept {
-            return std::string_view(data, N - 1);
-        }
-    };
-
-    /// Call-site implementation behind `SFT_REFLECT_FIRE_EVENT`.
+    /// Call-site implementation behind `SFT_REFLECT_FIRE_EVENT`. Caches its `EventInfo*` per
+    /// `(T, event name)` pair (via `FixedString`, `FixedString.hpp`) the same way `invoke_reflected`
+    /// caches per `(T, Member)` — events have no member pointer to template on, so the name itself
+    /// becomes the template argument.
     ///
     /// The `EventInfo*` is resolved once per `(T, Name)` pair via a function-local `static`, the
     /// same caching shape `invoke_reflected` uses for methods. Firing then costs only what
@@ -119,6 +104,14 @@ namespace SFT::Reflection::Detail {
 #define SFT_REFLECT_INVOKE(OBJECT_PTR, TYPE, METHOD, ...) \
     ::SFT::Reflection::Detail::invoke_reflected<TYPE, &TYPE::METHOD>((OBJECT_PTR), std::string_view{#METHOD} __VA_OPT__(, ) __VA_ARGS__)
 
+/// Same as `SFT_REFLECT_INVOKE`, for a `METHOD` that names an overload set (declared via
+/// `SFT_REFLECT_METHOD_OVERLOAD`, see `Macros.hpp`). `&TYPE::METHOD` is ambiguous on its own for
+/// an overloaded `METHOD` — the same reason `SFT_REFLECT_METHOD` needs `_OVERLOAD` — so
+/// `POINTER_TYPE` supplies the exact pointer-to-member-function type to select one, e.g.
+/// `SFT_REFLECT_INVOKE_OVERLOAD(&player, PlayerController, take_damage, void (PlayerController::*)(int), 30)`.
+#define SFT_REFLECT_INVOKE_OVERLOAD(OBJECT_PTR, TYPE, METHOD, POINTER_TYPE, ...) \
+    ::SFT::Reflection::Detail::invoke_reflected<TYPE, static_cast<POINTER_TYPE>(&TYPE::METHOD)>((OBJECT_PTR), std::string_view{#METHOD} __VA_OPT__(, ) __VA_ARGS__)
+
 /// Fires the `SFT_REFLECT_EVENT`-declared event named `EVENT_NAME` on `OBJECT_PTR` (an instance
 /// of a `SFT_REFLECT_TYPE`-annotated `TYPE`), calling every mod-subscribed listener in
 /// registration order. A no-op when nobody has subscribed — see `Multicast::fire` — so sprinkling
@@ -144,6 +137,11 @@ namespace SFT::Reflection::Detail {
 /// with no reflection machinery instantiated at all — no `TypeRegistry` lookup, no atomic load,
 /// nothing beyond what `OBJECT_PTR->METHOD(...)` would have cost anyway.
 #define SFT_REFLECT_INVOKE(OBJECT_PTR, TYPE, METHOD, ...) ((OBJECT_PTR)->METHOD(__VA_ARGS__))
+
+/// Modding compiled out: a direct call, exactly like `SFT_REFLECT_INVOKE` above — ordinary C++
+/// overload resolution on `__VA_ARGS__` already picks the right overload with no need for
+/// `POINTER_TYPE` at all, so it is accepted but unused here.
+#define SFT_REFLECT_INVOKE_OVERLOAD(OBJECT_PTR, TYPE, METHOD, POINTER_TYPE, ...) ((OBJECT_PTR)->METHOD(__VA_ARGS__))
 
 /// Modding compiled out: no listener could possibly be subscribed, so this discards its
 /// arguments (still evaluating them, for side effects) instead of calling into `Multicast`/

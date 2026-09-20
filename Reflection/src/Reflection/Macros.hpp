@@ -1,9 +1,12 @@
 #pragma once
 
 #include <Reflection/Attribute.hpp>
+#include <Reflection/ContainerTraits.hpp>
 #include <Reflection/Contract.hpp>
 #include <Reflection/EnumInfo.hpp>
 #include <Reflection/InvokeException.hpp>
+#include <Reflection/StaticTypeId.hpp>
+#include <Reflection/StructuralTypeId.hpp>
 #include <Reflection/TypeInfo.hpp>
 
 #include <Foundation/Foundation.hpp>
@@ -27,88 +30,6 @@
 
 namespace SFT::Reflection::Detail {
 
-    /// Detects `std::vector<T, Alloc>` specifically (the only recognized sequence container — see
-    /// `ContainerInfo`'s doc comment; `std::array<T, N>` is handled separately by `IsStdArray`
-    /// below, since it needs a fixed-size accessor rather than a resizable one).
-    template <class T>
-    struct IsStdVector : std::false_type {};
-    template <class T, class Alloc>
-    struct IsStdVector<std::vector<T, Alloc>> : std::true_type {
-        using Element = T;
-    };
-
-    /// Detects `std::array<T, N>`.
-    template <class T>
-    struct IsStdArray : std::false_type {};
-    template <class T, usize N>
-    struct IsStdArray<std::array<T, N>> : std::true_type {
-        using Element = T;
-        static constexpr usize Size = N;
-    };
-
-    /// Detects `std::unordered_map<K, V, Hash, Eq, Alloc>`.
-    template <class T>
-    struct IsStdUnorderedMap : std::false_type {};
-    template <class K, class V, class Hash, class Eq, class Alloc>
-    struct IsStdUnorderedMap<std::unordered_map<K, V, Hash, Eq, Alloc>> : std::true_type {
-        using Key = K;
-        using Value = V;
-    };
-
-    /// Detects `std::map<K, V, Compare, Alloc>` (ordered) — reuses the exact same runtime
-    /// `MapInfo` shape as `std::unordered_map`: `MapInfo`'s operations (`for_each`/
-    /// `insert_or_assign`/`find`/`erase`/`clear`) never depended on hashing vs. ordering in the
-    /// first place, so the only thing that differs is which container type the generated lambdas
-    /// close over (see `map_info_for`).
-    template <class T>
-    struct IsStdMap : std::false_type {};
-    template <class K, class V, class Compare, class Alloc>
-    struct IsStdMap<std::map<K, V, Compare, Alloc>> : std::true_type {
-        using Key = K;
-        using Value = V;
-    };
-
-    /// Detects `std::set<T, Compare, Alloc>`.
-    template <class T>
-    struct IsStdSet : std::false_type {};
-    template <class T, class Compare, class Alloc>
-    struct IsStdSet<std::set<T, Compare, Alloc>> : std::true_type {
-        using Element = T;
-    };
-
-    /// Detects `std::unordered_set<T, Hash, Eq, Alloc>`.
-    template <class T>
-    struct IsStdUnorderedSet : std::false_type {};
-    template <class T, class Hash, class Eq, class Alloc>
-    struct IsStdUnorderedSet<std::unordered_set<T, Hash, Eq, Alloc>> : std::true_type {
-        using Element = T;
-    };
-
-    /// Detects `std::optional<T>`.
-    template <class T>
-    struct IsStdOptional : std::false_type {};
-    template <class T>
-    struct IsStdOptional<std::optional<T>> : std::true_type {
-        using Value = T;
-    };
-
-    /// Detects `std::unique_ptr<T, Deleter>` (the default deleter only — a custom deleter can't
-    /// generically be reconstructed from a bare copy of `*T`, so it falls through to the opaque
-    /// non-trivial-type path like any other unrecognized shape).
-    template <class T>
-    struct IsStdUniquePtr : std::false_type {};
-    template <class T>
-    struct IsStdUniquePtr<std::unique_ptr<T>> : std::true_type {
-        using Value = T;
-    };
-
-    /// Detects `std::shared_ptr<T>`.
-    template <class T>
-    struct IsStdSharedPtr : std::false_type {};
-    template <class T>
-    struct IsStdSharedPtr<std::shared_ptr<T>> : std::true_type {
-        using Value = T;
-    };
 
 
     /// Returns a reflected type's stable canonical name.
@@ -175,10 +96,22 @@ namespace SFT::Reflection::Detail {
     /// Also checks `EnumTraits<M>` (for the same reason, symmetrically): a reflected enum used as
     /// a field/parameter type gets its real `EnumInfo::key` identity, not a second one.
     ///
-    /// Falls back to `typeid(M).name()` for everything else (`int`, `float`, `UString`, ...) —
-    /// not portable/pretty across compilers, but cheap, requires no polymorphic RTTI machinery
-    /// for non-polymorphic `M`, and evaluated once per field/method at registration time, never
-    /// on the hot access path.
+    /// Everything else resolves through `structural_type_id<M>()` (`StructuralTypeId.hpp`) when it
+    /// can: fundamentals (`int` -> `"i32"`), `UString`, and composed container/wrapper shapes
+    /// (`std::vector<game.Item>`) all get a name that is identical across compilers, ABIs, and
+    /// builds. This matters well beyond tidiness — a `TypeId` derived from `typeid(M).name()` is a
+    /// *mangled* name, which the standard does not require to agree between implementations (and
+    /// Itanium and MSVC do not agree). Any two builds exchanging reflected data across an FFI or
+    /// mod boundary — `copy_field_out_checked`, `invoke_method_checked`, a save file carrying
+    /// field-type ids — would silently disagree about whether two identically-shaped `int` fields
+    /// had the same type.
+    ///
+    /// `typeid(M).name()` survives only as the last-resort fallback for a type that is neither
+    /// reflected, nor a reflected enum, nor structurally nameable (an unreflected struct, a raw
+    /// function type, a container of either). Those keep the old compiler-dependent identity —
+    /// still internally consistent within one build, still unsafe to compare across builds — and
+    /// the way to move one out of that category is to reflect it (`SFT_REFLECT_TYPE`) or add it to
+    /// `Detail::FundamentalTypeName`, both of which are strictly better than widening the fallback.
     ///
     /// @return Returns the newly constructed id.
     /// @note This function has no separate failure status; exceptions raised by operations it
@@ -186,10 +119,8 @@ namespace SFT::Reflection::Detail {
     template <class M>
     [[nodiscard]] TypeId erased_type_id() {
         using TypeM = std::remove_cv_t<M>;
-        if constexpr (!TypeTraits<TypeM>::name.empty()) {
-            return TypeId::from_name(TypeTraits<TypeM>::name);
-        } else if constexpr (!EnumTraits<TypeM>::name.empty()) {
-            return TypeId::from_name(EnumTraits<TypeM>::name);
+        if constexpr (StructurallyIdentifiable<TypeM>) {
+            return structural_type_id<TypeM>();
         } else {
             return TypeId::from_name(typeid(TypeM).name());
         }
@@ -522,23 +453,29 @@ namespace SFT::Reflection::Detail {
             .size = sizeof(FieldT),
             .align = alignof(FieldT),
             .flags = flags,
-            .attributes = std::vector<Attribute>{std::forward<decltype(attrs)>(attrs)...},
+            .attributes = std::vector<Attribute>{attrs()...},
         };
         if constexpr (is_opaque_trivial) {
             info.primitive_kind = primitive_kind_of<FieldT>();
             return info;
         }
-        // Every remaining shape needs the generic whole-value copy_get/copy_set fallback (used by
-        // `copy_field_out`/`copy_field_in` regardless of which of container/map/set/optional is
-        // also populated below), plus its specific accessor table.
-        info.copy_get = [](const void *object, void *out_value) noexcept {
-            const auto *typed = static_cast<const T *>(object);
-            ::new (out_value) FieldT(typed->*Member);
-        };
-        info.copy_set = [](void *object, const void *in_value) noexcept {
-            auto *typed = static_cast<T *>(object);
-            typed->*Member = *static_cast<const FieldT *>(in_value);
-        };
+        // Every remaining shape can also offer the generic whole-value copy_get/copy_set fallback
+        // (used by `copy_field_out`/`copy_field_in` regardless of which of
+        // container/map/set/optional is also populated below) — except `std::unique_ptr<T>`,
+        // which is move-only: there is no generic "copy the whole field" operation for it, so
+        // `copy_get`/`copy_set` are left null and a caller must go through `FieldInfo::optional`
+        // instead (`optional_get`/`optional_set`, which only ever touch the *pointee*, never try
+        // to copy the smart pointer itself).
+        if constexpr (std::is_copy_constructible_v<FieldT> && std::is_copy_assignable_v<FieldT>) {
+            info.copy_get = [](const void *object, void *out_value) noexcept {
+                const auto *typed = static_cast<const T *>(object);
+                ::new (out_value) FieldT(typed->*Member);
+            };
+            info.copy_set = [](void *object, const void *in_value) noexcept {
+                auto *typed = static_cast<T *>(object);
+                typed->*Member = *static_cast<const FieldT *>(in_value);
+            };
+        }
         if constexpr (is_optional) {
             info.optional = optional_info_for<typename IsStdOptional<FieldT>::Value>();
         } else if constexpr (IsStdUniquePtr<FieldT>::value) {
@@ -580,7 +517,7 @@ namespace SFT::Reflection::Detail {
             .size = sizeof(FieldT),
             .align = alignof(FieldT),
             .flags = flags,
-            .attributes = std::vector<Attribute>{std::forward<decltype(attrs)>(attrs)...},
+            .attributes = std::vector<Attribute>{attrs()...},
             .static_address = const_cast<void *>(static_cast<const void *>(Member)),
         };
         if constexpr (!std::is_trivially_copyable_v<FieldT>) {
@@ -595,9 +532,24 @@ namespace SFT::Reflection::Detail {
     }
 
     /// Extracts the return type and parameter-type tuple from a pointer-to-member-function type.
-    /// Covers the four cv/noexcept-qualification combinations a plain (non-overloaded) reflected
-    /// method can have; overload sets are not supported in v1 (take `&T::method` of an overload
-    /// set is ill-formed anyway without an explicit signature cast at the macro call site).
+    /// Specialized below for all 24 cv/ref/noexcept-qualification combinations a (non-overloaded)
+    /// reflected method can have — `const`, `volatile`, `const volatile`, `&`, `&&`, and every
+    /// pairing of those with each other and with `noexcept` — so a ref-qualified or volatile
+    /// method is no longer un-reflectable. Overload sets are not supported in v1 (taking
+    /// `&T::method` of an overload set is ill-formed anyway without an explicit signature cast at
+    /// the macro call site — see `SFT_REFLECT_METHOD_OVERLOAD`).
+    /// Which ref-qualifier (`&`, `&&`, or none) a reflected member function carries on its
+    /// implicit object parameter. This is not merely descriptive metadata: an `&&`-qualified
+    /// method can only be called on an rvalue, so `invoke_trampoline_impl` has to know to call it
+    /// as `std::move(*typed).*Member` rather than `typed->*Member` — without that, every
+    /// `&&`-qualified method is a hard compile error the moment it is reflected, even though the
+    /// `MemberFunctionTraits` specialization for it exists and looks supported.
+    enum class MethodRefQualifier : u8 {
+        None,
+        LValue,
+        RValue,
+    };
+
     template <class M>
     struct MemberFunctionTraits;
 
@@ -606,13 +558,69 @@ namespace SFT::Reflection::Detail {
         using Return = R;
         using ArgsTuple = std::tuple<Args...>;
         static constexpr usize arity = sizeof...(Args);
+        static constexpr MethodRefQualifier ref_qualifier = MethodRefQualifier::None;
+        /// Qualifiers on the *implicit object parameter* (not on the return type or any argument).
+        /// Recorded because a reflected signature is only round-trippable — to a script binding, an
+        /// RPC stub, a generated header — if `void aim(int) const noexcept` can be told apart from
+        /// `void aim(int)`, which `Return`/`ArgsTuple` alone cannot express.
+        static constexpr bool is_const = false;
+        static constexpr bool is_volatile = false;
+        static constexpr bool is_noexcept = false;
+
+        /// The qualifier-preserving equivalent of `collect_param_types` (below) — each entry
+        /// keeps whatever cv/ref/pointer qualifiers the real parameter declared (`const Player&`
+        /// stays `const Player&`, not `Player`), satisfying the "preserve full parameter TypeRef
+        /// information" requirement that `collect_param_types`'s `remove_cvref_t`-erased
+        /// `TypeId`s cannot.
+        [[nodiscard]] static consteval std::array<TypeRef, sizeof...(Args)> param_type_refs() noexcept {
+            // `structural_type_ref`, not `type_ref`: parameters are routinely containers/wrappers
+            // (`const std::vector<Item>&`) which have no canonical name of their own — see
+            // `StructuralTypeId.hpp`. For a parameter type that does have one, the two agree.
+            return std::array<TypeRef, sizeof...(Args)>{structural_type_ref<Args>()...};
+        }
+
+        /// The return type's qualifier-preserving reference, for the same reason
+        /// `param_type_refs()` exists: `MethodInfo::return_type` erases `const Item&` to `Item`.
+        [[nodiscard]] static consteval TypeRef return_type_ref() noexcept {
+            return structural_type_ref<R>();
+        }
     };
-    template <class T, class R, class... Args>
-    struct MemberFunctionTraits<R (T::*)(Args...) noexcept> : MemberFunctionTraits<R (T::*)(Args...)> {};
-    template <class T, class R, class... Args>
-    struct MemberFunctionTraits<R (T::*)(Args...) const> : MemberFunctionTraits<R (T::*)(Args...)> {};
-    template <class T, class R, class... Args>
-    struct MemberFunctionTraits<R (T::*)(Args...) const noexcept> : MemberFunctionTraits<R (T::*)(Args...)> {};
+
+#define STURDY_REFLECTION_MFN_TRAITS(QUALIFIERS, REF_QUALIFIER, IS_CONST, IS_VOLATILE, IS_NOEXCEPT) \
+    template <class T, class R, class... Args>                                \
+    struct MemberFunctionTraits<R (T::*)(Args...) QUALIFIERS>                 \
+        : MemberFunctionTraits<R (T::*)(Args...)> {                           \
+        static constexpr MethodRefQualifier ref_qualifier = REF_QUALIFIER;    \
+        static constexpr bool is_const = IS_CONST;                            \
+        static constexpr bool is_volatile = IS_VOLATILE;                      \
+        static constexpr bool is_noexcept = IS_NOEXCEPT;                      \
+    };
+
+    STURDY_REFLECTION_MFN_TRAITS(noexcept, MethodRefQualifier::None, false, false, true)
+    STURDY_REFLECTION_MFN_TRAITS(const, MethodRefQualifier::None, true, false, false)
+    STURDY_REFLECTION_MFN_TRAITS(const noexcept, MethodRefQualifier::None, true, false, true)
+    STURDY_REFLECTION_MFN_TRAITS(volatile, MethodRefQualifier::None, false, true, false)
+    STURDY_REFLECTION_MFN_TRAITS(volatile noexcept, MethodRefQualifier::None, false, true, true)
+    STURDY_REFLECTION_MFN_TRAITS(const volatile, MethodRefQualifier::None, true, true, false)
+    STURDY_REFLECTION_MFN_TRAITS(const volatile noexcept, MethodRefQualifier::None, true, true, true)
+    STURDY_REFLECTION_MFN_TRAITS(&, MethodRefQualifier::LValue, false, false, false)
+    STURDY_REFLECTION_MFN_TRAITS(& noexcept, MethodRefQualifier::LValue, false, false, true)
+    STURDY_REFLECTION_MFN_TRAITS(&&, MethodRefQualifier::RValue, false, false, false)
+    STURDY_REFLECTION_MFN_TRAITS(&& noexcept, MethodRefQualifier::RValue, false, false, true)
+    STURDY_REFLECTION_MFN_TRAITS(const &, MethodRefQualifier::LValue, true, false, false)
+    STURDY_REFLECTION_MFN_TRAITS(const & noexcept, MethodRefQualifier::LValue, true, false, true)
+    STURDY_REFLECTION_MFN_TRAITS(const &&, MethodRefQualifier::RValue, true, false, false)
+    STURDY_REFLECTION_MFN_TRAITS(const && noexcept, MethodRefQualifier::RValue, true, false, true)
+    STURDY_REFLECTION_MFN_TRAITS(volatile &, MethodRefQualifier::LValue, false, true, false)
+    STURDY_REFLECTION_MFN_TRAITS(volatile & noexcept, MethodRefQualifier::LValue, false, true, true)
+    STURDY_REFLECTION_MFN_TRAITS(volatile &&, MethodRefQualifier::RValue, false, true, false)
+    STURDY_REFLECTION_MFN_TRAITS(volatile && noexcept, MethodRefQualifier::RValue, false, true, true)
+    STURDY_REFLECTION_MFN_TRAITS(const volatile &, MethodRefQualifier::LValue, true, true, false)
+    STURDY_REFLECTION_MFN_TRAITS(const volatile & noexcept, MethodRefQualifier::LValue, true, true, true)
+    STURDY_REFLECTION_MFN_TRAITS(const volatile &&, MethodRefQualifier::RValue, true, true, false)
+    STURDY_REFLECTION_MFN_TRAITS(const volatile && noexcept, MethodRefQualifier::RValue, true, true, true)
+
+#undef STURDY_REFLECTION_MFN_TRAITS
 
     /// Static member functions decay to plain function pointers (no `T::*`) — these
     /// specializations let `MemberFunctionTraits` serve `Detail::build_static_method_info` too.
@@ -621,9 +629,24 @@ namespace SFT::Reflection::Detail {
         using Return = R;
         using ArgsTuple = std::tuple<Args...>;
         static constexpr usize arity = sizeof...(Args);
+        /// A static member function has no implicit object parameter, so none of these can apply.
+        static constexpr MethodRefQualifier ref_qualifier = MethodRefQualifier::None;
+        static constexpr bool is_const = false;
+        static constexpr bool is_volatile = false;
+        static constexpr bool is_noexcept = false;
+
+        [[nodiscard]] static consteval std::array<TypeRef, sizeof...(Args)> param_type_refs() noexcept {
+            return std::array<TypeRef, sizeof...(Args)>{structural_type_ref<Args>()...};
+        }
+
+        [[nodiscard]] static consteval TypeRef return_type_ref() noexcept {
+            return structural_type_ref<R>();
+        }
     };
     template <class R, class... Args>
-    struct MemberFunctionTraits<R (*)(Args...) noexcept> : MemberFunctionTraits<R (*)(Args...)> {};
+    struct MemberFunctionTraits<R (*)(Args...) noexcept> : MemberFunctionTraits<R (*)(Args...)> {
+        static constexpr bool is_noexcept = true;
+    };
 
     template <class Traits, usize... Is>
     [[nodiscard]] std::vector<TypeId> collect_param_types(std::index_sequence<Is...>) {
@@ -648,13 +671,42 @@ namespace SFT::Reflection::Detail {
     /// internals to extend a hash incrementally — this is registration/lookup-time cost only
     /// (paid once per declared method, and once per call site's function-local `static` cache in
     /// `Detail::invoke_reflected`), never on the hot per-call path.
+    /// Reports whether every parameter of `Traits`, and its return type, has a canonical identity
+    /// (`StructurallyIdentifiable`). Used with `if constexpr` rather than a `requires` clause on
+    /// the call itself: this is a *total* predicate — it answers for any signature without ever
+    /// evaluating `structural_type_ref` on a type that lacks one — whereas a simple-requirement
+    /// like `requires { Traits::param_type_refs(); }` would only check that the call matches the
+    /// declared signature and would answer `true` right before hard-erroring.
+    template <class Traits, usize... Is>
+    [[nodiscard]] consteval bool signature_is_identifiable(std::index_sequence<Is...>) noexcept {
+        return StructurallyIdentifiable<typename Traits::Return> &&
+               (StructurallyIdentifiable<std::tuple_element_t<Is, typename Traits::ArgsTuple>> && ...);
+    }
+
+    /// Fills in `MethodInfo`'s qualifier-preserving signature when the types allow it, leaving it
+    /// empty (and `has_qualified_signature` false) when they do not. See `MethodInfo::param_type_refs`.
+    template <class Traits>
+    void assign_qualified_signature(MethodInfo &info) {
+        if constexpr (signature_is_identifiable<Traits>(std::make_index_sequence<Traits::arity>{})) {
+            const auto refs = Traits::param_type_refs();
+            info.param_type_refs.assign(refs.begin(), refs.end());
+            info.return_type_ref = Traits::return_type_ref();
+            info.has_qualified_signature = true;
+        }
+    }
+
+    /// Reproduces `StaticMethodInfo::key()`'s exact string format (`StaticReflection.hpp`) — same
+    /// `"<name>#<high>:<low>#..."` layout, one segment per parameter — via the same
+    /// `append_structural_extent` digit writer that file uses instead of `std::to_string`, so the
+    /// two independently-computed keys for the same signature keep agreeing while also dropping
+    /// `std::to_string`'s per-parameter temporary-string allocations at registration time.
     [[nodiscard]] inline TypeId compute_method_key(std::string_view name, std::span<const TypeId> param_types) {
         std::string signature{name};
         for (TypeId param : param_types) {
-            signature += '#';
-            signature += std::to_string(param.hash.high);
-            signature += ':';
-            signature += std::to_string(param.hash.low);
+            signature.push_back('#');
+            append_structural_extent(signature, static_cast<usize>(param.hash.high));
+            signature.push_back(':');
+            append_structural_extent(signature, static_cast<usize>(param.hash.low));
         }
         return TypeId::from_name(signature);
     }
@@ -681,12 +733,25 @@ namespace SFT::Reflection::Detail {
     void invoke_trampoline_impl(void *object, const void *const *args, void *out_return, std::index_sequence<Is...>) noexcept {
         using Return = typename Traits::Return;
         auto *typed = static_cast<T *>(object);
+        // An `&&`-qualified member function's implicit object parameter is `T&&`, which an lvalue
+        // cannot bind to — `(typed->*Member)(...)` is ill-formed for one, so the receiver has to
+        // be moved from instead. Reflection never owns the object it is handed (`object` belongs
+        // to the caller), so this does not "consume" anything the caller did not already opt into:
+        // declaring a method `&&`-qualified is itself the statement that calling it requires an
+        // expiring object, and a caller invoking it reflectively is making that same claim.
+        const auto receiver = [typed]() -> decltype(auto) {
+            if constexpr (Traits::ref_qualifier == MethodRefQualifier::RValue) {
+                return std::move(*typed);
+            } else {
+                return (*typed);
+            }
+        };
         try {
             if constexpr (std::is_void_v<Return>) {
-                (typed->*Member)(*static_cast<std::remove_cvref_t<std::tuple_element_t<Is, typename Traits::ArgsTuple>> *>(
+                (receiver().*Member)(*static_cast<std::remove_cvref_t<std::tuple_element_t<Is, typename Traits::ArgsTuple>> *>(
                     const_cast<void *>(args[Is]))...);
             } else {
-                Return result = (typed->*Member)(*static_cast<std::remove_cvref_t<std::tuple_element_t<Is, typename Traits::ArgsTuple>> *>(
+                Return result = (receiver().*Member)(*static_cast<std::remove_cvref_t<std::tuple_element_t<Is, typename Traits::ArgsTuple>> *>(
                     const_cast<void *>(args[Is]))...);
                 ::new (out_return) Return(std::move(result));
             }
@@ -713,8 +778,9 @@ namespace SFT::Reflection::Detail {
         info.return_type = erased_type_id<typename Traits::Return>();
         info.param_types = collect_param_types<Traits>(std::make_index_sequence<Traits::arity>{});
         info.key = compute_method_key(name, info.param_types);
+        assign_qualified_signature<Traits>(info);
         info.invoke = &invoke_trampoline<T, Member, Traits>;
-        info.attributes = std::vector<Attribute>{std::forward<decltype(attrs)>(attrs)...};
+        info.attributes = std::vector<Attribute>{attrs()...};
         return info;
     }
 
@@ -757,8 +823,9 @@ namespace SFT::Reflection::Detail {
         info.return_type = erased_type_id<typename Traits::Return>();
         info.param_types = collect_param_types<Traits>(std::make_index_sequence<Traits::arity>{});
         info.key = compute_method_key(name, info.param_types);
+        assign_qualified_signature<Traits>(info);
         info.invoke = &invoke_static_trampoline<Member, Traits>;
-        info.attributes = std::vector<Attribute>{std::forward<decltype(attrs)>(attrs)...};
+        info.attributes = std::vector<Attribute>{attrs()...};
         info.is_static = true;
         return info;
     }
@@ -774,7 +841,7 @@ namespace SFT::Reflection::Detail {
         info.key = TypeId::from_name(name);
         info.name = UString{name};
         info.param_types = std::vector<TypeId>{erased_type_id<std::remove_cvref_t<Args>>()...};
-        info.attributes = std::vector<Attribute>{std::forward<decltype(attrs)>(attrs)...};
+        info.attributes = std::vector<Attribute>{attrs()...};
         return info;
     }
 
@@ -808,7 +875,7 @@ namespace SFT::Reflection::Detail {
         ConstructorInfo info{};
         info.param_types = std::vector<TypeId>{erased_type_id<std::remove_cvref_t<Args>>()...};
         info.invoke = &construct_trampoline<T, Args...>;
-        info.attributes = std::vector<Attribute>{std::forward<decltype(attrs)>(attrs)...};
+        info.attributes = std::vector<Attribute>{attrs()...};
         return info;
     }
 
@@ -856,6 +923,23 @@ namespace SFT::Reflection::Detail {
         }
         if constexpr (requires { typename TypeTraits<TypeT>::BaseType; }) {
             info.base_type = TypeId::from_name(type_name<typename TypeTraits<TypeT>::BaseType>());
+        }
+        // Secondary bases (`SFT_REFLECT_TYPE_WITH_BASES`'s trailing bases): each gets its own
+        // `BaseInfo::cast`, a plain `static_cast<const Base *>(static_cast<const TypeT *>(ptr))`
+        // baked in for this exact `(TypeT, Base)` pair — see `BaseCastFn`'s doc comment
+        // (`TypeInfo.hpp`) for why this is the correct, portable way to get pointer adjustment
+        // without manual offset arithmetic.
+        if constexpr (requires { typename TypeTraits<TypeT>::SecondaryBaseTypes; }) {
+            [&info]<class... SecondaryBases>(std::type_identity<std::tuple<SecondaryBases...>>) {
+                (info.secondary_bases.push_back(BaseInfo{
+                     .type = TypeId::from_name(type_name<SecondaryBases>()),
+                     .cast = [](const void *derived) noexcept -> const void * {
+                         return static_cast<const void *>(
+                             static_cast<const SecondaryBases *>(static_cast<const TypeT *>(derived)));
+                     },
+                 }),
+                 ...);
+            }(std::type_identity<typename TypeTraits<TypeT>::SecondaryBaseTypes>{});
         }
 
         TypeTraits<TypeT>::for_each_member([&info]<auto Member, MemberKind Kind, class... MemberTypeArgs>(std::string_view member_name, auto &&...attrs) {
@@ -958,7 +1042,8 @@ namespace SFT::Reflection::Detail {
 /// Same as `SFT_REFLECT_TYPE`, additionally recording `BASE` as this type's reflected base
 /// (`TypeInfo::base_type`), enabling `TypeRegistry::find_field`/`find_method`/`find_event` to
 /// fall through to inherited members the way Java's `getField`/`getMethod` search superclasses.
-/// `BASE` must itself be reflected via `SFT_REFLECT_TYPE`. Single inheritance only in v1.
+/// `BASE` must itself be reflected via `SFT_REFLECT_TYPE`. This declares only the primary base —
+/// see `SFT_REFLECT_TYPE_WITH_BASES` for additional (secondary) bases.
 #define SFT_REFLECT_TYPE_WITH_BASE(TYPE, CANONICAL_NAME, BASE)     \
     template <>                                                    \
     struct SFT::Reflection::TypeTraits<TYPE> {                     \
@@ -967,6 +1052,32 @@ namespace SFT::Reflection::Detail {
         static constexpr std::string_view name [[maybe_unused]] {CANONICAL_NAME};     \
         template <class Visitor>                                    \
         static constexpr void for_each_member(Visitor &&visitor) {
+
+/// Same as `SFT_REFLECT_TYPE_WITH_BASE`, additionally recording one or more further bases beyond
+/// `PRIMARY_BASE` (`TypeInfo::secondary_bases`) — real multiple inheritance, or (far more common)
+/// several unrelated "interface" types `TYPE` implements, e.g.
+/// `SFT_REFLECT_TYPE_WITH_BASES(Turret, "game.turret", Entity, Damageable, Targetable)`.
+///
+/// Unlike `PRIMARY_BASE`, whose subobject this package assumes sits at offset `0` (true for the
+/// first base in every ABI this engine targets — see `TypeInfo::base_type`'s doc comment), each
+/// secondary base gets a compiler-generated pointer-adjustment function (`BaseInfo::cast`) baked
+/// in at registration time, so reaching a field/method declared on one still works correctly
+/// regardless of where its subobject actually lives — see `TypeRegistry::find_field_adjusted`/
+/// `find_method_adjusted`, the lookup functions that apply that adjustment. `TYPE`'s own fields/
+/// methods, and anything reached through `PRIMARY_BASE`, need no adjustment at all and remain
+/// reachable through the ordinary `find_field`/`find_method`/`copy_field_out`/`invoke_method` path
+/// exactly as before — this macro only adds capability, it does not change how single-inheritance
+/// types already work.
+#define SFT_REFLECT_TYPE_WITH_BASES(TYPE, CANONICAL_NAME, PRIMARY_BASE, ...) \
+    template <>                                                    \
+    struct SFT::Reflection::TypeTraits<TYPE> {                     \
+        using ReflectedType [[maybe_unused]] = TYPE;                \
+        using BaseType [[maybe_unused]] = PRIMARY_BASE;             \
+        using SecondaryBaseTypes [[maybe_unused]] = std::tuple<__VA_ARGS__>; \
+        static constexpr std::string_view name [[maybe_unused]] {CANONICAL_NAME};     \
+        template <class Visitor>                                    \
+        static constexpr void for_each_member(Visitor &&visitor) {
+
 
 /// Declares one public data member as reflectable. Must appear between `SFT_REFLECT_TYPE`/
 /// `SFT_REFLECT_TYPE_VERSIONED`/`SFT_REFLECT_TYPE_WITH_BASE` and `SFT_REFLECT_END`, one statement
@@ -991,10 +1102,12 @@ namespace SFT::Reflection::Detail {
 /// and `SFT_REFLECT_METHOD_OVERLOAD(take_damage, void (ReflectedType::*)(int, DamageType))` for a
 /// type with both a `take_damage(int)` and a `take_damage(int, DamageType)`. `ReflectedType` (the
 /// alias `SFT_REFLECT_TYPE` opens) is in scope, so `POINTER_TYPE` can reference it directly. Both
-/// overloads are then reachable as `MEMBER` — resolved unambiguously by signature at each call
-/// site through `Detail::compute_method_key` (see `TypeInfo::find_method`'s `param_types`
-/// overload, and `SFT_REFLECT_INVOKE`, which resolves by the real, compile-time-known signature of
-/// whichever `&TYPE::METHOD` it names, so no `_OVERLOAD` variant is needed there).
+/// overloads are then reachable as `MEMBER` — resolved unambiguously by signature (see
+/// `Detail::compute_method_key`) via `TypeInfo::find_method`'s `param_types` overload, or via
+/// `SFT_REFLECT_INVOKE_OVERLOAD` (`Invoke.hpp`), the matching disambiguated form of
+/// `SFT_REFLECT_INVOKE` for a call site that needs to name a specific overload (plain
+/// `SFT_REFLECT_INVOKE` has the identical "`&TYPE::METHOD` is ambiguous" problem for an
+/// overloaded `METHOD`, for the same reason `SFT_REFLECT_METHOD` does).
 #define SFT_REFLECT_METHOD_OVERLOAD(MEMBER, POINTER_TYPE, ...)                                                       \
     visitor.template operator()<static_cast<POINTER_TYPE>(&ReflectedType::MEMBER), SFT::Reflection::MemberKind::Method>(std::string_view{#MEMBER} __VA_OPT__(, ) __VA_ARGS__)
 

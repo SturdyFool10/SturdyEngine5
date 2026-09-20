@@ -161,6 +161,24 @@ int main() {
     check(registry.find_enum(color_type.key) == &color_type, "find_enum(TypeId) must return the same descriptor");
     check(registry.find_enum(color_type.canonical_name) == &color_type, "find_enum(name) must return the same descriptor");
 
+
+    // ── unregister_enum / mod unload ──────────────────────────────────────────────────────────
+    // The enum-side counterpart to unregister_type. Without it a mod that registered enums could
+    // never be fully unloaded: its EnumInfos stayed reachable by name and key forever, so a
+    // reloaded build of the same mod hit a CanonicalNameCollision re-registering them.
+    const EnumInfo &unload_enum = registry.enum_type<Color>();
+    const TypeId unload_enum_key = unload_enum.key;
+    const UString unload_enum_name = unload_enum.canonical_name;
+    check(registry.find_enum(unload_enum_key) != nullptr, "an enum must be findable before it is unregistered");
+    check(registry.unregister_enum(unload_enum_key), "unregistering a registered enum must succeed");
+    check(registry.find_enum(unload_enum_key) == nullptr, "an unregistered enum must no longer be findable by TypeId");
+    check(registry.find_enum(unload_enum_name) == nullptr, "an unregistered enum must no longer be findable by name");
+    check(!registry.unregister_enum(unload_enum_key), "unregistering an already-unregistered enum must fail cleanly");
+    // Re-registration must now succeed rather than colliding — this is the property that actually
+    // makes mod reload work.
+    check(registry.try_register_enum<Color>().has_value(), "an unregistered enum must be re-registerable after unload");
+    check(registry.find_enum(unload_enum_key) != nullptr, "the re-registered enum must be findable again");
+
     if (failures != 0) {
         (void)std::fprintf(stderr, "StaticEnumConstructorTest: %d check(s) failed\n", failures);
         return 1;

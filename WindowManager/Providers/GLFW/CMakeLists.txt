@@ -1,21 +1,14 @@
 # Optional GLFW window provider. This archive is deliberately separate from Sturdy::WindowManager:
 # configuring it makes the provider available, while a product pays its link/runtime footprint only
 # by explicitly referencing GLFW::create_window and linking Sturdy::WindowManagerGLFW.
-set(_sturdy_glfw_provider_platform_dirs Linux MacOS Windows)
-if(STURDY_OS STREQUAL "Windows")
-    set(_sturdy_glfw_provider_active_dir Windows)
-elseif(STURDY_OS STREQUAL "MacOS")
-    set(_sturdy_glfw_provider_active_dir MacOS)
-else()
-    # Linux and FreeBSD share the POSIX provider source view, matching WindowManager's source selection.
-    set(_sturdy_glfw_provider_active_dir Linux)
-endif()
-set(_sturdy_glfw_provider_excluded_dirs ${_sturdy_glfw_provider_platform_dirs})
-list(REMOVE_ITEM _sturdy_glfw_provider_excluded_dirs "${_sturdy_glfw_provider_active_dir}")
+
+# One per-OS source tree is compiled (Linux and FreeBSD share the POSIX one, matching WindowManager).
+sturdy_inactive_os_dirs(_sturdy_glfw_provider_excluded_dirs DIRS Linux MacOS Windows)
 
 sturdy_add_package(WindowManagerGLFW
+    ENGINE_OPTIMIZED
+
     EXCLUDE_SOURCE_DIRS
-        tests
         ${_sturdy_glfw_provider_excluded_dirs}
 
     PUBLIC_DEPS
@@ -30,8 +23,6 @@ sturdy_add_package(WindowManagerGLFW
         # surfaces through GLFW) — private since only the .cpp needs Vulkan headers, not this
         # package's own public surface.
         Sturdy::Vulkan
-
-    DEBUG_PUBLIC_DEPS
 )
 
 if(STURDY_OS STREQUAL "Windows")
@@ -40,7 +31,7 @@ if(STURDY_OS STREQUAL "Windows")
     # MSVC default lib, so both need an explicit link — same bare-name pattern Sturdy::DirectX
     # already uses for d3d12/dxgi/dxguid (cmake/SturdyDependencies.cmake).
     target_link_libraries(WindowManagerGLFW PRIVATE imm32 comctl32)
-elseif(_sturdy_glfw_provider_active_dir STREQUAL "Linux")
+elseif(NOT STURDY_OS STREQUAL "MacOS")
     # X11 IME composition support (WindowManager/Providers/GLFW/Linux/GlfwWindowNative.cpp, XIMPreeditCallbacks path):
     # libX11 for Xlib itself. GLFW's own X11 backend already requires libX11 to exist on the system
     # to build at all, so this is never introducing a new hard dependency, only linking a library
@@ -101,51 +92,18 @@ elseif(_sturdy_glfw_provider_active_dir STREQUAL "Linux")
     endif()
 endif()
 
-if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
-    add_executable(WindowManagerGLFWFactoryAccessTest tests/FactoryAccessTest.cpp)
-    target_link_libraries(WindowManagerGLFWFactoryAccessTest PRIVATE Sturdy::WindowManagerGLFW)
-    sturdy_enable_warnings(WindowManagerGLFWFactoryAccessTest)
-    add_test(NAME WindowManagerGLFWFactoryAccessTest COMMAND WindowManagerGLFWFactoryAccessTest)
-    set_tests_properties(WindowManagerGLFWFactoryAccessTest PROPERTIES TIMEOUT 10)
+sturdy_add_tests(WindowManagerGLFW
+    NAMES WindowEventAndManagerTest=GlfwWindowEventAndManagerTest)
+sturdy_add_static_unused_test(WindowManagerGLFW)
 
-    add_executable(GlfwWindowEventAndManagerTest tests/WindowEventAndManagerTest.cpp)
-    target_link_libraries(GlfwWindowEventAndManagerTest PRIVATE Sturdy::WindowManagerGLFW)
-    sturdy_enable_warnings(GlfwWindowEventAndManagerTest)
-    add_test(NAME GlfwWindowEventAndManagerTest COMMAND GlfwWindowEventAndManagerTest)
-    set_tests_properties(GlfwWindowEventAndManagerTest PROPERTIES TIMEOUT 10)
-
-    if(NOT STURDY_BUILD_SHARED_LIBS)
-        add_executable(
-            WindowManagerGLFWUnusedProbe
-            "${CMAKE_SOURCE_DIR}/cmake/tests/StaticAggregateUnused.cpp"
-        )
-        target_link_libraries(WindowManagerGLFWUnusedProbe PRIVATE Sturdy::WindowManagerGLFW)
-        sturdy_enable_warnings(WindowManagerGLFWUnusedProbe)
-        add_test(
-            NAME WindowManagerGLFWUnusedTest
-            COMMAND "${CMAKE_COMMAND}"
-                "-DSTURDY_STATIC_PROBE=$<TARGET_FILE:WindowManagerGLFWUnusedProbe>"
-                "-DSTURDY_STATIC_AGGREGATE_LABEL=Sturdy::WindowManagerGLFW"
-                -P "${CMAKE_SOURCE_DIR}/cmake/tests/AssertStaticAggregateUnused.cmake"
-        )
-        set_tests_properties(WindowManagerGLFWUnusedTest PROPERTIES TIMEOUT 60)
-
-        add_executable(GlfwDefaultApplicationProbe tests/DefaultApplicationProbe.cpp)
-        target_link_libraries(
-            GlfwDefaultApplicationProbe
-            PRIVATE
-                Sturdy::Engine
-                Sturdy::WindowManagerGLFW
-        )
-        sturdy_enable_warnings(GlfwDefaultApplicationProbe)
-        add_test(
-            NAME GlfwDefaultApplicationPayForUseTest
-            COMMAND "${CMAKE_COMMAND}"
-                "-DSTURDY_PROBE=$<TARGET_FILE:GlfwDefaultApplicationProbe>"
-                "-DSTURDY_FORBIDDEN_PATTERN=glfw"
-                "-DSTURDY_PROBE_LABEL=default Engine::Application"
-                -P "${CMAKE_SOURCE_DIR}/cmake/tests/AssertNoBinaryFootprint.cmake"
-        )
-        set_tests_properties(GlfwDefaultApplicationPayForUseTest PROPERTIES TIMEOUT 10)
-    endif()
+# The default Engine::Application must not carry any GLFW code: only a product that explicitly
+# references GLFW::create_window and links Sturdy::WindowManagerGLFW pays for it.
+if(STURDY_TESTS_ENABLED AND NOT STURDY_BUILD_SHARED_LIBS)
+    sturdy_add_test(WindowManagerGLFW tests/DefaultApplicationProbe.cpp
+        NAME GlfwDefaultApplicationProbe LINK Sturdy::Engine NO_TEST)
+    sturdy_add_script_test(GlfwDefaultApplicationPayForUseTest AssertNoBinaryFootprint
+        DEFINES
+            "STURDY_PROBE=$<TARGET_FILE:GlfwDefaultApplicationProbe>"
+            "STURDY_FORBIDDEN_PATTERN=glfw"
+            "STURDY_PROBE_LABEL=default Engine::Application")
 endif()

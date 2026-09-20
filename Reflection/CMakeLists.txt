@@ -9,8 +9,7 @@
 # itself are unaffected either way, so a game can still use reflection for its own internal
 # introspection (an inspector, a generic serializer, ...) with modding compiled out.
 sturdy_add_package(Reflection
-    EXCLUDE_SOURCE_DIRS
-        tests
+    ENGINE_OPTIMIZED
 
     PUBLIC_DEPS
         Sturdy::Foundation
@@ -22,44 +21,10 @@ sturdy_add_package(Reflection
 # objects must be PIC regardless of how the rest of the build is configured.
 set_target_properties(Reflection PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
-    add_executable(ReflectionTypeRegistryTest tests/TypeRegistryTest.cpp)
-    target_link_libraries(ReflectionTypeRegistryTest PRIVATE Sturdy::Reflection)
-    sturdy_enable_warnings(ReflectionTypeRegistryTest)
-    add_test(NAME ReflectionTypeRegistryTest COMMAND ReflectionTypeRegistryTest)
-    set_tests_properties(ReflectionTypeRegistryTest PROPERTIES TIMEOUT 20)
+sturdy_add_tests(Reflection TIMEOUT 20 EXCLUDE ModdingDisabledTest)
 
-    # Proves the modding-OFF path is functionally a plain call, not just "override always null" —
-    # built as its own target so it can override STURDY_REFLECTION_ENABLE_MODDING independently of
-    # the rest of this package (which stays ON for every other test in this directory).
-    add_executable(ReflectionModdingDisabledTest tests/ModdingDisabledTest.cpp)
-    target_link_libraries(ReflectionModdingDisabledTest PRIVATE Sturdy::Reflection)
-    target_compile_definitions(ReflectionModdingDisabledTest PRIVATE STURDY_REFLECTION_ENABLE_MODDING=0)
-    sturdy_enable_warnings(ReflectionModdingDisabledTest)
-    add_test(NAME ReflectionModdingDisabledTest COMMAND ReflectionModdingDisabledTest)
-    set_tests_properties(ReflectionModdingDisabledTest PROPERTIES TIMEOUT 20)
-
-    add_executable(ReflectionSerializeTest tests/SerializeTest.cpp)
-    target_link_libraries(ReflectionSerializeTest PRIVATE Sturdy::Reflection)
-    sturdy_enable_warnings(ReflectionSerializeTest)
-    add_test(NAME ReflectionSerializeTest COMMAND ReflectionSerializeTest)
-    set_tests_properties(ReflectionSerializeTest PROPERTIES TIMEOUT 20)
-
-    add_executable(ReflectionStaticEnumConstructorTest tests/StaticEnumConstructorTest.cpp)
-    target_link_libraries(ReflectionStaticEnumConstructorTest PRIVATE Sturdy::Reflection)
-    sturdy_enable_warnings(ReflectionStaticEnumConstructorTest)
-    add_test(NAME ReflectionStaticEnumConstructorTest COMMAND ReflectionStaticEnumConstructorTest)
-    set_tests_properties(ReflectionStaticEnumConstructorTest PROPERTIES TIMEOUT 20)
-
-    add_executable(ReflectionOptionalTest tests/OptionalTest.cpp)
-    target_link_libraries(ReflectionOptionalTest PRIVATE Sturdy::Reflection)
-    sturdy_enable_warnings(ReflectionOptionalTest)
-    add_test(NAME ReflectionOptionalTest COMMAND ReflectionOptionalTest)
-    set_tests_properties(ReflectionOptionalTest PROPERTIES TIMEOUT 20)
-
-    add_executable(ReflectionDocumentTest tests/DocumentTest.cpp)
-    target_link_libraries(ReflectionDocumentTest PRIVATE Sturdy::Reflection)
-    sturdy_enable_warnings(ReflectionDocumentTest)
-    add_test(NAME ReflectionDocumentTest COMMAND ReflectionDocumentTest)
-    set_tests_properties(ReflectionDocumentTest PROPERTIES TIMEOUT 20)
-endif()
+# Proves the modding-OFF path is functionally a plain call, not just "override always null" —
+# built as its own target so it can override STURDY_REFLECTION_ENABLE_MODDING independently of
+# the rest of this package (which stays ON for every other test in this directory).
+sturdy_add_test(Reflection tests/ModdingDisabledTest.cpp TIMEOUT 20
+    DEFINES STURDY_REFLECTION_ENABLE_MODDING=0)

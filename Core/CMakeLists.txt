@@ -29,53 +29,35 @@ if(NOT STURDY_OS STREQUAL "Linux")
     list(APPEND _sturdy_core_excluded_source_dirs IoUring)
 endif()
 
-# Select one GraphicsPlatform OS subtree.
-set(_sturdy_core_graphics_platform_dirs
-    GraphicsPlatform/Linux
-    GraphicsPlatform/MacOS
-    GraphicsPlatform/Windows
-    GraphicsPlatform/FreeBSD
-    GraphicsPlatform/Web)
+# Select one GraphicsPlatform OS subtree, then one architecture folder within it.
 set(_sturdy_core_graphics_platform_definitions)
 # Gates the WebGPU backend's registration in BackendInventory.cpp. Public because Core's headers do
 # not expose it, but the definition has to match the sources that were actually compiled in.
 if(STURDY_ENABLE_WEBGPU)
     list(APPEND _sturdy_core_graphics_platform_definitions STURDY_ENABLE_WEBGPU=1)
 endif()
-if(STURDY_OS STREQUAL "Windows")
-    set(_sturdy_core_graphics_platform_active GraphicsPlatform/Windows)
-    list(APPEND _sturdy_core_graphics_platform_definitions STURDY_GRAPHICS_PLATFORM_WINDOWS=1)
-elseif(STURDY_OS STREQUAL "MacOS")
-    set(_sturdy_core_graphics_platform_active GraphicsPlatform/MacOS)
-    list(APPEND _sturdy_core_graphics_platform_definitions STURDY_GRAPHICS_PLATFORM_MACOS=1)
-elseif(STURDY_OS STREQUAL "Linux")
-    set(_sturdy_core_graphics_platform_active GraphicsPlatform/Linux)
-    list(APPEND _sturdy_core_graphics_platform_definitions STURDY_GRAPHICS_PLATFORM_LINUX=1)
-elseif(STURDY_OS STREQUAL "FreeBSD")
-    set(_sturdy_core_graphics_platform_active GraphicsPlatform/FreeBSD)
-    list(APPEND _sturdy_core_graphics_platform_definitions STURDY_GRAPHICS_PLATFORM_FREEBSD=1)
-elseif(STURDY_OS STREQUAL "Web")
-    set(_sturdy_core_graphics_platform_active GraphicsPlatform/Web)
-    list(APPEND _sturdy_core_graphics_platform_definitions STURDY_GRAPHICS_PLATFORM_WEB=1)
-else()
-    message(FATAL_ERROR "Unsupported Core graphics-platform OS '${STURDY_OS}'.")
-endif()
-list(REMOVE_ITEM _sturdy_core_graphics_platform_dirs "${_sturdy_core_graphics_platform_active}")
-list(APPEND _sturdy_core_excluded_source_dirs ${_sturdy_core_graphics_platform_dirs})
+sturdy_inactive_os_dirs(_sturdy_core_inactive_os_dirs
+    DIRS
+        GraphicsPlatform/Linux
+        GraphicsPlatform/MacOS
+        GraphicsPlatform/Windows
+        GraphicsPlatform/FreeBSD
+        GraphicsPlatform/Web)
+string(TOUPPER "${STURDY_OS}" _sturdy_core_os_define)
+list(APPEND _sturdy_core_graphics_platform_definitions "STURDY_GRAPHICS_PLATFORM_${_sturdy_core_os_define}=1")
 
-# GraphicsPlatform is organized OS -> architecture. Exclude nonmatching architecture folders.
+sturdy_inactive_dirs(_sturdy_core_inactive_arch_dirs KEY "${STURDY_ARCH}" DIRS x86-64 Arm64 RISCV)
 if(STURDY_ARCH STREQUAL "x86-64")
-    list(APPEND _sturdy_core_graphics_platform_definitions STURDY_GRAPHICS_PLATFORM_ARCH_X86_64=1)
-    list(APPEND _sturdy_core_excluded_source_dirs Arm64 RISCV)
+    set(_sturdy_core_arch_define X86_64)
 elseif(STURDY_ARCH STREQUAL "Arm64")
-    list(APPEND _sturdy_core_graphics_platform_definitions STURDY_GRAPHICS_PLATFORM_ARCH_ARM64=1)
-    list(APPEND _sturdy_core_excluded_source_dirs x86-64 RISCV)
-elseif(STURDY_ARCH STREQUAL "RISCV")
-    list(APPEND _sturdy_core_graphics_platform_definitions STURDY_GRAPHICS_PLATFORM_ARCH_RISCV64=1)
-    list(APPEND _sturdy_core_excluded_source_dirs x86-64 Arm64)
+    set(_sturdy_core_arch_define ARM64)
 else()
-    message(FATAL_ERROR "Unsupported Core graphics-platform arch '${STURDY_ARCH}'.")
+    set(_sturdy_core_arch_define RISCV64)
 endif()
+list(APPEND _sturdy_core_graphics_platform_definitions "STURDY_GRAPHICS_PLATFORM_ARCH_${_sturdy_core_arch_define}=1")
+list(APPEND _sturdy_core_excluded_source_dirs
+    ${_sturdy_core_inactive_os_dirs}
+    ${_sturdy_core_inactive_arch_dirs})
 
 set(_sturdy_core_streaming_io_deps)
 set(_sturdy_core_windows_public_deps)
@@ -88,6 +70,7 @@ if(STURDY_OS STREQUAL "Windows")
 endif()
 
 sturdy_add_package(Core
+    ENGINE_OPTIMIZED
     ARCHIVE_TIMEOUT_SECONDS ${STURDY_STATIC_ARCHIVE_TIMEOUT_SECONDS}
 
     SOURCES
@@ -95,7 +78,6 @@ sturdy_add_package(Core
         "${STURDY_SHADERS_EMBED_CPP}"
 
     EXCLUDE_SOURCE_DIRS
-        tests
         ${_sturdy_core_excluded_source_dirs}
 
     PUBLIC_DEPS
@@ -120,8 +102,6 @@ sturdy_add_package(Core
 
     PUBLIC_DEFINES
         ${_sturdy_core_graphics_platform_definitions}
-
-    DEBUG_PUBLIC_DEPS
 )
 
 if(WIN32 AND STURDY_OS STREQUAL "Windows")
@@ -129,13 +109,7 @@ if(WIN32 AND STURDY_OS STREQUAL "Windows")
     target_link_libraries(Core PRIVATE dxgi dcomp d3d11 dwmapi)
 endif()
 
-# Exercises the WebGPU-specific resource rules that Dawn reports through its uncaptured-error
-# callback rather than through a return value. Needs a real Dawn device, so it skips (exit 0) rather
-# than failing when the machine has no Vulkan/Metal/D3D12 driver to put one on.
-if(BUILD_TESTING AND STURDY_ENABLE_WEBGPU AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
-    add_executable(CoreWebGpuResourceTest tests/WebGpuResourceTest.cpp)
-    target_link_libraries(CoreWebGpuResourceTest PRIVATE Sturdy::Core)
-    sturdy_enable_warnings(CoreWebGpuResourceTest)
-    add_test(NAME CoreWebGpuResourceTest COMMAND CoreWebGpuResourceTest)
-    set_tests_properties(CoreWebGpuResourceTest PROPERTIES TIMEOUT 60)
+sturdy_add_tests(Core EXCLUDE WebGpuResourceTest)
+if(STURDY_ENABLE_WEBGPU)
+    sturdy_add_test(Core tests/WebGpuResourceTest.cpp TIMEOUT 60)
 endif()

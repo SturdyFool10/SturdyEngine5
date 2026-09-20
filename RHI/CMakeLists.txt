@@ -2,9 +2,9 @@
 # descriptors, handles, capabilities, and abstract interfaces. Concrete APIs, window systems, and
 # OS/display queries live below it in Core/WindowManager so RHI remains independently reusable.
 sturdy_add_package(RHI
+    ENGINE_OPTIMIZED
+
     PUBLIC_DEPS
         Sturdy::Foundation
         Sturdy::GLM
-
-    DEBUG_PUBLIC_DEPS
 )

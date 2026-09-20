@@ -196,58 +196,31 @@ include(SturdyLicenses)
 include(SturdyShaders)
 include(SturdyFonts)
 include(SturdyPackage)
+include(SturdyTests)
 
-# The reusable engine stack is performance-sensitive infrastructure. Product layers above it
-# (Runtime, hosts, demos, and tests) retain the requested profile for normal debugging, while the
-# engine and every first-party library it directly builds on compile as RelWithDebInfo unless the
-# whole build is Dist. SturdyPackage.cmake consumes this list when it creates each target.
-set(STURDY_ENGINE_OPTIMIZED_TARGETS
-    Foundation
-    Reflection
-    Web
-    Async
-    Ecs
-    WindowManager
-    WindowManagerGLFW
-    RHI
-    Core
-    Renderer
-    Engine
-)
+# The reusable engine stack (Foundation ... Engine) is performance-sensitive infrastructure. Its
+# packages declare ENGINE_OPTIMIZED in sturdy_add_package(), and compile as RelWithDebInfo unless the
+# whole build is Dist; product layers above it (Runtime, hosts, demos, tests) keep the requested
+# profile for normal debugging.
 
 sturdy_configure_dependencies()
-# Must run before add_subdirectory(Core) below, since Core/CMakeLists.txt's sturdy_add_package()
-# call consumes STURDY_SHADERS_EMBED_CPP as one of its SOURCES.
+# Must run before the package subdirectories are added below, since Core/CMakeLists.txt's
+# sturdy_add_package() call consumes STURDY_SHADERS_EMBED_CPP as one of its SOURCES.
 sturdy_generate_shader_embeds()
-# Must run before add_subdirectory(Renderer) below, since Renderer/CMakeLists.txt's
-# sturdy_add_package() call consumes STURDY_FONTS_EMBED_CPP as one of its SOURCES.
+# Likewise for Renderer/CMakeLists.txt, which consumes STURDY_FONTS_EMBED_CPP as one of its SOURCES.
 sturdy_generate_font_embeds()
-add_subdirectory(Foundation)
-add_subdirectory(Reflection)
-add_subdirectory(Web)
-add_subdirectory(Async)
-add_subdirectory(Ecs)
-add_subdirectory(WindowManager)
-add_subdirectory(RHI)
-add_subdirectory(Core)
-add_subdirectory(Renderer)
-add_subdirectory(Engine)
+
+# Every top-level directory with a CMakeLists.txt is a package; adding one is just creating it.
+# Demos are demonstration content (hosts + sample game logic), the only packages gated by
+# STURDY_BUILD_RUNTIME_DEMO; the reusable host infrastructure (ApplicationHost, Runtime, EngineKit,
+# FFI) is always available. The optional GLFW window provider is a package nested inside
+# WindowManager, so it is opted into explicitly.
+sturdy_add_subdirectories("${CMAKE_CURRENT_SOURCE_DIR}" EXCLUDE Demos)
 if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
     add_subdirectory(WindowManager/Providers/GLFW)
 endif()
-# Reusable host infrastructure is always available. Demonstration content and executable composition
-# live in separate top-level packages and are the only targets gated by STURDY_BUILD_RUNTIME_DEMO.
-add_subdirectory(ApplicationHost)
-add_subdirectory(Runtime)
-# Base convenience aggregate (Foundation+Async+Ecs+Core+Renderer+Engine+Runtime+GLM) for a normal
-# graphical/game application — see EngineKit/CMakeLists.txt. Always available for the same reason
-# Runtime itself is: it is reusable infrastructure, not demo content.
-add_subdirectory(EngineKit)
-# Stable C ABI for non-C++ consumers. A leaf on top of Runtime, like EngineKit: reusable
-# infrastructure rather than demo content, so it is always available.
-add_subdirectory(FFI)
 if(STURDY_BUILD_RUNTIME_DEMO)
-    add_subdirectory(Demos)
+    sturdy_add_subdirectories("${CMAKE_CURRENT_SOURCE_DIR}/Demos")
 endif()
 
 # Pay-for-use regression coverage for the root-level opt-out options above: each disables a whole
@@ -256,41 +229,11 @@ endif()
 # fresh configure with it off, checked against the resulting build graph — see
 # AssertFreshConfigureBoundary.cmake's own header comment. These were previously verified by hand in
 # a throwaway build tree and never turned into a persistent regression test.
-if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
-    set(
-        _sturdy_fresh_configure_boundary_test
-        "${CMAKE_SOURCE_DIR}/cmake/tests/AssertFreshConfigureBoundary.cmake"
-    )
-
-    add_test(
-        NAME GlfwProviderOffDependencyBoundaryTest
-        COMMAND "${CMAKE_COMMAND}"
-            "-DSTURDY_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
-            "-DSTURDY_PROBE_LABEL=glfw-off"
-            "-DSTURDY_PROBE_OPTION=STURDY_BUILD_GLFW_WINDOW_PROVIDER=OFF"
-            "-DSTURDY_PROBE_FORBIDDEN_STRING=glfw"
-            "-DSTURDY_PROBE_ARCH=${STURDY_ARCH}"
-            "-DSTURDY_PROBE_OS=${STURDY_OS}"
-            "-DSTURDY_PROBE_COMPILER=${STURDY_COMPILER}"
-            "-DSTURDY_PROBE_C_COMPILER=${CMAKE_C_COMPILER}"
-            "-DSTURDY_PROBE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-            -P "${_sturdy_fresh_configure_boundary_test}"
-    )
-    set_tests_properties(GlfwProviderOffDependencyBoundaryTest PROPERTIES TIMEOUT 300)
-
-    add_test(
-        NAME RuntimeDemoOffDependencyBoundaryTest
-        COMMAND "${CMAKE_COMMAND}"
-            "-DSTURDY_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
-            "-DSTURDY_PROBE_LABEL=runtime-demo-off"
-            "-DSTURDY_PROBE_OPTION=STURDY_BUILD_RUNTIME_DEMO=OFF"
-            "-DSTURDY_PROBE_FORBIDDEN_STRING=RuntimeDemo"
-            "-DSTURDY_PROBE_ARCH=${STURDY_ARCH}"
-            "-DSTURDY_PROBE_OS=${STURDY_OS}"
-            "-DSTURDY_PROBE_COMPILER=${STURDY_COMPILER}"
-            "-DSTURDY_PROBE_C_COMPILER=${CMAKE_C_COMPILER}"
-            "-DSTURDY_PROBE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-            -P "${_sturdy_fresh_configure_boundary_test}"
-    )
-    set_tests_properties(RuntimeDemoOffDependencyBoundaryTest PROPERTIES TIMEOUT 300)
-endif()
+sturdy_add_fresh_configure_test(GlfwProviderOffDependencyBoundaryTest
+    LABEL glfw-off
+    OPTION STURDY_BUILD_GLFW_WINDOW_PROVIDER=OFF
+    FORBIDDEN glfw)
+sturdy_add_fresh_configure_test(RuntimeDemoOffDependencyBoundaryTest
+    LABEL runtime-demo-off
+    OPTION STURDY_BUILD_RUNTIME_DEMO=OFF
+    FORBIDDEN RuntimeDemo)

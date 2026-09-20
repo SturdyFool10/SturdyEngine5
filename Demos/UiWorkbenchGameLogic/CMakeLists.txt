@@ -8,9 +8,6 @@ if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
 endif()
 
 sturdy_add_package(UiWorkbenchGameLogic
-    EXCLUDE_SOURCE_DIRS
-        tests
-
     PUBLIC_DEPS
         Sturdy::Engine
         Sturdy::Renderer
@@ -18,14 +15,6 @@ sturdy_add_package(UiWorkbenchGameLogic
 
     PRIVATE_DEFINES
         ${_sturdy_ui_workbench_defines}
-
-    DEBUG_PUBLIC_DEPS
 )
 
-if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web")
-    add_executable(UiWorkbenchGameLogicFactoryTest tests/FactoryTest.cpp)
-    target_link_libraries(UiWorkbenchGameLogicFactoryTest PRIVATE Sturdy::UiWorkbenchGameLogic)
-    sturdy_enable_warnings(UiWorkbenchGameLogicFactoryTest)
-    add_test(NAME UiWorkbenchGameLogicFactoryTest COMMAND UiWorkbenchGameLogicFactoryTest)
-    set_tests_properties(UiWorkbenchGameLogicFactoryTest PROPERTIES TIMEOUT 10)
-endif()
+sturdy_add_tests(UiWorkbenchGameLogic)

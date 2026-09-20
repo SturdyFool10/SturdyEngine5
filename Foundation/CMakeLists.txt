@@ -1,6 +1,5 @@
 sturdy_add_package(Foundation
-    EXCLUDE_SOURCE_DIRS
-        tests
+    ENGINE_OPTIMIZED
 
     PUBLIC_DEPS
         Sturdy::fmt
@@ -30,22 +29,4 @@ target_link_libraries(Foundation PRIVATE ${CMAKE_DL_LIBS})
 # at the small, usually-negligible cost of one extra GOT/PLT indirection for global data access.
 set_target_properties(Foundation PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
-    add_executable(FoundationConsoleDiagnosticTest tests/ConsoleDiagnosticTest.cpp)
-    target_link_libraries(FoundationConsoleDiagnosticTest PRIVATE Sturdy::Foundation)
-    sturdy_enable_warnings(FoundationConsoleDiagnosticTest)
-    add_test(NAME FoundationConsoleDiagnosticTest COMMAND FoundationConsoleDiagnosticTest)
-    set_tests_properties(FoundationConsoleDiagnosticTest PROPERTIES TIMEOUT 10)
-
-    add_executable(FoundationCpuTest tests/CpuTest.cpp)
-    target_link_libraries(FoundationCpuTest PRIVATE Sturdy::Foundation)
-    sturdy_enable_warnings(FoundationCpuTest)
-    add_test(NAME FoundationCpuTest COMMAND FoundationCpuTest)
-    set_tests_properties(FoundationCpuTest PROPERTIES TIMEOUT 10)
-
-    add_executable(FoundationCoreMapTest tests/CoreMapTest.cpp)
-    target_link_libraries(FoundationCoreMapTest PRIVATE Sturdy::Foundation)
-    sturdy_enable_warnings(FoundationCoreMapTest)
-    add_test(NAME FoundationCoreMapTest COMMAND FoundationCoreMapTest)
-    set_tests_properties(FoundationCoreMapTest PROPERTIES TIMEOUT 10)
-endif()
+sturdy_add_tests(Foundation)
