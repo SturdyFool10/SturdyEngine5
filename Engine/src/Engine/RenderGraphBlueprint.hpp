@@ -30,7 +30,7 @@
 /// const NodeRef color = blueprint.tone_mapping(blueprint.bloom(aa));
 /// const NodeRef graded = blueprint.fullscreen_effect(color, {.shader_path = "Shaders/grade.slang",
 ///                                                           .module_name = "grade"});
-/// blueprint.present(blueprint.debug_overlay(graded));
+/// blueprint.present(graded);
 ///
 /// auto graph = build_render_graph(blueprint);   // std::expected<RenderGraph, BlueprintError>
 /// ```
@@ -148,7 +148,6 @@ namespace SFT::Engine {
         NodeRef anti_aliasing(const NodeRef &input, std::string_view id = {});
         NodeRef bloom(const NodeRef &input, std::string_view id = {});
         NodeRef tone_mapping(const NodeRef &input, std::string_view id = {});
-        NodeRef debug_overlay(const NodeRef &input, std::string_view id = {});
         NodeRef present(const NodeRef &input, std::string_view id = {});
         /// A fullscreen raster effect. `extra_inputs` are further textures it samples as `extraTexture0..N`
         /// (the description's own handle-based `extra_inputs` are ignored: blueprints refer to nodes).
@@ -167,7 +166,7 @@ namespace SFT::Engine {
         [[nodiscard]] const std::vector<std::string> &input_names() const noexcept { return input_names_; }
         [[nodiscard]] const std::string &output() const noexcept { return output_; }
 
-        /// The engine's default chain: scene, anti-aliasing, bloom, tone mapping, debug overlay, present.
+        /// The engine's default chain: scene, anti-aliasing, bloom, tone mapping, present.
         [[nodiscard]] static RenderGraphBlueprint standard();
 
         [[nodiscard]] Reflection::Value to_document() const;
@@ -217,7 +216,7 @@ namespace SFT::Engine {
         RenderModuleRegistry() = default;
 
         /// A registry holding the engine's built-in kinds: deferred_scene, anti_aliasing, bloom,
-        /// tone_mapping, debug_overlay, present, fullscreen_effect, compute_effect, copy.
+        /// tone_mapping, present, fullscreen_effect, compute_effect, copy.
         [[nodiscard]] static RenderModuleRegistry with_builtins();
         /// Shared read-only registry of just the built-ins.
         [[nodiscard]] static const RenderModuleRegistry &builtins();

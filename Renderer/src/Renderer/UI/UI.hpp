@@ -28,5 +28,8 @@
 #include <Renderer/UI/TextEdit.hpp>
 #include <Renderer/UI/TextInput.hpp>
 #include <Renderer/UI/Toggle.hpp>
+#include <Renderer/UI/UiInput.hpp>
 #include <Renderer/UI/UiRenderer.hpp>
+#include <Renderer/UI/UiSurface.hpp>
+#include <Renderer/UI/UiWorld.hpp>
 #include <Renderer/UI/WidgetComposition.hpp>

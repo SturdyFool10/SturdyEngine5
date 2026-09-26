@@ -95,13 +95,16 @@ namespace SFT::Renderer {
 
     Core::RendererResult add_tone_mapping_pass(FrameBuildContext &frame, RenderGraphTextureHandle source, RenderGraphTextureHandle destination,
                                                const RenderGraphSettings &settings, bool preserve_alpha, std::string_view label,
-                                               RHI::Format target_format) {
+                                               RHI::Format target_format, bool composite_over) {
         if (!source || !destination) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
                                                 "Tone mapping needs a source and a destination texture.");
         }
         const RHI::Format format = target_format == RHI::Format::Undefined ? frame.output_format : target_format;
         CustomPostProcessEffect effect = tone_mapping_effect(settings, preserve_alpha);
+        if (composite_over) {
+            effect.blend = FullscreenBlend::PremultipliedOver;
+        }
         if (Core::RendererResult ready = frame.renderer.prepare_fullscreen_effect(effect, format); !ready.has_value()) {
             return ready;
         }
@@ -110,7 +113,7 @@ namespace SFT::Renderer {
         frame.graph.add_render_pass(pass_label)
             .add_color_attachment(RenderGraphColorAttachmentDesc{
                 .texture = destination,
-                .load_op = RHI::LoadOp::DontCare,
+                .load_op = composite_over ? RHI::LoadOp::Load : RHI::LoadOp::DontCare,
                 .store_op = RHI::StoreOp::Store,
             })
             .add_sampled_texture(RenderGraphSampledTextureReadDesc{

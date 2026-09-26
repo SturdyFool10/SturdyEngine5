@@ -92,7 +92,6 @@ namespace SFT::Engine {
     NodeRef RenderGraphBlueprint::anti_aliasing(const NodeRef &input, std::string_view id) { return add("anti_aliasing", {input}, {}, id); }
     NodeRef RenderGraphBlueprint::bloom(const NodeRef &input, std::string_view id) { return add("bloom", {input}, {}, id); }
     NodeRef RenderGraphBlueprint::tone_mapping(const NodeRef &input, std::string_view id) { return add("tone_mapping", {input}, {}, id); }
-    NodeRef RenderGraphBlueprint::debug_overlay(const NodeRef &input, std::string_view id) { return add("debug_overlay", {input}, {}, id); }
     NodeRef RenderGraphBlueprint::present(const NodeRef &input, std::string_view id) { return add("present", {input}, {}, id); }
 
     NodeRef RenderGraphBlueprint::fullscreen_effect(const NodeRef &input, const FullscreenEffectDescription &effect,
@@ -146,7 +145,6 @@ namespace SFT::Engine {
         color = blueprint.anti_aliasing(color);
         color = blueprint.bloom(color);
         color = blueprint.tone_mapping(color);
-        color = blueprint.debug_overlay(color);
         (void)blueprint.present(color);
         return blueprint;
     }
@@ -305,8 +303,6 @@ namespace SFT::Engine {
             [](ModuleBuildContext &c) -> BlueprintExpected<ModuleOutput> { return c.graph.compose(RenderModules::Bloom{.input = c.inputs[0]}); });
         add({"tone_mapping", 1, 1, "Scene-linear HDR to display-encoded."},
             [](ModuleBuildContext &c) -> BlueprintExpected<ModuleOutput> { return c.graph.compose(RenderModules::ToneMapping{.input = c.inputs[0]}); });
-        add({"debug_overlay", 1, 1, "Engine debug text overlay."},
-            [](ModuleBuildContext &c) -> BlueprintExpected<ModuleOutput> { return c.graph.compose(RenderModules::DebugOverlay{.input = c.inputs[0]}); });
         add({"present", 1, 1, "Presents its input. Produces no texture."},
             [](ModuleBuildContext &c) -> BlueprintExpected<ModuleOutput> {
                 (void)c.graph.compose(RenderModules::Present{.input = c.inputs[0]});

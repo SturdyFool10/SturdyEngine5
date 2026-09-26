@@ -26,7 +26,7 @@ int main() {
     {
         auto graph = build_render_graph(RenderGraphBlueprint::standard());
         check(graph.has_value(), "the standard blueprint must build and validate");
-        check(graph && graph->passes().size() == 6, "the standard blueprint must produce six passes");
+        check(graph && graph->passes().size() == 5, "the standard blueprint must produce five passes");
         check(graph && graph->passes().front().kind == RenderGraphPassKind::DeferredScene &&
                   graph->passes().back().kind == RenderGraphPassKind::Present,
               "the standard blueprint must run scene first and present last");
@@ -42,7 +42,7 @@ int main() {
         FullscreenEffectDescription grade{.shader_path = "Shaders/grade.slang", .module_name = "grade"};
         grade.set_push_constants(1.5F);
         color = blueprint.fullscreen_effect(color, grade, extras);
-        (void)blueprint.present(blueprint.debug_overlay(color));
+        (void)blueprint.present(color);
         auto graph = build_render_graph(blueprint);
         check(graph.has_value(), "a graph with a display-space effect and an extra input must build");
         if (graph) {
@@ -59,8 +59,7 @@ int main() {
     // Nodes may be declared in any order.
     {
         RenderGraphBlueprint blueprint;
-        blueprint.add("present", {NodeRef{"overlay"}}, {}, "end");
-        blueprint.add("debug_overlay", {NodeRef{"tone"}}, {}, "overlay");
+        blueprint.add("present", {NodeRef{"tone"}}, {}, "end");
         blueprint.add("tone_mapping", {NodeRef{"scene"}}, {}, "tone");
         blueprint.add("deferred_scene", std::span<const NodeRef>{}, {}, "scene");
         check(build_render_graph(blueprint).has_value(), "declaration order must not matter");

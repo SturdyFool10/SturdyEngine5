@@ -27,65 +27,6 @@
 namespace SFT::Engine {
 
 
-    class UiPointerState {
-      public:
-        /// Sets the position for this `UiPointerState`.
-        ///
-        /// @param position `position` value used by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void set_position(glm::vec2 position) noexcept;
-        /// Sets the down for this `UiPointerState`.
-        ///
-        /// @param down `down` value used by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void set_down(bool down) noexcept;
-        /// Cancels the outstanding operation when cancellation is still possible.
-        ///
-        /// @note This function does not throw exceptions.
-        void cancel() noexcept;
-        /// Clears transitions.
-        ///
-        /// @note This function does not throw exceptions.
-        void clear_transitions() noexcept;
-
-
-        /// Adds scroll delta using the supplied arguments and current state.
-        ///
-        /// @param delta `delta` value used by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void add_scroll_delta(glm::vec2 delta) noexcept;
-        /// Clears scroll delta.
-        ///
-        /// @note This function does not throw exceptions.
-        void clear_scroll_delta() noexcept;
-        /// Returns the current or globally available state value.
-        ///
-        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] const UI::PointerState &state() const noexcept;
-
-
-        /// Sets the consumed for this `UiPointerState`.
-        ///
-        /// @param consumed `consumed` value used by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void set_consumed(bool consumed) noexcept;
-        /// Returns the current or globally available consumed value.
-        ///
-        /// @return Returns the boolean result of the operation.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] bool consumed() const noexcept;
-
-      private:
-        UI::PointerState state_{};
-        bool consumed_ = false;
-    };
-
-
     class UiTextInputState {
       public:
 
@@ -132,12 +73,7 @@ namespace SFT::Engine {
         void clear_transitions() noexcept;
 
       private:
-        std::string typed_text_;
-        std::string composition_text_;
-        bool composing_ = false;
-        vector<UI::EditKey> keys_;
-        bool shift_down_ = false;
-        bool ctrl_down_ = false;
+        UI::UiInput input_{};
     };
 
 
@@ -157,69 +93,6 @@ namespace SFT::Engine {
     /// @note This function does not throw exceptions.
     void forward_text_input_state(WindowRequests &requests, WindowManager::WindowId window,
                                    std::optional<TextInputFocusInfo> focus) noexcept;
-
-
-    class UiContext {
-        struct UiRendererState {
-            Async::Mutex<std::optional<UI::UiRenderer>> renderer;
-        };
-
-      public:
-
-
-        /// Finds or creates the ready required by the operation.
-        ///
-        /// @param device Device used or affected by the operation.
-        /// @param color_format Format used for the resource, render target, or conversion.
-        ///
-        /// @return Returns the boolean result of the operation.
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] bool ensure_ready(RHI::RhiDevice &device, RHI::Format color_format);
-
-        /// Reads the requested data from the associated source.
-        ///
-        /// @return Returns the boolean result of the operation.
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] bool ready() const;
-        /// Returns the current or globally available context value.
-        ///
-        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] UI::Context &context() noexcept;
-
-
-        /// Performs the begin layout operation for `UiContext` using the supplied arguments.
-        ///
-        /// @param viewport_size Requested or available size for the operation.
-        /// @param pointer_state `pointer_state` value used by the operation.
-        /// @param delta_seconds `delta_seconds` value used by the operation.
-        ///
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void begin_layout(glm::vec2 viewport_size, UiPointerState &pointer_state, f32 delta_seconds);
-
-
-        /// Builds overlay hooks.
-        ///
-        /// @param snapshot `snapshot` value used by the operation.
-        /// @param texture_resolver Texture used or affected by the operation.
-        ///
-        /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] Renderer::UiOverlayHooks build_overlay_hooks(std::shared_ptr<UI::FrameSnapshot> snapshot,
-                                                                    Renderer::Renderer *texture_resolver);
-
-        /// Destroys or releases the `UiContext` resource represented by the supplied parameters.
-        ///
-        /// @param device Device used or affected by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy(RHI::RhiDevice &device) noexcept;
-
-      private:
-        UI::Context context_{};
-        std::shared_ptr<UiRendererState> renderer_state_ = std::make_shared<UiRendererState>();
-        bool create_attempted_ = false;
-    };
 
 
     class UiImageCache {
@@ -277,8 +150,6 @@ namespace SFT::Engine {
 
 } // namespace SFT::Engine
 
-SFT_ECS_RESOURCE(SFT::Engine::UiPointerState, "sturdy.engine.ui_pointer_state");
 SFT_ECS_RESOURCE(SFT::Engine::UiTextInputState, "sturdy.engine.ui_text_input_state");
-SFT_ECS_RESOURCE(SFT::Engine::UiContext, "sturdy.engine.ui_context");
 SFT_ECS_RESOURCE(SFT::Engine::UiImageCache, "sturdy.engine.ui_image_cache");
 SFT_ECS_RESOURCE(SFT::Engine::UiSvgCache, "sturdy.engine.ui_svg_cache");

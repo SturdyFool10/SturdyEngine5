@@ -383,7 +383,7 @@ namespace SFT::Renderer {
 
         {
             ScopedRendererStageTimer timer{"extract render items",
-                                           desc.view.render_graph.debug_overlay ? &submission.pre_dispatch_stage_timings_ms : nullptr};
+                                           desc.view.render_graph.frame_timings ? &submission.pre_dispatch_stage_timings_ms : nullptr};
             submission.draws.reserve(desc.view.renderables.size());
             for (const SceneRenderable &renderable : desc.view.renderables) {
                 if ((renderable.visibility_mask & desc.view.visibility_mask) == 0) {
@@ -498,7 +498,7 @@ namespace SFT::Renderer {
 
         {
             ScopedRendererStageTimer timer{"sort render items",
-                                           submission.render_graph.debug_overlay ? &submission.pre_dispatch_stage_timings_ms : nullptr};
+                                           submission.render_graph.frame_timings ? &submission.pre_dispatch_stage_timings_ms : nullptr};
             std::sort(submission.draws.begin(), submission.draws.end(), [](const RenderItem &a, const RenderItem &b) {
                 if (!(a.material == b.material)) {
                     return a.material.value < b.material.value;
@@ -1354,9 +1354,6 @@ namespace SFT::Renderer {
         const u32 frame_count = capabilities_.max_frames_in_flight;
         if (record.frames_in_flight.size() != frame_count) {
             for (FrameInFlight &old_slot : record.frames_in_flight) {
-                destroy_text_frame_resources(*device, old_slot.text_overlay_resources);
-                destroy_frame_bloom_targets(old_slot);
-                destroy_frame_composite_target(old_slot);
                 destroy_frame_gpu_timing_target(old_slot);
                 destroy_frame_pregraph_gpu_timing_target(old_slot);
                 destroy_frame_shadow_targets(old_slot);
@@ -1787,33 +1784,6 @@ namespace SFT::Renderer {
         }
 
 
-        constexpr RHI::Format bloom_format = RHI::Format::RG11B10Float;
-        const bool bloom_active = submission.render_graph.bloom && submission.render_graph.bloom_intensity > 0.0f;
-        if (bloom_active) {
-            if (Core::RendererResult bloom_ready = ensure_bloom_resources(bloom_format); !bloom_ready.has_value()) {
-                return bloom_ready;
-            }
-            if (Core::RendererResult bloom_targets = ensure_frame_bloom_targets(
-                    slot, render_extent, submission.render_graph.bloom_max_levels,
-                    submission.render_graph.bloom_downsample_ratio);
-                !bloom_targets.has_value()) {
-                return bloom_targets;
-            }
-            if (Core::RendererResult composite_ready = ensure_bloom_composite_resources(); !composite_ready.has_value()) {
-                return composite_ready;
-            }
-            if (auto composite_pipeline = bloom_composite_pipeline_for(submission.deferred_formats.scene_color); !composite_pipeline) {
-                return unexpected(composite_pipeline.error());
-            }
-            if (Core::RendererResult composite_target = ensure_frame_composite_target(slot, render_extent, submission.deferred_formats.scene_color); !composite_target.has_value()) {
-                return composite_target;
-            }
-        }
-        if (Core::RendererResult aa_ready = ensure_post_process_aa_resources(
-                submission.render_graph, submission.deferred_formats.scene_color);
-            !aa_ready.has_value()) {
-            return aa_ready;
-        }
         for (const CustomPostProcessEffect &effect : submission.render_graph.custom_post_processes) {
             if (Core::RendererResult custom_ready = ensure_custom_post_process(effect, submission.deferred_formats.scene_color); !custom_ready.has_value()) {
                 return custom_ready;
@@ -1840,10 +1810,14 @@ namespace SFT::Renderer {
             !submission.render_graph.bloom && submission.render_graph.post_process_aa == 0u &&
             submission.render_graph.custom_post_processes.empty() &&
             submission.render_graph.custom_graph.passes.empty() && submission.gizmo_draws.empty() &&
-            static_cast<bool>(submission.render_graph.ui_overlay) && !submission.render_graph.draw_overlay_text;
+            std::ranges::any_of(submission.render_graph.overlay_passes,
+                                [](const OverlayPass &overlay) { return static_cast<bool>(overlay.draw); });
+        // HDR displays need overlays authored in sRGB scaled to the reference white and encoded for the display, over a
+        // scene as much as over nothing; a transparent SDR window needs it only when there is no scene beneath.
+        const bool has_overlay = std::ranges::any_of(submission.render_graph.overlay_passes,
+                                                     [](const OverlayPass &overlay) { return static_cast<bool>(overlay.draw); });
         const bool direct_overlay_display_transform =
-            direct_overlay_presentation &&
-            (hdr_output || static_cast<bool>(record.presentation.transparent_composition));
+            has_overlay && (hdr_output || (direct_overlay_presentation && static_cast<bool>(record.presentation.transparent_composition)));
         f32 ui_reference_white_nits = submission.render_graph.tone_mapping_hdr_paper_white_nits;
         bool platform_reference_white = false;
         if (hdr_output && record.window != nullptr) {
@@ -1858,7 +1832,10 @@ namespace SFT::Renderer {
         }
         if (hdr_output) {
             ui_reference_white_nits *= std::clamp(
-                submission.render_graph.ui_overlay.hdr_reference_white_scale, 0.25f, 4.0f);
+                submission.render_graph.overlay_passes.empty()
+                    ? 1.0f
+                    : submission.render_graph.overlay_passes.front().hdr_reference_white_scale,
+                0.25f, 4.0f);
         }
         if (hdr_output &&
             (record.ui_reference_white_nits == 0.0f ||
@@ -1904,7 +1881,7 @@ namespace SFT::Renderer {
         // "commandEncoder.writeTimestamp is not a function" the moment any frame with the debug
         // overlay visible tried to record a timing query -- this was never checked at all before.
         const bool gpu_timing_enabled =
-            submission.render_graph.debug_overlay && device->is_enabled(RHI::Feature::TimestampQueries);
+            submission.render_graph.frame_timings && device->is_enabled(RHI::Feature::TimestampQueries);
         if (gpu_timing_enabled) {
             if (Core::RendererResult pregraph_timing = ensure_frame_pregraph_gpu_timing_target(slot);
                 !pregraph_timing.has_value()) {
@@ -1965,124 +1942,10 @@ namespace SFT::Renderer {
             }
         }
 
-        vector<TextDrawBatch> text_overlay_batches;
-        if (submission.render_graph.debug_overlay && submission.render_graph.draw_overlay_text) {
-
-
-            const f32 overlay_fps = frame.delta_seconds > 0.0 ? static_cast<f32>(1.0 / frame.delta_seconds) : 0.0f;
-            const optional<Core::GpuInfo> overlay_gpu_info = gpu_info();
-            FrameTimingSnapshot overlay_timings{};
-            {
-                auto published_timings = record.last_frame_timings->lock();
-                overlay_timings = *published_timings;
-            }
-            vector<UString> overlay_lines{
-                submission.debug_label.empty() ? UString{"Scene"_ustr} : submission.debug_label,
-                std::format("Renderables: {}", submission.draws.size()),
-                std::format("Camera: ({:.2f}, {:.2f}, {:.2f})", submission.camera.world_position.x,
-                            submission.camera.world_position.y, submission.camera.world_position.z),
-                std::format("Resolution: {}x{} (scene {}x{}, {:.0f}%)",
-                            presentation_extent.x, presentation_extent.y,
-                            render_extent.x, render_extent.y, resolution_scale * 100.0f),
-                std::format("GPU: {}", overlay_gpu_info ? overlay_gpu_info->name : string{"unknown"}),
-                std::format("FPS: {:.1f} ({:.2f} ms)", overlay_fps, frame.delta_seconds * 1000.0),
-                std::format("Frame: {}", frame.frame_index),
-                [&] {
-                    if (!hdr_output) {
-                        if (offscreen_output) {
-                            return string{"HDR: disabled (off-screen SDR)"};
-                        }
-                        if (static_cast<bool>(record.presentation.hdr_enabled) && active_presentation.degraded) {
-                            return string{"HDR: requested; presentation degraded to SDR"};
-                        }
-                        return string{"HDR: disabled (SDR/sRGB)"};
-                    }
-                    return std::format("HDR: enabled ({}){}",
-                                       hdr_color_space_name(record.presentation.hdr_color_space),
-                                       active_presentation.degraded ? " (degraded)" : "");
-                }(),
-                [&] {
-                    if (offscreen_output) {
-                        return std::format("Output: off-screen SDR target #{}", submission.offscreen_target.value);
-                    }
-                    const RHI::PresentationResolution presentation =
-                        device->presentation_resolution(record.rhi_swapchain);
-                    return std::format("Present: {}{}", RHI::present_mode_name(presentation.effective_mode),
-                                       presentation.degraded ? " (degraded)" : "");
-                }(),
-            };
-
-
-            if (!overlay_timings.gpu_pass_timings_ms.empty()) {
-                f64 gpu_total_ms = 0.0;
-                for (const auto &[category, ms] : overlay_timings.gpu_pass_timings_ms) {
-                    gpu_total_ms += ms;
-                }
-                overlay_lines.push_back(std::format("GPU total: {:.2f} ms", gpu_total_ms));
-                for (const auto &[category, ms] : overlay_timings.gpu_pass_timings_ms) {
-                    overlay_lines.push_back(std::format("  {}: {:.2f} ms", category, ms));
-                }
-            }
-
-
-            if (!overlay_timings.cpu_stage_timings_ms.empty()) {
-                f64 cpu_stage_total_ms = 0.0;
-                for (const auto &[stage, ms] : overlay_timings.cpu_stage_timings_ms) {
-                    cpu_stage_total_ms += ms;
-                }
-                overlay_lines.push_back(std::format("CPU frame total: {:.2f} ms", cpu_stage_total_ms));
-                for (const auto &[stage, ms] : overlay_timings.cpu_stage_timings_ms) {
-                    overlay_lines.push_back(std::format("  {}: {:.2f} ms", stage, ms));
-                }
-            }
-
-
-            if (!overlay_timings.cpu_pass_timings_ms.empty()) {
-                f64 cpu_pass_total_ms = 0.0;
-                for (const auto &[category, ms] : overlay_timings.cpu_pass_timings_ms) {
-                    cpu_pass_total_ms += ms;
-                }
-                overlay_lines.push_back(std::format("CPU pass recording total: {:.2f} ms", cpu_pass_total_ms));
-                for (const auto &[category, ms] : overlay_timings.cpu_pass_timings_ms) {
-                    overlay_lines.push_back(std::format("  {}: {:.2f} ms", category, ms));
-                }
-            }
-
-
-            if (Core::RendererResult text_prepared =
-                    prepare_text_overlay(**encoder, span<const UString>{overlay_lines.data(), overlay_lines.size()},
-                                         glm::vec2{10.0f, 10.0f},
-                                         glm::vec2{presentation_extent},
-                                         slot.text_overlay_resources,
-                                         submission.transient_buffers, submission.retired_text_atlas_resources,
-                                         text_overlay_batches);
-                !text_prepared.has_value()) {
-                return text_prepared;
-            }
-        }
-
         RenderGraph &graph = record.graph;
         graph.reset();
         RenderGraphBlackboard &graph_resources = record.graph_resources;
         graph_resources.reset();
-
-        // Moved after graph.reset() (this call used to precede it) so the UI overlay's own prepare
-        // hook can add render-graph nodes of its own (e.g. UI::UiRenderer bloom-ing one flagged
-        // element via Renderer::add_ui_glow_bloom_passes) — it never touched graph/graph_resources
-        // state either before or after this move, so the reorder changes nothing else about this
-        // function's behavior.
-        vector<RenderGraphTextureHandle> ui_glow_bloom_outputs;
-        if (submission.render_graph.ui_overlay) {
-            const glm::vec2 ui_viewport_size{presentation_extent};
-            if (Core::RendererResult ui_prepared = submission.render_graph.ui_overlay.prepare(
-                    *device, **encoder, graph, ui_viewport_size, record.surface, frame_slot_index,
-                    submission.transient_buffers, submission.retired_text_atlas_resources,
-                    submission.transient_bind_groups, ui_glow_bloom_outputs);
-                !ui_prepared.has_value()) {
-                return ui_prepared;
-            }
-        }
-
 
         const RHI::TextureHandle output_texture = offscreen_output
             ? resolved_offscreen->texture
@@ -2158,18 +2021,6 @@ namespace SFT::Renderer {
                                       : output_uses_composition_present ? "composition color" : "swapchain color",
         });
         graph.mark_output(final_output);
-        const RenderGraphTextureHandle ui_overlay_target = direct_overlay_display_transform
-            ? graph.create_texture(RenderGraphTextureDesc{
-                  .format = RHI::Format::RGBA16Float,
-                  .extent = RHI::Extent3D{
-                      .width = presentation_extent.x,
-                      .height = presentation_extent.y,
-                      .depth_or_layers = 1,
-                  },
-                  .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
-                  .label = "linear UI composition",
-              })
-            : final_output;
         const RHI::Extent3D frame_extent{.width = render_extent.x, .height = render_extent.y, .depth_or_layers = 1};
         const RenderGraphTextureHandle gbuffer_albedo = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.gbuffer_albedo,
@@ -3145,15 +2996,8 @@ namespace SFT::Renderer {
                 .slot = &slot,
                 .gbuffer_motion = gbuffer_motion,
                 .depth_texture = depth_texture,
-                .ui_overlay_target = ui_overlay_target,
-                .bloom_active = bloom_active,
-                .bloom_format = bloom_format,
                 .logical_graph_textures = &logical_graph_textures,
                 .map_logical_texture = map_logical_texture,
-                .text_overlay_batches = &text_overlay_batches,
-                .ui_glow_bloom_outputs = &ui_glow_bloom_outputs,
-                .direct_overlay_display_transform = direct_overlay_display_transform,
-                .ui_reference_white_nits = ui_reference_white_nits,
                 .frame_slot_index = frame_slot_index,
                 .background = background,
             };
@@ -3170,6 +3014,16 @@ namespace SFT::Renderer {
                 .hdr_color_space = record.presentation.hdr_color_space,
                 .direct_overlay_presentation = direct_overlay_presentation,
                 .final_output = final_output,
+                .encoder = &**encoder,
+                .surface = record.surface,
+                .frame_slot_index = frame_slot_index,
+                .transient_buffers = &submission.transient_buffers,
+                .retired_text_atlas_resources = &submission.retired_text_atlas_resources,
+                .overlay_display_transform = direct_overlay_display_transform,
+                .overlay_reference_white_nits = ui_reference_white_nits,
+                .overlay_clear_color = static_cast<bool>(record.presentation.transparent_composition)
+                                           ? RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f}
+                                           : RHI::ClearColor{background.r, background.g, background.b, 1.0f},
                 .builtin = &builtin_state,
             };
             // A snapshot, so features can be rearranged from any thread without racing this frame.
@@ -3179,7 +3033,7 @@ namespace SFT::Renderer {
             }
         }
 
-        if (submission.render_graph.debug_overlay) {
+        if (submission.render_graph.frame_timings) {
             const f64 seconds = duration<f64>(steady_clock::now() - declare_graph_start).count();
             current_frame_cpu_stage_timings_ms.emplace_back("declare render graph", seconds * 1000.0);
         }
@@ -3393,7 +3247,6 @@ namespace SFT::Renderer {
         }
 
 
-        destroy_frame_bloom_targets(slot);
         destroy_frame_deferred_targets(slot);
 
         auto create_target = [&](RHI::Format format, RHI::TextureUsage usage, const char *label,
@@ -3563,247 +3416,6 @@ namespace SFT::Renderer {
             destroy_target(slot.deferred_targets.msaa_depth, slot.deferred_targets.msaa_depth_view);
         }
         slot.deferred_targets = {};
-    }
-
-    /// Finds or creates the frame bloom targets required by the operation.
-    ///
-    /// @param slot Binding or storage slot addressed by the operation.
-    /// @param extent `extent` value used by the operation.
-    /// @param requested_levels `requested_levels` value used by the operation.
-    /// @param downsample_ratio `downsample_ratio` value used by the operation.
-    ///
-    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
-    Core::RendererResult Renderer::ensure_frame_bloom_targets(FrameInFlight &slot,
-                                                               Core::Extent2D extent,
-                                                               u32 requested_levels,
-                                                               f32 downsample_ratio) {
-        ZoneScopedN("Renderer::ensure_frame_bloom_targets");
-        requested_levels = std::clamp(requested_levels, 1u, 12u);
-        downsample_ratio = std::isfinite(downsample_ratio)
-            ? std::clamp(downsample_ratio, 1.25f, 2.0f)
-            : 1.61803398875f;
-        const bool matches = slot.bloom_targets.source_extent == extent &&
-            slot.bloom_targets.requested_levels == requested_levels &&
-            slot.bloom_targets.downsample_ratio == downsample_ratio &&
-            !slot.bloom_targets.textures.empty() &&
-            slot.bloom_targets.textures.size() == slot.bloom_targets.extents.size() &&
-            slot.bloom_targets.textures.size() == slot.bloom_targets.views.size() &&
-            slot.bloom_targets.downsample_bind_groups.size() == slot.bloom_targets.views.size() &&
-            slot.bloom_targets.upsample_bind_groups.size() == slot.bloom_targets.views.size();
-        if (matches) return {};
-
-        RHI::RhiDevice *device = rhi_device();
-        if (device == nullptr) {
-            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "Renderer RHI device is unavailable.");
-        }
-        destroy_frame_bloom_targets(slot);
-        slot.bloom_targets.source_extent = extent;
-        slot.bloom_targets.requested_levels = requested_levels;
-        slot.bloom_targets.downsample_ratio = downsample_ratio;
-
-
-        constexpr u32 minimum_stable_bloom_axis = 4u;
-        Core::Extent2D source_extent = extent;
-        for (u32 level = 0; level < requested_levels; ++level) {
-            const Core::Extent2D level_extent = glm::max(
-                Core::Extent2D{glm::floor(glm::dvec2{source_extent} / static_cast<f64>(downsample_ratio))},
-                Core::Extent2D{1u, 1u});
-            if (!slot.bloom_targets.extents.empty() &&
-                (level_extent.x < minimum_stable_bloom_axis ||
-                 level_extent.y < minimum_stable_bloom_axis)) {
-                break;
-            }
-            slot.bloom_targets.extents.push_back(level_extent);
-            if (level_extent == source_extent) {
-                break;
-            }
-            source_extent = level_extent;
-        }
-
-        slot.bloom_targets.textures.reserve(slot.bloom_targets.extents.size());
-        slot.bloom_targets.views.reserve(slot.bloom_targets.extents.size());
-        for (const Core::Extent2D level_extent : slot.bloom_targets.extents) {
-            auto texture = device->create_texture(RHI::TextureDesc{
-                .dimension = RHI::TextureDimension::Dim2D,
-                .format = RHI::Format::RG11B10Float,
-                .extent = RHI::Extent3D{
-                    .width = level_extent.x,
-                    .height = level_extent.y,
-                    .depth_or_layers = 1,
-                },
-                .mip_levels = 1,
-                .samples = RHI::SampleCount::X1,
-                .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
-                .label = "persistent fractional bloom level",
-            });
-            if (!texture) {
-                destroy_frame_bloom_targets(slot);
-                return unexpected(graphics_error_from_rhi(texture.error(), "create persistent fractional bloom level"));
-            }
-            slot.bloom_targets.textures.push_back(*texture);
-
-            auto view = device->create_texture_view(RHI::TextureViewDesc{
-                .texture = *texture,
-                .view_type = RHI::TextureViewType::View2D,
-                .base_mip_level = 0,
-                .mip_level_count = 1,
-                .label = "persistent fractional bloom level view",
-            });
-            if (!view) {
-                destroy_frame_bloom_targets(slot);
-                return unexpected(graphics_error_from_rhi(view.error(), "create persistent fractional bloom level view"));
-            }
-            slot.bloom_targets.views.push_back(*view);
-        }
-
-        u32 image_binding = 0;
-        u32 sampler_binding = 0;
-        RHI::SamplerHandle sampler{};
-        RHI::BindGroupLayoutHandle sampled_layout{};
-        {
-            auto bloom_guard = bloom_.lock();
-            if (!bloom_guard->ready || !bloom_guard->sampled_layout) {
-                destroy_frame_bloom_targets(slot);
-                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                    "Bloom pipeline resources are not ready for persistent target binding.");
-            }
-            image_binding = bloom_guard->image_binding;
-            sampler_binding = bloom_guard->sampler_binding;
-            sampler = bloom_guard->sampler;
-            sampled_layout = bloom_guard->sampled_layout;
-        }
-        auto create_group = [&](RHI::TextureViewHandle source_view) -> Core::RendererExpected<RHI::BindGroupHandle> {
-            const array<RHI::BindGroupEntry, 2> entries{
-                RHI::BindGroupEntry{.binding = image_binding, .texture_view = source_view},
-                RHI::BindGroupEntry{.binding = sampler_binding, .sampler = sampler},
-            };
-            auto group = device->create_bind_group(RHI::BindGroupDesc{
-                .layout = sampled_layout,
-                .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
-                .label = "persistent bloom source bind group",
-            });
-            if (!group) return unexpected(graphics_error_from_rhi(group.error(), "create persistent bloom bind group"));
-            return *group;
-        };
-
-        slot.bloom_targets.downsample_bind_groups.resize(slot.bloom_targets.views.size());
-        slot.bloom_targets.upsample_bind_groups.resize(slot.bloom_targets.views.size());
-
-
-        for (usize level = 1; level < slot.bloom_targets.views.size(); ++level) {
-            auto group = create_group(slot.bloom_targets.views[level - 1]);
-            if (!group) { destroy_frame_bloom_targets(slot); return unexpected(group.error()); }
-            slot.bloom_targets.downsample_bind_groups[level] = *group;
-        }
-        for (usize level = 1; level < slot.bloom_targets.views.size(); ++level) {
-            auto group = create_group(slot.bloom_targets.views[level]);
-            if (!group) { destroy_frame_bloom_targets(slot); return unexpected(group.error()); }
-            slot.bloom_targets.upsample_bind_groups[level] = *group;
-        }
-        return {};
-    }
-
-    /// Destroys the frame bloom targets identified by the supplied parameters.
-    ///
-    /// @param slot Binding or storage slot addressed by the operation.
-    ///
-    /// @return Returns the value produced by the operation.
-    /// @note This function does not throw exceptions.
-    void Renderer::destroy_frame_bloom_targets(FrameInFlight &slot) noexcept {
-        ZoneScopedN("Renderer::destroy_frame_bloom_targets");
-        if (RHI::RhiDevice *device = rhi_device()) {
-            for (RHI::BindGroupHandle group : slot.bloom_targets.downsample_bind_groups) {
-                if (group) device->destroy_bind_group(group);
-            }
-            for (RHI::BindGroupHandle group : slot.bloom_targets.upsample_bind_groups) {
-                if (group) device->destroy_bind_group(group);
-            }
-            for (RHI::TextureViewHandle view : slot.bloom_targets.views) {
-                if (view) device->destroy_texture_view(view);
-            }
-            for (RHI::TextureHandle texture : slot.bloom_targets.textures) {
-                if (texture) device->destroy_texture(texture);
-            }
-        }
-        slot.bloom_targets = {};
-    }
-
-    /// Finds or creates the frame composite target required by the operation.
-    ///
-    /// @param slot Binding or storage slot addressed by the operation.
-    /// @param extent `extent` value used by the operation.
-    /// @param format Format used for the resource, render target, or conversion.
-    ///
-    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-    /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
-    Core::RendererResult Renderer::ensure_frame_composite_target(FrameInFlight &slot,
-                                                                  Core::Extent2D extent,
-                                                                  RHI::Format format) {
-        ZoneScopedN("Renderer::ensure_frame_composite_target");
-        const bool matches = slot.composite_target.extent.x == extent.x &&
-            slot.composite_target.extent.y == extent.y &&
-            slot.composite_target.format == format &&
-            slot.composite_target.texture && slot.composite_target.view;
-        if (matches) return {};
-
-        RHI::RhiDevice *device = rhi_device();
-        if (device == nullptr) {
-            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "Renderer RHI device is unavailable.");
-        }
-        destroy_frame_composite_target(slot);
-        slot.composite_target.extent = extent;
-        slot.composite_target.format = format;
-
-        auto texture = device->create_texture(RHI::TextureDesc{
-            .dimension = RHI::TextureDimension::Dim2D,
-            .format = format,
-            .extent = RHI::Extent3D{.width = extent.x, .height = extent.y, .depth_or_layers = 1},
-            .samples = RHI::SampleCount::X1,
-            .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
-                     RHI::TextureUsage::TransferSrc,
-            .label = "persistent bloom composite target",
-        });
-        if (!texture) {
-            destroy_frame_composite_target(slot);
-            return unexpected(graphics_error_from_rhi(texture.error(), "create persistent bloom composite target"));
-        }
-        slot.composite_target.texture = *texture;
-
-        auto view = device->create_texture_view(RHI::TextureViewDesc{
-            .texture = *texture,
-            .view_type = RHI::TextureViewType::View2D,
-            .label = "persistent bloom composite target view",
-        });
-        if (!view) {
-            destroy_frame_composite_target(slot);
-            return unexpected(graphics_error_from_rhi(view.error(), "create persistent bloom composite target view"));
-        }
-        slot.composite_target.view = *view;
-        return {};
-    }
-
-    /// Destroys the frame composite target identified by the supplied parameters.
-    ///
-    /// @param slot Binding or storage slot addressed by the operation.
-    ///
-    /// @return Returns the value produced by the operation.
-    /// @note This function does not throw exceptions.
-    void Renderer::destroy_frame_composite_target(FrameInFlight &slot) noexcept {
-        ZoneScopedN("Renderer::destroy_frame_composite_target");
-        if (RHI::RhiDevice *device = rhi_device()) {
-            if (slot.composite_target.view) {
-                device->destroy_texture_view(slot.composite_target.view);
-            }
-            if (slot.composite_target.texture) {
-                device->destroy_texture(slot.composite_target.texture);
-            }
-        }
-        slot.composite_target = {};
     }
 
     /// Finds or creates the frame GPU timing target required by the operation.
@@ -4213,9 +3825,6 @@ namespace SFT::Renderer {
             record.pending_present_completion_fence.reset();
             for (FrameInFlight &slot : record.frames_in_flight) {
                 reclaim_frame_slot(slot, true);
-                destroy_text_frame_resources(*device, slot.text_overlay_resources);
-                destroy_frame_bloom_targets(slot);
-                destroy_frame_composite_target(slot);
                 destroy_frame_shadow_targets(slot);
                 destroy_frame_atmosphere_targets(slot);
                 destroy_frame_gpu_timing_target(slot);

@@ -120,9 +120,6 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(window_requests_);
         ecs_world_.bind_resource(frame_time_);
         ecs_world_.bind_resource(time_scale_);
-        ecs_world_.bind_resource(ui_pointer_state_);
-        ecs_world_.bind_resource(ui_text_input_state_);
-        ecs_world_.bind_resource(ui_context_);
         ecs_world_.bind_resource(ui_image_cache_);
         ecs_world_.bind_resource(ui_svg_cache_);
 
@@ -227,45 +224,6 @@ namespace SFT::Engine {
 
 
         update_schedule_.add_system(
-            [](Ecs::WriteResource<UiPointerState> pointer,
-               Ecs::EventReader<MouseMoveEvent> mouse_move,
-               Ecs::EventReader<MouseButtonEvent> mouse_button,
-               Ecs::EventReader<MouseWheelEvent> mouse_wheel) noexcept {
-                for (const MouseMoveEvent &event : mouse_move.read()) {
-                    pointer->set_position({event.mouse.x, event.mouse.y});
-                }
-                for (const MouseButtonEvent &event : mouse_button.read()) {
-                    if (event.mouse.button_code == WindowManager::MouseButton::Left) {
-                        pointer->set_position({event.mouse.x, event.mouse.y});
-                        pointer->set_down(event.action == ButtonAction::Pressed);
-                    }
-                }
-                for (const MouseWheelEvent &event : mouse_wheel.read()) {
-
-
-                    pointer->add_scroll_delta({-event.wheel.x, event.wheel.y});
-                }
-            });
-
-
-        update_schedule_.add_system(
-            [](Ecs::WriteResource<UiTextInputState> text_input,
-               Ecs::EventReader<KeyboardEvent> keyboard,
-               Ecs::EventReader<TextInputEvent> text,
-               Ecs::EventReader<TextEditingEvent> text_editing) noexcept {
-                for (const KeyboardEvent &event : keyboard.read()) {
-                    text_input->apply_key(event);
-                }
-                for (const TextInputEvent &event : text.read()) {
-                    text_input->apply(event);
-                }
-                for (const TextEditingEvent &event : text_editing.read()) {
-                    text_input->apply(event);
-                }
-            });
-
-
-        update_schedule_.add_system(
             [](Ecs::WriteResource<InputState> input,
                Ecs::EventReader<KeyboardEvent> keyboard,
                Ecs::EventReader<TextInputEvent> text,
@@ -303,9 +261,6 @@ namespace SFT::Engine {
 
         if (initialized_) {
             wait_idle();
-            if (RHI::RhiDevice *device = rhi_device()) {
-                ui_context_.destroy(*device);
-            }
         }
     }
 
@@ -740,7 +695,7 @@ namespace SFT::Engine {
             .renderables = render_frame_requests_.finish_frame(),
             .gizmo_renderables = render_frame_requests_.finish_gizmo_frame(),
             .render_graph = std::move(graph),
-            .ui_overlay = parameters.ui_overlay,
+            .overlay_passes = parameters.overlay_passes,
             .visibility_mask = camera.culling_mask(),
             .debug_label = parameters.debug_label,
         };
@@ -774,7 +729,6 @@ namespace SFT::Engine {
         const bool has_tone_mapping = path_contains(RenderGraphPassKind::ToneMapping);
         // False while a shadow debug view is selected; see the bloom/tone-mapping fields below.
         const bool shadow_debug_view_off = graph.shadows.debug_view == ShadowDebugView::None;
-        const bool has_debug_overlay = path_contains(RenderGraphPassKind::DebugOverlay);
 
         const auto logical = [](RenderGraphTextureHandle handle) {
             return handle ? RendererApi::LogicalRenderGraphTexture{.index = handle.index}
@@ -815,7 +769,6 @@ namespace SFT::Engine {
                     output_domain = TextureDomain::AfterBloom;
                     break;
                 case RenderGraphPassKind::ToneMapping:
-                case RenderGraphPassKind::DebugOverlay:
                     output_domain = TextureDomain::Display;
                     break;
                 case RenderGraphPassKind::FullscreenEffect:
@@ -964,8 +917,7 @@ namespace SFT::Engine {
             // for as long as a debug view is selected.
             .bloom = has_bloom && graph.bloom.enabled && shadow_debug_view_off,
             .tone_mapping = has_tone_mapping && graph.tone_mapping.enabled && shadow_debug_view_off,
-            .debug_overlay = has_debug_overlay && graph.debug_overlay.enabled,
-            .draw_overlay_text = graph.debug_overlay.draw_text,
+            .frame_timings = graph.frame_timings.enabled,
             .wait_for_completion = graph.execution_mode == RenderGraphExecutionMode::WaitForCompletion,
             .resolution_scale = graph.resolution_scale,
             .background_color = graph.scene.background_color.value_or(glm::vec4{0.0f, 0.0f, 0.0f, 1.0f}),
@@ -1031,7 +983,7 @@ namespace SFT::Engine {
             .psychov_background_gray_bt709 = graph.tone_mapping.psycho_v.background_gray_bt709,
             .custom_post_processes = std::move(custom_effects),
             .custom_graph = std::move(custom_graph),
-            .ui_overlay = frame.ui_overlay,
+            .overlay_passes = frame.overlay_passes,
         };
         desc.view.visibility_mask = frame.visibility_mask;
         if (frame.renderables) {

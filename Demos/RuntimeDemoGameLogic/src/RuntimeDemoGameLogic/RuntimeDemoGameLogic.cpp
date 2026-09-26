@@ -43,7 +43,7 @@ namespace SFT::Runtime {
             .set_resolution_scale(1.0f)
             .set_tone_mapping(Engine::ToneMappingOperator::PsychoV, 0.55f)
             .configure_bloom([](Engine::BloomSettings &bloom) { bloom.threshold = 3.20f; })
-            .enable(Engine::RenderFeature::DebugOverlay);
+            .enable(Engine::RenderFeature::FrameTimings);
         render_graph_.scene().integrator = Engine::SceneIntegrator::RasterDeferred;
         render_graph_.scene().path_samples_per_pixel = 1;
         render_graph_.scene().path_max_bounces = 4;
@@ -504,8 +504,8 @@ namespace SFT::Runtime {
                 Foundation::log_info("HDR {} — {}",
                                      new_config.features.presentation.hdr_enabled ? "enabled" : "disabled",
                                      applied->message);
-                if (RHI::RhiDevice *device = engine.rhi_device(); device != nullptr) {
-                    engine.ui_context().destroy(*device);
+                if (screen_ui_) {
+                    screen_ui_->release_gpu_objects();
                 }
             } else {
                 Foundation::log_warn("Failed to toggle HDR: {}", applied.error().message);
@@ -620,6 +620,47 @@ namespace SFT::Runtime {
         }
     } // namespace
 
+    /// Builds the frame-statistics lines. Everything here comes from public queries (frame input, the
+    /// renderer's GPU info and `last_frame_timings`); nothing depends on engine-internal state.
+    std::vector<std::string> RuntimeDemoGameLogic::build_debug_stats_lines(
+        Engine::Engine &engine, Core::RenderSurfaceHandle surface, const Core::FrameInput &frame) const {
+        std::vector<std::string> lines;
+        const f64 fps = frame.delta_seconds > 0.0 ? 1.0 / frame.delta_seconds : 0.0;
+        const glm::vec3 camera_position = camera_.position();
+        lines.emplace_back("Runtime ECS scene");
+        lines.push_back(std::format("Camera: ({:.2f}, {:.2f}, {:.2f})", camera_position.x, camera_position.y, camera_position.z));
+        lines.push_back(std::format("Resolution: {}x{} (scene {:.0f}%)", frame.framebuffer_width, frame.framebuffer_height,
+                                    render_graph_.description().resolution_scale * 100.0f));
+        Renderer::Renderer *renderer = engine.renderer();
+        if (renderer != nullptr) {
+            const std::optional<Core::GpuInfo> gpu = renderer->gpu_info();
+            lines.push_back(std::format("GPU: {}", gpu ? gpu->name : std::string{"unknown"}));
+        }
+        lines.push_back(std::format("FPS: {:.1f} ({:.2f} ms)", fps, frame.delta_seconds * 1000.0));
+        lines.push_back(std::format("Frame: {}", frame.frame_index));
+        lines.push_back(std::format("HDR: {}", engine_config_.features.presentation.hdr_enabled ? "requested" : "disabled (SDR/sRGB)"));
+        if (renderer != nullptr) {
+            const Renderer::FrameTimingSnapshot timings = renderer->last_frame_timings(surface);
+            const auto section = [&lines](std::string_view title, const std::vector<std::pair<std::string, f64>> &entries) {
+                if (entries.empty()) {
+                    return;
+                }
+                f64 total_ms = 0.0;
+                for (const auto &entry : entries) {
+                    total_ms += entry.second;
+                }
+                lines.push_back(std::format("{}: {:.2f} ms", title, total_ms));
+                for (const auto &[name, ms] : entries) {
+                    lines.push_back(std::format("  {}: {:.2f} ms", name, ms));
+                }
+            };
+            section("GPU total", timings.gpu_pass_timings_ms);
+            section("CPU frame total", timings.cpu_stage_timings_ms);
+            section("CPU pass recording total", timings.cpu_pass_timings_ms);
+        }
+        return lines;
+    }
+
     /// Builds the top-right tweak panel overlay (surfel GI, motion blur, bloom, tone mapping, shadows).
     ///
     /// @param engine `engine` value used by the operation.
@@ -628,12 +669,13 @@ namespace SFT::Runtime {
     ///
     /// @return Returns the current build tweak panel overlay value.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    Renderer::UiOverlayHooks RuntimeDemoGameLogic::build_tweak_panel_overlay(
-        Engine::Engine &engine, Core::RenderSurfaceHandle, const Core::FrameInput &frame) {
+    Renderer::OverlayPass RuntimeDemoGameLogic::build_tweak_panel_overlay(
+        Engine::Engine &engine, Core::RenderSurfaceHandle surface, const Core::FrameInput &frame) {
         auto panel_state = engine.ecs_world().get_component<TweakPanelState>(tweak_panel_entity_);
-        if (!panel_state || !panel_state->visible) {
+        if (!panel_state) {
             return {};
         }
+        const bool panel_visible = panel_state->visible;
 
         RHI::RhiDevice *device = engine.rhi_device();
         if (device == nullptr) {
@@ -642,7 +684,10 @@ namespace SFT::Runtime {
         const RHI::Format color_format = engine_config_.features.presentation.hdr_enabled
                                               ? RHI::Format::RGBA16Float
                                               : RHI::Format::BGRA8UnormSrgb;
-        if (!engine.ui_context().ensure_ready(*device, color_format)) {
+        if (!screen_ui_) {
+            screen_ui_ = std::make_unique<Engine::ScreenUi>(engine);
+        }
+        if (!screen_ui_->ensure_ready(color_format)) {
             return {};
         }
         if (!tweak_panel_font_registered_) {
@@ -652,7 +697,7 @@ namespace SFT::Runtime {
                 const std::span<const char> chars{font_bytes->data(), font_bytes->size()};
                 if (auto loaded = Text::Font::load(std::as_bytes(chars))) {
                     tweak_panel_font_ = std::move(*loaded);
-                    engine.ui_context().context().register_font(kTweakPanelFontId, tweak_panel_font_);
+                    screen_ui_->context().register_font(kTweakPanelFontId, tweak_panel_font_);
                     tweak_panel_font_registered_ = true;
                 } else {
                     Foundation::log_warn("Runtime tweak panel: failed to load font: {}", loaded.error().message);
@@ -664,8 +709,7 @@ namespace SFT::Runtime {
 
         const glm::vec2 viewport{
             static_cast<f32>(frame.framebuffer_width), static_cast<f32>(frame.framebuffer_height)};
-        engine.ui_context().begin_layout(viewport, engine.ui_pointer_state(), static_cast<f32>(frame.delta_seconds));
-        UI::Context &ctx = engine.ui_context().context();
+        UI::Context &ctx = screen_ui_->begin_frame(viewport, static_cast<f32>(frame.delta_seconds));
 
         auto gi = engine.ecs_world().get_component<RestirGiTuningState>(tweak_panel_entity_);
         auto blur = engine.ecs_world().get_component<MotionBlurTuningState>(tweak_panel_entity_);
@@ -678,6 +722,25 @@ namespace SFT::Runtime {
                 .padding = UI::Padding::all(16),
                 .child_alignment = {UI::AlignX::Right, UI::AlignY::Top},
             });
+            {
+                // Frame statistics, top-left; the tweak panel stays right-aligned beside it.
+                auto stats_column = ctx.element(UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fit()},
+                });
+                auto stats_box = ctx.element(UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::fit(), UI::SizingAxis::fit()},
+                    .padding = UI::Padding::all(8),
+                    .child_gap = 2,
+                    .direction = UI::LayoutDirection::TopToBottom,
+                    .background_color = kTweakPanelBackground,
+                    .corner_radius = UI::CornerRadius::all(6.0f),
+                });
+                for (const std::string &line : build_debug_stats_lines(engine, surface, frame)) {
+                    draw_panel_text(ctx, line, kTweakPanelTextPrimary, 12);
+                }
+            }
+            // The tweak panel below is skipped while hidden (U); the statistics stay.
+            if (panel_visible) {
             auto panel = ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::fixed(300.0f), UI::SizingAxis::fit()},
                 .padding = UI::Padding::all(14),
@@ -1082,10 +1145,10 @@ namespace SFT::Runtime {
                 render_graph_.shadows().debug_view = kShadowDebugViews[std::min<usize>(
                     shadow_debug_result.selected_index, kShadowDebugViews.size() - 1)];
             }
+            } // panel_visible
         }
 
-        auto snapshot = std::make_shared<UI::FrameSnapshot>(ctx.finish_frame(viewport));
-        return engine.ui_context().build_overlay_hooks(snapshot, engine.renderer());
+        return screen_ui_->finish_overlay();
     }
 
     /// Requests render frame using the supplied arguments and current state.
@@ -1170,7 +1233,6 @@ namespace SFT::Runtime {
                 .effect = std::move(effect),
             });
             color = frame_graph.compose(Engine::RenderModules::ToneMapping{.input = color});
-            color = frame_graph.compose(Engine::RenderModules::DebugOverlay{.input = color});
             (void)frame_graph.compose(Engine::RenderModules::Present{.input = color});
         }
         if (auto fly = engine.ecs_world().get_component<FlyCameraState>(camera_control_entity_)) {
@@ -1209,7 +1271,7 @@ namespace SFT::Runtime {
                 .exposure = 1.0f,
             },
             .render_graph = std::move(frame_graph),
-            .ui_overlay = build_tweak_panel_overlay(engine, surface, frame),
+            .overlay_passes = {build_tweak_panel_overlay(engine, surface, frame)},
             .debug_label = UString{"Runtime ECS scene"_ustr},
         };
 
@@ -1222,7 +1284,10 @@ namespace SFT::Runtime {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    void RuntimeDemoGameLogic::on_shutdown(Engine::Engine &           ) noexcept {}
+    void RuntimeDemoGameLogic::on_shutdown(Engine::Engine &           ) noexcept {
+        // The on-screen UI refers to the engine (its input system, its device); it must go first.
+        screen_ui_.reset();
+    }
 
     /// Creates a runtime demo game logic from the supplied parameters.
     ///

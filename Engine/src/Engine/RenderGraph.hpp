@@ -28,7 +28,9 @@ namespace SFT::Engine {
         AntiAliasing,
         Bloom,
         ToneMapping,
-        DebugOverlay,
+        /// Collect GPU/CPU frame timings for `Renderer::last_frame_timings` (what an application's own
+        /// diagnostics overlay reads). Formerly `DebugOverlay`, before the overlay itself left the engine.
+        FrameTimings,
         RestirGi,
         MotionBlur,
     };
@@ -354,11 +356,8 @@ namespace SFT::Engine {
         PsychoVSettings psycho_v{};
     };
 
-    struct DebugOverlayRenderSettings {
+    struct FrameTimingSettings {
         bool enabled = false;
-
-
-        bool draw_text = true;
     };
 
     enum class RestirGiQuality : u8 { Low, Medium, High };
@@ -421,7 +420,7 @@ namespace SFT::Engine {
         AntiAliasingSettings anti_aliasing{};
         BloomSettings bloom{};
         ToneMappingSettings tone_mapping{};
-        DebugOverlayRenderSettings debug_overlay{};
+        FrameTimingSettings frame_timings{};
         RestirGiSettings restir_gi{};
         MotionBlurSettings motion_blur{};
         RenderGraphExecutionMode execution_mode = RenderGraphExecutionMode::FireAndForget;
@@ -580,16 +579,9 @@ namespace SFT::Engine {
         /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function does not throw exceptions.
         [[nodiscard]] ToneMappingSettings &tone_mapping() noexcept;
-        /// Returns the current or globally available debug overlay value.
-        ///
-        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] const DebugOverlayRenderSettings &debug_overlay() const noexcept;
-        /// Returns the current or globally available debug overlay value.
-        ///
-        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] DebugOverlayRenderSettings &debug_overlay() noexcept;
+        /// Frame timing collection (off by default); see `RenderFeature::FrameTimings`.
+        [[nodiscard]] const FrameTimingSettings &frame_timings() const noexcept;
+        [[nodiscard]] FrameTimingSettings &frame_timings() noexcept;
         /// Returns the current or globally available ReSTIR GI value.
         ///
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
@@ -887,7 +879,6 @@ namespace SFT::Engine {
         friend struct RenderModules::ComputeEffect;
         friend struct RenderModules::Copy;
         friend struct RenderModules::ToneMapping;
-        friend struct RenderModules::DebugOverlay;
         friend struct RenderModules::Present;
 
         /// Creates a texture from the supplied parameters.

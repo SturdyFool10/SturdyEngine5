@@ -161,7 +161,8 @@ namespace SFT::Engine {
         graph.description_.anti_aliasing.post_process = PostProcessAntiAliasing::None;
         graph.description_.bloom.enabled = false;
         graph.description_.tone_mapping.enabled = false;
-        graph.description_.debug_overlay.enabled = true;
+        // An overlay-only window still has the application's own diagnostics to feed.
+        graph.description_.frame_timings.enabled = true;
         graph.description_.restir_gi.enabled = false;
         graph.description_.motion_blur.enabled = false;
         return graph;
@@ -237,16 +238,8 @@ namespace SFT::Engine {
     /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
     /// @note This function does not throw exceptions.
     ToneMappingSettings &RenderGraph::tone_mapping() noexcept { return description_.tone_mapping; }
-    /// Returns the current or globally available debug overlay value.
-    ///
-    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
-    /// @note This function does not throw exceptions.
-    const DebugOverlayRenderSettings &RenderGraph::debug_overlay() const noexcept { return description_.debug_overlay; }
-    /// Returns the current or globally available debug overlay value.
-    ///
-    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-    /// @note This function does not throw exceptions.
-    DebugOverlayRenderSettings &RenderGraph::debug_overlay() noexcept { return description_.debug_overlay; }
+    const FrameTimingSettings &RenderGraph::frame_timings() const noexcept { return description_.frame_timings; }
+    FrameTimingSettings &RenderGraph::frame_timings() noexcept { return description_.frame_timings; }
     /// Returns the current or globally available ReSTIR GI value.
     ///
     /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
@@ -608,7 +601,6 @@ namespace SFT::Engine {
         color = compose(RenderModules::AntiAliasing{.input = color});
         color = compose(RenderModules::Bloom{.input = color});
         color = compose(RenderModules::ToneMapping{.input = color});
-        color = compose(RenderModules::DebugOverlay{.input = color});
         (void)compose(RenderModules::Present{.input = color});
     }
 
@@ -633,8 +625,8 @@ namespace SFT::Engine {
                 return description_.bloom.enabled;
             case RenderFeature::ToneMapping:
                 return description_.tone_mapping.enabled;
-            case RenderFeature::DebugOverlay:
-                return description_.debug_overlay.enabled;
+            case RenderFeature::FrameTimings:
+                return description_.frame_timings.enabled;
             case RenderFeature::RestirGi:
                 return description_.restir_gi.enabled;
             case RenderFeature::MotionBlur:
@@ -674,8 +666,8 @@ namespace SFT::Engine {
             case RenderFeature::ToneMapping:
                 description_.tone_mapping.enabled = enabled_value;
                 break;
-            case RenderFeature::DebugOverlay:
-                description_.debug_overlay.enabled = enabled_value;
+            case RenderFeature::FrameTimings:
+                description_.frame_timings.enabled = enabled_value;
                 break;
             case RenderFeature::RestirGi:
                 description_.restir_gi.enabled = enabled_value;
@@ -888,7 +880,6 @@ namespace SFT::Engine {
             producer[pass.output.index] = static_cast<i32>(index);
             display_encoded[pass.output.index] = pass.kind == RenderGraphPassKind::ToneMapping || display_space_effect;
             scene_linear_hdr[pass.output.index] = pass.kind != RenderGraphPassKind::ToneMapping &&
-                                                  pass.kind != RenderGraphPassKind::DebugOverlay &&
                                                   scene_linear_hdr[pass.input.index];
         }
 
@@ -953,7 +944,6 @@ namespace SFT::Engine {
         bool saw_anti_aliasing = false;
         bool saw_bloom = false;
         bool saw_tone_mapping = false;
-        bool saw_debug_overlay = false;
         bool saw_present = false;
         for (usize path_index = 0; path_index < path.size(); ++path_index) {
             const RenderGraphPassDescription &pass = passes_[path[path_index].index];
@@ -1000,12 +990,6 @@ namespace SFT::Engine {
                             .message = UString{"Custom HDR compute and copy passes must run before tone mapping on the presentation path; only fullscreen effects may follow it."_ustr},
                         });
                     }
-                    if (saw_tone_mapping && saw_debug_overlay) {
-                        return std::unexpected(RenderGraphError{
-                            .code = RenderGraphErrorCode::UnsupportedPassOrder,
-                            .message = UString{"Display-space effects must run before the debug overlay."_ustr},
-                        });
-                    }
                     break;
                 case RenderGraphPassKind::ToneMapping:
                     if (saw_tone_mapping) {
@@ -1015,15 +999,6 @@ namespace SFT::Engine {
                         });
                     }
                     saw_tone_mapping = true;
-                    break;
-                case RenderGraphPassKind::DebugOverlay:
-                    if (!saw_tone_mapping || saw_debug_overlay) {
-                        return std::unexpected(RenderGraphError{
-                            .code = RenderGraphErrorCode::UnsupportedPassOrder,
-                            .message = UString{"Debug overlay may appear once after tone mapping on the presentation path."_ustr},
-                        });
-                    }
-                    saw_debug_overlay = true;
                     break;
                 case RenderGraphPassKind::Present:
                     if (saw_present || path_index + 1 != path.size()) {

@@ -37,6 +37,7 @@
 #include <Renderer/RestirGi.hpp>
 #include <Renderer/SvgfDenoiser.hpp>
 #include <Renderer/RenderGraphModule.hpp>
+#include <Renderer/ComputeKernel.hpp>
 #include <Renderer/FramePipeline.hpp>
 #include <Renderer/TileGrid.hpp>
 #include <Renderer/TextAtlas.hpp>
@@ -747,6 +748,17 @@ namespace SFT::Renderer {
                                                                     std::span<const RHI::TextureViewHandle> extra_sources = {}) {
             return record_custom_post_process(pass, source, target_format, effect, transient_bind_groups, extra_sources);
         }
+        /// Compiles (once) the compute shader a kernel names and returns its handle. Unlike
+        /// `CustomComputeEffect`, the shader chooses its own resources: any sampled/storage textures and
+        /// samplers in set 0, addressed by name at record time, plus one optional push-constant block.
+        [[nodiscard]] Core::RendererExpected<ComputeKernelId> prepare_compute_kernel(const ComputeKernelDescription &kernel);
+        /// Binds `bindings` to the kernel's textures by name and dispatches `groups` workgroups.
+        /// Every non-sampler resource the shader declares must be supplied; `push_constants` may be at most the
+        /// shader's block size (a shorter payload is zero-padded to the block).
+        [[nodiscard]] Core::RendererResult record_compute_kernel(RHI::ComputePassEncoder &pass, ComputeKernelId kernel,
+                                                                 std::span<const ComputeBinding> bindings,
+                                                                 std::span<const std::byte> push_constants, glm::uvec3 groups,
+                                                                 std::vector<RHI::BindGroupHandle> &transient_bind_groups);
         /// A copy of the current arrangement, for inspection (`names()`, `enabled()`).
         [[nodiscard]] FramePipeline frame_pipeline_snapshot() { return *frame_pipeline_.lock(); }
 
@@ -765,9 +777,6 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult build_frame_feature_bloom(FrameBuildContext &context);
         [[nodiscard]] Core::RendererResult build_frame_feature_effects_after_bloom(FrameBuildContext &context);
         [[nodiscard]] Core::RendererResult build_frame_feature_tone_mapping(FrameBuildContext &context);
-        [[nodiscard]] Core::RendererResult build_frame_feature_debug_text_overlay(FrameBuildContext &context);
-        [[nodiscard]] Core::RendererResult build_frame_feature_ui_overlay(FrameBuildContext &context);
-        [[nodiscard]] Core::RendererResult build_frame_feature_ui_display_encode(FrameBuildContext &context);
 
 
 
@@ -973,16 +982,6 @@ namespace SFT::Renderer {
         };
 
 
-        struct FrameBloomTargets {
-            Core::Extent2D source_extent{};
-            u32 requested_levels = 0;
-            f32 downsample_ratio = 1.61803398875f;
-            vector<Core::Extent2D> extents;
-            vector<RHI::TextureHandle> textures;
-            vector<RHI::TextureViewHandle> views;
-            vector<RHI::BindGroupHandle> downsample_bind_groups;
-            vector<RHI::BindGroupHandle> upsample_bind_groups;
-        };
 
 
         struct HiZPyramidTargets {
@@ -1031,12 +1030,6 @@ namespace SFT::Renderer {
         };
 
 
-        struct FrameCompositeTarget {
-            Core::Extent2D extent{};
-            RHI::Format format = RHI::Format::Undefined;
-            RHI::TextureHandle texture{};
-            RHI::TextureViewHandle view{};
-        };
 
 
         struct FrameGpuTimingTarget {
@@ -1095,15 +1088,12 @@ namespace SFT::Renderer {
             vector<RHI::AccelerationStructureHandle> transient_acceleration_structures;
 
 
-            TextFrameResources text_overlay_resources{};
             vector<RHI::SwapchainHandle> retired_swapchains;
             vector<RHI::TextureHandle> retired_presentation_textures;
             vector<RHI::TextureViewHandle> retired_presentation_texture_views;
             FrameDeferredTargets deferred_targets{};
             FrameShadowTargets shadow_targets{};
             FrameAtmosphereTargets atmosphere_targets{};
-            FrameBloomTargets bloom_targets{};
-            FrameCompositeTarget composite_target{};
             FrameGpuTimingTarget gpu_timing{};
             FrameCpuTimingTarget cpu_timing{};
 
@@ -1293,15 +1283,8 @@ namespace SFT::Renderer {
             FrameInFlight *slot = nullptr;
             RenderGraphTextureHandle gbuffer_motion{};
             RenderGraphTextureHandle depth_texture{};
-            RenderGraphTextureHandle ui_overlay_target{};
-            bool bloom_active = false;
-            RHI::Format bloom_format = RHI::Format::Undefined;
             vector<RenderGraphTextureHandle> *logical_graph_textures = nullptr;
             std::function<void(LogicalRenderGraphTexture, RenderGraphTextureHandle)> map_logical_texture;
-            vector<TextDrawBatch> *text_overlay_batches = nullptr;
-            vector<RenderGraphTextureHandle> *ui_glow_bloom_outputs = nullptr;
-            bool direct_overlay_display_transform = false;
-            f32 ui_reference_white_nits = 0.0f;
             u32 frame_slot_index = 0;
             glm::vec4 background{0.0f};
         };
@@ -1375,38 +1358,6 @@ namespace SFT::Renderer {
         };
 
 
-        struct MotionBlurResources {
-            Core::Slang::Shader tile_max_shader;
-            RHI::ShaderModuleHandle tile_max_module{};
-            RHI::BindGroupLayoutHandle tile_max_bind_group_layout{};
-            RHI::PipelineLayoutHandle tile_max_pipeline_layout{};
-            RHI::ComputePipelineHandle tile_max_pipeline{};
-            u32 tile_max_motion_binding = 0;
-            u32 tile_max_output_binding = 0;
-
-            Core::Slang::Shader neighbor_max_shader;
-            RHI::ShaderModuleHandle neighbor_max_module{};
-            RHI::BindGroupLayoutHandle neighbor_max_bind_group_layout{};
-            RHI::PipelineLayoutHandle neighbor_max_pipeline_layout{};
-            RHI::ComputePipelineHandle neighbor_max_pipeline{};
-            u32 neighbor_max_input_binding = 0;
-            u32 neighbor_max_output_binding = 0;
-
-            Core::Slang::Shader gather_shader;
-            RHI::ShaderModuleHandle gather_module{};
-            RHI::BindGroupLayoutHandle gather_bind_group_layout{};
-            RHI::PipelineLayoutHandle gather_pipeline_layout{};
-            RHI::ComputePipelineHandle gather_pipeline{};
-            RHI::SamplerHandle gather_sampler{};
-            u32 gather_scene_color_binding = 0;
-            u32 gather_sampler_binding = 0;
-            u32 gather_motion_binding = 0;
-            u32 gather_depth_binding = 0;
-            u32 gather_dilated_velocity_binding = 0;
-            u32 gather_output_binding = 0;
-
-            bool ready = false;
-        };
 
         struct RestirGiComputeVariant {
             Core::Slang::Shader shader;
@@ -1579,30 +1530,6 @@ namespace SFT::Renderer {
             bool ready = false;
         };
 
-        struct BloomResources {
-            Core::Slang::Shader shader;
-            RHI::ShaderModuleHandle vertex_module{};
-            RHI::ShaderModuleHandle prefilter_module{};
-            RHI::ShaderModuleHandle downsample_module{};
-            RHI::ShaderModuleHandle upsample_module{};
-            std::string vertex_entry_point;
-            std::string prefilter_entry_point;
-            std::string downsample_entry_point;
-            std::string upsample_entry_point;
-            std::vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
-            std::vector<u32> bind_group_layout_sets;
-            RHI::PipelineLayoutHandle pipeline_layout{};
-            RHI::SamplerHandle sampler{};
-            RHI::RenderPipelineHandle prefilter_pipeline{};
-            RHI::RenderPipelineHandle downsample_pipeline{};
-            RHI::RenderPipelineHandle upsample_pipeline{};
-            RHI::BindGroupLayoutHandle sampled_layout{};
-            u32 sampled_set = 0;
-            u32 image_binding = 0;
-            u32 sampler_binding = 0;
-            RHI::Format color_format = RHI::Format::Undefined;
-            bool ready = false;
-        };
 
 
         struct HiZBuildResources {
@@ -1646,26 +1573,6 @@ namespace SFT::Renderer {
         };
 
 
-        struct BloomCompositePipelineVariant {
-            RHI::Format color_format = RHI::Format::Undefined;
-            RHI::RenderPipelineHandle pipeline{};
-        };
-        struct BloomCompositeResources {
-            Core::Slang::Shader shader;
-            RHI::ShaderModuleHandle vertex_module{};
-            RHI::ShaderModuleHandle fragment_module{};
-            std::string vertex_entry_point;
-            std::string fragment_entry_point;
-            std::vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
-            std::vector<u32> bind_group_layout_sets;
-            RHI::PipelineLayoutHandle pipeline_layout{};
-            RHI::SamplerHandle sampler{};
-            std::vector<BloomCompositePipelineVariant> pipeline_variants;
-            u32 scene_binding = 0;
-            u32 bloom_binding = 0;
-            u32 sampler_binding = 0;
-            bool ready = false;
-        };
 
         struct CustomPostProcessResources {
             std::string shader_path;
@@ -1752,6 +1659,25 @@ namespace SFT::Renderer {
             bool ready = false;
         };
 
+        struct ComputeKernelResource {
+            struct Binding {
+                std::string name;
+                u32 binding = 0;
+                RHI::BindingType type = RHI::BindingType::SampledTexture;
+            };
+            std::string shader_path;
+            std::string module_name;
+            std::string entry_point;
+            Core::Slang::Shader shader;
+            RHI::ShaderModuleHandle module{};
+            RHI::BindGroupLayoutHandle bind_group_layout{};
+            RHI::PipelineLayoutHandle pipeline_layout{};
+            RHI::SamplerHandle sampler{};
+            RHI::ComputePipelineHandle pipeline{};
+            std::vector<Binding> bindings;
+            u32 push_constant_size = 0;
+        };
+
         struct CustomComputeEffectResources {
             std::string shader_path;
             std::string module_name;
@@ -1769,42 +1695,6 @@ namespace SFT::Renderer {
         };
 
 
-        struct TextOverlayResources {
-            struct CachedLine {
-                UString source;
-                optional<Text::ShapedLine> shaped;
-                bool initialized = false;
-            };
-
-            struct CachedVisibleLayout {
-                usize first_line = 0;
-                glm::vec2 origin_px{0.0f};
-                f32 viewport_height_px = 0.0f;
-                vector<UString> source_lines;
-                vector<GlyphSlot> slots;
-                vector<GlyphInstance> instances;
-                bool valid = false;
-            };
-
-            Text::Font font;
-
-
-            Text::Font emoji_font;
-            bool has_emoji_font = false;
-            TextAtlas atlas;
-            TextPipeline pipeline;
-            u64 font_id = 0;
-            u64 emoji_font_id = 0;
-
-
-            std::unordered_map<u32, Text::GlyphOutline> outline_cache;
-
-
-            usize first_cached_line = 0;
-            vector<CachedLine> line_cache;
-            CachedVisibleLayout visible_layout;
-            bool ready = false;
-        };
 
         struct ShaderHotReloadPollResult {
             std::shared_ptr<Core::Slang::ShaderWatcher> watcher;
@@ -2058,42 +1948,6 @@ namespace SFT::Renderer {
                                                                  DirectionalShadowState &directional_state,
                                                                  PreparedShadowFrame &prepared,
                                                                  Core::Extent2D render_extent);
-        /// Finds or creates the frame bloom targets required by the operation.
-        ///
-        /// @param slot Binding or storage slot addressed by the operation.
-        /// @param extent `extent` value used by the operation.
-        /// @param requested_levels `requested_levels` value used by the operation.
-        /// @param downsample_ratio `downsample_ratio` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_frame_bloom_targets(FrameInFlight &slot,
-                                                                      Core::Extent2D extent,
-                                                                      u32 requested_levels,
-                                                                      f32 downsample_ratio);
-        /// Destroys the frame bloom targets identified by the supplied parameters.
-        ///
-        /// @param slot Binding or storage slot addressed by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_frame_bloom_targets(FrameInFlight &slot) noexcept;
-        /// Finds or creates the frame composite target required by the operation.
-        ///
-        /// @param slot Binding or storage slot addressed by the operation.
-        /// @param extent `extent` value used by the operation.
-        /// @param format Format used for the resource, render target, or conversion.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_frame_composite_target(FrameInFlight &slot,
-                                                                         Core::Extent2D extent,
-                                                                         RHI::Format format);
-        /// Destroys the frame composite target identified by the supplied parameters.
-        ///
-        /// @param slot Binding or storage slot addressed by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_frame_composite_target(FrameInFlight &slot) noexcept;
 
 
         /// Finds or creates the frame GPU timing target required by the operation.
@@ -2669,16 +2523,6 @@ namespace SFT::Renderer {
             RenderGraphModuleBuildContext &context,
             FrameSubmission &submission,
             RHI::SampleCount samples);
-        /// Builds post process aa module.
-        ///
-        /// @param context Context that supplies state required by the operation.
-        /// @param submission `submission` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult build_post_process_aa_module(
-            RenderGraphModuleBuildContext &context,
-            FrameSubmission &submission);
         /// Builds custom graph stage.
         ///
         /// @param context Context that supplies state required by the operation.
@@ -2693,22 +2537,6 @@ namespace SFT::Renderer {
             FrameSubmission &submission,
             PostProcessStage stage,
             span<RenderGraphTextureHandle> logical_textures);
-        /// Builds bloom module.
-        ///
-        /// @param context Context that supplies state required by the operation.
-        /// @param submission `submission` value used by the operation.
-        /// @param frame_slot Binding or storage slot addressed by the operation.
-        /// @param enabled Whether the associated behavior is enabled.
-        /// @param bloom_format Format used for the resource, render target, or conversion.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult build_bloom_module(
-            RenderGraphModuleBuildContext &context,
-            FrameSubmission &submission,
-            FrameInFlight &frame_slot,
-            bool enabled,
-            RHI::Format bloom_format);
         /// Builds the display-space effect chain that follows tone mapping.
         ///
         /// Runs every `PostProcessStage::AfterToneMap` raster pass in order, each sampling the previous
@@ -2772,133 +2600,6 @@ namespace SFT::Renderer {
         ///
         /// @note This function does not throw exceptions.
         void destroy_deferred_msaa_resources_locked(DeferredMsaaResources &resources) noexcept;
-
-        /// Finds or creates the bloom resources required by the operation.
-        ///
-        /// @param color_format Format used for the resource, render target, or conversion.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_bloom_resources(RHI::Format color_format);
-        /// Records bloom draw using the supplied arguments and current state.
-        ///
-        /// @param pass Render-pass encoder that receives the draw commands.
-        /// @param source_view `source_view` value used by the operation.
-        /// @param source_texel_size Requested or available size for the operation.
-        /// @param threshold `threshold` value used by the operation.
-        /// @param soft_knee `soft_knee` value used by the operation.
-        /// @param scatter `scatter` value used by the operation.
-        /// @param filter_scale `filter_scale` value used by the operation.
-        /// @param prefilter `prefilter` value used by the operation.
-        /// @param upsample `upsample` value used by the operation.
-        /// @param bind_group `bind_group` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_bloom_draw(RHI::RenderPassEncoder &pass,
-                                                              RHI::TextureViewHandle source_view,
-                                                              glm::vec2 source_texel_size,
-                                                              f32 threshold, f32 soft_knee, f32 scatter,
-                                                              glm::vec2 filter_scale,
-                                                              bool prefilter, bool upsample,
-                                                              RHI::BindGroupHandle bind_group);
-        /// Records bloom downsample using the supplied arguments and current state.
-        ///
-        /// @param pass Render-pass encoder that receives the draw commands.
-        /// @param source_view `source_view` value used by the operation.
-        /// @param source_texel_size Requested or available size for the operation.
-        /// @param settings Configuration values controlling the operation.
-        /// @param filter_scale `filter_scale` value used by the operation.
-        /// @param apply_threshold `apply_threshold` value used by the operation.
-        /// @param bind_group `bind_group` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_bloom_downsample(RHI::RenderPassEncoder &pass,
-                                                                    RHI::TextureViewHandle source_view,
-                                                                    glm::vec2 source_texel_size,
-                                                                    const RenderGraphSettings &settings,
-                                                                    glm::vec2 filter_scale,
-                                                                    bool apply_threshold,
-                                                                    RHI::BindGroupHandle bind_group);
-        /// Records bloom upsample using the supplied arguments and current state.
-        ///
-        /// @param pass Render-pass encoder that receives the draw commands.
-        /// @param source_view `source_view` value used by the operation.
-        /// @param source_texel_size Requested or available size for the operation.
-        /// @param settings Configuration values controlling the operation.
-        /// @param bind_group `bind_group` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_bloom_upsample(RHI::RenderPassEncoder &pass,
-                                                                  RHI::TextureViewHandle source_view,
-                                                                  glm::vec2 source_texel_size,
-                                                                  const RenderGraphSettings &settings,
-                                                                  RHI::BindGroupHandle bind_group);
-        /// Destroys the bloom resources identified by the supplied parameters.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_bloom_resources() noexcept;
-        /// Destroys the bloom resources locked identified by the supplied parameters.
-        ///
-        /// @param resources `resources` value used by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_bloom_resources_locked(BloomResources &resources) noexcept;
-
-
-        /// Creates a bloom source bind group from the supplied parameters.
-        ///
-        /// @param source_view `source_view` value used by the operation.
-        ///
-        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererExpected<RHI::BindGroupHandle> create_bloom_source_bind_group(
-            RHI::TextureViewHandle source_view);
-
-
-        /// Finds or creates the bloom composite resources required by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_bloom_composite_resources();
-        /// Resolves the bloom composite pipeline associated with the supplied key, handle, or resource.
-        ///
-        /// @param color_format Format used for the resource, render target, or conversion.
-        ///
-        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> bloom_composite_pipeline_for(RHI::Format color_format);
-        /// Records bloom composite using the supplied arguments and current state.
-        ///
-        /// @param pass Render-pass encoder that receives the draw commands.
-        /// @param scene_view `scene_view` value used by the operation.
-        /// @param bloom_view `bloom_view` value used by the operation.
-        /// @param color_format Format used for the resource, render target, or conversion.
-        /// @param bloom_intensity `bloom_intensity` value used by the operation.
-        /// @param threshold_enabled `threshold_enabled` value used by the operation.
-        /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_bloom_composite(RHI::RenderPassEncoder &pass,
-                                                                   RHI::TextureViewHandle scene_view,
-                                                                   RHI::TextureViewHandle bloom_view,
-                                                                   RHI::Format color_format,
-                                                                   f32 bloom_intensity,
-                                                                   bool threshold_enabled,
-                                                                   vector<RHI::BindGroupHandle> &transient_bind_groups);
-        /// Destroys the bloom composite resources identified by the supplied parameters.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_bloom_composite_resources() noexcept;
-        /// Destroys the bloom composite resources locked identified by the supplied parameters.
-        ///
-        /// @param resources `resources` value used by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_bloom_composite_resources_locked(BloomCompositeResources &resources) noexcept;
 
         /// Finds or creates the custom post process required by the operation.
         ///
@@ -2964,121 +2665,11 @@ namespace SFT::Renderer {
             RHI::Format destination_format, vector<RHI::BindGroupHandle> &out_transient_bind_groups,
             const ustr &label = "portable texture blit"_ustr);
 
-        /// Finds or creates the post process aa resources required by the operation.
-        ///
-        /// @param settings Configuration values controlling the operation.
-        /// @param color_format Format used for the resource, render target, or conversion.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_post_process_aa_resources(
-            const RenderGraphSettings &settings,
-            RHI::Format color_format);
-        /// Records post process aa using the supplied arguments and current state.
-        ///
-        /// @param pass Render-pass encoder that receives the draw commands.
-        /// @param source_view `source_view` value used by the operation.
-        /// @param color_format Format used for the resource, render target, or conversion.
-        /// @param settings Configuration values controlling the operation.
-        /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_post_process_aa(
-            RHI::RenderPassEncoder &pass,
-            RHI::TextureViewHandle source_view,
-            RHI::Format color_format,
-            const RenderGraphSettings &settings,
-            vector<RHI::BindGroupHandle> &transient_bind_groups);
 
-        /// Finds or creates the motion blur resources required by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_motion_blur_resources();
-        /// Destroys the motion blur resources identified by the supplied parameters.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_motion_blur_resources() noexcept;
 
-        /// Records the motion-blur tile-max reduction pass (FrostBite-style motion blur, stage 1 of 3) using the
-        /// supplied arguments and current state.
-        ///
-        /// @param pass Compute-pass encoder that receives the dispatch.
-        /// @param motion_view Full-resolution per-pixel motion vector view produced by the deferred G-buffer pass.
-        /// @param tile_max_output_view Tile-resolution destination for the per-tile max-magnitude velocity.
-        /// @param render_extent Full render resolution in pixels.
-        /// @param tile_size Tile edge length in pixels (`MotionBlurSettings::tile_size_px`).
-        /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_motion_blur_tile_max(
-            RHI::ComputePassEncoder &pass,
-            RHI::TextureViewHandle motion_view,
-            RHI::TextureViewHandle tile_max_output_view,
-            glm::uvec2 render_extent,
-            u32 tile_size,
-            vector<RHI::BindGroupHandle> &transient_bind_groups);
 
-        /// Records the motion-blur neighbor-max dilation pass (stage 2 of 3) using the supplied arguments and
-        /// current state.
-        ///
-        /// @param pass Compute-pass encoder that receives the dispatch.
-        /// @param tile_max_view Tile-resolution per-tile max velocity produced by `record_motion_blur_tile_max`.
-        /// @param dilated_output_view Tile-resolution destination for the neighborhood-dilated velocity.
-        /// @param tile_extent Tile-grid resolution (`ceil(render_extent / tile_size)`).
-        /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_motion_blur_neighbor_max(
-            RHI::ComputePassEncoder &pass,
-            RHI::TextureViewHandle tile_max_view,
-            RHI::TextureViewHandle dilated_output_view,
-            glm::uvec2 tile_extent,
-            vector<RHI::BindGroupHandle> &transient_bind_groups);
 
-        /// Records the motion-blur gather (line-integral reconstruction) pass (stage 3 of 3) using the supplied
-        /// arguments and current state.
-        ///
-        /// @param pass Compute-pass encoder that receives the dispatch.
-        /// @param scene_color_view Full-resolution HDR scene color view to blur.
-        /// @param motion_view Full-resolution per-pixel motion vector view.
-        /// @param depth_view Full-resolution scene depth view, used for the foreground/background tap weighting.
-        /// @param dilated_velocity_view Tile-resolution dilated velocity produced by `record_motion_blur_neighbor_max`.
-        /// @param output_view Full-resolution destination for the blurred scene color.
-        /// @param settings Configuration values controlling the operation.
-        /// @param render_extent Full render resolution in pixels.
-        /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_motion_blur_gather(
-            RHI::ComputePassEncoder &pass,
-            RHI::TextureViewHandle scene_color_view,
-            RHI::TextureViewHandle motion_view,
-            RHI::TextureViewHandle depth_view,
-            RHI::TextureViewHandle dilated_velocity_view,
-            RHI::TextureViewHandle output_view,
-            const RenderGraphSettings &settings,
-            glm::uvec2 render_extent,
-            vector<RHI::BindGroupHandle> &transient_bind_groups);
 
-        /// Builds motion blur module.
-        ///
-        /// @param context Context that supplies state required by the operation.
-        /// @param submission `submission` value used by the operation.
-        /// @param motion_texture Full-resolution per-pixel motion vector render-graph texture.
-        /// @param depth_texture Full-resolution scene depth render-graph texture.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult build_motion_blur_module(
-            RenderGraphModuleBuildContext &context,
-            FrameSubmission &submission,
-            RenderGraphTextureHandle motion_texture,
-            RenderGraphTextureHandle depth_texture);
 
         /// Finds or creates the ReSTIR GI resources required by the operation, (re)allocating the
         /// persistent reservoir buffers and history texture whenever the render extent changes (this is
@@ -3521,60 +3112,14 @@ namespace SFT::Renderer {
         ///
         /// @note This function does not throw exceptions.
         void destroy_custom_compute_effect_resources() noexcept;
+        void destroy_compute_kernels() noexcept;
 
 
 
 
 
-        /// Finds or creates the text overlay resources required by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_text_overlay_resources();
-        /// Prepares text overlay for a later operation.
-        ///
-        /// @param encoder `encoder` value used by the operation.
-        /// @param lines `lines` value used by the operation.
-        /// @param origin_px `origin_px` value used by the operation.
-        /// @param viewport_size_px `viewport_size_px` value used by the operation.
-        /// @param frame_resources `frame_resources` value used by the operation.
-        /// @param transient_buffers Buffer used or affected by the operation.
-        /// @param retired_atlas_resources `retired_atlas_resources` value used by the operation.
-        /// @param out_batches `out_batches` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult prepare_text_overlay(RHI::CommandEncoder &encoder,
-                                                                 span<const UString> lines,
-                                                                 glm::vec2 origin_px,
-                                                                 glm::vec2 viewport_size_px,
-                                                                 TextFrameResources &frame_resources,
-                                                                 vector<RHI::BufferHandle> &transient_buffers,
-                                                                 TextAtlasRetiredResources &retired_atlas_resources,
-                                                                 vector<TextDrawBatch> &out_batches);
 
 
-        /// Draws text overlay using the current rendering state.
-        ///
-        /// @param pass Render-pass encoder that receives the draw commands.
-        /// @param batches `batches` value used by the operation.
-        /// @param viewport_size_px `viewport_size_px` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult draw_text_overlay(RHI::RenderPassEncoder &pass,
-                                                              span<const TextDrawBatch> batches,
-                                                              glm::vec2 viewport_size_px);
-        /// Destroys the text overlay resources identified by the supplied parameters.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_text_overlay_resources() noexcept;
-        /// Destroys the text overlay resources locked identified by the supplied parameters.
-        ///
-        /// @param resources `resources` value used by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_text_overlay_resources_locked(TextOverlayResources &resources) noexcept;
 
 
         /// Returns the current or globally available recover from device loss value.
@@ -3702,11 +3247,8 @@ namespace SFT::Renderer {
         Async::Mutex<u8> shader_hot_reload_lock_;
 
 
-        Async::Mutex<BloomResources> bloom_;
-        Async::Mutex<BloomCompositeResources> bloom_composite_;
         Async::Mutex<ShadowLightingResources> shadow_lighting_;
         Async::Mutex<DeferredMsaaResources> deferred_msaa_;
-        Async::Mutex<TextOverlayResources> text_overlay_;
 
 
         Async::Mutex<std::unordered_map<u64, vector<MaterialPipelineVariant>>> material_pipeline_variants_;
@@ -3715,6 +3257,7 @@ namespace SFT::Renderer {
         Async::Mutex<std::unordered_map<u64, vector<DepthOnlyPipelineVariant>>> depth_only_pipeline_variants_;
         Async::Mutex<vector<CustomPostProcessResources>> custom_post_process_resources_;
         Async::Mutex<vector<CustomComputeEffectResources>> custom_compute_effect_resources_;
+        Async::Mutex<vector<ComputeKernelResource>> compute_kernels_;
         Async::Mutex<SpectralPathTracingResources> spectral_path_tracing_;
 
 
@@ -3727,7 +3270,6 @@ namespace SFT::Renderer {
 
 
         Async::Mutex<std::unordered_map<u64, ObjectHistoryTemplateResources>> object_history_pipeline_variants_;
-        Async::Mutex<MotionBlurResources> motion_blur_;
         Async::Mutex<RestirGiResources> restir_gi_;
         Async::Mutex<SvgfResources> svgf_denoiser_;
         Async::Mutex<GtaoResources> gtao_;

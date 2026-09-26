@@ -18,6 +18,7 @@
 #include <vector>
 #pragma endregion
 
+#include <Core/Slang/ShaderLibrary.hpp>
 #include <Async/Mutex.hpp>
 #include <Core/Slang/EmbeddedShaders.hpp>
 #include <Core/Slang/Shader.hpp>
@@ -92,6 +93,9 @@ namespace SFT::Core::Slang {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::FileReadFailed`.
         [[nodiscard]] ShaderExpected<string> read_text_file(const string &path) {
+            if (auto override_source = find_shader_module_override_for_path(path)) {
+                return std::move(*override_source);
+            }
             ifstream file(path, ios::binary);
             bool disk_ok = static_cast<bool>(file);
             string contents;
@@ -174,6 +178,11 @@ namespace SFT::Core::Slang {
             SLANG_NO_THROW SlangResult SLANG_MCALL loadFile(char const *path, ISlangBlob **outBlob) override {
                 if (path == nullptr || outBlob == nullptr) {
                     return SLANG_E_INVALID_ARG;
+                }
+
+                if (auto override_source = find_shader_module_override_for_path(path)) {
+                    *outBlob = make_owned_blob(std::move(*override_source));
+                    return SLANG_OK;
                 }
 
                 ifstream file(path, ios::binary);

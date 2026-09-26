@@ -1251,7 +1251,66 @@ function(sturdy_fetch_freetype)
     sturdy_register_license(freetype "${freetype_SOURCE_DIR}")
 endfunction()
 
+# Some SDKs put a `bin/` on PATH whose parent prefix carries a *broken* copy of a package config: CUDA's
+# /opt/cuda/lib/cmake/harfbuzz/harfbuzz-config.cmake names /opt/cuda/include/harfbuzz, which does not exist, and the
+# config reports that with message(FATAL_ERROR), which find_package cannot recover from. CMake derives search
+# prefixes from PATH, so a machine with CUDA installed cannot configure at all. Before looking the package up,
+# add every such prefix to CMAKE_IGNORE_PREFIX_PATH so the real system package (or the fetched source) is used.
+function(sturdy_ignore_prefixes_with_broken_package_config package_lower)
+    set(_ignored "")
+    string(REPLACE ":" ";" _path_entries "$ENV{PATH}")
+    foreach(_entry IN LISTS _path_entries)
+        if(_entry STREQUAL "")
+            continue()
+        endif()
+        get_filename_component(_prefix "${_entry}" DIRECTORY)
+        set(_config "${_prefix}/lib/cmake/${package_lower}/${package_lower}-config.cmake")
+        if(NOT EXISTS "${_config}")
+            continue()
+        endif()
+        # The config derives its prefix textually from the path it was found under (CMAKE_CURRENT_LIST_DIR, not the
+        # real path). /opt/cuda/lib/cmake is a symlink into /usr/lib/cmake here, so the very same file is fine when
+        # reached as /usr/... and fatal when reached as /opt/cuda/...; judge it by the path CMake would use.
+        get_filename_component(_config_dir "${_config}" DIRECTORY)
+        get_filename_component(_prefix "${_config_dir}/../../.." ABSOLUTE)
+        # Never ignore the roots of the system itself.
+        if(_prefix MATCHES "^/*$" OR _prefix MATCHES "^/usr/*$" OR _prefix MATCHES "^/usr/local/*$")
+            continue()
+        endif()
+        file(STRINGS "${_config}" _lines REGEX "^[ \t]*set_and_check\\(")
+        foreach(_line IN LISTS _lines)
+            # set_and_check(NAME "<path>"), where <path> may start with ${PACKAGE_PREFIX_DIR} (the config's own prefix).
+            if(_line MATCHES "set_and_check\\([A-Za-z_]+ +\"([^\"]+)\"\\)")
+                string(REPLACE "\${PACKAGE_PREFIX_DIR}" "${_prefix}" _path "${CMAKE_MATCH_1}")
+                if(NOT _path MATCHES "\\$" AND NOT EXISTS "${_path}")
+                    list(APPEND _ignored "${_prefix}")
+                    message(STATUS "Ignoring ${_prefix} for find_package(${package_lower}): its config refers to missing '${_path}'")
+                    break()
+                endif()
+            endif()
+        endforeach()
+    endforeach()
+    if(_ignored)
+        list(REMOVE_DUPLICATES _ignored)
+        list(APPEND CMAKE_IGNORE_PREFIX_PATH ${_ignored})
+        set(CMAKE_IGNORE_PREFIX_PATH "${CMAKE_IGNORE_PREFIX_PATH}" PARENT_SCOPE)
+        # A configure that failed on the broken config still cached its location, and find_package trusts the cache
+        # (`<pkg>_DIR`) before it searches, so the ignore list would never be consulted again. Forget such an entry.
+        if(DEFINED CACHE{${package_lower}_DIR})
+            foreach(_prefix IN LISTS _ignored)
+                string(FIND "${${package_lower}_DIR}" "${_prefix}/" _at)
+                if(_at EQUAL 0)
+                    message(STATUS "Dropping cached ${package_lower}_DIR=${${package_lower}_DIR} (inside ignored prefix ${_prefix})")
+                    unset(${package_lower}_DIR CACHE)
+                    break()
+                endif()
+            endforeach()
+        endif()
+    endif()
+endfunction()
+
 function(sturdy_fetch_harfbuzz)
+    sturdy_ignore_prefixes_with_broken_package_config(harfbuzz)
     set(HB_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(HB_BUILD_SUBSET OFF CACHE BOOL "" FORCE)
     # ON so hb-ft.cc (the FreeType-backed hb_font_t backend) is compiled in — this is what lets

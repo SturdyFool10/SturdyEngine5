@@ -201,4 +201,7 @@ namespace SFT::Ffi {
         }
     }
 
+    /// Releases UI state the ABI created for the engine (see Ui.cpp). Safe to call when there is none.
+    void release_ui_state() noexcept;
+
 } // namespace SFT::Ffi

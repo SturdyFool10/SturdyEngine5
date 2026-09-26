@@ -385,33 +385,8 @@ namespace SFT::Engine {
         [[nodiscard]] const TimeScale &time_scale() const noexcept;
 
 
-        /// Returns the current or globally available UI context value.
-        ///
-        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] UiContext &ui_context() noexcept;
-        /// Returns the current or globally available UI pointer state value.
-        ///
-        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] UiPointerState &ui_pointer_state() noexcept;
-        /// Returns the current or globally available UI pointer state value.
-        ///
-        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] const UiPointerState &ui_pointer_state() const noexcept;
 
 
-        /// Returns the current or globally available UI text input state value.
-        ///
-        /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] UiTextInputState &ui_text_input_state() noexcept;
-        /// Returns the current or globally available UI text input state value.
-        ///
-        /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] const UiTextInputState &ui_text_input_state() const noexcept;
 
 
         /// Returns the current or globally available UI image cache value.
@@ -531,9 +506,6 @@ namespace SFT::Engine {
         WindowRequests window_requests_{};
         FrameTime frame_time_{};
         TimeScale time_scale_{};
-        UiPointerState ui_pointer_state_{};
-        UiTextInputState ui_text_input_state_{};
-        UiContext ui_context_{};
         UiImageCache ui_image_cache_{};
         UiSvgCache ui_svg_cache_{};
         Ecs::Schedule update_schedule_;

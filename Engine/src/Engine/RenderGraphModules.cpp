@@ -120,24 +120,6 @@ namespace SFT::Engine::RenderModules {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    RenderGraphTextureHandle DebugOverlay::build(RenderGraph &graph) const {
-        return graph.add_builtin_pass(
-            RenderGraphPassKind::DebugOverlay,
-            input,
-            RenderGraphTextureDescription{
-                .format = RenderGraphTextureFormat::Inherit,
-                .extent = RenderGraphExtent::relative_to(input),
-                .label = UString{"scene with debug overlay"_ustr},
-            },
-            UString{"debug overlay"_ustr});
-    }
-
-    /// Builds the requested object or derived state.
-    ///
-    /// @param graph `graph` value used by the operation.
-    ///
-    /// @return Returns the value produced by the operation.
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     RenderGraphPassHandle Present::build(RenderGraph &graph) const {
         return graph.add_present_pass(input, target);
     }

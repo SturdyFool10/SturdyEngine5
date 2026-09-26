@@ -92,6 +92,9 @@ namespace SFT::Renderer {
     enum class FullscreenBlend : u8 {
         None,
         ConstantMix,
+        /// The effect outputs premultiplied colour and alpha; draws with `src + dst * (1 - src.a)` over what is in the
+        /// target (use a load-op that keeps it). This is how the display-encoded overlay layer is put over a frame.
+        PremultipliedOver,
     };
 
     struct CustomPostProcessEffect {
@@ -163,29 +166,57 @@ namespace SFT::Renderer {
     };
 
 
-    // `prepare` receives the current frame's RenderGraph (nodes may be appended to it, e.g. to bloom a
-    // flagged UI element — see UI::UiRenderer::prepare()'s own doc comment) plus two extra transient-
-    // resource out-params (bind groups, glow-bloom output textures) beyond the buffer/text-atlas ones
-    // it already had, all following the same "caller owns/destroys transient resources this returns"
-    // convention the existing out-params use.
-    using UiOverlayPrepareFn = std::function<Core::RendererResult(
-        RHI::RhiDevice &, RHI::CommandEncoder &, RenderGraph &, glm::vec2, Core::RenderSurfaceHandle, u32,
-        std::vector<RHI::BufferHandle> &, TextAtlasRetiredResources &,
-        std::vector<RHI::BindGroupHandle> &, std::vector<RenderGraphTextureHandle> &)>;
-    using UiOverlayDrawFn = std::function<Core::RendererResult(
-        RHI::RenderPassEncoder &, glm::vec2, Core::RenderSurfaceHandle, u32)>;
+    /// What an overlay's optional `prepare` step gets, before its pass is drawn. Use it to upload data (text
+    /// atlases, vertex buffers) with `encoder`, create frame-transient GPU objects, and even add render-graph
+    /// nodes of your own (a glow, a blur) ahead of the overlay. Anything created here must be handed back through
+    /// the out-params so the renderer frees it once the frame has finished on the GPU.
+    struct OverlayPrepareContext {
+        RHI::RhiDevice &device;
+        RHI::CommandEncoder &encoder;
+        RenderGraph &graph;
+        /// The presentation extent in pixels.
+        glm::vec2 viewport{0.0f};
+        Core::RenderSurfaceHandle surface{};
+        u32 frame_slot_index = 0;
+        std::vector<RHI::BufferHandle> &transient_buffers;
+        TextAtlasRetiredResources &retired_text_atlas_resources;
+        std::vector<RHI::BindGroupHandle> &transient_bind_groups;
+        /// Graph textures the overlay's draw samples. Declared as reads of the overlay pass so the graph keeps
+        /// their memory alive (and out of aliasing) until it has run.
+        std::vector<RenderGraphTextureHandle> &sampled_textures;
+    };
 
-    struct UiOverlayHooks {
-        UiOverlayPrepareFn prepare;
-        UiOverlayDrawFn draw;
+    /// What an overlay pass draws into: a render pass already targeting the frame (see `OverlayPass`), with
+    /// viewport and scissor set to the whole presentation extent.
+    struct OverlayPassContext {
+        RHI::RenderPassEncoder &pass;
+        Core::Extent2D extent{};
+        /// Format of the target being drawn into (pipelines you create must match it).
+        RHI::Format format = RHI::Format::Undefined;
+        bool hdr_output = false;
+        Core::RenderSurfaceHandle surface{};
+        u32 frame_slot_index = 0;
+    };
 
+    using OverlayPrepareFn = std::function<Core::RendererResult(OverlayPrepareContext &)>;
+    using OverlayDrawFn = std::function<Core::RendererResult(OverlayPassContext &)>;
 
+    /// A named piece of application drawing composited on top of the finished frame: a HUD, on-screen UI, gizmos,
+    /// diagnostics. The engine ships none of them; this is the one hook an application (or a UI library) uses.
+    ///
+    /// Overlays run after tone mapping, in order, so they are never tone mapped, bloomed or anti-aliased. They
+    /// draw straight onto the display-encoded frame. On an HDR display (and for an overlay-only frame on a transparent
+    /// surface) the renderer instead gives them a linear RGBA16F layer, encodes it to the display at the reference
+    /// white level and composites it over the frame, so an overlay authored in sRGB looks the same in SDR and HDR;
+    /// `OverlayPassContext::format` always tells you what you are drawing into.
+    struct OverlayPass {
+        std::string name;
+        /// Optional; runs once per frame before the frame's passes are declared.
+        OverlayPrepareFn prepare;
+        OverlayDrawFn draw;
+        /// HDR only: scales the reference-white level this overlay is composed at (UI brightness). The first overlay
+        /// in the list decides for the frame.
         f32 hdr_reference_white_scale = 1.0f;
-        /// Converts the `UiOverlayHooks` to `bool`.
-        ///
-        /// @return Returns the boolean result of the operation.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] explicit operator bool() const noexcept;
     };
 
 
@@ -236,10 +267,9 @@ namespace SFT::Renderer {
         bool ambient_occlusion = true;
         bool bloom = true;
         bool tone_mapping = true;
-        bool debug_overlay = false;
-
-
-        bool draw_overlay_text = true;
+        /// Collect GPU pass timestamps and CPU stage timings each frame and publish them through
+        /// `Renderer::last_frame_timings`. Costs a timestamp query pool; off unless something displays them.
+        bool frame_timings = false;
 
 
         bool wait_for_completion = false;
@@ -363,7 +393,8 @@ namespace SFT::Renderer {
         glm::vec3 psychov_background_gray_bt709{0.18f};
         std::vector<CustomPostProcessEffect> custom_post_processes;
         CustomGraphProgram custom_graph;
-        UiOverlayHooks ui_overlay;
+        /// Application overlays, drawn in order on the finished frame (see `OverlayPass`).
+        std::vector<OverlayPass> overlay_passes;
     };
 
 

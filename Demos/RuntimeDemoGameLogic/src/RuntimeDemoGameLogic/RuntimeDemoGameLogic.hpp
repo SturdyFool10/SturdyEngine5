@@ -1,10 +1,12 @@
 #pragma once
 
 #include <Engine/Engine.hpp>
+#include <Engine/ScreenUi.hpp>
 #include <Ecs/Module.hpp>
 #include <Renderer/Text/Text.hpp>
 #include <Renderer/UI/UI.hpp>
 
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -171,7 +173,11 @@ namespace SFT::Runtime {
         ///
         /// @return Returns the current build tweak panel overlay value.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] Renderer::UiOverlayHooks build_tweak_panel_overlay(
+        /// The frame-statistics text (FPS, GPU, resolution, HDR, CPU/GPU timings) drawn top-left. This used to be
+        /// the engine's built-in debug overlay; it is ordinary application UI now, fed by public queries.
+        [[nodiscard]] std::vector<std::string> build_debug_stats_lines(
+            Engine::Engine &engine, Core::RenderSurfaceHandle surface, const Core::FrameInput &frame) const;
+        [[nodiscard]] Renderer::OverlayPass build_tweak_panel_overlay(
             Engine::Engine &engine, Core::RenderSurfaceHandle surface, const Core::FrameInput &frame);
 
         Engine::EngineConfig engine_config_{};
@@ -186,6 +192,9 @@ namespace SFT::Runtime {
         Ecs::Entity hdr_controls_entity_{};
         Ecs::Entity runtime_rendering_entity_{};
         Ecs::Entity spectral_path_tracing_controls_entity_{};
+        /// The on-screen UI (window input + overlay). Created on first use; released in `on_shutdown`, before the
+        /// engine goes away.
+        std::unique_ptr<Engine::ScreenUi> screen_ui_;
         Ecs::Entity tweak_panel_entity_{};
         Ecs::EventModule<BloomThresholdChanged> bloom_threshold_events_{};
         Ecs::EventModule<RuntimeRenderingSettingsChanged> runtime_rendering_events_{};

@@ -310,7 +310,10 @@ typedef enum SturdyRenderFeature {
     STURDY_RENDER_FEATURE_ANTI_ALIASING = 3,
     STURDY_RENDER_FEATURE_BLOOM = 4,
     STURDY_RENDER_FEATURE_TONE_MAPPING = 5,
-    STURDY_RENDER_FEATURE_DEBUG_OVERLAY = 6,
+    /// Collect frame timings for `Renderer::last_frame_timings` (an application's own diagnostics overlay reads them).
+    STURDY_RENDER_FEATURE_FRAME_TIMINGS = 6,
+    /// Deprecated alias: the engine no longer draws a debug overlay; this now only enables frame timings.
+    STURDY_RENDER_FEATURE_DEBUG_OVERLAY = STURDY_RENDER_FEATURE_FRAME_TIMINGS,
     STURDY_RENDER_FEATURE_RESTIR_GI = 7,
     STURDY_RENDER_FEATURE_MOTION_BLUR = 8,
     STURDY_RENDER_FEATURE_FORCE_U32 = 0x7fffffff

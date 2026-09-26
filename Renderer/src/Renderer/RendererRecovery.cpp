@@ -217,14 +217,12 @@ namespace SFT::Renderer {
         }
 
 
-        *bloom_.lock() = {};
-        *bloom_composite_.lock() = {};
         *shadow_lighting_.lock() = {};
         *gtao_.lock() = {};
         *deferred_msaa_.lock() = {};
-        *text_overlay_.lock() = {};
         custom_post_process_resources_.lock()->clear();
         custom_compute_effect_resources_.lock()->clear();
+        compute_kernels_.lock()->clear();
         *spectral_path_tracing_.lock() = {};
         *instance_cull_.lock() = {};
         instanced_pipeline_variants_.lock()->clear();

@@ -89,8 +89,8 @@ namespace {
         case STURDY_RENDER_FEATURE_TONE_MAPPING:
             *out_feature = SFT::Engine::RenderFeature::ToneMapping;
             return true;
-        case STURDY_RENDER_FEATURE_DEBUG_OVERLAY:
-            *out_feature = SFT::Engine::RenderFeature::DebugOverlay;
+        case STURDY_RENDER_FEATURE_FRAME_TIMINGS:
+            *out_feature = SFT::Engine::RenderFeature::FrameTimings;
             return true;
         case STURDY_RENDER_FEATURE_RESTIR_GI:
             *out_feature = SFT::Engine::RenderFeature::RestirGi;

@@ -196,32 +196,7 @@ namespace SFT::Engine {
     /// @note This function does not throw exceptions.
     [[nodiscard]] WindowRequests &Engine::window_requests() noexcept { return window_requests_; }
 
-    /// Returns the current or globally available UI context value.
-    ///
-    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-    /// @note This function does not throw exceptions.
-    [[nodiscard]] UiContext &Engine::ui_context() noexcept { return ui_context_; }
 
-    /// Returns the current or globally available UI pointer state value.
-    ///
-    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-    /// @note This function does not throw exceptions.
-    [[nodiscard]] UiPointerState &Engine::ui_pointer_state() noexcept { return ui_pointer_state_; }
-    /// Returns the current or globally available UI pointer state value.
-    ///
-    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
-    /// @note This function does not throw exceptions.
-    [[nodiscard]] const UiPointerState &Engine::ui_pointer_state() const noexcept { return ui_pointer_state_; }
-    /// Returns the current or globally available UI text input state value.
-    ///
-    /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
-    /// @note This function does not throw exceptions.
-    [[nodiscard]] UiTextInputState &Engine::ui_text_input_state() noexcept { return ui_text_input_state_; }
-    /// Returns the current or globally available UI text input state value.
-    ///
-    /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
-    /// @note This function does not throw exceptions.
-    [[nodiscard]] const UiTextInputState &Engine::ui_text_input_state() const noexcept { return ui_text_input_state_; }
     /// Returns the current or globally available UI image cache value.
     ///
     /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.

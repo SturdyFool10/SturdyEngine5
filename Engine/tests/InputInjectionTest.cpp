@@ -2,6 +2,7 @@
 /// channels and the UI pointer state on the next update.
 
 #include <Async/Scheduler.hpp>
+#include <Engine/ScreenUi.hpp>
 #include <Engine/EngineModule.hpp>
 
 #include <iostream>
@@ -29,6 +30,9 @@ int main() {
     using namespace SFT;
     Engine::Engine engine;
     const WindowManager::WindowId window{1};
+
+    // The on-screen UI is application code; it drives itself from the same events.
+    Engine::ScreenUi screen_ui{engine};
 
     engine.update_schedule().add_system([](Ecs::EventReader<Engine::KeyboardEvent> keys,
                                            Ecs::EventReader<Engine::TextInputEvent> text,
@@ -59,7 +63,7 @@ int main() {
     check(seen.key_presses == 1 && seen.key_releases == 1, "an injected key press and release must reach KeyboardEvent readers with the right key");
     check(seen.text_events == 1 && seen.text == "héllo", "injected text must arrive intact through TextInputEvent");
     check(seen.wheel_events == 1, "an injected wheel event must reach MouseWheelEvent readers");
-    const auto &pointer = engine.ui_pointer_state().state();
+    const auto &pointer = screen_ui.input().pointer();
     check(pointer.position.x == 120.0f && pointer.position.y == 45.0f, "an injected pointer move must update the UI pointer position");
     check(pointer.down, "an injected left press must set the UI pointer down");
 

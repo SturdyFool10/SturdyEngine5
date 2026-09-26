@@ -135,7 +135,6 @@ namespace SFT::Engine {
         ComputeEffect,
         Copy,
         ToneMapping,
-        DebugOverlay,
         Present,
     };
 
@@ -301,16 +300,6 @@ namespace SFT::Engine {
             [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
         };
 
-        struct DebugOverlay {
-            RenderGraphTextureHandle input{};
-            /// Builds the requested object or derived state.
-            ///
-            /// @param graph `graph` value used by the operation.
-            ///
-            /// @return Returns the value produced by the operation.
-            /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-            [[nodiscard]] RenderGraphTextureHandle build(RenderGraph &graph) const;
-        };
 
         struct Present {
             RenderGraphTextureHandle input{};

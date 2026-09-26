@@ -219,6 +219,19 @@ namespace SFT::Renderer {
         resource.sampler = *sampler;
 
         RHI::ColorTargetState target{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All};
+        if (effect.blend == FullscreenBlend::PremultipliedOver) {
+            target.blend_enable = true;
+            target.color = RHI::BlendComponent{
+                .src_factor = RHI::BlendFactor::One,
+                .dst_factor = RHI::BlendFactor::OneMinusSrcAlpha,
+                .op = RHI::BlendOp::Add,
+            };
+            target.alpha = RHI::BlendComponent{
+                .src_factor = RHI::BlendFactor::One,
+                .dst_factor = RHI::BlendFactor::OneMinusSrcAlpha,
+                .op = RHI::BlendOp::Add,
+            };
+        }
         if (effect.blend == FullscreenBlend::ConstantMix) {
             target.blend_enable = true;
             target.color = RHI::BlendComponent{

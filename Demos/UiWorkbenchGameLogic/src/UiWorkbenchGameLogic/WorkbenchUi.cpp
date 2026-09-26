@@ -391,9 +391,6 @@ namespace SFT::UiWorkbench {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     WorkbenchUi::WorkbenchUi() {
         render_graph_ = Engine::RenderGraph::overlay_only();
-
-
-        render_graph_.debug_overlay().draw_text = false;
     }
 
     /// Destroys the `UiWorkbench` and releases resources owned by it.
@@ -857,12 +854,12 @@ namespace SFT::UiWorkbench {
         engine.window_requests().set_cursor_icon(surface->handle.window_id,
                                                  to_platform_cursor_icon(surface->context.desired_cursor()));
         auto snapshot = std::make_shared<UI::FrameSnapshot>(surface->context.finish_frame());
-        Renderer::UiOverlayHooks overlay = build_overlay_hooks(engine, *surface, snapshot);
+        Renderer::OverlayPass overlay = build_overlay_pass(engine, *surface, snapshot);
         return Engine::RenderFrameParameters{
             .camera = {},
             .lighting = {},
             .render_graph = render_graph_,
-            .ui_overlay = std::move(overlay),
+            .overlay_passes = {std::move(overlay)},
             .debug_label = UString{"UiWorkbench"},
         };
     }
@@ -3236,50 +3233,40 @@ namespace SFT::UiWorkbench {
     ///
     /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    Renderer::UiOverlayHooks WorkbenchUi::build_overlay_hooks(
+    Renderer::OverlayPass WorkbenchUi::build_overlay_pass(
         Engine::Engine &engine,
         Surface &surface,
         std::shared_ptr<UI::FrameSnapshot> snapshot) {
-        Renderer::UiOverlayHooks hooks{};
-
+        Renderer::OverlayPass overlay{};
+        overlay.name = "workbench ui";
 
         UI::UiRenderer *renderer = (hdr_enabled_ || swapchain_transparent_)
                                        ? &surface.hdr_renderer
                                        : &surface.sdr_renderer;
-        hooks.hdr_reference_white_scale = static_cast<f32>(hdr_reference_white_scale_);
+        overlay.hdr_reference_white_scale = static_cast<f32>(hdr_reference_white_scale_);
         Renderer::Renderer *texture_resolver = engine.renderer();
         const u64 renderer_generation = renderer->generation();
-        hooks.prepare = [renderer, renderer_generation, snapshot, texture_resolver](
-                            RHI::RhiDevice &device,
-                            RHI::CommandEncoder &encoder,
-                            Renderer::RenderGraph &render_graph,
-                            glm::vec2 viewport_size,
-                            Core::RenderSurfaceHandle render_surface,
-                            u32 frame_resource_index,
-                            std::vector<RHI::BufferHandle> &transient_buffers,
-                            Renderer::TextAtlasRetiredResources &retired_resources,
-                            std::vector<RHI::BindGroupHandle> &transient_bind_groups,
-                            std::vector<Renderer::RenderGraphTextureHandle> &glow_bloom_outputs)
-            -> Core::RendererResult {
+        overlay.prepare = [renderer, renderer_generation, snapshot, texture_resolver](
+                              Renderer::OverlayPrepareContext &prepare) -> Core::RendererResult {
             if (renderer->generation() != renderer_generation) {
                 return {};
             }
             const Core::Extent2D extent = snapshot->viewport_extent();
-            if (viewport_size != glm::vec2{extent}) {
+            if (prepare.viewport != glm::vec2{extent}) {
                 return Core::graphics_backend_error(
                     Core::GraphicsBackendErrorCode::OperationFailed,
                     "UiWorkbench snapshot extent does not match its render surface.");
             }
-            return renderer->prepare(device, encoder, render_graph, *snapshot, texture_resolver, render_surface,
-                                     frame_resource_index, transient_buffers, retired_resources,
-                                     transient_bind_groups, glow_bloom_outputs);
+            return renderer->prepare(prepare.device, prepare.encoder, prepare.graph, *snapshot, texture_resolver, prepare.surface,
+                                     prepare.frame_slot_index, prepare.transient_buffers, prepare.retired_text_atlas_resources,
+                                     prepare.transient_bind_groups, prepare.sampled_textures);
         };
-        hooks.draw = [renderer, renderer_generation](RHI::RenderPassEncoder &pass, glm::vec2 viewport_size, Core::RenderSurfaceHandle render_surface, u32 frame_resource_index) -> Core::RendererResult {
+        overlay.draw = [renderer, renderer_generation](Renderer::OverlayPassContext &draw) -> Core::RendererResult {
             return renderer->generation() == renderer_generation
-                       ? renderer->draw(pass, viewport_size, render_surface, frame_resource_index)
+                       ? renderer->draw(draw.pass, glm::vec2{draw.extent}, draw.surface, draw.frame_slot_index)
                        : Core::RendererResult{};
         };
-        return hooks;
+        return overlay;
     }
 
     /// Shuts down the `UiWorkbench` and releases associated runtime state.

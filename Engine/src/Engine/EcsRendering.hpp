@@ -173,7 +173,8 @@ namespace SFT::Engine {
         RenderGraph render_graph{};
 
 
-        SFT::Renderer::UiOverlayHooks ui_overlay;
+        /// Application overlays (HUD, on-screen UI, diagnostics) drawn on the finished frame; see `Renderer::OverlayPass`.
+        std::vector<SFT::Renderer::OverlayPass> overlay_passes;
         UString debug_label;
         /// When true, the engine remembers this surface's view-projection between frames and supplies
         /// it as the camera's temporal history, so the caller neither keeps a persistent `Camera` nor
@@ -192,7 +193,7 @@ namespace SFT::Engine {
         std::shared_ptr<const RenderFrameRequests::RenderableList> renderables;
         std::shared_ptr<const RenderFrameRequests::RenderableList> gizmo_renderables;
         RenderGraph render_graph{};
-        SFT::Renderer::UiOverlayHooks ui_overlay;
+        std::vector<SFT::Renderer::OverlayPass> overlay_passes;
         u32 visibility_mask = ~0u;
         UString debug_label;
     };

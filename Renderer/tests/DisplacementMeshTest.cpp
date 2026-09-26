@@ -251,7 +251,6 @@ namespace {
         }
         desc.view.renderables = std::span<const SceneRenderable>{list.data(), list.size()};
         desc.view.render_graph.wait_for_completion = true;
-        desc.view.render_graph.draw_overlay_text = false;
         desc.view.render_graph.bloom = false;
         desc.view.render_graph.contact_shadows = false;
 

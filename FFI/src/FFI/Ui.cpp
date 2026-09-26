@@ -28,6 +28,7 @@
 #include <glm/vec2.hpp>
 
 #include <Engine/Engine.hpp>
+#include <Engine/ScreenUi.hpp>
 #include <Renderer/Text/Font.hpp>
 #include <Renderer/UI/UI.hpp>
 
@@ -54,6 +55,26 @@ namespace {
     };
 
     thread_local UiSession g_session;
+
+    /// The on-screen UI this ABI drives. The engine owns none; a host binding is an application, so it keeps its
+    /// own `ScreenUi` (window input + overlay) for the engine it was handed. One engine per process, as elsewhere in
+    /// this ABI; `sturdy_ui_release` (called from the runtime's shutdown) drops it before the engine goes away.
+    struct FfiScreenUi {
+        SFT::Engine::Engine *engine = nullptr;
+        std::unique_ptr<SFT::Engine::ScreenUi> ui;
+    };
+    FfiScreenUi g_screen_ui;
+    std::mutex g_screen_ui_mutex;
+
+    [[nodiscard]] SFT::Engine::ScreenUi &screen_ui_for(SFT::Engine::Engine &engine) {
+        const std::lock_guard<std::mutex> lock{g_screen_ui_mutex};
+        if (g_screen_ui.engine != &engine || !g_screen_ui.ui) {
+            g_screen_ui.ui.reset();
+            g_screen_ui.engine = &engine;
+            g_screen_ui.ui = std::make_unique<SFT::Engine::ScreenUi>(engine);
+        }
+        return *g_screen_ui.ui;
+    }
 
     /// A font loaded through this ABI, kept alongside the id it was registered under.
     ///
@@ -234,7 +255,7 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_register_font(SturdyEngine engine,
 
         // Also register into the live context so a font loaded mid-frame is usable immediately;
         // `sturdy_ui_begin` replays the set for the case where the context did not exist yet.
-        apply_font_registrations(resolved_engine->ui_context().context());
+        apply_font_registrations(screen_ui_for(*resolved_engine).context());
         return STURDY_OK;
     });
 }
@@ -265,18 +286,18 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_begin(SturdyEngine engine, const SturdyFr
         const SFT::RHI::Format color_format =
             resolved_engine->config().features.presentation.hdr_enabled ? SFT::RHI::Format::RGBA16Float
                                                                         : SFT::RHI::Format::BGRA8UnormSrgb;
-        if (!resolved_engine->ui_context().ensure_ready(*device, color_format)) {
+        SFT::Engine::ScreenUi &screen_ui = screen_ui_for(*resolved_engine);
+        if (!screen_ui.ensure_ready(color_format)) {
             return set_error(STURDY_ERROR_NOT_AVAILABLE, "the UI renderer is not ready");
         }
-        apply_font_registrations(resolved_engine->ui_context().context());
+        apply_font_registrations(screen_ui.context());
 
         const glm::vec2 viewport{static_cast<SFT::f32>(input->framebuffer_width),
                                  static_cast<SFT::f32>(input->framebuffer_height)};
-        resolved_engine->ui_context().begin_layout(viewport, resolved_engine->ui_pointer_state(),
-                                                   static_cast<SFT::f32>(input->delta_seconds));
+        screen_ui.begin_frame(viewport, static_cast<SFT::f32>(input->delta_seconds));
 
         g_session.open = true;
-        g_session.context = &resolved_engine->ui_context().context();
+        g_session.context = &screen_ui.context();
         g_session.viewport = viewport;
         return STURDY_OK;
     });
@@ -322,8 +343,8 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_end(SturdyEngine engine, SturdyFrame fram
                 return frame_resolved;
             }
             auto *parameters = static_cast<SFT::Engine::RenderFrameParameters *>(pointer);
-            parameters->ui_overlay = resolved_engine->ui_context().build_overlay_hooks(
-                std::move(snapshot), resolved_engine->renderer());
+            parameters->overlay_passes.push_back(
+                screen_ui_for(*resolved_engine).surface().overlay_for_snapshot(std::move(snapshot), resolved_engine->renderer()));
         }
 
         reset_session();
@@ -752,3 +773,15 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_pointer_down(SturdyEngine engine, SturdyB
 }
 
 } // extern "C"
+
+namespace SFT::Ffi {
+
+    /// Drops the on-screen UI this ABI created. Called from the runtime's shutdown, before the engine is destroyed
+    /// (the UI holds a system in the engine's schedule and GPU objects on its device).
+    void release_ui_state() noexcept {
+        const std::lock_guard<std::mutex> lock{g_screen_ui_mutex};
+        g_screen_ui.ui.reset();
+        g_screen_ui.engine = nullptr;
+    }
+
+} // namespace SFT::Ffi

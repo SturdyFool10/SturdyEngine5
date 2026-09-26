@@ -62,6 +62,22 @@ namespace SFT::Renderer {
         bool direct_overlay_presentation = false;
         /// The presentation target (swapchain or off-screen image) as a graph texture.
         RenderGraphTextureHandle final_output{};
+        /// The frame's main command encoder. Uploads recorded here happen before the graph executes; a feature
+        /// must not begin or end passes on it.
+        RHI::CommandEncoder *encoder = nullptr;
+        Core::RenderSurfaceHandle surface{};
+        u32 frame_slot_index = 0;
+        /// Frame-transient GPU objects a feature creates for this frame only; the renderer frees them when the
+        /// frame has finished on the GPU (with `transient_bind_groups`).
+        std::vector<RHI::BufferHandle> *transient_buffers = nullptr;
+        TextAtlasRetiredResources *retired_text_atlas_resources = nullptr;
+        /// HDR output, or an overlay-only frame on a transparent surface: overlays draw into a linear intermediate that
+        /// is encoded to the display and composited over the frame afterwards (see `add_overlay_passes`).
+        bool overlay_display_transform = false;
+        /// Reference-white level, in nits, the overlay composition uses on an HDR display.
+        f32 overlay_reference_white_nits = 203.0f;
+        /// What the first overlay clears the target to when the frame has no scene beneath it.
+        RHI::ClearColor overlay_clear_color{};
         /// Internal state the engine's own features share. Opaque to everyone else.
         void *builtin = nullptr;
     };

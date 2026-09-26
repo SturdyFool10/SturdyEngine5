@@ -200,7 +200,6 @@ namespace {
         desc.view.lighting.sun.radiance = {3.0f, 2.9f, 2.7f};
         desc.view.renderables = std::span<const SceneRenderable>{&renderable, 1};
         desc.view.render_graph.wait_for_completion = true;
-        desc.view.render_graph.draw_overlay_text = false;
         desc.view.render_graph.bloom = false;
         desc.view.render_graph.contact_shadows = false;
 

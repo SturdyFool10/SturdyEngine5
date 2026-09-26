@@ -23,12 +23,16 @@ namespace SFT::Renderer {
 
     /// Adds a pass that tone maps `source` into `destination` using `tone_mapping_effect`.
     ///
+    /// With `composite_over` (needs `preserve_alpha`) the result is blended premultiplied-over what `destination` already
+    /// holds instead of replacing it; that is how a UI layer is put over a finished frame.
+    ///
     /// `destination` is written in `frame.output_format` unless `target_format` says otherwise. The pass
     /// only uses `FrameBuildContext`'s public services (`prepare_fullscreen_effect` /
     /// `record_fullscreen_effect`), which is exactly what a replacement `tone_mapping` feature would use.
     [[nodiscard]] Core::RendererResult add_tone_mapping_pass(FrameBuildContext &frame, RenderGraphTextureHandle source,
                                                              RenderGraphTextureHandle destination, const RenderGraphSettings &settings,
                                                              bool preserve_alpha = false, std::string_view label = "tone mapping",
-                                                             RHI::Format target_format = RHI::Format::Undefined);
+                                                             RHI::Format target_format = RHI::Format::Undefined,
+                                                             bool composite_over = false);
 
 } // namespace SFT::Renderer

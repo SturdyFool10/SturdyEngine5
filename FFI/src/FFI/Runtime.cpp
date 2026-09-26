@@ -139,11 +139,11 @@ namespace {
         ///
         /// @note This function does not throw exceptions.
         void on_shutdown(SFT::Engine::Engine &engine) noexcept override {
-            if (interface_.on_shutdown == nullptr) {
-                return;
+            if (interface_.on_shutdown != nullptr) {
+                const ScopedHandle engine_handle{HandleKind::Engine, &engine};
+                interface_.on_shutdown(SturdyEngine{engine_handle.token()}, interface_.user_data);
             }
-            const ScopedHandle engine_handle{HandleKind::Engine, &engine};
-            interface_.on_shutdown(SturdyEngine{engine_handle.token()}, interface_.user_data);
+            SFT::Ffi::release_ui_state();
         }
 
       private:

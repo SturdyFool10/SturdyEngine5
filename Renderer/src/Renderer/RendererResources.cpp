@@ -251,7 +251,6 @@ namespace SFT::Renderer {
         material_templates_.clear();
 
         destroy_deferred_msaa_resources();
-        destroy_text_overlay_resources();
 
         for (MeshResource &resource : meshes_) {
             if (resource.alive) {
@@ -299,9 +298,6 @@ namespace SFT::Renderer {
             if (RHI::RhiDevice *device = rhi_device()) {
                 for (FrameInFlight &slot : record->frames_in_flight) {
                     reclaim_frame_slot(slot, true);
-                    destroy_text_frame_resources(*device, slot.text_overlay_resources);
-                    destroy_frame_bloom_targets(slot);
-                    destroy_frame_composite_target(slot);
                     destroy_frame_shadow_targets(slot);
                     destroy_frame_atmosphere_targets(slot);
                     destroy_frame_deferred_targets(slot);
@@ -318,15 +314,13 @@ namespace SFT::Renderer {
         }
 
 
-        destroy_bloom_resources();
-        destroy_bloom_composite_resources();
         destroy_shadow_lighting_resources();
         destroy_spectral_path_tracing_resources();
         destroy_custom_post_process_resources();
         destroy_custom_compute_effect_resources();
+        destroy_compute_kernels();
         destroy_atmosphere_lut_resources();
         destroy_hiz_build_resources();
-        destroy_motion_blur_resources();
         destroy_restir_gi_resources();
         destroy_svgf_resources();
         destroy_gtao_resources();

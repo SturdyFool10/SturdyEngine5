@@ -1,4 +1,5 @@
 #include <Core/Slang/ShaderCache.hpp>
+#include <Core/Slang/ShaderLibrary.hpp>
 
 #pragma region Imports
 #include <cstdio>
@@ -777,6 +778,11 @@ namespace SFT::Core::Slang {
         };
 
         mix_u32(shader_cache_format_version);
+        {
+            const u64 override_fingerprint = shader_override_fingerprint();
+            mix_u32(static_cast<u32>(override_fingerprint));
+            mix_u32(static_cast<u32>(override_fingerprint >> 32));
+        }
         mix_text(module_name);
         mix_text(source_text);
         mix_text(variant_canonical);

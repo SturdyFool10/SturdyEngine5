@@ -232,7 +232,7 @@ namespace SFT::UiWorkbench {
         ///
         /// @return Returns shared ownership of the created object; it remains alive until the final shared owner releases it.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] Renderer::UiOverlayHooks build_overlay_hooks(
+        [[nodiscard]] Renderer::OverlayPass build_overlay_pass(
             Engine::Engine &engine,
             Surface &surface,
             std::shared_ptr<UI::FrameSnapshot> snapshot);

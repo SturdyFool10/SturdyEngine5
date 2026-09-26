@@ -44,13 +44,13 @@ namespace {
     bool standard_graph_is_explicit() {
         const SFT::Engine::RenderGraph graph = SFT::Engine::RenderGraph::standard();
         bool passed = check(graph.validate().has_value(), "standard graph failed validation");
-        passed &= check(graph.passes().size() == 6, "standard graph does not expose six module nodes");
-        passed &= check(graph.textures().size() == 5, "standard graph does not expose five dataflow textures");
+        passed &= check(graph.passes().size() == 5, "standard graph does not expose five module nodes");
+        passed &= check(graph.textures().size() == 4, "standard graph does not expose four dataflow textures");
         passed &= check(graph.passes().front().kind == SFT::Engine::RenderGraphPassKind::DeferredScene,
                         "standard graph does not begin with deferred scene");
         passed &= check(graph.passes().back().kind == SFT::Engine::RenderGraphPassKind::Present,
                         "standard graph does not end with present");
-        passed &= check(graph.presented_texture() == graph.passes()[4].output,
+        passed &= check(graph.presented_texture() == graph.passes()[3].output,
                         "standard present input is not the final module output");
         passed &= check(!graph.selected_render_target(),
                         "standard graph does not target the frame surface");
@@ -69,7 +69,7 @@ namespace {
         passed &= check(!graph.scene().enabled, "overlay-only graph still enables scene rendering");
         passed &= check(!graph.bloom().enabled, "overlay-only graph still enables bloom");
         passed &= check(!graph.tone_mapping().enabled, "overlay-only graph still enables tone mapping");
-        passed &= check(graph.debug_overlay().enabled,
+        passed &= check(graph.frame_timings().enabled,
                         "overlay-only graph disabled timing collection with scene rendering");
         return passed;
     }
@@ -116,11 +116,10 @@ namespace {
         color = graph.compose(RenderModules::AntiAliasing{.input = color});
         color = graph.compose(ApplicationEffectPair{.input = color});
         color = graph.compose(RenderModules::ToneMapping{.input = color});
-        color = graph.compose(RenderModules::DebugOverlay{.input = color});
         (void)graph.compose(RenderModules::Present{.input = color});
 
         bool passed = check(graph.validate().has_value(), "application-defined module failed validation");
-        passed &= check(graph.passes().size() == 7,
+        passed &= check(graph.passes().size() == 6,
                         "application-defined module did not append both declarative passes");
         passed &= check(graph.passes()[2].kind == RenderGraphPassKind::FullscreenEffect &&
                         graph.passes()[3].kind == RenderGraphPassKind::FullscreenEffect,
@@ -143,18 +142,8 @@ namespace {
         color = graph.compose(RenderModules::ToneMapping{.input = color});
         color = graph.add_fullscreen_effect(color, effect("grade"));
         color = graph.add_fullscreen_effect(color, effect("grain"));
-        color = graph.compose(RenderModules::DebugOverlay{.input = color});
         (void)graph.compose(RenderModules::Present{.input = color});
         bool passed = check(graph.validate().has_value(), "fullscreen effects after tone mapping must validate");
-
-        // A display effect placed after the debug overlay is rejected.
-        RenderGraph late = RenderGraph::empty();
-        RenderGraphTextureHandle late_color = late.compose(RenderModules::DeferredScene{});
-        late_color = late.compose(RenderModules::ToneMapping{.input = late_color});
-        late_color = late.compose(RenderModules::DebugOverlay{.input = late_color});
-        late_color = late.add_fullscreen_effect(late_color, effect("late"));
-        (void)late.compose(RenderModules::Present{.input = late_color});
-        passed &= check(!late.validate().has_value(), "a display effect after the debug overlay must be rejected");
 
         // Compute after tone mapping is still HDR-only.
         RenderGraph compute = RenderGraph::empty();
@@ -217,7 +206,6 @@ namespace {
 
         color = graph.compose(RenderModules::Bloom{.input = color});
         color = graph.compose(RenderModules::ToneMapping{.input = color});
-        color = graph.compose(RenderModules::DebugOverlay{.input = color});
         (void)graph.compose(RenderModules::Present{.input = color});
 
 
@@ -233,13 +221,13 @@ namespace {
 
         const std::vector<RenderGraphPassHandle> path = graph.presentation_path();
         bool passed = check(graph.validate().has_value(), "branched graph failed validation");
-        passed &= check(graph.passes().size() == 8, "branched graph lost declared pass nodes");
-        passed &= check(path.size() == 6, "presentation ancestry included dead branch passes");
+        passed &= check(graph.passes().size() == 7, "branched graph lost declared pass nodes");
+        passed &= check(path.size() == 5, "presentation ancestry included dead branch passes");
         passed &= check(path.front() == graph.passes()[0].handle &&
                         graph.passes()[path.back().index].kind == RenderGraphPassKind::Present,
                         "presentation ancestry endpoints are incorrect");
         passed &= check(std::ranges::none_of(path, [](RenderGraphPassHandle handle) {
-                            return handle.index == 2 || handle.index == 7;
+                            return handle.index == 2 || handle.index == 6;
                         }),
                         "dead branch pass handles leaked into presentation ancestry");
         passed &= check(graph.contains_pass(RenderGraphPassKind::FullscreenEffect) &&
@@ -281,11 +269,10 @@ namespace {
             },
         });
         color = graph.compose(RenderModules::ToneMapping{.input = color});
-        color = graph.compose(RenderModules::DebugOverlay{.input = color});
         (void)graph.compose(RenderModules::Present{.input = color});
 
         bool passed = check(graph.validate().has_value(), "composed fullscreen graph failed validation");
-        passed &= check(graph.passes().size() == 8, "composed graph lost module nodes");
+        passed &= check(graph.passes().size() == 7, "composed graph lost module nodes");
         passed &= check(graph.passes()[2].kind == RenderGraphPassKind::FullscreenEffect,
                         "before-bloom effect is not represented as a graph pass");
         passed &= check(graph.passes()[4].kind == RenderGraphPassKind::FullscreenEffect,
@@ -321,7 +308,6 @@ namespace {
         });
         color = graph.compose(RenderModules::Bloom{.input = color});
         color = graph.compose(RenderModules::ToneMapping{.input = color});
-        color = graph.compose(RenderModules::DebugOverlay{.input = color});
         (void)graph.compose(RenderModules::Present{.input = color});
 
         const std::vector<RenderGraphPassHandle> before_mark = graph.execution_passes();
