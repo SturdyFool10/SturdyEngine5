@@ -67,10 +67,6 @@ namespace {
             // which is the fact sturdy_runtime_run needs, whether or not the caller wanted a hook.
             initialized_flag_.store(true, std::memory_order_relaxed);
 
-            // Before the caller's hook, so anything it spawns is already extractable, and here
-            // rather than lazily from a render setter because binding resources and adding systems
-            // is illegal once a schedule is running.
-            SFT::Ffi::install_render_extraction(engine);
             if (interface_.on_engine_initialized == nullptr) {
                 return {};
             }

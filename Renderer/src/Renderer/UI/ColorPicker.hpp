@@ -248,6 +248,13 @@ namespace SFT::UI {
         /// @return Returns the current color space value.
         /// @note This function does not throw exceptions.
         [[nodiscard]] ColorPickerColorSpace color_space() const noexcept;
+        /// The picker's working colour in HSV (hue in degrees) plus alpha, as last edited. Only
+        /// meaningful once the picker has run at least once (`initialized()`).
+        [[nodiscard]] f64 hue() const noexcept { return hue_; }
+        [[nodiscard]] f64 saturation() const noexcept { return saturation_; }
+        [[nodiscard]] f64 value() const noexcept { return value_; }
+        [[nodiscard]] f64 alpha() const noexcept { return alpha_; }
+        [[nodiscard]] bool initialized() const noexcept { return initialized_; }
         /// Sets the color space for this `ColorPickerState`.
         ///
         /// @param color_space `color_space` value used by the operation.

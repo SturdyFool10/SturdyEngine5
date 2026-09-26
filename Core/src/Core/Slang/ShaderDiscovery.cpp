@@ -89,7 +89,7 @@ vector<UnCompiledShader> discover_shaders(const fs::path &directory,
         vector<UnCompiledShader> shaders;
         Foundation::log_info("Slang: discovering shaders under '{}'...", directory.string());
         const Foundation::Stopwatch stopwatch;
-        const std::filesystem::path cache_directory{string{default_shader_cache_directory}};
+        const std::filesystem::path cache_directory = shader_cache_directory();
         usize considered = 0;
         usize failed = 0;
         usize cache_hits = 0;

@@ -21,6 +21,9 @@ namespace SFT::Engine {
 
 
         bool focused = false;
+        /// The window's OS-level handle, captured when the window is created. Empty when the
+        /// platform could not provide one.
+        std::optional<WindowManager::NativeWindowHandle> native_handle;
     };
 
 

@@ -5,6 +5,7 @@
 
 #include <Foundation/Foundation.hpp>
 
+#include <format>
 #include <string>
 #include <type_traits>
 
@@ -60,7 +61,14 @@ namespace SFT::Reflection {
     [[nodiscard]] std::string static_debug_format_value(Arithmetic value)
         requires(std::is_arithmetic_v<Arithmetic> && !std::is_same_v<Arithmetic, bool>)
     {
-        return std::to_string(value);
+        // Floating point is spelled out explicitly: std::to_string(double) changed meaning in C++26
+        // libraries (fixed 6 digits before, shortest round-trip after), and a debug string that
+        // silently changes with the standard library is not much of a format.
+        if constexpr (std::is_floating_point_v<Arithmetic>) {
+            return std::format("{:f}", value);
+        } else {
+            return std::to_string(value);
+        }
     }
 
     [[nodiscard]] inline std::string static_debug_format_value(const UString &value) {

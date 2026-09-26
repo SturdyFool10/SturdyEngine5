@@ -1,5 +1,9 @@
 #include <Renderer/UI/Docking/DockTypes.hpp>
 
+#include <charconv>
+#include <cstdio>
+#include <sstream>
+
 
 namespace SFT::UI::Docking {
 
@@ -329,6 +333,228 @@ namespace SFT::UI::Docking {
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     DockTree::DockTree() { nodes_.push_back(DockNode{}); }
+
+    bool dock_layout_is_valid(const DockLayoutSnapshot &snapshot) noexcept {
+        const usize count = snapshot.nodes.size();
+        if (count == 0) {
+            return false;
+        }
+        // Every node except the root must be the child of exactly one split, and following children from
+        // the root must reach each node exactly once: that rules out cycles, sharing and orphans.
+        vector<u8> visits(count, 0);
+        vector<u32> pending{0};
+        visits[0] = 1;
+        while (!pending.empty()) {
+            const u32 index = pending.back();
+            pending.pop_back();
+            const DockLayoutNode &node = snapshot.nodes[index];
+            if (node.is_leaf) {
+                if (!node.tabs.empty() && node.active_tab_index >= node.tabs.size()) {
+                    return false;
+                }
+                continue;
+            }
+            for (const u32 child : {node.first_child, node.second_child}) {
+                if (child >= count || visits[child] != 0) {
+                    return false;
+                }
+                visits[child] = 1;
+                pending.push_back(child);
+            }
+        }
+        for (const u8 visited : visits) {
+            if (visited == 0) {
+                return false;
+            }
+        }
+        return !snapshot.focused_leaf || (*snapshot.focused_leaf < count && snapshot.nodes[*snapshot.focused_leaf].is_leaf);
+    }
+
+    DockLayoutSnapshot DockTree::snapshot() const {
+        DockLayoutSnapshot result;
+        vector<std::pair<DockNodeId, u32>> pending; // live id -> snapshot index of an already-allocated slot
+        result.nodes.emplace_back();
+        pending.emplace_back(root_, 0);
+        while (!pending.empty()) {
+            const auto [live_id, slot] = pending.back();
+            pending.pop_back();
+            const DockNode *live = node(live_id);
+            DockLayoutNode out;
+            if (live == nullptr) {
+                result.nodes[slot] = std::move(out);
+                continue;
+            }
+            if (live->kind == DockNode::Kind::Leaf) {
+                out.is_leaf = true;
+                out.tabs = live->tabs;
+                out.active_tab_index = live->active_tab_index;
+            } else {
+                out.is_leaf = false;
+                out.split_axis = live->split_axis;
+                out.split_ratio = live->split_ratio;
+                out.first_child = static_cast<u32>(result.nodes.size());
+                result.nodes.emplace_back();
+                out.second_child = static_cast<u32>(result.nodes.size());
+                result.nodes.emplace_back();
+                pending.emplace_back(live->first_child, out.first_child);
+                pending.emplace_back(live->second_child, out.second_child);
+            }
+            result.nodes[slot] = std::move(out);
+        }
+        return result;
+    }
+
+    bool DockTree::restore(const DockLayoutSnapshot &layout) {
+        if (!dock_layout_is_valid(layout)) {
+            return false;
+        }
+        DockTree rebuilt;
+        rebuilt.nodes_.clear();
+        rebuilt.free_list_.clear();
+        // Snapshot indices become live ids one-to-one, which keeps the root at id 0.
+        for (const DockLayoutNode &source : layout.nodes) {
+            DockNode live;
+            if (source.is_leaf) {
+                live.kind = DockNode::Kind::Leaf;
+                live.tabs = source.tabs;
+                live.active_tab_index = source.active_tab_index;
+            } else {
+                live.kind = DockNode::Kind::Split;
+                live.split_axis = source.split_axis;
+                live.split_ratio = std::clamp(source.split_ratio, 0.0f, 1.0f);
+                live.first_child = static_cast<DockNodeId>(source.first_child);
+                live.second_child = static_cast<DockNodeId>(source.second_child);
+            }
+            rebuilt.nodes_.push_back(std::move(live));
+        }
+        rebuilt.root_ = static_cast<DockNodeId>(0);
+        *this = std::move(rebuilt);
+        return true;
+    }
+
+    namespace {
+
+        [[nodiscard]] std::string encode_panel_id(std::string_view id) {
+            std::string out;
+            for (const char c : id) {
+                const auto byte = static_cast<unsigned char>(c);
+                const bool plain = (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') || c == '.' || c == '_' || c == '-';
+                if (plain) {
+                    out.push_back(c);
+                } else {
+                    char escaped[4];
+                    std::snprintf(escaped, sizeof(escaped), "%%%02X", byte);
+                    out += escaped;
+                }
+            }
+            return out;
+        }
+
+        [[nodiscard]] optional<std::string> decode_panel_id(std::string_view text) {
+            std::string out;
+            for (usize i = 0; i < text.size(); ++i) {
+                if (text[i] != '%') {
+                    out.push_back(text[i]);
+                    continue;
+                }
+                if (i + 2 >= text.size()) {
+                    return std::nullopt;
+                }
+                unsigned value = 0;
+                const auto [ptr, ec] = std::from_chars(text.data() + i + 1, text.data() + i + 3, value, 16);
+                if (ec != std::errc{} || ptr != text.data() + i + 3) {
+                    return std::nullopt;
+                }
+                out.push_back(static_cast<char>(value));
+                i += 2;
+            }
+            return out;
+        }
+
+    } // namespace
+
+    std::string serialize_dock_layout(const DockLayoutSnapshot &snapshot) {
+        std::ostringstream out;
+        out << "sturdy-dock-layout 1\n";
+        out << "focused " << (snapshot.focused_leaf ? static_cast<long long>(*snapshot.focused_leaf) : -1LL) << '\n';
+        for (const DockLayoutNode &node : snapshot.nodes) {
+            if (node.is_leaf) {
+                out << "leaf " << node.active_tab_index;
+                for (const DockPanelId &tab : node.tabs) {
+                    out << ' ' << encode_panel_id(tab.cpp_string_view());
+                }
+                out << '\n';
+            } else {
+                char ratio[32];
+                std::snprintf(ratio, sizeof(ratio), "%.9g", static_cast<double>(node.split_ratio));
+                out << "split " << (node.split_axis == DockSplitAxis::Horizontal ? 'h' : 'v') << ' ' << ratio << ' ' << node.first_child << ' '
+                    << node.second_child << '\n';
+            }
+        }
+        return out.str();
+    }
+
+    optional<DockLayoutSnapshot> parse_dock_layout(std::string_view text) {
+        std::istringstream in{std::string{text}};
+        std::string line;
+        if (!std::getline(in, line) || line != "sturdy-dock-layout 1") {
+            return std::nullopt;
+        }
+        DockLayoutSnapshot result;
+        if (!std::getline(in, line) || line.rfind("focused ", 0) != 0) {
+            return std::nullopt;
+        }
+        {
+            long long focused = 0;
+            const std::string value = line.substr(8);
+            const auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), focused);
+            if (ec != std::errc{} || ptr != value.data() + value.size()) {
+                return std::nullopt;
+            }
+            if (focused >= 0) {
+                result.focused_leaf = static_cast<u32>(focused);
+            }
+        }
+        while (std::getline(in, line)) {
+            if (line.empty()) {
+                continue;
+            }
+            std::istringstream fields{line};
+            std::string kind;
+            fields >> kind;
+            DockLayoutNode node;
+            if (kind == "leaf") {
+                node.is_leaf = true;
+                if (!(fields >> node.active_tab_index)) {
+                    return std::nullopt;
+                }
+                std::string token;
+                while (fields >> token) {
+                    auto decoded = decode_panel_id(token);
+                    if (!decoded) {
+                        return std::nullopt;
+                    }
+                    node.tabs.emplace_back(std::string_view{*decoded});
+                }
+            } else if (kind == "split") {
+                char axis = 0;
+                double ratio = 0.0;
+                if (!(fields >> axis >> ratio >> node.first_child >> node.second_child) || (axis != 'h' && axis != 'v')) {
+                    return std::nullopt;
+                }
+                node.is_leaf = false;
+                node.split_axis = axis == 'h' ? DockSplitAxis::Horizontal : DockSplitAxis::Vertical;
+                node.split_ratio = static_cast<f32>(ratio);
+            } else {
+                return std::nullopt;
+            }
+            result.nodes.push_back(std::move(node));
+        }
+        if (!dock_layout_is_valid(result)) {
+            return std::nullopt;
+        }
+        return result;
+    }
 
 } // namespace SFT::UI::Docking
 

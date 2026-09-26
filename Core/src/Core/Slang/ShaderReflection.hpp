@@ -273,6 +273,9 @@ namespace SFT::Core::Slang {
         u64 stride = 0;
         i32 alignment = 0;
         vector<ShaderFieldReflection> fields;
+        // For ConstantBuffer<T>/ParameterBlock<T>/TextureBuffer<T>/StructuredBuffer-style wrappers: the
+        // wrapped T, whose `fields` list the buffer's members. Null for every other kind.
+        shared_ptr<ShaderTypeReflection> element_type;
         vector<ShaderBindingRangeReflection> binding_ranges;
     };
 

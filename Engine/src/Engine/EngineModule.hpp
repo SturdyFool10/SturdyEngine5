@@ -5,10 +5,13 @@
 #pragma region Imports
 #include <filesystem>
 #include <optional>
+#include <unordered_map>
+#include <string_view>
 #include <vector>
 #pragma endregion
 
 #include <Engine/AssetManager.hpp>
+#include <Engine/Docking/DockWindowCoordinator.hpp>
 #include <Engine/EcsEvents.hpp>
 #include <Engine/EcsRendering.hpp>
 #include <Engine/EcsUi.hpp>
@@ -238,6 +241,10 @@ namespace SFT::Engine {
         [[nodiscard]] PreparedRenderFrame prepare_render_frame(Core::RenderSurfaceHandle surface,
                                                                const Core::FrameInput &frame,
                                                                const RenderFrameParameters &parameters = {});
+        /// Forgets the temporal camera history the engine keeps for `surface` (for a camera cut or
+        /// teleport). Only relevant to frames prepared with `engine_managed_camera_history`.
+        void reset_camera_history(Core::RenderSurfaceHandle surface);
+
         /// Renders the requested content using the current rendering state.
         ///
         /// @param frame `frame` value used by the operation.
@@ -261,6 +268,20 @@ namespace SFT::Engine {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void queue_window_event(WindowManager::WindowId window,
                                 const WindowManager::WindowEvent &event);
+
+        /// Synthetic input: each of these builds a platform-shaped event and queues it through
+        /// `queue_window_event`, so it takes exactly the path a real device event takes -- the ECS event
+        /// channels (`KeyboardEvent`, `MouseMoveEvent`, ...), `InputState`, and the UI pointer/text state
+        /// all see it on the next `update`. Use them for replay, tests, remote control and scripting.
+        void inject_key_event(WindowManager::WindowId window, WindowManager::KeyboardKey key, bool pressed, u32 modifiers = 0, bool repeat = false);
+        /// Injects committed text (what a text-input method delivers after composition).
+        void inject_text_event(WindowManager::WindowId window, std::string_view utf8);
+        /// Injects a pointer move to window-local (`x`, `y`) with the given held-button mask.
+        void inject_mouse_move(WindowManager::WindowId window, f32 x, f32 y, f32 delta_x = 0.0F, f32 delta_y = 0.0F, u32 buttons = 0);
+        /// Injects a mouse button press or release at window-local (`x`, `y`).
+        void inject_mouse_button(WindowManager::WindowId window, WindowManager::MouseButton button, bool pressed, f32 x, f32 y, u8 clicks = 1);
+        /// Injects a wheel scroll (`x`, `y` are the scroll deltas) with the pointer at (`mouse_x`, `mouse_y`).
+        void inject_mouse_wheel(WindowManager::WindowId window, f32 x, f32 y, f32 mouse_x = 0.0F, f32 mouse_y = 0.0F);
 
 
         /// Returns the current or globally available ECS world value.
@@ -310,6 +331,15 @@ namespace SFT::Engine {
         /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function does not throw exceptions.
         [[nodiscard]] WindowState &window_state() noexcept;
+        /// The engine-owned dock coordinator: register each window's `DockWorkspace` with it and it
+        /// handles panel transfers between windows and tear-off requests (spawning the OS window,
+        /// then moving the panel only once the spawn succeeded). Owned here so embedders -- including
+        /// foreign-language ones -- need not keep and wire up a private copy.
+        ///
+        /// @note Feed it `WindowRequestCompletion`s via `resolve_completion` and call
+        ///       `request_empty_window_closes(window_requests())` each frame, as the UI workbench does.
+        [[nodiscard]] DockWindowCoordinator &dock_coordinator() noexcept { return dock_coordinator_; }
+        [[nodiscard]] const DockWindowCoordinator &dock_coordinator() const noexcept { return dock_coordinator_; }
         /// Returns the current or globally available window state value.
         ///
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
@@ -405,6 +435,15 @@ namespace SFT::Engine {
         [[nodiscard]] WindowManager::Window *primary_window() noexcept;
 
 
+        /// Returns the OS-level handle of any live window the application manages, not just the
+        /// primary one, so a secondary window can be embedded or targeted by platform APIs.
+        ///
+        /// @param window Window whose handle is wanted.
+        ///
+        /// @return Returns the handle, or `std::nullopt` when the window is unknown or the platform gave none.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] std::optional<WindowManager::NativeWindowHandle> native_window_handle(WindowManager::WindowId window) const noexcept;
+
         /// Sets the primary window for this `Engine`.
         ///
         /// @param window Window used or affected by the operation.
@@ -487,6 +526,7 @@ namespace SFT::Engine {
         Ecs::Events<MouseWheelEvent> mouse_wheel_events_{};
         Ecs::Events<WindowStateEvent> window_state_events_{};
         WindowState window_state_{};
+        DockWindowCoordinator dock_coordinator_{};
         InputState input_state_{};
         WindowRequests window_requests_{};
         FrameTime frame_time_{};
@@ -497,6 +537,8 @@ namespace SFT::Engine {
         UiImageCache ui_image_cache_{};
         UiSvgCache ui_svg_cache_{};
         Ecs::Schedule update_schedule_;
+        /// Previous frame's view-projection per surface, for `engine_managed_camera_history`.
+        Async::Mutex<std::unordered_map<usize, glm::mat4>> camera_history_;
         Ecs::Schedule render_extraction_schedule_{Ecs::ScheduleConfig{.clear_events_on_run = false}};
         Core::RendererCapabilities capabilities_{};
         Core::Slang::ShaderCompiler shader_compiler_;

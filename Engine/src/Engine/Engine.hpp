@@ -11,6 +11,7 @@
 #include <Engine/Docking/DockWindowCoordinator.hpp>
 #include <Engine/RenderTarget.hpp>
 #include <Engine/RenderGraph.hpp>
+#include <Engine/RenderGraphBlueprint.hpp>
 #include <Engine/EngineModule.hpp>
 #include <Engine/GameLogic.hpp>
 #include <Engine/Application.hpp>

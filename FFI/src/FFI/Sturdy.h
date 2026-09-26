@@ -1341,6 +1341,36 @@ sturdy_ecs_add_system_with_resources(SturdyEngine engine,
                                      SturdySystemFn system,
                                      void *user_data);
 
+/// Handle to a system registered through `sturdy_ecs_add_system_ex`.
+typedef struct SturdySystem {
+    uint64_t token;
+} SturdySystem;
+
+/// Like `sturdy_ecs_add_system_with_resources`, but returns a handle so the system can later be
+/// removed, disabled, or ordered. Use this when the system's `user_data` is owned by something
+/// that can be destroyed (a script VM, a closure): remove the system first, then free the data.
+STURDY_ABI SturdyResult STURDY_ABI_CALL
+sturdy_ecs_add_system_ex(SturdyEngine engine,
+                         const SturdySystemAccess *access,
+                         uint32_t access_count,
+                         const SturdySystemResourceAccess *resource_access,
+                         uint32_t resource_access_count,
+                         SturdySystemFn system,
+                         void *user_data,
+                         SturdySystem *out_system);
+
+/// Unregisters a system. After this returns the engine no longer references its `user_data`.
+/// Fails with `STURDY_ERROR_BUSY` semantics (a contract violation) if called while a schedule is
+/// running, including from inside a system.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_remove_system(SturdyEngine engine, SturdySystem system);
+
+/// Skips (or resumes) a system without unregistering it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_set_system_enabled(SturdyEngine engine, SturdySystem system, SturdyBool enabled);
+
+/// Forces `system` to run in a later stage than `dependency`, in addition to whatever ordering the
+/// declared access already implies. A cycle aborts when the schedule is next built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_order_system_after(SturdyEngine engine, SturdySystem system, SturdySystem dependency);
+
 /// Queues creation of an entity, applied after the current stage finishes.
 ///
 /// @param commands Handle supplied to your system.

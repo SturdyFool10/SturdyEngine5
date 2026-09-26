@@ -229,6 +229,12 @@ namespace SFT::Engine {
             .framebuffer_size = config.extent,
             .position = config.position,
         };
+        window_manager_.with_window(*id, [&managed](Window &window) -> bool {
+            if (auto native = window.native_window_handle()) {
+                managed->window_snapshot.native_handle = *native;
+            }
+            return true;
+        });
         managed->live_resize = make_shared<LiveResizeState>();
         managed->last_frame_time = std::chrono::high_resolution_clock::now();
 

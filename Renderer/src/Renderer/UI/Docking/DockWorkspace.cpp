@@ -843,5 +843,85 @@ namespace SFT::UI::Docking {
     DockWorkspace::DockWorkspace(UString id_prefix, DockWorkspaceStyle style)
     : id_prefix_(std::move(id_prefix)), style_(style) {}
 
+    DockLayoutSnapshot DockWorkspace::save_layout() const {
+        DockLayoutSnapshot layout = tree_.snapshot();
+        if (focused_leaf_) {
+            // Snapshot indices follow a different numbering than live ids; find the focused leaf by
+            // matching its first tab, which is unique across leaves.
+            if (const DockNode *focused = tree_.node(*focused_leaf_); focused != nullptr && !focused->tabs.empty()) {
+                for (u32 index = 0; index < layout.nodes.size(); ++index) {
+                    const DockLayoutNode &candidate = layout.nodes[index];
+                    if (candidate.is_leaf && !candidate.tabs.empty() && candidate.tabs.front() == focused->tabs.front()) {
+                        layout.focused_leaf = index;
+                        break;
+                    }
+                }
+            }
+        }
+        return layout;
+    }
+
+    bool DockWorkspace::restore_layout(const DockLayoutSnapshot &layout) {
+        DockTree rebuilt;
+        if (!rebuilt.restore(layout)) {
+            return false;
+        }
+
+        // Drop tabs whose panels are not registered here.
+        for (const DockLayoutNode &node : layout.nodes) {
+            for (const DockPanelId &tab : node.tabs) {
+                if (!panels_.contains(tab)) {
+                    rebuilt.remove_panel(tab);
+                }
+            }
+        }
+
+        optional<DockNodeId> focus;
+        if (layout.focused_leaf && *layout.focused_leaf < layout.nodes.size()) {
+            const DockLayoutNode &saved_focus = layout.nodes[*layout.focused_leaf];
+            for (const DockPanelId &tab : saved_focus.tabs) {
+                if (panels_.contains(tab)) {
+                    focus = rebuilt.find_leaf_of(tab);
+                    break;
+                }
+            }
+        }
+        if (!focus) {
+            // The first leaf that still holds a panel, depth-first from the root.
+            vector<DockNodeId> pending{rebuilt.root()};
+            while (!pending.empty() && !focus) {
+                const DockNodeId id = pending.back();
+                pending.pop_back();
+                const DockNode *node = rebuilt.node(id);
+                if (node == nullptr) {
+                    continue;
+                }
+                if (node->kind == DockNode::Kind::Leaf) {
+                    focus = id;
+                } else {
+                    pending.push_back(node->second_child);
+                    pending.push_back(node->first_child);
+                }
+            }
+        }
+
+        // Anything registered but unmentioned by the layout joins the focused leaf.
+        for (const auto &[id, desc] : panels_) {
+            (void)desc;
+            if (!rebuilt.find_leaf_of(id) && focus) {
+                (void)rebuilt.merge_into_leaf(*focus, id);
+            }
+        }
+
+        tree_ = std::move(rebuilt);
+        focused_leaf_ = focus;
+        last_layout_.clear();
+        active_drag_.reset();
+        foreign_drag_hover_.reset();
+        tab_drag_.clear();
+        divider_drag_.clear();
+        return true;
+    }
+
 } // namespace SFT::UI::Docking
 

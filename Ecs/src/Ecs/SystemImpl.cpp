@@ -65,6 +65,17 @@ namespace SFT::Ecs {
             for (usize index : remaining) {
                 bool conflicts = false;
 
+                // Explicit ordering: every dependency must already be in an earlier stage, i.e. no
+                // longer pending in this round.
+                for (u64 dependency_id : systems_[index].after) {
+                    for (usize pending_index : remaining) {
+                        if (systems_[pending_index].id == dependency_id) {
+                            conflicts = true;
+                            break;
+                        }
+                    }
+                    if (conflicts) break;
+                }
 
                 for (ResourceKey read_event : systems_[index].access.event_reads) {
                     for (usize pending_index : remaining) {
@@ -88,6 +99,9 @@ namespace SFT::Ecs {
                 } else {
                     stage.push_back(index);
                 }
+            }
+            if (stage.empty()) {
+                Detail::contract_violation("ECS Schedule: explicit system ordering (order_after) contains a cycle.");
             }
             stages_.push_back(std::move(stage));
             remaining = std::move(next_remaining);
@@ -150,15 +164,15 @@ namespace SFT::Ecs {
     /// @param finish Optional per-dispatch teardown.
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void Schedule::add_erased_system(SystemAccess access,
-                                     std::vector<ComponentId> component_ids,
-                                     ErasedSystemFn fn,
-                                     void *user_data,
-                                     ErasedSystemPrepareFn prepare,
-                                     ErasedSystemFinishFn finish) {
+    SystemHandle Schedule::add_erased_system(SystemAccess access,
+                                             std::vector<ComponentId> component_ids,
+                                             ErasedSystemFn fn,
+                                             void *user_data,
+                                             ErasedSystemPrepareFn prepare,
+                                             ErasedSystemFinishFn finish) {
         ZoneScopedN("Schedule::add_erased_system");
         if (fn == nullptr || component_ids.empty()) {
-            return;
+            return {};
         }
 
         SystemEntry entry;
@@ -205,8 +219,7 @@ namespace SFT::Ecs {
                 finish(dispatch_context, user_data);
             }
         };
-        systems_.push_back(std::move(entry));
-        stages_dirty_ = true;
+        return register_entry(std::move(entry));
     }
 
     /// Registers a system that runs once per frame rather than once per entity.
@@ -218,14 +231,14 @@ namespace SFT::Ecs {
     /// @param finish Optional per-dispatch teardown.
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void Schedule::add_erased_global_system(SystemAccess access,
-                                            ErasedSystemFn fn,
-                                            void *user_data,
-                                            ErasedSystemPrepareFn prepare,
-                                            ErasedSystemFinishFn finish) {
+    SystemHandle Schedule::add_erased_global_system(SystemAccess access,
+                                                    ErasedSystemFn fn,
+                                                    void *user_data,
+                                                    ErasedSystemPrepareFn prepare,
+                                                    ErasedSystemFinishFn finish) {
         ZoneScopedN("Schedule::add_erased_global_system");
         if (fn == nullptr) {
-            return;
+            return {};
         }
 
         SystemEntry entry;
@@ -252,8 +265,89 @@ namespace SFT::Ecs {
                 finish(dispatch_context, user_data);
             }
         };
+        return register_entry(std::move(entry));
+    }
+
+    SystemHandle Schedule::register_entry(SystemEntry entry) {
+        if (running_) {
+            Detail::contract_violation("ECS Schedule: systems cannot be added while the schedule is running.");
+        }
+        entry.id = next_system_id_++;
+        const SystemHandle handle{entry.id};
         systems_.push_back(std::move(entry));
         stages_dirty_ = true;
+        return handle;
+    }
+
+    Schedule::SystemEntry *Schedule::find_entry(SystemHandle handle) noexcept {
+        if (!handle) {
+            return nullptr;
+        }
+        for (SystemEntry &entry : systems_) {
+            if (entry.id == handle.id) {
+                return &entry;
+            }
+        }
+        return nullptr;
+    }
+
+    bool Schedule::remove_system(SystemHandle handle) {
+        if (running_) {
+            Detail::contract_violation("ECS Schedule: systems cannot be removed while the schedule is running.");
+        }
+        const auto found = std::find_if(systems_.begin(), systems_.end(), [&](const SystemEntry &entry) { return handle && entry.id == handle.id; });
+        if (found == systems_.end()) {
+            return false;
+        }
+        systems_.erase(found);
+        // Dangling ordering edges to the removed system are simply satisfied.
+        for (SystemEntry &entry : systems_) {
+            std::erase(entry.after, handle.id);
+        }
+        stages_dirty_ = true;
+        return true;
+    }
+
+    bool Schedule::set_system_enabled(SystemHandle handle, bool enabled) {
+        if (running_) {
+            Detail::contract_violation("ECS Schedule: systems cannot be enabled or disabled while the schedule is running.");
+        }
+        SystemEntry *entry = find_entry(handle);
+        if (entry == nullptr) {
+            return false;
+        }
+        entry->enabled = enabled;
+        return true;
+    }
+
+    bool Schedule::system_enabled(SystemHandle handle) const noexcept {
+        if (!handle) {
+            return false;
+        }
+        for (const SystemEntry &entry : systems_) {
+            if (entry.id == handle.id) {
+                return entry.enabled;
+            }
+        }
+        return false;
+    }
+
+    bool Schedule::order_after(SystemHandle system, SystemHandle dependency) {
+        if (running_) {
+            Detail::contract_violation("ECS Schedule: ordering cannot change while the schedule is running.");
+        }
+        if (system == dependency) {
+            return false;
+        }
+        SystemEntry *entry = find_entry(system);
+        if (entry == nullptr || find_entry(dependency) == nullptr) {
+            return false;
+        }
+        if (std::find(entry->after.begin(), entry->after.end(), dependency.id) == entry->after.end()) {
+            entry->after.push_back(dependency.id);
+            stages_dirty_ = true;
+        }
+        return true;
     }
 
     void Schedule::run(World &world) {
@@ -282,6 +376,11 @@ namespace SFT::Ecs {
         const usize minimum_rows_per_task = std::max<usize>(1, config_.minimum_rows_per_task);
 
         ScheduledWorldScope scheduled_world{world};
+        struct RunningGuard {
+            bool &flag;
+            explicit RunningGuard(bool &value) noexcept : flag(value) { flag = true; }
+            ~RunningGuard() noexcept { flag = false; }
+        } running_guard{running_};
         if (config_.clear_events_on_run) {
             Detail::WorldAccess::clear_event_resources(world);
         }
@@ -290,6 +389,9 @@ namespace SFT::Ecs {
             Detail::CommandBufferList command_buffers;
 
             for (usize system_index : stage) {
+                if (!systems_[system_index].enabled) {
+                    continue;
+                }
                 systems_[system_index].dispatch(world,
                                                 minimum_rows_per_task,
                                                 target_parallelism,

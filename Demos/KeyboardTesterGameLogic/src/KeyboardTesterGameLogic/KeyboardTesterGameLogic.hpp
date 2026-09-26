@@ -56,12 +56,6 @@ namespace SFT::KeyboardTester {
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Engine::AssetResult create_key_models(Engine::Engine &engine);
-        /// Configures render extraction using the supplied arguments and current state.
-        ///
-        /// @param engine `engine` value used by the operation.
-        ///
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void configure_render_extraction(Engine::Engine &engine);
         /// Configures keyboard tracking using the supplied arguments and current state.
         ///
         /// @param engine `engine` value used by the operation.

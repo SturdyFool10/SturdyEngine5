@@ -28,6 +28,8 @@
 #include <Renderer/Culling.hpp>
 #include <Renderer/Mesh.hpp>
 #include <Renderer/Material.hpp>
+#include <Renderer/DisplacementMaterial.hpp>
+#include <Renderer/DisplacementMeshPath.hpp>
 #include <Renderer/Scene.hpp>
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/Resources.hpp>
@@ -35,6 +37,7 @@
 #include <Renderer/RestirGi.hpp>
 #include <Renderer/SvgfDenoiser.hpp>
 #include <Renderer/RenderGraphModule.hpp>
+#include <Renderer/FramePipeline.hpp>
 #include <Renderer/TileGrid.hpp>
 #include <Renderer/TextAtlas.hpp>
 #include <Renderer/TextInstance.hpp>
@@ -656,12 +659,116 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult set_material_texture(MaterialInstanceHandle handle,
                                                                 string_view slot, TextureHandle texture);
 
+        // ---- Displacement (Renderer/RendererDisplacement.cpp; plans/displacement-system.md) ----------
+
+        /// What the live device can do, reduced to the questions displacement asks. The mesh-shader bits are
+        /// reported as the RHI states them; whether the Renderer *uses* them is a separate switch (see
+        /// create_displaced_material).
+        [[nodiscard]] Displacement::DisplacementCapabilities displacement_capabilities() const;
+
+        /// Resolves the tier + request against the live device, compiles the matching shader variant
+        /// (SFT_HF_ALGORITHM / SFT_DISPLACEMENT_WRITE_DEPTH / SFT_DISPLACEMENT_DEPTH_GE), uploads the height
+        /// texture and (when the plan needs it) the packed hierarchy, and creates a ready-to-draw instance.
+        /// The returned plan records every downgrade. Height/hierarchy are stored as R32Float / RG32Float:
+        /// the RHI has no R16Unorm, and float storage keeps GPU heights bit-identical to the CPU reference.
+        [[nodiscard]] Core::RendererExpected<DisplacedMaterial> create_displaced_material(
+            const DisplacedMaterialDesc &desc);
+
+        /// Destroys the instance, template and textures create_displaced_material made.
+        void destroy_displaced_material(MaterialInstanceHandle instance) noexcept;
+
+        /// Creates a mesh suited to `material`: pre-tessellated with Displacement::subdivide_uniform when its
+        /// plan says PreTessellatedVertex (legacy geometry path), otherwise identical to create_mesh.
+        [[nodiscard]] Core::RendererExpected<MeshHandle> create_displaced_mesh(
+            const DisplacedMaterial &material, span<const GeometryVertex> vertices, span<const u32> indices,
+            const char *label = nullptr);
+
+        /// Per-object/per-view refinement: re-picks the traversal step budget with select_traversal_steps.
+        [[nodiscard]] Core::RendererResult set_displaced_material_view_metrics(
+            MaterialInstanceHandle instance, const Displacement::DisplacementViewMetrics &metrics);
+
+        /// Pushes `displacement_camera_position` into every displaced material whose value changed.
+        /// render_frame calls this itself with the view's camera; it is public for callers that draw
+        /// without render_frame.
+        void refresh_displaced_materials(const glm::vec3 &camera_world_position);
+
+        // ---- Displacement mesh-shader geometry path (Renderer/RendererDisplacementMesh.cpp) ------------------
+
+        /// True when the live device can run Shaders/displacement_mesh.slang (Vulkan, mesh + task shaders,
+        /// output limits that admit at least level 1).
+        [[nodiscard]] bool displacement_mesh_geometry_supported() const;
+
+        /// True when `handle` draws through the mesh path (enabled and not since disabled).
+        [[nodiscard]] bool displacement_mesh_geometry_active(MaterialTemplateHandle handle) const;
+
+        /// Switches a displaced material template (one built from Shaders/gbuffer_geometry_displaced.slang,
+        /// whose material bind group the mesh shader shares) to task + mesh + fragment geometry. Compiles
+        /// the mesh shader and validates that its material set matches the template's; on any error the
+        /// template keeps drawing through its vertex path and the error explains why. The meshes drawn with
+        /// it must be indexed and NOT pre-tessellated (the mesh path refines the base mesh itself).
+        [[nodiscard]] Core::RendererResult enable_displacement_mesh_geometry(MaterialTemplateHandle handle,
+                                                                             DisplacementMeshSettings settings = {});
+
+        /// Returns the template to its vertex path.
+        void disable_displacement_mesh_geometry(MaterialTemplateHandle handle) noexcept;
+
         /// Destroys the all resources identified by the supplied parameters.
         ///
         /// @note This function does not throw exceptions.
         void destroy_all_resources() noexcept;
 
+        /// Rearranges the frame's features (see `FramePipeline.hpp`): replace tone mapping, insert your own
+        /// stage after bloom, switch motion blur off. `edit` runs under a lock with the live pipeline;
+        /// frames already being built keep the arrangement they started with, and later frames see the
+        /// change, so it is safe to call from any thread at any time.
+        ///
+        /// ```cpp
+        /// renderer.edit_frame_pipeline([](FramePipeline &pipeline) {
+        ///     (void)pipeline.replace("tone_mapping", my_tone_mapper);
+        /// });
+        /// ```
+        template <class Edit>
+        decltype(auto) edit_frame_pipeline(Edit &&edit) {
+            auto pipeline = frame_pipeline_.lock();
+            return std::forward<Edit>(edit)(*pipeline);
+        }
+        /// Compiles (once, cached per target format) the fullscreen shader an effect names, so a frame
+        /// feature can draw it with `record_fullscreen_effect` from inside its own render pass. The shader
+        /// follows the custom post-process contract: `vertexMain`, a fragment entry, `Texture2D
+        /// sourceTexture`, `SamplerState sourceSampler`, optional `extraTexture<N>`, one optional
+        /// push-constant block. This is the same machinery the engine's own effects use.
+        [[nodiscard]] Core::RendererResult prepare_fullscreen_effect(const CustomPostProcessEffect &effect, RHI::Format target_format) {
+            return ensure_custom_post_process(effect, target_format);
+        }
+        /// Records the effect's full-screen draw into `pass` (viewport/scissor are the caller's).
+        [[nodiscard]] Core::RendererResult record_fullscreen_effect(RHI::RenderPassEncoder &pass, RHI::TextureViewHandle source,
+                                                                    RHI::Format target_format, const CustomPostProcessEffect &effect,
+                                                                    std::vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                                    std::span<const RHI::TextureViewHandle> extra_sources = {}) {
+            return record_custom_post_process(pass, source, target_format, effect, transient_bind_groups, extra_sources);
+        }
+        /// A copy of the current arrangement, for inspection (`names()`, `enabled()`).
+        [[nodiscard]] FramePipeline frame_pipeline_snapshot() { return *frame_pipeline_.lock(); }
+
       private:
+        friend struct FrameBuildContext;
+
+        /// State the engine's own frame features share while a frame is being declared. Everything here is
+        /// also reachable through public means (the render graph, the blackboard, the settings); this only
+        /// carries the values the monolithic frame builder had as locals.
+        struct BuiltinFrameState;
+        Async::Mutex<FramePipeline> frame_pipeline_;
+        void register_builtin_frame_features();
+        [[nodiscard]] Core::RendererResult build_frame_feature_motion_blur(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_post_process_aa(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_effects_before_bloom(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_bloom(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_effects_after_bloom(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_tone_mapping(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_debug_text_overlay(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_ui_overlay(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_ui_display_encode(FrameBuildContext &context);
+
 
 
         struct FrameDeferredTargets {
@@ -1058,6 +1165,9 @@ namespace SFT::Renderer {
             usize indirect_commands_capacity = 0;
             RHI::BufferHandle compacted_indices_buffer{};
             usize compacted_indices_capacity = 0;
+            // Per-draw constants of the mesh-shader displacement path (dynamic-offset uniform ring).
+            RHI::BufferHandle displacement_mesh_buffer{};
+            u32 displacement_mesh_capacity = 0;
         };
 
         struct WindowSurfaceRecord {
@@ -1132,6 +1242,10 @@ namespace SFT::Renderer {
 
 
             u32 object_index = 0;
+
+            // Per-frame data for the mesh-shader displacement path (RendererDisplacementMesh.cpp); null unless
+            // the frame has draws whose material template enabled that path.
+            const DisplacementMeshFrame *displacement_frame = nullptr;
         };
 
 
@@ -1162,6 +1276,7 @@ namespace SFT::Renderer {
             OffscreenRenderTargetHandle offscreen_target{};
             vector<RHI::BindGroupHandle> transient_bind_groups;
             vector<RHI::BufferHandle> transient_buffers;
+            std::unique_ptr<DisplacementMeshFrame> displacement_mesh_frame;
 
 
             vector<RHI::RenderBundleHandle> transient_render_bundles;
@@ -1172,11 +1287,25 @@ namespace SFT::Renderer {
             vector<std::pair<string, f64>> pre_dispatch_stage_timings_ms;
         };
 
-
-        struct TonemapPipelineVariant {
-            RHI::Format color_format = RHI::Format::Undefined;
-            RHI::RenderPipelineHandle pipeline{};
+        struct BuiltinFrameState {
+            FrameSubmission *submission = nullptr;
+            WindowSurfaceRecord *record = nullptr;
+            FrameInFlight *slot = nullptr;
+            RenderGraphTextureHandle gbuffer_motion{};
+            RenderGraphTextureHandle depth_texture{};
+            RenderGraphTextureHandle ui_overlay_target{};
+            bool bloom_active = false;
+            RHI::Format bloom_format = RHI::Format::Undefined;
+            vector<RenderGraphTextureHandle> *logical_graph_textures = nullptr;
+            std::function<void(LogicalRenderGraphTexture, RenderGraphTextureHandle)> map_logical_texture;
+            vector<TextDrawBatch> *text_overlay_batches = nullptr;
+            vector<RenderGraphTextureHandle> *ui_glow_bloom_outputs = nullptr;
+            bool direct_overlay_display_transform = false;
+            f32 ui_reference_white_nits = 0.0f;
+            u32 frame_slot_index = 0;
+            glm::vec4 background{0.0f};
         };
+
 
 
         struct GpuDrawIndexedIndirectCommand {
@@ -1426,20 +1555,6 @@ namespace SFT::Renderer {
             bool ready = false;
         };
 
-        struct TonemapResources {
-            Core::Slang::Shader shader;
-            RHI::ShaderModuleHandle vertex_module{};
-            RHI::ShaderModuleHandle fragment_module{};
-            std::string vertex_entry_point;
-            std::string fragment_entry_point;
-            std::vector<RHI::BindGroupLayoutHandle> bind_group_layouts;
-            std::vector<u32> bind_group_layout_sets;
-            RHI::PipelineLayoutHandle pipeline_layout{};
-            RHI::SamplerHandle sampler{};
-            std::vector<TonemapPipelineVariant> pipeline_variants;
-            bool ready = false;
-        };
-
         struct ShadowLightingPipelineVariant {
             RHI::Format color_format = RHI::Format::Undefined;
             RHI::RenderPipelineHandle pipeline{};
@@ -1557,6 +1672,7 @@ namespace SFT::Renderer {
             std::string module_name;
             std::string fragment_entry_point;
             RHI::Format color_format = RHI::Format::Undefined;
+            FullscreenBlend blend = FullscreenBlend::None;
             Core::Slang::Shader shader;
             RHI::ShaderModuleHandle vertex_module{};
             RHI::ShaderModuleHandle fragment_module{};
@@ -1567,6 +1683,8 @@ namespace SFT::Renderer {
             u32 image_binding = 0;
             u32 sampler_binding = 0;
             u32 push_constant_size = 0;
+            /// Bindings of `extraTexture0..N`, in order.
+            std::vector<u32> extra_bindings;
         };
 
         struct SpectralIntegratorViews {
@@ -2138,7 +2256,11 @@ namespace SFT::Renderer {
                                                                        f32 shadow_slope_bias = 0.0f,
                                                                        RHI::SampleCount samples = RHI::SampleCount::X1,
                                                                        bool with_object_history = false,
-                                                                       RHI::BindGroupHandle object_history_group = {});
+                                                                       RHI::BindGroupHandle object_history_group = {},
+                                                                       // Vulkan secondary command buffers inherit no dynamic state: bundle
+                                                                       // chunk encoders need the pass's viewport/scissor set explicitly.
+                                                                       optional<RHI::Viewport> bundle_viewport = std::nullopt,
+                                                                       optional<RHI::Rect2D> bundle_scissor = std::nullopt);
 
 
         /// Records shadow view chunk using the supplied arguments and current state.
@@ -2587,22 +2709,18 @@ namespace SFT::Renderer {
             FrameInFlight &frame_slot,
             bool enabled,
             RHI::Format bloom_format);
-        /// Builds tonemap module.
+        /// Builds the display-space effect chain that follows tone mapping.
         ///
-        /// @param context Context that supplies state required by the operation.
-        /// @param submission `submission` value used by the operation.
-        /// @param presentation_format Format used for the resource, render target, or conversion.
-        /// @param hdr_output `hdr_output` value used by the operation.
-        /// @param hdr_color_space `hdr_color_space` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult build_tonemap_module(
+        /// Runs every `PostProcessStage::AfterToneMap` raster pass in order, each sampling the previous
+        /// result (starting from `source`, the tone-mapped image). Intermediate results use
+        /// `presentation_format`; the final pass renders into `final_target`.
+        [[nodiscard]] Core::RendererResult build_display_effects_stage(
             RenderGraphModuleBuildContext &context,
             FrameSubmission &submission,
+            RenderGraphTextureHandle source,
+            RenderGraphTextureHandle final_target,
             RHI::Format presentation_format,
-            bool hdr_output,
-            Core::HdrColorSpaceMode hdr_color_space);
+            span<RenderGraphTextureHandle> logical_textures);
 
 
         /// Finds or creates the deferred MSAA resources required by the operation.
@@ -2805,7 +2923,8 @@ namespace SFT::Renderer {
                                                                       RHI::TextureViewHandle source_view,
                                                                       RHI::Format color_format,
                                                                       const CustomPostProcessEffect &effect,
-                                                                      vector<RHI::BindGroupHandle> &transient_bind_groups);
+                                                                      vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                                      span<const RHI::TextureViewHandle> extra_views = {});
         /// Destroys the custom post process resources identified by the supplied parameters.
         ///
         /// @note This function does not throw exceptions.
@@ -3404,46 +3523,7 @@ namespace SFT::Renderer {
         void destroy_custom_compute_effect_resources() noexcept;
 
 
-        /// Finds or creates the tonemap resources required by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_tonemap_resources();
-        /// Resolves the tonemap pipeline associated with the supplied key, handle, or resource.
-        ///
-        /// @param color_format Format used for the resource, render target, or conversion.
-        ///
-        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererExpected<RHI::RenderPipelineHandle> tonemap_pipeline_for(RHI::Format color_format);
-        /// Records tonemap using the supplied arguments and current state.
-        ///
-        /// @param pass Render-pass encoder that receives the draw commands.
-        /// @param source_view `source_view` value used by the operation.
-        /// @param color_format Format used for the resource, render target, or conversion.
-        /// @param settings Configuration values controlling the operation.
-        /// @param transient_bind_groups `transient_bind_groups` value used by the operation.
-        /// @param preserve_alpha `preserve_alpha` value used by the operation.
-        ///
-        /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult record_tonemap(RHI::RenderPassEncoder &pass,
-                                                          RHI::TextureViewHandle source_view,
-                                                          RHI::Format color_format,
-                                                          const RenderGraphSettings &settings,
-                                                          vector<RHI::BindGroupHandle> &transient_bind_groups,
-                                                          bool preserve_alpha = false);
-        /// Destroys the tonemap resources identified by the supplied parameters.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_tonemap_resources() noexcept;
 
-        /// Destroys the tonemap resources locked identified by the supplied parameters.
-        ///
-        /// @param resources `resources` value used by the operation.
-        ///
-        /// @note This function does not throw exceptions.
-        void destroy_tonemap_resources_locked(TonemapResources &resources) noexcept;
 
 
         /// Finds or creates the text overlay resources required by the operation.
@@ -3568,6 +3648,34 @@ namespace SFT::Renderer {
                                                                const char *label);
 
 
+        /// Result of resolving a mesh-path pipeline plus the per-template draw settings.
+        struct DisplacementMeshDrawSetup {
+            RHI::RenderPipelineHandle pipeline{};
+            f32 target_edge_pixels = 16.0f;
+            u32 max_level = 8;
+        };
+        [[nodiscard]] Core::RendererResult ensure_displacement_mesh_built(MaterialTemplateResource &tmpl);
+        [[nodiscard]] Core::RendererExpected<DisplacementMeshDrawSetup> displacement_mesh_pipeline_for(
+            MaterialTemplateResource &tmpl, span<const RHI::Format> color_formats, RHI::Format depth_format,
+            bool depth_only, bool shadow_map, f32 depth_bias, f32 slope_bias, RHI::CullMode cull_mode,
+            RHI::FrontFace front_face, RHI::SampleCount samples);
+        [[nodiscard]] Core::RendererResult prepare_displacement_mesh_frame(WindowSurfaceRecord &record, u64 frame_index,
+                                                                           FrameSubmission &submission,
+                                                                           Core::Extent2D render_extent);
+        template <typename Encoder>
+        [[nodiscard]] Core::RendererResult record_displacement_mesh_item(
+            Encoder &pass, const RenderItem &item, MaterialTemplateResource &tmpl, MaterialInstanceResource &material,
+            span<const RHI::Format> color_formats, RHI::Format depth_format, u64 frame_index,
+            const glm::mat4 &view_projection, bool depth_only, RenderItemBindingState &binding_state, bool shadow_map,
+            f32 shadow_depth_bias, f32 shadow_slope_bias, RHI::SampleCount samples);
+        void destroy_displacement_mesh_resources() noexcept;
+        void reset_displacement_mesh_gpu_after_device_loss() noexcept;
+        /// Drops a template's mesh-path GPU objects (keeps its settings); they rebuild lazily. Called before the
+        /// template's own layouts are destroyed (hot reload).
+        void invalidate_displacement_mesh_gpu(MaterialTemplateHandle handle) noexcept;
+        mutable Async::Mutex<DisplacementMeshResources> displacement_mesh_;
+        std::atomic<u32> displacement_mesh_template_count_{0};
+
         GeometryArena vertex_arena_{.usage = RHI::BufferUsage::Vertex | RHI::BufferUsage::Storage |
                                              RHI::BufferUsage::TransferSrc | RHI::BufferUsage::TransferDst};
         GeometryArena index_arena_{.usage = RHI::BufferUsage::Index | RHI::BufferUsage::Storage |
@@ -3577,6 +3685,8 @@ namespace SFT::Renderer {
         vector<TextureResource> textures_;
         vector<MaterialTemplateResource> material_templates_;
         vector<MaterialInstanceResource> material_instances_;
+        // Displaced materials (RendererDisplacement.cpp): plan + owned textures + per-frame uniform cache.
+        Async::Mutex<vector<DisplacedMaterialRecord>> displaced_materials_;
         TextureHandle default_white_texture_{};
         TextureHandle default_flat_normal_texture_{};
 
@@ -3596,7 +3706,6 @@ namespace SFT::Renderer {
         Async::Mutex<BloomCompositeResources> bloom_composite_;
         Async::Mutex<ShadowLightingResources> shadow_lighting_;
         Async::Mutex<DeferredMsaaResources> deferred_msaa_;
-        Async::Mutex<TonemapResources> tonemap_;
         Async::Mutex<TextOverlayResources> text_overlay_;
 
 

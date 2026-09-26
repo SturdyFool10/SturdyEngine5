@@ -126,6 +126,35 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(ui_image_cache_);
         ecs_world_.bind_resource(ui_svg_cache_);
 
+        // ECS -> renderer extraction is engine behaviour, not something each game-logic layer has to
+        // remember to re-register (forgetting rendered no models or lights, silently).
+        ecs_world_.bind_resource(render_frame_requests_);
+        ecs_world_.bind_resource(light_frame_requests_);
+        render_extraction_schedule_.add_system(
+            [](Ecs::Entity entity,
+               const WorldTransform &transform,
+               const ModelRenderer &model_renderer,
+               Ecs::WriteResource<RenderFrameRequests> render) noexcept { render->submit(entity, transform, model_renderer); });
+        render_extraction_schedule_.add_system(
+            [](Ecs::Entity entity,
+               const WorldTransform &transform,
+               const LightGizmoRenderer &gizmo_renderer,
+               Ecs::WriteResource<RenderFrameRequests> render) noexcept { render->submit_gizmo(entity, transform, gizmo_renderer); });
+        render_extraction_schedule_.add_system(
+            [](Ecs::Entity entity,
+               const WorldTransform &transform,
+               const DirectionalLightRenderer &light,
+               Ecs::WriteResource<LightFrameRequests> lights) noexcept { lights->submit(entity, transform, light); });
+        render_extraction_schedule_.add_system(
+            [](Ecs::Entity entity,
+               const WorldTransform &transform,
+               const SpotLightRenderer &light,
+               Ecs::WriteResource<LightFrameRequests> lights) noexcept { lights->submit(entity, transform, light); });
+        render_extraction_schedule_.add_system(
+            [](Ecs::Entity entity,
+               const WorldTransform &transform,
+               const PointLightRenderer &light,
+               Ecs::WriteResource<LightFrameRequests> lights) noexcept { lights->submit(entity, transform, light); });
 
         window_events_.reserve(256);
         mouse_move_events_.reserve(256);
@@ -674,23 +703,35 @@ namespace SFT::Engine {
             Foundation::log_error("Invalid high-level render graph: {} Using its normalized safe form.",
                                   graph_validation.error().message);
         }
+        Camera camera = parameters.camera;
+        if (parameters.engine_managed_camera_history) {
+            const usize surface_key = static_cast<usize>(surface.window_id);
+            auto history = camera_history_.lock();
+            if (const auto found = history->find(surface_key); found != history->end()) {
+                camera.set_previous_view_projection(found->second);
+            } else {
+                camera.reset_history();
+            }
+            (*history)[surface_key] = camera.view_projection_matrix();
+        }
+
         RenderGraph graph = parameters.render_graph.normalized();
         RenderGraphDescription &graph_settings = graph.description();
         graph_settings.resolution_scale = std::clamp(
-            graph_settings.resolution_scale * parameters.camera.render_scale(),
+            graph_settings.resolution_scale * camera.render_scale(),
             0.1f,
             2.0f);
         if (!graph_settings.scene.background_color) {
-            graph_settings.scene.background_color = parameters.camera.clear_color();
+            graph_settings.scene.background_color = camera.clear_color();
         }
 
         return PreparedRenderFrame{
             .surface = surface,
             .frame = frame,
-            .camera = parameters.camera.renderer_view(),
+            .camera = camera.renderer_view(),
             .lighting = SFT::Renderer::SceneLighting{
                 .ambient_radiance = parameters.lighting.ambient_radiance,
-                .exposure = parameters.lighting.exposure * parameters.camera.exposure_multiplier(),
+                .exposure = parameters.lighting.exposure * camera.exposure_multiplier(),
                 .sun = lights->sun.value_or(SFT::Renderer::DirectionalLight{}),
                 .spot_lights = lights->spot_lights,
                 .point_lights = lights->point_lights,
@@ -700,7 +741,7 @@ namespace SFT::Engine {
             .gizmo_renderables = render_frame_requests_.finish_gizmo_frame(),
             .render_graph = std::move(graph),
             .ui_overlay = parameters.ui_overlay,
-            .visibility_mask = parameters.camera.culling_mask(),
+            .visibility_mask = camera.culling_mask(),
             .debug_label = parameters.debug_label,
         };
     }
@@ -800,9 +841,11 @@ namespace SFT::Engine {
             if (pass.handle.index >= live_pass.size() || !live_pass[pass.handle.index]) {
                 continue;
             }
-            const RendererApi::PostProcessStage stage = input_domain == TextureDomain::AfterBloom
-                                                            ? RendererApi::PostProcessStage::AfterBloomBeforeToneMap
-                                                            : RendererApi::PostProcessStage::BeforeBloom;
+            const RendererApi::PostProcessStage stage = input_domain == TextureDomain::Display
+                                                            ? RendererApi::PostProcessStage::AfterToneMap
+                                                            : input_domain == TextureDomain::AfterBloom
+                                                                  ? RendererApi::PostProcessStage::AfterBloomBeforeToneMap
+                                                                  : RendererApi::PostProcessStage::BeforeBloom;
             if (pass.kind == RenderGraphPassKind::FullscreenEffect) {
                 custom_graph.passes.push_back(RendererApi::CustomGraphPass{
                     .kind = RendererApi::CustomGraphPassKind::RasterEffect,
@@ -816,9 +859,13 @@ namespace SFT::Engine {
                         .push_constants = pass.fullscreen_effect.push_constants,
                         .label = pass.fullscreen_effect.label,
                         .stage = stage,
+                        .extra_input_count = static_cast<u32>(pass.fullscreen_effect.extra_inputs.size()),
                     },
                     .label = pass.label,
                 });
+                for (RenderGraphTextureHandle extra : pass.fullscreen_effect.extra_inputs) {
+                    custom_graph.passes.back().extra_inputs.push_back(logical(extra));
+                }
             } else if (pass.kind == RenderGraphPassKind::ComputeEffect) {
                 custom_graph.passes.push_back(RendererApi::CustomGraphPass{
                     .kind = RendererApi::CustomGraphPassKind::ComputeEffect,

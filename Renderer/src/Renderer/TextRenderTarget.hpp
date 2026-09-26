@@ -19,6 +19,13 @@ using std::vector;
 namespace SFT::Renderer {
 
 
+    /// GPU resources a recorded text render must keep alive until its command buffer has finished
+    /// executing. Hand back to `TextRenderTarget::release` once the submission's fence has signalled.
+    struct TextRenderRecording {
+        vector<RHI::BufferHandle> transient_buffers;
+        TextAtlasRetiredResources retired_atlas_resources;
+    };
+
     class TextRenderTarget {
       public:
         struct Config {
@@ -56,6 +63,21 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult render(RHI::RhiDevice &device, TextAtlas &atlas, TextPipeline &pipeline,
                                                   span<const GlyphPlacement> glyphs);
 
+
+        /// Records the same work as `render` into a caller's command encoder instead of submitting it, so
+        /// several targets (and other passes) can be updated in one submission with no per-call fence wait.
+        ///
+        /// The target's texture is left in `ShaderReadOnly` layout once `encoder` executes. The returned
+        /// recording owns transient resources the recorded commands reference: keep it until the
+        /// submission has completed, then pass it to `release`.
+        ///
+        /// @return Returns the recording on success; nothing needs cleaning up on failure.
+        [[nodiscard]] Core::RendererExpected<TextRenderRecording> record(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
+                                                                         TextAtlas &atlas, TextPipeline &pipeline,
+                                                                         span<const GlyphPlacement> glyphs);
+
+        /// Destroys the resources held by a finished recording. Safe to call on an empty recording.
+        static void release(RHI::RhiDevice &device, TextRenderRecording &recording) noexcept;
 
         /// Returns the current or globally available texture value.
         ///

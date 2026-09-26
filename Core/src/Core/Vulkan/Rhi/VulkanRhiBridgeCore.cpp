@@ -184,11 +184,31 @@ namespace SFT::Core::Vulkan {
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR,
             .pNext = &depth_resolve_properties,
         };
-        VkPhysicalDeviceProperties2 extended_properties{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+        // Only chained when the extension is enabled: the struct is illegal to query otherwise.
+        VkPhysicalDeviceMeshShaderPropertiesEXT mesh_shader_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT,
             .pNext = &fragment_shading_rate_properties,
         };
+        VkPhysicalDeviceProperties2 extended_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = enabled_features_.has(rhi::Feature::MeshShader)
+                         ? static_cast<void *>(&mesh_shader_properties)
+                         : static_cast<void *>(&fragment_shading_rate_properties),
+        };
         vkGetPhysicalDeviceProperties2(physical_device.vk_handle(), &extended_properties);
+        if (enabled_features_.has(rhi::Feature::MeshShader)) {
+            feature_properties_.mesh_shader.max_task_work_group_invocations =
+                mesh_shader_properties.maxTaskWorkGroupInvocations;
+            feature_properties_.mesh_shader.max_mesh_work_group_invocations =
+                mesh_shader_properties.maxMeshWorkGroupInvocations;
+            feature_properties_.mesh_shader.max_mesh_output_vertices = mesh_shader_properties.maxMeshOutputVertices;
+            feature_properties_.mesh_shader.max_mesh_output_primitives = mesh_shader_properties.maxMeshOutputPrimitives;
+            feature_properties_.mesh_shader.max_mesh_multiview_view_count =
+                mesh_shader_properties.maxMeshMultiviewViewCount;
+            feature_properties_.mesh_shader.max_mesh_payload_size =
+                std::min(mesh_shader_properties.maxTaskPayloadSize,
+                         mesh_shader_properties.maxTaskPayloadAndSharedMemorySize);
+        }
         limits_.supports_minimum_depth_resolve =
             (depth_resolve_properties.supportedDepthResolveModes & VK_RESOLVE_MODE_MIN_BIT) != 0;
         if (enabled_features_.has(rhi::Feature::RayTracingPipeline)) {

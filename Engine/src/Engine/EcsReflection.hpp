@@ -31,6 +31,8 @@ namespace SFT::Engine {
         /// The field's declared size doesn't match what the caller supplied, or the field has no
         /// readable/writable representation (`FieldInfo::copy_get`/`copy_set`, or `ReadOnly`).
         FieldAccessFailed,
+        /// No `Reflection::TypeInfo` is registered under the given name.
+        TypeNotRegistered,
     };
 
     struct EcsReflectionBridgeError {
@@ -79,6 +81,20 @@ namespace SFT::Engine {
         return std::pair{*component_id, type.key};
     }
 
+    /// Ties a component registered at runtime to a reflection type registered at runtime, by name.
+    ///
+    /// The template overload above needs a C++ type; a component and type created from foreign or
+    /// scripted code have none, so they are registered in two unlinked steps and this is the
+    /// cross-check between them. Both must already be registered.
+    ///
+    /// @param components Registry holding the component.
+    /// @param component_name Canonical name the ECS component was registered under.
+    /// @param type_name Canonical name the reflection type was registered under.
+    ///
+    /// @return Returns the component id and reflection key when the two descriptors agree on size and alignment.
+    [[nodiscard]] EcsReflectionBridgeExpected<std::pair<Ecs::ComponentId, Reflection::TypeId>> ensure_reflected(
+        Ecs::ComponentRegistry &components, std::string_view component_name, std::string_view type_name);
+
     /// Reads one named field of `entity`'s `component`, going through `World`'s existing
     /// whole-component erased read path (copy out, extract the field, discard the rest) plus
     /// `Reflection`'s `FieldInfo` accessor — the "give me entity E's component C's field F by
@@ -88,7 +104,7 @@ namespace SFT::Engine {
     /// `ensure_reflected`). Allocates a `type.size`-byte scratch buffer per call — this is not a
     /// hot-path operation; it is the deliberately-not-free mod/tooling-facing path, in exchange
     /// for `SFT_REFLECT_INVOKE`-style call sites elsewhere in the game staying free.
-    [[nodiscard]] EcsReflectionBridgeExpected<void> read_component_field(Ecs::World &world,
+    [[nodiscard]] EcsReflectionBridgeExpected<void> read_component_field(const Ecs::World &world,
                                                                          Ecs::Entity entity,
                                                                          Ecs::ComponentId component,
                                                                          const Reflection::TypeInfo &type,

@@ -160,3 +160,19 @@ namespace SFT::Engine::Detail {
         const std::filesystem::path &source);
 
 } // namespace SFT::Engine::Detail
+
+namespace SFT::Engine {
+
+    // Public names for the image decoder: a standalone tool (asset cooking), not an engine internal.
+    using Detail::PngHdrMetadata;
+    using Detail::PixelFormat;
+    using Detail::bytes_per_pixel;
+    using Detail::DecodePrecision;
+    using Detail::DecodeOptions;
+    using Detail::ImageFrame;
+    using Detail::DecodedImage;
+    using Detail::decode_image;
+    using Detail::decode_image_rgba8;
+
+} // namespace SFT::Engine
+

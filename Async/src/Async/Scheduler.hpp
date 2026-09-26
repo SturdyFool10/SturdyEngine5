@@ -92,4 +92,21 @@ namespace SFT::Async {
         static void enqueue(std::unique_ptr<Detail::TaskBase> task, TaskWeight weight) noexcept;
     };
 
+    /// Body of `parallel_for_erased`: processes the half-open index range `[begin, end)`.
+    using ParallelForFn = void (*)(usize begin, usize end, void *user_data);
+
+    /// Data-parallel loop over `[0, count)` for callers that cannot use the range templates (foreign
+    /// code, plugins): splits the range into chunks of `chunk` indices, runs `fn` on each chunk across
+    /// the scheduler's workers, and returns when every chunk has finished.
+    ///
+    /// `chunk == 0` picks a chunk size that gives each worker a few chunks. When called from a worker
+    /// thread (where blocking would deadlock nested work), or with a range that fits one chunk, the
+    /// loop runs inline on the calling thread. Starts the scheduler if it is not running.
+    ///
+    /// @param count Number of indices.
+    /// @param chunk Indices per task, or 0 for automatic.
+    /// @param fn Body; must not throw. Chunks may run concurrently and in any order.
+    /// @param user_data Passed to every call of `fn`.
+    void parallel_for_erased(usize count, usize chunk, ParallelForFn fn, void *user_data);
+
 } // namespace SFT::Async

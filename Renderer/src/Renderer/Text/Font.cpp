@@ -83,6 +83,14 @@ Font &Font::operator=(Font &&other) noexcept {
                 return text_error(TextErrorCode::LoadFailed, "Failed to parse a font face from the given data.");
             }
 
+            // HarfBuzz wraps any blob in a face without complaint; a real font has glyphs and a
+            // nonzero design grid.
+            if (hb_face_get_glyph_count(face) == 0 || hb_face_get_upem(face) == 0) {
+                hb_face_destroy(face);
+                hb_blob_destroy(blob);
+                return text_error(TextErrorCode::LoadFailed, "The data does not contain a usable font face (no glyphs).");
+            }
+
             hb_font_t *font = hb_font_create(face);
             if (font == nullptr || font == hb_font_get_empty()) {
                 if (font != nullptr) {

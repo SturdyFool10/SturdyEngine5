@@ -285,7 +285,19 @@ namespace SFT::Renderer {
         }
 
 
-        const RHI::ShaderStage visibility = reflected_stage_mask(reflection);
+        RHI::ShaderStage visibility = reflected_stage_mask(reflection);
+        // A displaced material may be drawn by the mesh-shader geometry path (displacement_mesh.slang), whose
+        // task/mesh stages read the very same material bind group as the vertex path. Vulkan requires the
+        // layout's stage flags to cover every stage that touches a binding, and the pipeline layout must be
+        // the same for both paths, so grant the mesh stages up front when the device has them.
+        if (displacement_mesh_geometry_supported()) {
+            for (const ReflectedUniform &field : collect_uniform_fields(reflection)) {
+                if (field.name == "displacement_height_scale") {
+                    visibility |= RHI::ShaderStage::Task | RHI::ShaderStage::Mesh;
+                    break;
+                }
+            }
+        }
         vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(reflection, visibility);
         for (const GeneratedBindGroupLayout &layout : generated) {
             auto handle = device->create_bind_group_layout(RHI::BindGroupLayoutDesc{
@@ -503,6 +515,8 @@ namespace SFT::Renderer {
 
 
         wait_idle();
+        // The mesh-shader path's pipeline layout embeds this template's set-0 layout, which is destroyed below.
+        invalidate_displacement_mesh_gpu(tmpl->handle);
 
         const bool compatible = material_template_layout_compatible(*tmpl, next);
 
@@ -1255,6 +1269,8 @@ namespace SFT::Renderer {
         if (resource == nullptr) {
             return;
         }
+        // The mesh-shader displacement path's pipeline layout references this template's set-0 layout.
+        disable_displacement_mesh_geometry(handle);
         destroy_material_template_gpu(*resource);
         *resource = {};
     }

@@ -75,6 +75,30 @@ int main() {
           "after unload, hotreload.fixture_item must no longer be findable -- its unregister_types "
           "ran, and its function pointers (which pointed into the now-unloaded .so) are gone with it");
 
+    // ── A module written in plain C, registering through the host's function table ─────────────
+    {
+        const UString c_type_name{"hotreload.c_item"};
+        HotReloadableModule c_module;
+        const auto c_loaded = c_module.load(STURDY_HOT_RELOAD_C_FIXTURE, registry);
+        check(c_loaded.has_value(), "a module exporting only the C entry points must load");
+        check(c_module.version() == 7, "the C module's version must be reported");
+        const Reflection::TypeInfo *c_type = registry.find(c_type_name);
+        check(c_type != nullptr, "the C module must have registered hotreload.c_item through the host API");
+        if (c_type != nullptr) {
+            check(c_type->fields.size() == 2 && c_type->find_field("hp") != nullptr && c_type->find_field("weight") != nullptr,
+                  "the C module's fields must be registered");
+            alignas(8) unsigned char storage[16] = {};
+            check(Reflection::default_construct_instance(*c_type, storage), "a C-registered type must default-construct");
+            const auto document = Reflection::to_document(*c_type, storage);
+            check(document.has_value() && document->find("hp") != nullptr && document->find("hp")->is_int() &&
+                      document->find("weight") != nullptr && document->find("weight")->is_number(),
+                  "a C-registered type's fields must serialize as numbers, not null");
+            Reflection::destroy_instance(*c_type, storage);
+        }
+        c_module.unload();
+        check(registry.find(c_type_name) == nullptr, "unloading the C module must unregister its type");
+    }
+
     // ── HotReloadWatcher: mtime-based change detection on a real file ────────────────────────────
     const std::filesystem::path watch_path = std::filesystem::temp_directory_path() / "sturdy_hot_reload_watch_test.txt";
     {

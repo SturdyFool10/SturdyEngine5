@@ -221,49 +221,6 @@ namespace {
 
 namespace SFT::Ffi {
 
-    /// Registers the render-extraction systems a rendered frame depends on.
-    ///
-    /// @param engine Engine to configure.
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void install_render_extraction(SFT::Engine::Engine &engine) {
-        // Mirrors what a C++ product writes for itself. These have to be typed systems: they take
-        // component references and a WriteResource, which is exactly the shape the erased system API
-        // cannot express, so a foreign caller could not register them even in principle.
-        SFT::Ecs::World &world = engine.ecs_world();
-
-        world.bind_resource(engine.render_frame_requests());
-        engine.render_extraction_schedule().add_system(
-            [](SFT::Ecs::Entity entity,
-               const SFT::Engine::WorldTransform &transform,
-               const SFT::Engine::ModelRenderer &model_renderer,
-               SFT::Ecs::WriteResource<SFT::Engine::RenderFrameRequests> render) noexcept {
-                render->submit(entity, transform, model_renderer);
-            });
-
-        world.bind_resource(engine.light_frame_requests());
-        engine.render_extraction_schedule().add_system(
-            [](SFT::Ecs::Entity entity,
-               const SFT::Engine::WorldTransform &transform,
-               const SFT::Engine::DirectionalLightRenderer &light,
-               SFT::Ecs::WriteResource<SFT::Engine::LightFrameRequests> lights) noexcept {
-                lights->submit(entity, transform, light);
-            });
-        engine.render_extraction_schedule().add_system(
-            [](SFT::Ecs::Entity entity,
-               const SFT::Engine::WorldTransform &transform,
-               const SFT::Engine::SpotLightRenderer &light,
-               SFT::Ecs::WriteResource<SFT::Engine::LightFrameRequests> lights) noexcept {
-                lights->submit(entity, transform, light);
-            });
-        engine.render_extraction_schedule().add_system(
-            [](SFT::Ecs::Entity entity,
-               const SFT::Engine::WorldTransform &transform,
-               const SFT::Engine::PointLightRenderer &light,
-               SFT::Ecs::WriteResource<SFT::Engine::LightFrameRequests> lights) noexcept {
-                lights->submit(entity, transform, light);
-            });
-    }
-
 } // namespace SFT::Ffi
 
 extern "C" {

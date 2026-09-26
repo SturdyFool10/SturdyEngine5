@@ -1,5 +1,6 @@
 #include <Reflection/TypeRegistry.hpp>
 
+#include <algorithm>
 #include <format>
 
 namespace SFT::Reflection {
@@ -770,6 +771,21 @@ namespace SFT::Reflection {
                     TypeRegistryErrorCode::StableKeyCollision,
                     std::format("Reflection enum key collision between '{}' and '{}'.",
                                 existing.canonical_name.cpp_string_view(), info.canonical_name.cpp_string_view())));
+            }
+            // A repeat registration of the *same* definition is a no-op; a different one must not
+            // be silently dropped in favour of the first, or the caller keeps using an enum that
+            // doesn't match what it thinks it registered.
+            const bool same_definition = existing.underlying_type == info.underlying_type && existing.size == info.size && existing.align == info.align &&
+                                         existing.enumerators.size() == info.enumerators.size() &&
+                                         std::equal(existing.enumerators.begin(), existing.enumerators.end(), info.enumerators.begin(),
+                                                    [](const EnumeratorInfo &lhs, const EnumeratorInfo &rhs) {
+                                                        return lhs.value == rhs.value && lhs.name.cpp_string_view() == rhs.name.cpp_string_view();
+                                                    });
+            if (!same_definition) {
+                return std::unexpected(registry_error(
+                    TypeRegistryErrorCode::StableKeyCollision,
+                    std::format("Reflection enum '{}' is already registered with a different definition (size, alignment, or enumerators differ).",
+                                existing.canonical_name.cpp_string_view())));
             }
             return existing.key;
         }

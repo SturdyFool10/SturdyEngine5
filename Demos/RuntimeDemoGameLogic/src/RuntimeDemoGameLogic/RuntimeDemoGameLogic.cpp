@@ -65,7 +65,6 @@ namespace SFT::Runtime {
         if (Engine::AssetResult content = create_demo_content(engine); !content) {
             return std::unexpected(Engine::GameLogicError{.message = content.error().message});
         }
-        configure_render_extraction(engine);
         configure_event_systems(engine);
         spawn_demo_entities(engine);
         Foundation::log_info(
@@ -154,53 +153,6 @@ namespace SFT::Runtime {
 #endif
 
         return {};
-    }
-
-    /// Configures render extraction using the supplied arguments and current state.
-    ///
-    /// @param engine `engine` value used by the operation.
-    ///
-    /// @return Returns the value produced by the operation.
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void RuntimeDemoGameLogic::configure_render_extraction(Engine::Engine &engine) {
-        engine.ecs_world().bind_resource(engine.render_frame_requests());
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity,
-               const Engine::WorldTransform &transform,
-               const Engine::ModelRenderer &model_renderer,
-               Ecs::WriteResource<Engine::RenderFrameRequests> render) noexcept {
-                render->submit(entity, transform, model_renderer);
-            });
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity,
-               const Engine::WorldTransform &transform,
-               const Engine::LightGizmoRenderer &gizmo_renderer,
-               Ecs::WriteResource<Engine::RenderFrameRequests> render) noexcept {
-                render->submit_gizmo(entity, transform, gizmo_renderer);
-            });
-
-        engine.ecs_world().bind_resource(engine.light_frame_requests());
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity,
-               const Engine::WorldTransform &transform,
-               const Engine::DirectionalLightRenderer &light,
-               Ecs::WriteResource<Engine::LightFrameRequests> lights) noexcept {
-                lights->submit(entity, transform, light);
-            });
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity,
-               const Engine::WorldTransform &transform,
-               const Engine::SpotLightRenderer &light,
-               Ecs::WriteResource<Engine::LightFrameRequests> lights) noexcept {
-                lights->submit(entity, transform, light);
-            });
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity,
-               const Engine::WorldTransform &transform,
-               const Engine::PointLightRenderer &light,
-               Ecs::WriteResource<Engine::LightFrameRequests> lights) noexcept {
-                lights->submit(entity, transform, light);
-            });
     }
 
     /// Configures event systems using the supplied arguments and current state.

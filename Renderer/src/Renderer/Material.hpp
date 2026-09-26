@@ -114,6 +114,13 @@ namespace SFT::Renderer {
         RHI::PipelineLayoutHandle pipeline_layout{};
 
 
+        // Displaced materials (Renderer::create_displaced_material). `displaced_depth` = the fragment stage
+        // writes SV_Depth, so the template is excluded from the z prepass and drawn with a standard depth
+        // test; `displaced_surface` = the shader carries its own displacement, so the generic object-history
+        // (motion-vector) vertex shader, which knows nothing about heightfields, must not replace it.
+        bool displaced_depth = false;
+        bool displaced_surface = false;
+
         u32 uniform_block_size = 0;
 
         u32 uniform_set = 0;

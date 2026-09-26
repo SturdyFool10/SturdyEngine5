@@ -99,17 +99,20 @@ namespace SFT::Renderer {
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
-    Core::RendererResult TextRenderTarget::render(RHI::RhiDevice &device, TextAtlas &atlas, TextPipeline &pipeline,
-                                                  span<const GlyphPlacement> glyphs) {
-        ZoneScopedN("TextRenderTarget::render");
+    Core::RendererExpected<TextRenderRecording> TextRenderTarget::record(RHI::RhiDevice &device, RHI::CommandEncoder &encoder,
+                                                                         TextAtlas &atlas, TextPipeline &pipeline,
+                                                                         span<const GlyphPlacement> glyphs) {
+        ZoneScopedN("TextRenderTarget::record");
 
-
-        auto encoder = device.create_command_encoder(RHI::CommandEncoderDesc{.label = "text render target render"});
-        if (!encoder) {
-            return unexpected(graphics_error_from_rhi(encoder.error(), "create text render target encoder"));
-        }
-        vector<RHI::BufferHandle> transient_buffers;
-        TextAtlasRetiredResources retired_atlas_resources;
+        TextRenderRecording recording;
+        vector<RHI::BufferHandle> &transient_buffers = recording.transient_buffers;
+        TextAtlasRetiredResources &retired_atlas_resources = recording.retired_atlas_resources;
+        // On any failure the partially built recording's resources are released here; the caller gets
+        // nothing to clean up.
+        const auto fail = [&](Core::GraphicsBackendError error) {
+            release(device, recording);
+            return unexpected(std::move(error));
+        };
 
         if (resources_pipeline_ != nullptr && resources_pipeline_ != &pipeline) {
             destroy_text_frame_resources(device, text_resources_);
@@ -132,10 +135,10 @@ namespace SFT::Renderer {
                     .font = glyph.font,
                 });
             }
-            if (auto resident = atlas.ensure_resident(device, **encoder, requests, slots, transient_buffers,
+            if (auto resident = atlas.ensure_resident(device, encoder, requests, slots, transient_buffers,
                                                       retired_atlas_resources);
                 !resident) {
-                return unexpected(resident.error());
+                return fail(resident.error());
             }
 
             instances.reserve(glyphs.size());
@@ -153,7 +156,7 @@ namespace SFT::Renderer {
         if (auto prepared =
                 pipeline.prepare(device, atlas, instances, slots, scissors, paint_groups, text_resources_, batches);
             !prepared) {
-            return unexpected(prepared.error());
+            return fail(prepared.error());
         }
 
         const RHI::TextureBarrier to_attachment{
@@ -165,7 +168,7 @@ namespace SFT::Renderer {
             .old_layout = current_layout_,
             .new_layout = RHI::TextureLayout::ColorAttachment,
         };
-        (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_attachment, 1});
+        encoder.barrier({}, {}, span<const RHI::TextureBarrier>{&to_attachment, 1});
         current_layout_ = RHI::TextureLayout::ColorAttachment;
 
         const RHI::ColorAttachment color_attachment{
@@ -179,9 +182,9 @@ namespace SFT::Renderer {
             .render_area = RHI::Rect2D{.x = 0, .y = 0, .width = config_.width, .height = config_.height},
             .label = "text render target",
         };
-        auto pass = (*encoder)->begin_render_pass(pass_desc);
+        auto pass = encoder.begin_render_pass(pass_desc);
         if (!pass) {
-            return unexpected(graphics_error_from_rhi(pass.error(), "begin text render target pass"));
+            return fail(graphics_error_from_rhi(pass.error(), "begin text render target pass"));
         }
         (*pass)->set_viewport(RHI::Viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<f32>(config_.width), .height = static_cast<f32>(config_.height)});
         (*pass)->set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = config_.width, .height = config_.height});
@@ -190,7 +193,7 @@ namespace SFT::Renderer {
             **pass, batches, glm::vec2{static_cast<f32>(config_.width), static_cast<f32>(config_.height)});
         (*pass)->end();
         if (!draw_result) {
-            return draw_result;
+            return fail(draw_result.error());
         }
 
         const RHI::TextureBarrier to_sampled{
@@ -202,16 +205,48 @@ namespace SFT::Renderer {
             .old_layout = RHI::TextureLayout::ColorAttachment,
             .new_layout = RHI::TextureLayout::ShaderReadOnly,
         };
-        (*encoder)->barrier({}, {}, span<const RHI::TextureBarrier>{&to_sampled, 1});
+        encoder.barrier({}, {}, span<const RHI::TextureBarrier>{&to_sampled, 1});
         current_layout_ = RHI::TextureLayout::ShaderReadOnly;
+
+        return recording;
+    }
+
+    void TextRenderTarget::release(RHI::RhiDevice &device, TextRenderRecording &recording) noexcept {
+        for (RHI::BufferHandle buffer : recording.transient_buffers) {
+            device.destroy_buffer(buffer);
+        }
+        for (RHI::TextureViewHandle view : recording.retired_atlas_resources.texture_views) {
+            device.destroy_texture_view(view);
+        }
+        for (RHI::TextureHandle texture : recording.retired_atlas_resources.textures) {
+            device.destroy_texture(texture);
+        }
+        recording = TextRenderRecording{};
+    }
+
+    Core::RendererResult TextRenderTarget::render(RHI::RhiDevice &device, TextAtlas &atlas, TextPipeline &pipeline,
+                                                  span<const GlyphPlacement> glyphs) {
+        ZoneScopedN("TextRenderTarget::render");
+
+        auto encoder = device.create_command_encoder(RHI::CommandEncoderDesc{.label = "text render target render"});
+        if (!encoder) {
+            return unexpected(graphics_error_from_rhi(encoder.error(), "create text render target encoder"));
+        }
+        auto recorded = record(device, **encoder, atlas, pipeline, glyphs);
+        if (!recorded) {
+            return unexpected(recorded.error());
+        }
+        TextRenderRecording recording = std::move(*recorded);
 
         auto command_buffer = (*encoder)->finish();
         if (!command_buffer) {
+            release(device, recording);
             return unexpected(graphics_error_from_rhi(command_buffer.error(), "finish text render target encoder"));
         }
         auto fence = device.create_fence(RHI::FenceDesc{.label = "text render target fence"});
         if (!fence) {
             device.destroy_command_buffer(*command_buffer);
+            release(device, recording);
             return unexpected(graphics_error_from_rhi(fence.error(), "create text render target fence"));
         }
         const array command_buffers{*command_buffer};
@@ -224,32 +259,27 @@ namespace SFT::Renderer {
         if (auto submitted = device.submit(submit_desc); !submitted) {
             device.destroy_fence(*fence);
             device.destroy_command_buffer(*command_buffer);
+            release(device, recording);
             return unexpected(graphics_error_from_rhi(submitted.error(), "submit text render target render"));
         }
         auto waited = device.wait_fences(span<const RHI::FenceHandle>{&*fence, 1}, true);
         if (!waited) {
             device.destroy_fence(*fence);
             device.destroy_command_buffer(*command_buffer);
+            release(device, recording);
             return unexpected(graphics_error_from_rhi(waited.error(), "wait text render target fence"));
         }
         if (!*waited) {
 
 
+            release(device, recording);
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                           "wait text render target fence: vkWaitForFences timed out."});
         }
         device.destroy_fence(*fence);
         device.destroy_command_buffer(*command_buffer);
 
-        for (RHI::BufferHandle buffer : transient_buffers) {
-            device.destroy_buffer(buffer);
-        }
-        for (RHI::TextureViewHandle view : retired_atlas_resources.texture_views) {
-            device.destroy_texture_view(view);
-        }
-        for (RHI::TextureHandle texture : retired_atlas_resources.textures) {
-            device.destroy_texture(texture);
-        }
+        release(device, recording);
 
         return {};
     }

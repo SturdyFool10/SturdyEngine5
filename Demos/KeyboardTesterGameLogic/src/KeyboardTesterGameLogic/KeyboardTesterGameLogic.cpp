@@ -115,7 +115,6 @@ namespace SFT::KeyboardTester {
         if (Engine::AssetResult models = create_key_models(engine); !models) {
             return std::unexpected(Engine::GameLogicError{.message = models.error().message});
         }
-        configure_render_extraction(engine);
         configure_keyboard_tracking(engine);
         spawn_key_entities(engine);
         return {};
@@ -179,23 +178,6 @@ namespace SFT::KeyboardTester {
         grid_state_.pressed.assign(kLayout.size(), false);
         grid_state_last_applied_.assign(kLayout.size(), false);
         return {};
-    }
-
-    /// Configures render extraction using the supplied arguments and current state.
-    ///
-    /// @param engine `engine` value used by the operation.
-    ///
-    /// @return Returns the value produced by the operation.
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void KeyboardTesterGameLogic::configure_render_extraction(Engine::Engine &engine) {
-        engine.ecs_world().bind_resource(engine.render_frame_requests());
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity,
-               const Engine::WorldTransform &transform,
-               const Engine::ModelRenderer &model_renderer,
-               Ecs::WriteResource<Engine::RenderFrameRequests> render) noexcept {
-                render->submit(entity, transform, model_renderer);
-            });
     }
 
     /// Configures keyboard tracking using the supplied arguments and current state.

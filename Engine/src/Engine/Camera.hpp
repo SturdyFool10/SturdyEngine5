@@ -688,10 +688,20 @@ namespace SFT::Engine {
         [[nodiscard]] CameraContainment sees(const CameraAabb &bounds) const noexcept;
 
 
+        /// Compares the cameras' descriptions: transform, projection, lens, exposure, culling and
+        /// viewport settings. Temporal history (`commit_frame`) is deliberately not compared, so a
+        /// per-frame camera description that has not changed compares equal frame to frame.
+        ///
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] bool operator==(const Camera &other) const noexcept;
+
         /// Performs the commit frame operation for `Camera` using the supplied arguments.
         ///
         /// @note This function does not throw exceptions.
         void commit_frame() noexcept;
+        /// Installs a previous-frame view-projection matrix and marks history as present. For a host
+        /// that tracks history itself (see `RenderFrameParameters::engine_managed_camera_history`).
+        void set_previous_view_projection(const glm::mat4 &previous) noexcept;
         /// Resets history to its baseline state.
         ///
         /// @note This function does not throw exceptions.

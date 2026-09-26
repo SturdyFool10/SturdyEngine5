@@ -302,6 +302,10 @@ namespace SFT::UI {
         struct Config {
             usize arena_capacity_bytes = 0;
             u32 max_element_count = 8192;
+            /// When text asks for font id 0 and nothing was registered under it, load the embedded
+            /// default font instead of silently drawing nothing. Turn off for layouts that must not
+            /// depend on glyph metrics (e.g. tests with hard-coded pointer positions).
+            bool load_default_font = true;
         };
 
 

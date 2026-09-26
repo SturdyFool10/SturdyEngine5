@@ -236,6 +236,45 @@ int main() {
     check(!parse_json("{}garbage").has_value(), "parse_json must reject trailing content after the top-level value");
     check(!parse_json("").has_value(), "parse_json must reject empty input");
 
+    // ── runtime-registered (TypeInfoBuilder) types must serialize like reflected ones ─────────
+    struct DynamicRecord {
+        i32 hp = 0;
+        f32 weight = 0.0F;
+        bool alive = false;
+    };
+    TypeInfo dynamic_info =
+        TypeInfoBuilder("test.reflection.document.dynamic_record", sizeof(DynamicRecord), alignof(DynamicRecord))
+            .constructors(
+                [](void *destination, void *source, void *) noexcept {
+                    ::new (destination) DynamicRecord(std::move(*static_cast<DynamicRecord *>(source)));
+                },
+                [](void *object, void *) noexcept { static_cast<DynamicRecord *>(object)->~DynamicRecord(); },
+                [](void *destination, void *) noexcept { ::new (destination) DynamicRecord(); })
+            .field("hp", offsetof(DynamicRecord, hp), sizeof(i32), alignof(i32), type_id_for<i32>())
+            .field("weight", offsetof(DynamicRecord, weight), sizeof(f32), alignof(f32), type_id_for<f32>())
+            .field("alive", offsetof(DynamicRecord, alive), sizeof(bool), alignof(bool), type_id_for<bool>())
+            .build();
+    const auto dynamic_key = TypeRegistry::instance().register_type(std::move(dynamic_info));
+    const TypeInfo *dynamic_type = dynamic_key.has_value() ? TypeRegistry::instance().find(*dynamic_key) : nullptr;
+    check(dynamic_type != nullptr, "the runtime-built record type must register");
+    if (dynamic_type != nullptr) {
+        DynamicRecord record{.hp = 42, .weight = 2.5F, .alive = true};
+        const auto record_document = to_document(*dynamic_type, &record);
+        check(record_document.has_value() && record_document->find("hp") != nullptr && record_document->find("hp")->is_int() &&
+                  record_document->find("hp")->as_int() == 42,
+              "a runtime-registered i32 field must serialize as an Int, not null");
+        check(record_document.has_value() && record_document->find("weight") != nullptr && record_document->find("weight")->is_number() &&
+                  record_document->find("weight")->as_number() == 2.5,
+              "a runtime-registered f32 field must serialize as a number");
+        check(record_document.has_value() && record_document->find("alive") != nullptr && record_document->find("alive")->is_bool(),
+              "a runtime-registered bool field must serialize as a Bool");
+
+        DynamicRecord restored{};
+        check(record_document.has_value() && from_document(*dynamic_type, &restored, *record_document).has_value(),
+              "from_document must accept a runtime-registered type's own document");
+        check(restored.hp == 42 && restored.weight == 2.5F && restored.alive, "a runtime-registered type must round-trip through a document");
+    }
+
     (void)address_type;
 
     if (failures != 0) {

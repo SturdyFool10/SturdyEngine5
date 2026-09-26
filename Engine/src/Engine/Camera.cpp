@@ -883,6 +883,20 @@ namespace SFT::Engine {
     /// @note This function does not throw exceptions.
     glm::mat4 Camera::inverse_view_projection_matrix() const noexcept { return glm::inverse(view_projection_matrix()); }
 
+    bool Camera::operator==(const Camera &other) const noexcept {
+        return position_ == other.position_ && orientation_ == other.orientation_ && projection_mode_ == other.projection_mode_ &&
+               custom_projection_ == other.custom_projection_ && aspect_ratio_ == other.aspect_ratio_ &&
+               vertical_fov_radians_ == other.vertical_fov_radians_ && orthographic_vertical_size_ == other.orthographic_vertical_size_ &&
+               near_clip_ == other.near_clip_ && far_clip_ == other.far_clip_ && lens_shift_ == other.lens_shift_ &&
+               jitter_ndc_ == other.jitter_ndc_ && reverse_z_ == other.reverse_z_ && focal_length_mm_ == other.focal_length_mm_ &&
+               sensor_size_mm_ == other.sensor_size_mm_ && aperture_f_stop_ == other.aperture_f_stop_ &&
+               shutter_seconds_ == other.shutter_seconds_ && iso_ == other.iso_ && focus_distance_ == other.focus_distance_ &&
+               aperture_blades_ == other.aperture_blades_ && exposure_compensation_ev_ == other.exposure_compensation_ev_ &&
+               culling_mask_ == other.culling_mask_ && priority_ == other.priority_ && active_ == other.active_ &&
+               clear_color_ == other.clear_color_ && render_scale_ == other.render_scale_ &&
+               normalized_viewport_ == other.normalized_viewport_;
+    }
+
     /// Performs the project operation for `Engine` using the supplied arguments.
     ///
     /// @param world World used or affected by the operation.
@@ -896,7 +910,9 @@ namespace SFT::Engine {
             return std::nullopt;
         }
         const glm::vec4 clip = view_projection_matrix() * glm::vec4{world, 1.0f};
-        if (!std::isfinite(clip.w) || std::abs(clip.w) <= std::numeric_limits<f32>::epsilon()) {
+        // A non-positive w is at or behind the eye plane; dividing through it would mirror the point
+        // onto the screen, so it has no projection at all.
+        if (!std::isfinite(clip.w) || clip.w <= std::numeric_limits<f32>::epsilon()) {
             return std::nullopt;
         }
         const glm::vec3 ndc = glm::vec3{clip} / clip.w;
@@ -1006,6 +1022,10 @@ namespace SFT::Engine {
     /// @note This function does not throw exceptions.
     void Camera::commit_frame() noexcept {
         previous_view_projection_ = view_projection_matrix();
+        has_history_ = true;
+    }
+    void Camera::set_previous_view_projection(const glm::mat4 &previous) noexcept {
+        previous_view_projection_ = previous;
         has_history_ = true;
     }
     /// Resets history to its baseline state.

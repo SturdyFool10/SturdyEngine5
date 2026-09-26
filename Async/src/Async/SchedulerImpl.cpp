@@ -505,4 +505,31 @@ namespace SFT::Async {
         }
     }
 
+    void parallel_for_erased(usize count, usize chunk, ParallelForFn fn, void *user_data) {
+        if (fn == nullptr || count == 0) {
+            return;
+        }
+        const usize workers = std::max<usize>(1, Scheduler::worker_count());
+        if (chunk == 0) {
+            chunk = std::max<usize>(1, (count + workers * 4 - 1) / (workers * 4));
+        }
+        if (count <= chunk || Scheduler::is_worker_thread()) {
+            fn(0, count, user_data);
+            return;
+        }
+        if (!Scheduler::is_running()) {
+            Scheduler::initialize();
+        }
+
+        std::vector<TaskHandle<void>> tasks;
+        tasks.reserve((count + chunk - 1) / chunk);
+        for (usize begin = 0; begin < count; begin += chunk) {
+            const usize end = std::min(count, begin + chunk);
+            tasks.push_back(Scheduler::spawn([fn, user_data, begin, end]() noexcept { fn(begin, end, user_data); }));
+        }
+        for (TaskHandle<void> &task : tasks) {
+            task.wait();
+        }
+    }
+
 } // namespace SFT::Async

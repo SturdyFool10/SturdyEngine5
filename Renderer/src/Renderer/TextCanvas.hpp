@@ -28,6 +28,12 @@ namespace SFT::Renderer {
         TileCoord coord{};
         RHI::TextureViewHandle view{};
         RHI::Rect2D logical_rect{};
+        /// The tile's backing texture, so a caller can barrier, copy from, or read it back without
+        /// going through the view. Owned by the canvas: valid until the tile is evicted.
+        RHI::TextureHandle texture{};
+        RHI::Format format = RHI::Format::RGBA8Unorm;
+        /// Texel size of the tile (square).
+        u32 size = 0;
     };
 
 

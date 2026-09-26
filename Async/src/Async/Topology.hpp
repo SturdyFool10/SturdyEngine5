@@ -32,4 +32,17 @@ namespace SFT::Async {
     /// @note This function does not throw exceptions.
     [[nodiscard]] bool pin_thread_to_core(std::thread &thread, u32 core_index) noexcept;
 
+    /// Pins a thread the caller does not own as a `std::thread` (a Rust/C thread, a pool worker) given
+    /// its native handle (`pthread_t` on POSIX, `HANDLE` on Windows).
+    ///
+    /// @return Returns `true` when the affinity was applied; `false` on unsupported platforms.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] bool pin_native_thread_to_core(std::thread::native_handle_type handle, u32 core_index) noexcept;
+
+    /// Pins the calling thread to `core_index`.
+    ///
+    /// @return Returns `true` when the affinity was applied; `false` on unsupported platforms.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] bool pin_current_thread_to_core(u32 core_index) noexcept;
+
 } // namespace SFT::Async

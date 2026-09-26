@@ -146,6 +146,11 @@ namespace SFT::Engine {
         std::string fragment_entry_point = "fragmentMain";
         std::vector<std::byte> push_constants;
         UString label;
+        /// Further textures the effect samples, beyond the pass's main input: other graph outputs, an
+        /// earlier frame stage, a mask. The shader declares them as `Texture2D extraTexture0`,
+        /// `extraTexture1`, ... in set 0 alongside `sourceTexture`/`sourceSampler`, one per entry here in
+        /// this order. Each must be produced by an earlier pass of the same graph.
+        std::vector<RenderGraphTextureHandle> extra_inputs;
 
         /// Sets the push constants for this `FullscreenEffectDescription`.
         ///

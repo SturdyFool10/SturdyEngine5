@@ -65,6 +65,21 @@ int main() {
     check(!drifted.has_value() || drifted.error().code == Engine::EcsReflectionBridgeErrorCode::DescriptorMismatch,
           "a size mismatch must be reported as DescriptorMismatch");
 
+    // Name-based overload: no C++ type, just two registrations that must be tied together.
+    const auto by_name = Engine::ensure_reflected(components, "test.engine.ecs_reflection.health", "test.engine.ecs_reflection.health");
+    check(by_name.has_value() && reflected.has_value() && by_name->first == reflected->first && by_name->second == reflected->second,
+          "the name-based ensure_reflected must resolve to the same component id and type key");
+    const auto unknown_component = Engine::ensure_reflected(components, "test.engine.ecs_reflection.nope", "test.engine.ecs_reflection.health");
+    check(!unknown_component.has_value() && unknown_component.error().code == Engine::EcsReflectionBridgeErrorCode::ComponentNotRegistered,
+          "an unknown component name must fail with ComponentNotRegistered");
+    const auto unknown_type = Engine::ensure_reflected(components, "test.engine.ecs_reflection.health", "test.engine.ecs_reflection.nope");
+    check(!unknown_type.has_value() && unknown_type.error().code == Engine::EcsReflectionBridgeErrorCode::TypeNotRegistered,
+          "an unknown type name must fail with TypeNotRegistered");
+    (void)Reflection::TypeRegistry::instance().type<Drifted>(); // ensure_reflected<Drifted> bailed out before registering it
+    const auto mismatched = Engine::ensure_reflected(components, "test.engine.ecs_reflection.health", "test.engine.ecs_reflection.drifted");
+    check(!mismatched.has_value() && mismatched.error().code == Engine::EcsReflectionBridgeErrorCode::DescriptorMismatch,
+          "tying a component to a differently sized type must fail with DescriptorMismatch");
+
     if (!reflected.has_value()) {
         (void)std::fprintf(stderr, "EcsReflectionBridgeTest: %d check(s) failed\n", failures);
         return 1;
@@ -84,6 +99,12 @@ int main() {
     const auto read = Engine::read_component_field(world, entity, component_id, *type, "current", &read_current, sizeof(read_current));
     check(read.has_value(), "read_component_field must succeed for a live entity and a real field");
     check(read_current == 42, "read_component_field must return the entity's live value");
+
+    const Ecs::World &const_world = world;
+    int read_through_const = 0;
+    check(Engine::read_component_field(const_world, entity, component_id, *type, "current", &read_through_const, sizeof(read_through_const)).has_value() &&
+              read_through_const == 42,
+          "read_component_field must work through a const World");
 
     const int new_current = 7;
     const auto written = Engine::write_component_field(world, entity, component_id, *type, "current", &new_current, sizeof(new_current));

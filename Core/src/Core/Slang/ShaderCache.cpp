@@ -34,13 +34,14 @@ namespace SFT::Core::Slang {
         // texture_multisampled_2d / texture_depth_2d vs texture_depth_multisampled_2d).
         // All of these change what is cached without changing the source, the target, or anything
         // else the cache key mixes in, so older entries would otherwise be served as fresh.
-        constexpr u32 shader_cache_format_version = 9;
+        constexpr u32 shader_cache_format_version = 10;
         constexpr u32 shader_cache_magic = 0x53484341u;
 
 
         // Bumped alongside shader_cache_format_version: this cache also stores
-        // ShaderBindingRangeReflection (see write_binding_range/read_binding_range).
-        constexpr u32 shader_reflection_cache_format_version = 9;
+        // ShaderBindingRangeReflection (see write_binding_range/read_binding_range) and, from v10,
+        // ShaderTypeReflection::element_type.
+        constexpr u32 shader_reflection_cache_format_version = 10;
         constexpr u32 shader_reflection_cache_magic = 0x53484352u;
 
 
@@ -391,6 +392,10 @@ namespace SFT::Core::Slang {
             w.write(type.stride);
             w.write(type.alignment);
             write_vector<ShaderFieldReflection>(w, type.fields, write_field);
+            w.write(static_cast<u8>(type.element_type ? 1 : 0));
+            if (type.element_type) {
+                write_type_reflection(w, *type.element_type);
+            }
             write_vector<ShaderBindingRangeReflection>(w, type.binding_ranges, write_binding_range);
         }
 
@@ -424,6 +429,9 @@ namespace SFT::Core::Slang {
             type->fields = read_vector<ShaderFieldReflection>(
                 r, sizeof(u32) + sizeof(u8) + sizeof(u64) * 3,
                 [depth](ByteReader &reader) { return read_field(reader, depth + 1); });
+            if (r.read<u8>() != 0) {
+                type->element_type = read_type_reflection(r, depth + 1);
+            }
             type->binding_ranges = read_vector<ShaderBindingRangeReflection>(
                 r, sizeof(u32) * 10 + sizeof(u8) * 3, read_binding_range);
             return type;
@@ -784,6 +792,14 @@ namespace SFT::Core::Slang {
         for (const ShaderEntryPointRequest &entry_point : options.entry_points) {
             mix_text(entry_point.name);
             mix_u32(static_cast<u32>(entry_point.stage));
+        }
+        // Base-option macros (as opposed to ShaderVariantKey defines, which arrive through
+        // `variant_canonical`) select code paths too. Leaving them out made every macro-configured base
+        // compile of one module share a cache entry, so the first variant ever built was served for all
+        // later ones (found wiring displacement: SFT_HF_ALGORITHM=0..4 all rendered identically).
+        for (const ShaderMacro &macro : options.macros) {
+            mix_text(macro.name);
+            mix_text(macro.value);
         }
         return value;
     }

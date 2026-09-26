@@ -179,6 +179,13 @@ int main() {
     check(registry.try_register_enum<Color>().has_value(), "an unregistered enum must be re-registerable after unload");
     check(registry.find_enum(unload_enum_key) != nullptr, "the re-registered enum must be findable again");
 
+    // Registering a *different* definition under an already-registered name must be reported, not
+    // silently dropped in favour of the first one.
+    EnumInfo conflicting = registry.enum_type<Color>();
+    conflicting.enumerators.pop_back();
+    check(!registry.register_enum(conflicting).has_value(), "re-registering an enum with different enumerators must fail");
+    check(registry.register_enum(registry.enum_type<Color>()).has_value(), "re-registering an identical enum must still succeed");
+
     if (failures != 0) {
         (void)std::fprintf(stderr, "StaticEnumConstructorTest: %d check(s) failed\n", failures);
         return 1;

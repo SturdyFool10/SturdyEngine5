@@ -101,11 +101,11 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     return output;
 }
 
-Texture2D<float4> sceneColor;
-SamplerState sceneSampler;
+Texture2D<float4> sourceTexture;
+SamplerState sourceSampler;
 
 float4 sampleScene(float2 uv) {
-    return sceneColor.SampleLevel(sceneSampler, uv, 0.0);
+    return sourceTexture.SampleLevel(sourceSampler, uv, 0.0);
 }
 
 

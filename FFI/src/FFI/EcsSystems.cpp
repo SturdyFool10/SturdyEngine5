@@ -15,6 +15,8 @@
 
 #include <Foundation/Foundation.hpp>
 
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include <Ecs/Commands.hpp>
@@ -37,9 +39,9 @@ namespace {
 
     /// Everything one registered system needs at dispatch time.
     ///
-    /// Heap-allocated and deliberately never freed: `Schedule` has no way to unregister a system,
-    /// so this lives as long as the engine does. Making that explicit here is better than pretending
-    /// to manage a lifetime that never ends.
+    /// Heap-allocated. A system registered through `sturdy_ecs_add_system*` lives as long as the engine
+    /// and this is never freed; one registered through `sturdy_ecs_add_system_ex` is freed by
+    /// `sturdy_ecs_remove_system`.
     struct RegisteredSystem {
         SturdySystemFn system;
         void *user_data;
@@ -124,14 +126,23 @@ SturdyResult STURDY_ABI_CALL sturdy_ecs_add_system(SturdyEngine engine,
                                                 user_data);
 }
 
-SturdyResult STURDY_ABI_CALL
-sturdy_ecs_add_system_with_resources(SturdyEngine engine,
-                                     const SturdySystemAccess *access,
-                                     uint32_t access_count,
-                                     const SturdySystemResourceAccess *resource_access,
-                                     uint32_t resource_access_count,
-                                     SturdySystemFn system,
-                                     void *user_data) {
+}
+
+namespace {
+
+    /// Shared body of the two registration entry points. `out_handle`, when non-null, receives the
+    /// scheduler's handle and the leaked `RegisteredSystem` is reported through `out_registered`
+    /// so a removable registration can free it later.
+    SturdyResult register_system(SturdyEngine engine,
+                                 const SturdySystemAccess *access,
+                                 uint32_t access_count,
+                                 const SturdySystemResourceAccess *resource_access,
+                                 uint32_t resource_access_count,
+                                 SturdySystemFn system,
+                                 void *user_data,
+                                 SFT::Engine::Engine **out_engine,
+                                 SFT::Ecs::SystemHandle *out_handle,
+                                 RegisteredSystem **out_registered) {
     return guarded([&]() -> SturdyResult {
         if (system == nullptr) {
             return set_error(STURDY_ERROR_INVALID_ARGUMENT, "system body must not be null");
@@ -222,17 +233,137 @@ sturdy_ecs_add_system_with_resources(SturdyEngine engine,
             }
         }
 
-        // Leaked on purpose — see RegisteredSystem. A system lives for the life of the schedule,
-        // and the schedule for the life of the engine.
+        // Freed by sturdy_ecs_remove_system for removable registrations; otherwise it lives as long as
+        // the schedule, and the schedule as long as the engine.
         auto *registered = new RegisteredSystem{system, user_data};
 
+        SFT::Ecs::SystemHandle handle;
         if (ids.empty()) {
-            resolved_engine->update_schedule().add_erased_global_system(
+            handle = resolved_engine->update_schedule().add_erased_global_system(
                 std::move(system_access), invoke_system, registered, prepare_dispatch, finish_dispatch);
         } else {
-            resolved_engine->update_schedule().add_erased_system(std::move(system_access), std::move(ids),
-                                                                 invoke_system, registered,
-                                                                 prepare_dispatch, finish_dispatch);
+            handle = resolved_engine->update_schedule().add_erased_system(std::move(system_access), std::move(ids),
+                                                                          invoke_system, registered,
+                                                                          prepare_dispatch, finish_dispatch);
+        }
+        if (out_engine != nullptr) *out_engine = resolved_engine;
+        if (out_handle != nullptr) *out_handle = handle;
+        if (out_registered != nullptr) *out_registered = registered;
+        return STURDY_OK;
+    });
+    }
+
+    struct RemovableSystem {
+        SFT::Engine::Engine *engine;
+        SFT::Ecs::SystemHandle handle;
+        RegisteredSystem *registered;
+    };
+    std::mutex g_systems_mutex;
+    std::unordered_map<uint64_t, RemovableSystem> g_systems;
+    uint64_t g_next_system_token = 1;
+
+    [[nodiscard]] SturdyResult resolve_system(SturdyEngine engine, SturdySystem system, RemovableSystem *out) noexcept {
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        if (const SturdyResult resolved = resolve_engine(engine, &resolved_engine); resolved != STURDY_OK) {
+            return resolved;
+        }
+        const std::lock_guard<std::mutex> lock{g_systems_mutex};
+        const auto found = g_systems.find(system.token);
+        if (found == g_systems.end() || found->second.engine != resolved_engine) {
+            return set_error(STURDY_ERROR_INVALID_HANDLE, "no such system is registered on this engine");
+        }
+        *out = found->second;
+        return STURDY_OK;
+    }
+
+} // namespace
+
+extern "C" {
+
+SturdyResult STURDY_ABI_CALL
+sturdy_ecs_add_system_with_resources(SturdyEngine engine,
+                                     const SturdySystemAccess *access,
+                                     uint32_t access_count,
+                                     const SturdySystemResourceAccess *resource_access,
+                                     uint32_t resource_access_count,
+                                     SturdySystemFn system,
+                                     void *user_data) {
+    return register_system(engine, access, access_count, resource_access, resource_access_count, system, user_data,
+                           nullptr, nullptr, nullptr);
+}
+
+SturdyResult STURDY_ABI_CALL
+sturdy_ecs_add_system_ex(SturdyEngine engine,
+                         const SturdySystemAccess *access,
+                         uint32_t access_count,
+                         const SturdySystemResourceAccess *resource_access,
+                         uint32_t resource_access_count,
+                         SturdySystemFn system,
+                         void *user_data,
+                         SturdySystem *out_system) {
+    if (out_system == nullptr) {
+        return set_error(STURDY_ERROR_INVALID_ARGUMENT, "out_system must not be null");
+    }
+    SFT::Engine::Engine *resolved_engine = nullptr;
+    SFT::Ecs::SystemHandle handle;
+    RegisteredSystem *registered = nullptr;
+    const SturdyResult result = register_system(engine, access, access_count, resource_access, resource_access_count,
+                                                system, user_data, &resolved_engine, &handle, &registered);
+    if (result != STURDY_OK) {
+        return result;
+    }
+    return guarded([&]() -> SturdyResult {
+        const std::lock_guard<std::mutex> lock{g_systems_mutex};
+        const uint64_t token = g_next_system_token++;
+        g_systems.emplace(token, RemovableSystem{resolved_engine, handle, registered});
+        out_system->token = token;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ecs_remove_system(SturdyEngine engine, SturdySystem system) {
+    return guarded([&]() -> SturdyResult {
+        RemovableSystem entry{};
+        if (const SturdyResult resolved = resolve_system(engine, system, &entry); resolved != STURDY_OK) {
+            return resolved;
+        }
+        if (!entry.engine->update_schedule().remove_system(entry.handle)) {
+            return set_error(STURDY_ERROR_INVALID_HANDLE, "the system is no longer registered");
+        }
+        {
+            const std::lock_guard<std::mutex> lock{g_systems_mutex};
+            g_systems.erase(system.token);
+        }
+        // Nothing can be running it any more (removal is refused mid-run), so the dispatch record and
+        // whatever user_data the caller owns are safe to release.
+        delete entry.registered;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ecs_set_system_enabled(SturdyEngine engine, SturdySystem system, SturdyBool enabled) {
+    return guarded([&]() -> SturdyResult {
+        RemovableSystem entry{};
+        if (const SturdyResult resolved = resolve_system(engine, system, &entry); resolved != STURDY_OK) {
+            return resolved;
+        }
+        (void)entry.engine->update_schedule().set_system_enabled(entry.handle, enabled != STURDY_FALSE);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ecs_order_system_after(SturdyEngine engine, SturdySystem system, SturdySystem dependency) {
+    return guarded([&]() -> SturdyResult {
+        RemovableSystem entry{};
+        RemovableSystem dependency_entry{};
+        if (const SturdyResult resolved = resolve_system(engine, system, &entry); resolved != STURDY_OK) {
+            return resolved;
+        }
+        if (const SturdyResult resolved = resolve_system(engine, dependency, &dependency_entry); resolved != STURDY_OK) {
+            return resolved;
+        }
+        if (!entry.engine->update_schedule().order_after(entry.handle, dependency_entry.handle)) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "a system cannot be ordered after itself");
         }
         return STURDY_OK;
     });

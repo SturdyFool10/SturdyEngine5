@@ -42,14 +42,14 @@ VertexOutput vertexMain(uint vertexId : SV_VertexID) {
     return output;
 }
 
-Texture2D<float4> sceneTexture;
-Texture2D<float4> bloomTexture;
+Texture2D<float4> sourceTexture;
+Texture2D<float4> extraTexture0;
 SamplerState sourceSampler;
 
 [shader("fragment")]
 float4 fragmentMain(VertexOutput input) : SV_Target {
-    float4 sceneSample = sceneTexture.Sample(sourceSampler, input.uv);
-    float4 bloomSample = bloomTexture.Sample(sourceSampler, input.uv);
+    float4 sceneSample = sourceTexture.Sample(sourceSampler, input.uv);
+    float4 bloomSample = extraTexture0.Sample(sourceSampler, input.uv);
     float3 scene = max(sceneSample.rgb, 0.0);
     float3 bloom = max(bloomSample.rgb, 0.0);
     float intensity = saturate(composite.bloomIntensity);

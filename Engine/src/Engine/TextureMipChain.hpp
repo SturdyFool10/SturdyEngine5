@@ -55,3 +55,14 @@ namespace SFT::Engine::Detail {
         std::span<const std::byte> rgba16f, u32 width, u32 height);
 
 } // namespace SFT::Engine::Detail
+
+namespace SFT::Engine {
+
+    // Public names for mip-chain generation, usable standalone (asset cooking).
+    using Detail::TextureMipChain;
+    using Detail::texture_mip_level_count;
+    using Detail::generate_rgba8_mip_chain;
+    using Detail::generate_rgba16f_mip_chain;
+
+} // namespace SFT::Engine
+

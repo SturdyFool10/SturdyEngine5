@@ -5,6 +5,7 @@
 #include <cstring>
 #pragma endregion
 
+#include <Renderer/Text/EmbeddedFont.hpp>
 #include <Renderer/UI/TextBridge.hpp>
 
 namespace SFT::UI {
@@ -75,6 +76,18 @@ namespace SFT::UI {
         return nullptr;
     }
 
+    const TextBridge::FontEntry *TextBridge::ensure_default_font() {
+        if (!default_font_attempted_) {
+            default_font_attempted_ = true;
+            const auto bytes = Text::embedded_default_font_bytes();
+            if (auto loaded = Text::Font::load(bytes)) {
+                default_font_ = std::make_unique<Text::Font>(std::move(*loaded));
+                register_font(0, *default_font_);
+            }
+        }
+        return find_font(0);
+    }
+
     /// Performs the font stack operation for `UI` using the supplied arguments.
     ///
     /// @param font_id Identifier of the target object or resource.
@@ -102,7 +115,16 @@ namespace SFT::UI {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     const CachedShape *TextBridge::shape_and_cache(const TextStyle &style, string_view utf8_content) {
         const FontEntry *entry = find_font(style.font_id);
-        if (entry == nullptr || entry->stack.primary == nullptr) {
+        if (entry == nullptr && style.font_id == 0 && load_default_font_) {
+            entry = ensure_default_font();
+        }
+        if (entry == nullptr) {
+            if (reported_missing_fonts_.insert(style.font_id).second) {
+                Foundation::log_warn("UI text uses font id {} but no font is registered under it; the text will not be drawn", style.font_id);
+            }
+            return nullptr;
+        }
+        if (entry->stack.primary == nullptr) {
             return nullptr;
         }
 

@@ -103,6 +103,15 @@ namespace SFT::UI {
             f32 grab_offset = 0.0f;
         };
 
+        /// Read-only view of the vertical scrollbar's live state: `last_offset` is the scroll offset
+        /// seen on the last update, `dragging` whether its thumb is being dragged, `opacity` how
+        /// visible the bar currently is.
+        [[nodiscard]] const Axis &vertical() const noexcept { return vertical_; }
+        /// Read-only view of the horizontal scrollbar's live state. See `vertical`.
+        [[nodiscard]] const Axis &horizontal() const noexcept { return horizontal_; }
+        /// True while either scrollbar thumb is being dragged.
+        [[nodiscard]] bool dragging() const noexcept { return vertical_.dragging || horizontal_.dragging; }
+
       private:
         friend struct DetailScrollAreaAccess;
 

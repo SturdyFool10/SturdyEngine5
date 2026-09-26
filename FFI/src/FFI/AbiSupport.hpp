@@ -116,19 +116,6 @@ namespace SFT::Ffi {
     /// @note This function does not throw exceptions. The error slot is populated on failure.
     [[nodiscard]] SturdyResult resolve_engine(SturdyEngine engine, Engine::Engine **out_engine) noexcept;
 
-    /// Registers the render-extraction systems a rendered frame depends on.
-    ///
-    /// The engine does not extract renderables on its own: an application registers systems that
-    /// walk `WorldTransform` + `ModelRenderer` (and the light components) and submit them to the
-    /// frame. A C++ product writes those itself; a foreign caller cannot, because they need typed
-    /// component and resource access this ABI does not expose. Without them every entity is
-    /// invisible while every call still reports success — so this runs once at startup, before any
-    /// game-logic callback.
-    ///
-    /// @param engine Engine to configure.
-    ///
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void install_render_extraction(Engine::Engine &engine);
 
     /// Writes `text` into a caller-supplied buffer following the ABI's string-output convention.
     ///

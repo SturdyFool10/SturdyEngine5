@@ -478,6 +478,7 @@ namespace SFT::UI {
                                                 "Clay_Initialize failed (arena too small).");
         }
         result.context_ = context;
+        result.text_bridge_.set_load_default_font(config.load_default_font);
         Clay_SetMeasureTextFunction(&TextBridge::measure_callback, &result.text_bridge_);
         return result;
     }

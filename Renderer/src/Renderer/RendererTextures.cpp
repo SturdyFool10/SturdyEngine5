@@ -94,6 +94,10 @@ namespace SFT::Renderer {
                 // in: no 8-bit format can hold scene-linear light above display white, and no BC
                 // format this engine can encode holds float at all.
                 case RHI::Format::RGBA16Float: texel_size = 8; break;
+                // Displacement heightfields / hierarchies (Renderer::create_displaced_material): no R16Unorm
+                // exists in the RHI, so height data is stored as exact 32-bit float.
+                case RHI::Format::R32Float: texel_size = 4; break;
+                case RHI::Format::RG32Float: texel_size = 8; break;
                 default: return 0;
             }
             const u64 texels = static_cast<u64>(width) * height;
@@ -120,6 +124,8 @@ namespace SFT::Renderer {
                 case RHI::Format::RGBA8Unorm:
                 case RHI::Format::RGBA8UnormSrgb: return 4;
                 case RHI::Format::RGBA16Float: return 8;
+                case RHI::Format::R32Float: return 4;
+                case RHI::Format::RG32Float: return 8;
                 default: return 0;
             }
         }

@@ -1,9 +1,12 @@
 #pragma once
 
+#include <Reflection/Macros.hpp>
+#include <Reflection/PrimitiveKind.hpp>
 #include <Reflection/TypeInfo.hpp>
 
 #include <Foundation/Foundation.hpp>
 
+#include <array>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -112,6 +115,9 @@ namespace SFT::Reflection {
         /// @param copy_get Required when `field_flags` omits `Trivial`.
         /// @param copy_set Required when `field_flags` omits `Trivial` and the field is writable.
         /// @param attributes Arbitrary tooling/mod-facing metadata (see `find_attribute`).
+        /// @param primitive_kind Which scalar shape a `Trivial` field's bytes represent, consumed
+        /// by `to_document`/`from_document`. Left as `None`, it is inferred from `field_type` when
+        /// that names a built-in scalar (`bool`, the fixed-width integers, `float`, `double`).
         ///
         /// @return Returns `*this` so calls can be chained.
         TypeInfoBuilder &field(std::string_view name,
@@ -122,7 +128,11 @@ namespace SFT::Reflection {
                                 FieldFlags field_flags = FieldFlags::Trivial,
                                 FieldCopyGetFn copy_get = nullptr,
                                 FieldCopySetFn copy_set = nullptr,
-                                std::vector<Attribute> attributes = {}) {
+                                std::vector<Attribute> attributes = {},
+                                PrimitiveKind primitive_kind = PrimitiveKind::None) {
+            if (primitive_kind == PrimitiveKind::None && has_flag(field_flags, FieldFlags::Trivial)) {
+                primitive_kind = infer_primitive_kind(field_type, size);
+            }
             info_.fields.push_back(FieldInfo{
                 .key = TypeId::from_name(name),
                 .name = UString{name},
@@ -134,6 +144,7 @@ namespace SFT::Reflection {
                 .copy_get = copy_get,
                 .copy_set = copy_set,
                 .attributes = std::move(attributes),
+                .primitive_kind = primitive_kind,
             });
             return *this;
         }
@@ -193,7 +204,11 @@ namespace SFT::Reflection {
                                        FieldFlags field_flags = FieldFlags::Trivial,
                                        FieldCopyGetFn copy_get = nullptr,
                                        FieldCopySetFn copy_set = nullptr,
-                                       std::vector<Attribute> attributes = {}) {
+                                       std::vector<Attribute> attributes = {},
+                                       PrimitiveKind primitive_kind = PrimitiveKind::None) {
+            if (primitive_kind == PrimitiveKind::None && has_flag(field_flags, FieldFlags::Trivial)) {
+                primitive_kind = infer_primitive_kind(field_type, size);
+            }
             info_.static_fields.push_back(FieldInfo{
                 .key = TypeId::from_name(name),
                 .name = UString{name},
@@ -206,6 +221,7 @@ namespace SFT::Reflection {
                 .copy_set = copy_set,
                 .attributes = std::move(attributes),
                 .static_address = address,
+                .primitive_kind = primitive_kind,
             });
             return *this;
         }
@@ -276,6 +292,35 @@ namespace SFT::Reflection {
         }
 
       private:
+        /// Recovers a scalar's `PrimitiveKind` from its `type_id_for` identity; `None` for
+        /// anything that isn't a built-in scalar of exactly `size` bytes.
+        [[nodiscard]] static PrimitiveKind infer_primitive_kind(TypeId field_type, usize size) {
+            struct Entry {
+                TypeId id;
+                usize size;
+                PrimitiveKind kind;
+            };
+            const auto entries = std::to_array<Entry>({
+                {type_id_for<bool>(), sizeof(bool), PrimitiveKind::Bool},
+                {type_id_for<i8>(), sizeof(i8), PrimitiveKind::SignedInt},
+                {type_id_for<i16>(), sizeof(i16), PrimitiveKind::SignedInt},
+                {type_id_for<i32>(), sizeof(i32), PrimitiveKind::SignedInt},
+                {type_id_for<i64>(), sizeof(i64), PrimitiveKind::SignedInt},
+                {type_id_for<u8>(), sizeof(u8), PrimitiveKind::UnsignedInt},
+                {type_id_for<u16>(), sizeof(u16), PrimitiveKind::UnsignedInt},
+                {type_id_for<u32>(), sizeof(u32), PrimitiveKind::UnsignedInt},
+                {type_id_for<u64>(), sizeof(u64), PrimitiveKind::UnsignedInt},
+                {type_id_for<f32>(), sizeof(f32), PrimitiveKind::Float},
+                {type_id_for<f64>(), sizeof(f64), PrimitiveKind::Float},
+            });
+            for (const Entry &entry : entries) {
+                if (entry.id == field_type && entry.size == size) {
+                    return entry.kind;
+                }
+            }
+            return PrimitiveKind::None;
+        }
+
         TypeInfo info_{};
     };
 

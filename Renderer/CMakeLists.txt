@@ -36,5 +36,33 @@ sturdy_add_package(Renderer
 )
 
 sturdy_add_tests(Renderer
-    TIMEOUTS Text/DocumentTest=30 Text/RasterTest=30
+    TIMEOUTS Text/DocumentTest=30 Text/RasterTest=30 DisplacementGpuParityTest=180
     BIN_DIR UI/DockWorkspaceTest UI/WidgetTest UI/WidgetCompositionTest)
+
+# The same GPU-parity test against Dawn (WGSL). Built only with WebGPU support; it needs the define to
+# compile its WebGPU bring-up in, which the glob-registered Vulkan flavour above does not get.
+if(STURDY_ENABLE_WEBGPU)
+    sturdy_add_test(Renderer tests/DisplacementGpuParityTest.cpp
+        NAME RendererDisplacementGpuParityWebGpuTest
+        TIMEOUT 300
+        DEFINES DISPLACEMENT_PARITY_WEBGPU=1
+        ARGS webgpu)
+endif()
+
+# The ray-tracing displacement probe (software fallback) against Dawn (WGSL); same reason as above.
+if(STURDY_ENABLE_WEBGPU)
+    sturdy_add_test(Renderer tests/DisplacementRayTracingGpuTest.cpp
+        NAME RendererDisplacementRayTracingGpuWebGpuTest
+        TIMEOUT 300
+        DEFINES DISPLACEMENT_RT_WEBGPU=1
+        ARGS webgpu)
+endif()
+
+# The hierarchy-build / traversal-optimization GPU test against Dawn (WGSL); same reason as above.
+if(STURDY_ENABLE_WEBGPU)
+    sturdy_add_test(Renderer tests/DisplacementHierarchyBuildGpuTest.cpp
+        NAME RendererDisplacementHierarchyBuildGpuWebGpuTest
+        TIMEOUT 300
+        DEFINES DISPLACEMENT_HB_WEBGPU=1
+        ARGS webgpu)
+endif()

@@ -175,6 +175,11 @@ namespace SFT::Engine {
 
         SFT::Renderer::UiOverlayHooks ui_overlay;
         UString debug_label;
+        /// When true, the engine remembers this surface's view-projection between frames and supplies
+        /// it as the camera's temporal history, so the caller neither keeps a persistent `Camera` nor
+        /// calls `Camera::commit_frame`. Call `Engine::reset_camera_history(surface)` on a camera cut.
+        /// When false (the default) the camera's own history is used exactly as before.
+        bool engine_managed_camera_history = false;
     };
 
 

@@ -1,5 +1,6 @@
 #include <Foundation/Foundation.hpp>
 #include <cstddef>
+#include <cstdlib>
 #include <expected>
 #include <limits>
 #include <memory>
@@ -17,6 +18,8 @@
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
+#include <poll.h>
+#include <cerrno>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -382,6 +385,288 @@ namespace SFT::Async {
             }
         }
 
+        namespace {
+
+            /// How long a blocking wait sleeps before re-checking whether its socket was closed.
+            constexpr int wait_slice_milliseconds = 50;
+
+            /// Waits until `handle` is readable. Returns 1 when readable, 0 when the socket was closed
+            /// while waiting, -1 on a socket error.
+            [[nodiscard]] int wait_readable_or_closed(const std::shared_ptr<TcpConnectionState> &state, i64 handle) noexcept {
+                for (;;) {
+                    if (!connection_is_open(state)) {
+                        return 0;
+                    }
+#if defined(_WIN32)
+                    WSAPOLLFD descriptor{};
+                    descriptor.fd = static_cast<SOCKET>(handle);
+                    descriptor.events = POLLRDNORM;
+                    const int ready = ::WSAPoll(&descriptor, 1, wait_slice_milliseconds);
+                    if (ready == SOCKET_ERROR) {
+                        return -1;
+                    }
+#else
+                    pollfd descriptor{};
+                    descriptor.fd = static_cast<int>(handle);
+                    descriptor.events = POLLIN;
+                    const int ready = ::poll(&descriptor, 1, wait_slice_milliseconds);
+                    if (ready < 0) {
+                        if (errno == EINTR) {
+                            continue;
+                        }
+                        return -1;
+                    }
+#endif
+                    if (ready > 0) {
+                        return 1;
+                    }
+                }
+            }
+
+            /// Resolves `host:port` for the given socket type; an empty host with `passive` set means "any".
+            [[nodiscard]] addrinfo *resolve_endpoint(const string &host, u16 port, int socket_type, bool passive) noexcept {
+                addrinfo hints{};
+                hints.ai_family = AF_UNSPEC;
+                hints.ai_socktype = socket_type;
+                hints.ai_flags = passive ? AI_PASSIVE : 0;
+                addrinfo *resolved = nullptr;
+                const string port_text = std::to_string(port);
+                const char *node = host.empty() ? nullptr : host.c_str();
+                if (getaddrinfo(node, port_text.c_str(), &hints, &resolved) != 0) {
+                    return nullptr;
+                }
+                return resolved;
+            }
+
+            /// Creates a socket bound to `host:port`; `listen_backlog > 0` also puts it in listening mode.
+            [[nodiscard]] i64 bind_native(const string &host, u16 port, int socket_type, int listen_backlog) noexcept {
+                addrinfo *resolved = resolve_endpoint(host, port, socket_type, true);
+                if (resolved == nullptr) {
+                    return -1;
+                }
+                i64 handle = -1;
+                for (addrinfo *candidate = resolved; candidate != nullptr; candidate = candidate->ai_next) {
+#if defined(_WIN32)
+                    const SOCKET native = ::socket(candidate->ai_family, candidate->ai_socktype, candidate->ai_protocol);
+                    if (native == INVALID_SOCKET) {
+                        continue;
+                    }
+                    if (listen_backlog > 0) {
+                        const BOOL reuse = TRUE;
+                        (void)::setsockopt(native, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&reuse), sizeof(reuse));
+                    }
+                    if (::bind(native, candidate->ai_addr, static_cast<int>(candidate->ai_addrlen)) == 0 &&
+                        (listen_backlog <= 0 || ::listen(native, listen_backlog) == 0)) {
+                        handle = static_cast<i64>(native);
+                        break;
+                    }
+                    closesocket(native);
+#else
+                    const int native = ::socket(candidate->ai_family, candidate->ai_socktype, candidate->ai_protocol);
+                    if (native < 0) {
+                        continue;
+                    }
+                    if (listen_backlog > 0) {
+                        const int reuse = 1;
+                        (void)::setsockopt(native, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+                    }
+                    if (::bind(native, candidate->ai_addr, candidate->ai_addrlen) == 0 &&
+                        (listen_backlog <= 0 || ::listen(native, listen_backlog) == 0)) {
+                        handle = static_cast<i64>(native);
+                        break;
+                    }
+                    ::close(native);
+#endif
+                }
+                freeaddrinfo(resolved);
+                return handle;
+            }
+
+        } // namespace
+
+        expected<TcpListener, IoError> listen_blocking(const string &host, u16 port, int backlog) {
+#if defined(_WIN32)
+            if (!ensure_winsock_initialized()) {
+                return unexpected(IoError{IoErrorCode::Unknown, "WSAStartup() failed"});
+            }
+#endif
+            const i64 handle = bind_native(host, port, SOCK_STREAM, backlog > 0 ? backlog : 1);
+            if (handle < 0) {
+                return unexpected(IoError{IoErrorCode::PermissionDenied, "Failed to bind and listen on '" + host + ":" + std::to_string(port) + "'"});
+            }
+            try {
+                return TcpListener(handle);
+            } catch (...) {
+                close_native(handle);
+                return unexpected(IoError{IoErrorCode::Unknown, "Failed to create TcpListener state"});
+            }
+        }
+
+        expected<TcpConnection, IoError> accept_blocking(const std::shared_ptr<TcpConnectionState> &state) {
+            ConnectionOperation operation{state};
+            const i64 handle = operation.handle();
+            if (handle < 0) {
+                return unexpected(IoError{IoErrorCode::InvalidArgument, "accept() called on a closed TcpListener"});
+            }
+            for (;;) {
+                const int readiness = wait_readable_or_closed(state, handle);
+                if (readiness == 0) {
+                    return unexpected(IoError{IoErrorCode::InvalidArgument, "TcpListener was closed while accepting"});
+                }
+                if (readiness < 0) {
+                    return unexpected(IoError{IoErrorCode::Unknown, "poll() failed while accepting"});
+                }
+#if defined(_WIN32)
+                const SOCKET accepted = ::accept(static_cast<SOCKET>(handle), nullptr, nullptr);
+                if (accepted == INVALID_SOCKET) {
+                    continue;
+                }
+                const i64 accepted_handle = static_cast<i64>(accepted);
+#else
+                const int accepted = ::accept(static_cast<int>(handle), nullptr, nullptr);
+                if (accepted < 0) {
+                    // The connection can vanish between poll and accept (or a signal can interrupt); retry.
+                    continue;
+                }
+                const i64 accepted_handle = static_cast<i64>(accepted);
+#endif
+                try {
+                    return TcpConnection(accepted_handle);
+                } catch (...) {
+                    close_native(accepted_handle);
+                    return unexpected(IoError{IoErrorCode::Unknown, "Failed to create TcpConnection state"});
+                }
+            }
+        }
+
+        expected<UdpSocket, IoError> udp_bind_blocking(const string &host, u16 port) {
+#if defined(_WIN32)
+            if (!ensure_winsock_initialized()) {
+                return unexpected(IoError{IoErrorCode::Unknown, "WSAStartup() failed"});
+            }
+#endif
+            const i64 handle = bind_native(host, port, SOCK_DGRAM, 0);
+            if (handle < 0) {
+                return unexpected(IoError{IoErrorCode::PermissionDenied, "Failed to bind UDP socket on '" + host + ":" + std::to_string(port) + "'"});
+            }
+            try {
+                return UdpSocket(handle);
+            } catch (...) {
+                close_native(handle);
+                return unexpected(IoError{IoErrorCode::Unknown, "Failed to create UdpSocket state"});
+            }
+        }
+
+        expected<usize, IoError> udp_send_blocking(const std::shared_ptr<TcpConnectionState> &state, const string &host, u16 port,
+                                                    span<const std::byte> data) {
+            if (!socket_call_size_supported(data.size())) {
+                return unexpected(IoError{IoErrorCode::InvalidArgument, "send_to() payload exceeds the platform socket-call limit"});
+            }
+            ConnectionOperation operation{state};
+            const i64 handle = operation.handle();
+            if (handle < 0) {
+                return unexpected(IoError{IoErrorCode::InvalidArgument, "send_to() called on a closed UdpSocket"});
+            }
+            addrinfo *resolved = resolve_endpoint(host, port, SOCK_DGRAM, false);
+            if (resolved == nullptr) {
+                return unexpected(IoError{IoErrorCode::NotFound, "Failed to resolve host '" + host + "'"});
+            }
+#if defined(_WIN32)
+            const int sent = ::sendto(static_cast<SOCKET>(handle), reinterpret_cast<const char *>(data.data()), static_cast<int>(data.size()), 0,
+                                      resolved->ai_addr, static_cast<int>(resolved->ai_addrlen));
+            freeaddrinfo(resolved);
+            if (sent == SOCKET_ERROR) {
+                return unexpected(IoError{IoErrorCode::ConnectionReset, "sendto() failed"});
+            }
+#else
+            const ssize_t sent = ::sendto(static_cast<int>(handle), data.data(), data.size(), 0, resolved->ai_addr, resolved->ai_addrlen);
+            freeaddrinfo(resolved);
+            if (sent < 0) {
+                return unexpected(IoError{IoErrorCode::ConnectionReset, "sendto() failed"});
+            }
+#endif
+            return static_cast<usize>(sent);
+        }
+
+        expected<UdpDatagram, IoError> udp_receive_blocking(const std::shared_ptr<TcpConnectionState> &state, usize max_bytes) {
+            if (!socket_call_size_supported(max_bytes)) {
+                return unexpected(IoError{IoErrorCode::InvalidArgument, "receive_from() limit exceeds the platform socket-call limit"});
+            }
+            ConnectionOperation operation{state};
+            const i64 handle = operation.handle();
+            if (handle < 0) {
+                return unexpected(IoError{IoErrorCode::InvalidArgument, "receive_from() called on a closed UdpSocket"});
+            }
+            const int readiness = wait_readable_or_closed(state, handle);
+            if (readiness == 0) {
+                return unexpected(IoError{IoErrorCode::InvalidArgument, "UdpSocket was closed while receiving"});
+            }
+            if (readiness < 0) {
+                return unexpected(IoError{IoErrorCode::Unknown, "poll() failed while receiving"});
+            }
+            // close() shuts the socket down to wake this wait, which also makes it "readable"; a wake
+            // caused by closing is not a datagram.
+            if (!connection_is_open(state)) {
+                return unexpected(IoError{IoErrorCode::InvalidArgument, "UdpSocket was closed while receiving"});
+            }
+            UdpDatagram datagram;
+            try {
+                datagram.data.resize(max_bytes);
+            } catch (...) {
+                return unexpected(IoError{IoErrorCode::Unknown, "Failed to allocate receive buffer"});
+            }
+            sockaddr_storage sender{};
+#if defined(_WIN32)
+            int sender_length = static_cast<int>(sizeof(sender));
+            const int received = ::recvfrom(static_cast<SOCKET>(handle), reinterpret_cast<char *>(datagram.data.data()),
+                                            static_cast<int>(datagram.data.size()), 0, reinterpret_cast<sockaddr *>(&sender), &sender_length);
+            if (received == SOCKET_ERROR) {
+                return unexpected(IoError{IoErrorCode::ConnectionReset, "recvfrom() failed"});
+            }
+#else
+            socklen_t sender_length = sizeof(sender);
+            const ssize_t received = ::recvfrom(static_cast<int>(handle), datagram.data.data(), datagram.data.size(), 0,
+                                                reinterpret_cast<sockaddr *>(&sender), &sender_length);
+            if (received < 0) {
+                return unexpected(IoError{IoErrorCode::ConnectionReset, "recvfrom() failed"});
+            }
+#endif
+            datagram.data.resize(static_cast<usize>(received));
+            char host_text[NI_MAXHOST] = {};
+            char port_text[NI_MAXSERV] = {};
+            if (::getnameinfo(reinterpret_cast<const sockaddr *>(&sender), sender_length, host_text, sizeof(host_text), port_text,
+                              sizeof(port_text), NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
+                datagram.sender_host = host_text;
+                datagram.sender_port = static_cast<u16>(std::strtoul(port_text, nullptr, 10));
+            }
+            return datagram;
+        }
+
+        expected<u16, IoError> local_port_blocking(const std::shared_ptr<TcpConnectionState> &state) {
+            ConnectionOperation operation{state};
+            const i64 handle = operation.handle();
+            if (handle < 0) {
+                return unexpected(IoError{IoErrorCode::InvalidArgument, "local_port() called on a closed socket"});
+            }
+            sockaddr_storage address{};
+#if defined(_WIN32)
+            int length = static_cast<int>(sizeof(address));
+            if (::getsockname(static_cast<SOCKET>(handle), reinterpret_cast<sockaddr *>(&address), &length) == SOCKET_ERROR) {
+#else
+            socklen_t length = sizeof(address);
+            if (::getsockname(static_cast<int>(handle), reinterpret_cast<sockaddr *>(&address), &length) != 0) {
+#endif
+                return unexpected(IoError{IoErrorCode::Unknown, "getsockname() failed"});
+            }
+            if (address.ss_family == AF_INET) {
+                return static_cast<u16>(ntohs(reinterpret_cast<const sockaddr_in *>(&address)->sin_port));
+            }
+            if (address.ss_family == AF_INET6) {
+                return static_cast<u16>(ntohs(reinterpret_cast<const sockaddr_in6 *>(&address)->sin6_port));
+            }
+            return unexpected(IoError{IoErrorCode::Unsupported, "Unsupported socket address family"});
+        }
+
     } // namespace Detail
 
     /// Performs the TCP connection operation for `Async` using the supplied arguments.
@@ -436,5 +721,33 @@ namespace SFT::Async {
     void TcpConnection::close() noexcept {
         Detail::close_blocking(state_);
     }
+
+    TcpListener::TcpListener(i64 native_handle) : state_(std::make_shared<Detail::TcpConnectionState>(native_handle)) {}
+    TcpListener::~TcpListener() noexcept { close(); }
+    TcpListener::TcpListener(TcpListener &&other) noexcept : state_(std::move(other.state_)) {}
+    TcpListener &TcpListener::operator=(TcpListener &&other) noexcept {
+        if (this != &other) {
+            close();
+            state_ = std::move(other.state_);
+        }
+        return *this;
+    }
+    bool TcpListener::is_open() const noexcept { return Detail::connection_is_open(state_); }
+    void TcpListener::close() noexcept { Detail::close_blocking(state_); }
+    std::expected<u16, IoError> TcpListener::local_port() const { return Detail::local_port_blocking(state_); }
+
+    UdpSocket::UdpSocket(i64 native_handle) : state_(std::make_shared<Detail::TcpConnectionState>(native_handle)) {}
+    UdpSocket::~UdpSocket() noexcept { close(); }
+    UdpSocket::UdpSocket(UdpSocket &&other) noexcept : state_(std::move(other.state_)) {}
+    UdpSocket &UdpSocket::operator=(UdpSocket &&other) noexcept {
+        if (this != &other) {
+            close();
+            state_ = std::move(other.state_);
+        }
+        return *this;
+    }
+    bool UdpSocket::is_open() const noexcept { return Detail::connection_is_open(state_); }
+    void UdpSocket::close() noexcept { Detail::close_blocking(state_); }
+    std::expected<u16, IoError> UdpSocket::local_port() const { return Detail::local_port_blocking(state_); }
 
 } // namespace SFT::Async

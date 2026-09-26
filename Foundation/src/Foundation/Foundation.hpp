@@ -23,6 +23,7 @@
 #include <Foundation/Cpu/SimdMath.hpp>
 #include <Foundation/Memory.hpp>
 #include <Foundation/Utils.hpp>
+#include <Foundation/CacheDirectory.hpp>
 #include <Foundation/Stopwatch.hpp>
 #include <Foundation/Cli.hpp>
 

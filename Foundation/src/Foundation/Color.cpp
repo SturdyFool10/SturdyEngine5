@@ -62,9 +62,9 @@ namespace SFT::Foundation::Color {
     /// @note This function does not throw exceptions.
     Linear Xyz::to_linear() const noexcept {
         return {
-            3.2406 * x - 1.5372 * y - 0.4986 * z,
-            -0.9689 * x + 1.8758 * y + 0.0415 * z,
-            0.0557 * x - 0.2040 * y + 1.0570 * z,
+            3.2409699 * x - 1.5373832 * y - 0.4986108 * z,
+            -0.9692436 * x + 1.8759675 * y + 0.0415551 * z,
+            0.0556301 * x - 0.2039770 * y + 1.0569715 * z,
             alpha,
         };
     }
@@ -77,9 +77,9 @@ namespace SFT::Foundation::Color {
     /// @note This function does not throw exceptions.
     Xyz Xyz::from_linear(const Linear &c) noexcept {
         return {
-            0.4124 * c.r + 0.3576 * c.g + 0.1805 * c.b,
-            0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b,
-            0.0193 * c.r + 0.1192 * c.g + 0.9505 * c.b,
+            0.4123908 * c.r + 0.3575843 * c.g + 0.1804808 * c.b,
+            0.2126390 * c.r + 0.7151687 * c.g + 0.0721923 * c.b,
+            0.0193308 * c.r + 0.1191948 * c.g + 0.9505322 * c.b,
             c.a,
         };
     }
@@ -93,9 +93,9 @@ namespace SFT::Foundation::Color {
         const f64 rl = std::abs(r) < epsilon ? 0.0 : std::pow(r, inv_gamma);
         const f64 gl = std::abs(g) < epsilon ? 0.0 : std::pow(g, inv_gamma);
         const f64 bl = std::abs(b) < epsilon ? 0.0 : std::pow(b, inv_gamma);
-        const f64 x = 0.57667 * rl + 0.18556 * gl + 0.18823 * bl;
-        const f64 y = 0.29734 * rl + 0.62736 * gl + 0.07529 * bl;
-        const f64 z = 0.02703 * rl + 0.07069 * gl + 0.99134 * bl;
+        const f64 x = 0.576669 * rl + 0.1855582 * gl + 0.1882286 * bl;
+        const f64 y = 0.297345 * rl + 0.6273636 * gl + 0.0752915 * bl;
+        const f64 z = 0.0270314 * rl + 0.0706889 * gl + 0.9913375 * bl;
         return Xyz{x, y, z, a}.to_linear();
     }
 
@@ -107,9 +107,9 @@ namespace SFT::Foundation::Color {
     /// @note This function does not throw exceptions.
     AdobeRgb AdobeRgb::from_linear(const Linear &c) noexcept {
         const Xyz xyz = Xyz::from_linear(c);
-        const f64 rl = 2.04159 * xyz.x - 0.56501 * xyz.y - 0.34473 * xyz.z;
-        const f64 gl = -0.96924 * xyz.x + 1.87597 * xyz.y + 0.04156 * xyz.z;
-        const f64 bl = 0.01344 * xyz.x - 0.11836 * xyz.y + 1.01517 * xyz.z;
+        const f64 rl = 2.0415879 * xyz.x - 0.565007 * xyz.y - 0.3447314 * xyz.z;
+        const f64 gl = -0.9692436 * xyz.x + 1.8759675 * xyz.y + 0.0415551 * xyz.z;
+        const f64 bl = 0.0134443 * xyz.x - 0.1183624 * xyz.y + 1.015175 * xyz.z;
         constexpr f64 gamma = 256.0 / 563.0;
         return {
             std::abs(rl) < epsilon ? 0.0 : std::pow(rl, gamma),
@@ -127,9 +127,9 @@ namespace SFT::Foundation::Color {
         const f64 rl = srgb_to_linear_channel(r);
         const f64 gl = srgb_to_linear_channel(g);
         const f64 bl = srgb_to_linear_channel(b);
-        const f64 x = 0.486569 * rl + 0.265673 * gl + 0.198187 * bl;
-        const f64 y = 0.228973 * rl + 0.691752 * gl + 0.0792749 * bl;
-        const f64 z = 0.0451143 * gl + 1.04379 * bl;
+        const f64 x = 0.4865709 * rl + 0.2656677 * gl + 0.1982173 * bl;
+        const f64 y = 0.2289746 * rl + 0.6917385 * gl + 0.0792869 * bl;
+        const f64 z = 0.0451134 * gl + 1.0439444 * bl;
         return Xyz{x, y, z, a}.to_linear();
     }
 
@@ -141,9 +141,9 @@ namespace SFT::Foundation::Color {
     /// @note This function does not throw exceptions.
     DisplayP3 DisplayP3::from_linear(const Linear &c) noexcept {
         const Xyz xyz = Xyz::from_linear(c);
-        const f64 rl = 1.2249 * xyz.x - 0.2247 * xyz.y - 0.0040 * xyz.z;
-        const f64 gl = -0.0420 * xyz.x + 1.0419 * xyz.y + 0.0001 * xyz.z;
-        const f64 bl = -0.0776 * xyz.y + 0.9398 * xyz.z;
+        const f64 rl = 2.4934973 * xyz.x - 0.9313838 * xyz.y - 0.4027109 * xyz.z;
+        const f64 gl = -0.8294893 * xyz.x + 1.7626642 * xyz.y + 0.0236248 * xyz.z;
+        const f64 bl = 0.0358459 * xyz.x - 0.0761724 * xyz.y + 0.9568845 * xyz.z;
         return {linear_to_srgb_channel(rl), linear_to_srgb_channel(gl), linear_to_srgb_channel(bl), c.a};
     }
 
@@ -155,13 +155,13 @@ namespace SFT::Foundation::Color {
         const f64 rl = std::pow(clamp01(r), 2.4);
         const f64 gl = std::pow(clamp01(g), 2.4);
         const f64 bl = std::pow(clamp01(b), 2.4);
-        const f64 x = 0.636958 * rl + 0.144617 * gl + 0.168881 * bl;
-        const f64 y = 0.2627 * rl + 0.678 * gl + 0.0593 * bl;
-        const f64 z = 0.028073 * gl + 1.060985 * bl;
+        const f64 x = 0.636958 * rl + 0.1446169 * gl + 0.168881 * bl;
+        const f64 y = 0.2627002 * rl + 0.6779981 * gl + 0.0593017 * bl;
+        const f64 z = 0.0280727 * gl + 1.0609851 * bl;
         return {
-            3.240969 * x - 1.537383 * y - 0.498611 * z,
-            -0.969244 * x + 1.875968 * y + 0.041555 * z,
-            0.05563 * x - 0.203977 * y + 1.056972 * z,
+            3.2409699 * x - 1.5373832 * y - 0.4986108 * z,
+            -0.9692436 * x + 1.8759675 * y + 0.0415551 * z,
+            0.0556301 * x - 0.2039770 * y + 1.0569715 * z,
             a,
         };
     }
@@ -174,9 +174,9 @@ namespace SFT::Foundation::Color {
     /// @note This function does not throw exceptions.
     Rec2020 Rec2020::from_linear(const Linear &c) noexcept {
         const Xyz xyz = Xyz::from_linear(c);
-        const f64 rl = 1.7166634 * xyz.x - 0.3556733 * xyz.y - 0.2533681 * xyz.z;
-        const f64 gl = -0.6666738 * xyz.x + 1.6164557 * xyz.y + 0.0157683 * xyz.z;
-        const f64 bl = 0.0176425 * xyz.x - 0.0427769 * xyz.y + 0.9422433 * xyz.z;
+        const f64 rl = 1.7166512 * xyz.x - 0.3556708 * xyz.y - 0.2533663 * xyz.z;
+        const f64 gl = -0.6666844 * xyz.x + 1.6164812 * xyz.y + 0.0157685 * xyz.z;
+        const f64 bl = 0.0176399 * xyz.x - 0.0427706 * xyz.y + 0.9421031 * xyz.z;
         return {std::pow(clamp01(rl), 1.0 / 2.4), std::pow(clamp01(gl), 1.0 / 2.4), std::pow(clamp01(bl), 1.0 / 2.4), c.a};
     }
 
@@ -436,7 +436,7 @@ namespace SFT::Foundation::Color {
         return {
             clamp01(4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3),
             clamp01(-1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3),
-            clamp01(0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3),
+            clamp01(-0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3),
             clamp01(alpha),
         };
     }

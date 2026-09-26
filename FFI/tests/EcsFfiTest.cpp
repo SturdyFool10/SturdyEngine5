@@ -459,7 +459,9 @@ int main() {
         integrate_access[1].component = velocity;
         integrate_access[1].mode = STURDY_ACCESS_READ;
 
-        SystemTally integrate_tally{0, 0};
+        // Static: a registered system outlives this block (there is no way to remove one through the
+        // ABI), so its user_data must not be stack memory that later blocks reuse.
+        static SystemTally integrate_tally{0, 0};
         check(sturdy_ecs_add_system(engine, integrate_access, 2, integrate_system, &integrate_tally) ==
                   STURDY_OK,
               "registering a system must succeed");
@@ -528,7 +530,7 @@ int main() {
         marker_access[0].component = marker;
         marker_access[0].mode = STURDY_ACCESS_READ;
 
-        CommandProbe probe{marker, sizeof(Health), STURDY_OK, 0, STURDY_OK, engine};
+        static CommandProbe probe{marker, sizeof(Health), STURDY_OK, 0, STURDY_OK, engine};
         check(sturdy_ecs_add_system(engine, marker_access, 1, spawning_system, &probe) == STURDY_OK,
               "registering the spawning system must succeed");
 
@@ -740,6 +742,40 @@ int main() {
               "counting events after the second run must succeed");
         check(count == 1,
               "the scheduler must drain the channel between frames rather than letting it grow");
+    }
+
+    // ── Removable systems ──────────────────────────────────────────────────────────────────────
+    {
+        static int runs = 0;
+        struct Body {
+            static void STURDY_ABI_CALL run(SturdyEntity, void **, SturdyCommands, void *user_data) { ++*static_cast<int *>(user_data); }
+        };
+        check(sturdy_ecs_create_resource(engine, "test.ffi.removal", sizeof(FrameCounter), nullptr, nullptr) == STURDY_OK,
+              "creating the removal test resource must succeed");
+        SturdyResourceId removal_resource{};
+        check(sturdy_ecs_resource_id("test.ffi.removal", &removal_resource) == STURDY_OK, "id lookup must succeed");
+        SturdySystemResourceAccess access[1];
+        access[0].resource = removal_resource;
+        access[0].mode = STURDY_ACCESS_WRITE;
+        access[0].reserved = 0;
+
+        SturdySystem handle{};
+        check(sturdy_ecs_add_system_ex(engine, nullptr, 0, access, 1, Body::run, &runs, &handle) == STURDY_OK && handle.token != 0,
+              "registering a removable system must return a handle");
+        engine_object.update_schedule().run(engine_object.ecs_world());
+        check(runs == 1, "a removable system runs like any other");
+
+        check(sturdy_ecs_set_system_enabled(engine, handle, STURDY_FALSE) == STURDY_OK, "disabling must succeed");
+        engine_object.update_schedule().run(engine_object.ecs_world());
+        check(runs == 1, "a disabled system must not run");
+        check(sturdy_ecs_set_system_enabled(engine, handle, STURDY_TRUE) == STURDY_OK, "re-enabling must succeed");
+        engine_object.update_schedule().run(engine_object.ecs_world());
+        check(runs == 2, "a re-enabled system runs again");
+
+        check(sturdy_ecs_remove_system(engine, handle) == STURDY_OK, "removing must succeed");
+        engine_object.update_schedule().run(engine_object.ecs_world());
+        check(runs == 2, "a removed system must not run");
+        check(sturdy_ecs_remove_system(engine, handle) == STURDY_ERROR_INVALID_HANDLE, "removing twice must report an invalid handle");
     }
 
     // ── Tag components ─────────────────────────────────────────────────────────────────────────

@@ -13,6 +13,9 @@ using SFT::UI::Docking::DockPlacement;
 using SFT::UI::Docking::DockRect;
 using SFT::UI::Docking::DockSplitAxis;
 using SFT::UI::Docking::DockTree;
+using SFT::UI::Docking::DockLayoutSnapshot;
+using SFT::UI::Docking::parse_dock_layout;
+using SFT::UI::Docking::serialize_dock_layout;
 using SFT::UI::Docking::DockWorkspace;
 using SFT::UI::Docking::DockWorkspaceEvents;
 using SFT::UI::Docking::compute_dock_layout;
@@ -54,7 +57,7 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool drag_gesture_handles_zero_threshold_and_same_frame_release() {
-        RendererExpected<Context> made = Context::create(Context::Config{});
+        RendererExpected<Context> made = Context::create(Context::Config{.load_default_font = false});
         if (!check(made.has_value(), "Context::create failed")) {
             return false;
         }
@@ -364,7 +367,7 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool panel_transfer_preserves_descriptor_and_foreign_preview_is_non_mutating() {
-        RendererExpected<Context> made = Context::create(Context::Config{});
+        RendererExpected<Context> made = Context::create(Context::Config{.load_default_font = false});
         if (!check(made.has_value(), "Context::create failed")) {
             return false;
         }
@@ -412,7 +415,7 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool dragging_the_divider_resizes_the_split() {
-        RendererExpected<Context> made = Context::create(Context::Config{});
+        RendererExpected<Context> made = Context::create(Context::Config{.load_default_font = false});
         if (!check(made.has_value(), "Context::create failed")) {
             return false;
         }
@@ -446,7 +449,7 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool clicking_a_tab_makes_it_active() {
-        RendererExpected<Context> made = Context::create(Context::Config{});
+        RendererExpected<Context> made = Context::create(Context::Config{.load_default_font = false});
         if (!check(made.has_value(), "Context::create failed")) {
             return false;
         }
@@ -474,7 +477,7 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool clicking_the_close_button_removes_only_that_panel() {
-        RendererExpected<Context> made = Context::create(Context::Config{});
+        RendererExpected<Context> made = Context::create(Context::Config{.load_default_font = false});
         if (!check(made.has_value(), "Context::create failed")) {
             return false;
         }
@@ -504,7 +507,7 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool dragging_a_tab_onto_another_leaf_docks_it_there() {
-        RendererExpected<Context> made = Context::create(Context::Config{});
+        RendererExpected<Context> made = Context::create(Context::Config{.load_default_font = false});
         if (!check(made.has_value(), "Context::create failed")) {
             return false;
         }
@@ -534,7 +537,7 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool active_tab_drag_snapshot_is_local_and_remove_cancels_it() {
-        RendererExpected<Context> made = Context::create(Context::Config{});
+        RendererExpected<Context> made = Context::create(Context::Config{.load_default_font = false});
         if (!check(made.has_value(), "Context::create failed")) {
             return false;
         }
@@ -579,7 +582,7 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool nonzero_workspace_origin_translates_rendering_and_tear_off_coordinates() {
-        RendererExpected<Context> made = Context::create(Context::Config{});
+        RendererExpected<Context> made = Context::create(Context::Config{.load_default_font = false});
         if (!check(made.has_value(), "Context::create failed")) {
             return false;
         }
@@ -617,7 +620,7 @@ namespace {
     /// @return Returns the boolean result of the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool dragging_a_tab_outside_the_workspace_requests_tear_off() {
-        RendererExpected<Context> made = Context::create(Context::Config{});
+        RendererExpected<Context> made = Context::create(Context::Config{.load_default_font = false});
         if (!check(made.has_value(), "Context::create failed")) {
             return false;
         }
@@ -638,6 +641,51 @@ namespace {
         passed &= check(!events.tear_off_requests.empty() && events.tear_off_requests[0].panel == UString{"B"},
                         "tear-off request is for the wrong panel");
         passed &= check(ws.has_panel(UString{"B"}), "panel was removed from the workspace before its tear-off was confirmed");
+        return passed;
+    }
+
+    /// A saved layout restores the same arrangement, survives the text round trip, and tolerates panels that came or went.
+    bool layout_saves_restores_and_round_trips_through_text() {
+        auto make = [] {
+            DockWorkspace ws{UString{"layout"}};
+            ws.add_panel(DockPanelDesc{.id = UString{"A"}, .title = UString{"Panel A"}});
+            ws.add_panel(DockPanelDesc{.id = UString{"B/odd id %"}, .title = UString{"Panel B"}});
+            const DockNodeId leaf = *ws.focused_leaf();
+            ws.add_panel(DockPanelDesc{.id = UString{"C"}, .title = UString{"Panel C"}}, DockPlacement{leaf, DockDropZone::Right});
+            return ws;
+        };
+        DockWorkspace original = make();
+        const DockLayoutSnapshot saved = original.save_layout();
+        bool passed = check(saved.nodes.size() == 3, "a two-leaf split saves as three nodes");
+
+        const std::string text = serialize_dock_layout(saved);
+        const auto parsed = parse_dock_layout(text);
+        passed &= check(parsed.has_value(), "serialized layout text must parse back");
+        passed &= check(parsed.has_value() && serialize_dock_layout(*parsed) == text, "the text form must round-trip byte for byte");
+        passed &= check(!parse_dock_layout("nonsense").has_value(), "garbage must not parse");
+        passed &= check(!parse_dock_layout("sturdy-dock-layout 1\nfocused -1\nsplit h 0.5 0 0\n").has_value(),
+                        "a split that is its own child must be rejected");
+        passed &= check(!parse_dock_layout("sturdy-dock-layout 1\nfocused -1\nsplit h 0.5 1 2\nleaf 0 A\n").has_value(),
+                        "a split with an out-of-range child must be rejected");
+
+        // Same panels registered elsewhere: the restored arrangement must match.
+        DockWorkspace fresh{UString{"layout"}};
+        fresh.add_panel(DockPanelDesc{.id = UString{"A"}, .title = UString{"Panel A"}});
+        fresh.add_panel(DockPanelDesc{.id = UString{"B/odd id %"}, .title = UString{"Panel B"}});
+        fresh.add_panel(DockPanelDesc{.id = UString{"C"}, .title = UString{"Panel C"}});
+        passed &= check(parsed.has_value() && fresh.restore_layout(*parsed), "restore_layout must accept a valid layout");
+        passed &= check(serialize_dock_layout(fresh.save_layout()) == text, "a restored workspace must save back to the same layout");
+
+        // A panel missing from the target is dropped; one the layout never mentioned still gets a tab.
+        DockWorkspace changed{UString{"layout"}};
+        changed.add_panel(DockPanelDesc{.id = UString{"A"}, .title = UString{"Panel A"}});
+        changed.add_panel(DockPanelDesc{.id = UString{"NEW"}, .title = UString{"New"}});
+        passed &= check(parsed.has_value() && changed.restore_layout(*parsed), "restore_layout must tolerate a changed panel set");
+        passed &= check(changed.has_panel(UString{"A"}) && changed.has_panel(UString{"NEW"}) && !changed.has_panel(UString{"C"}),
+                        "restore_layout must not invent or lose registered panels");
+        DockLayoutSnapshot broken = saved;
+        broken.nodes[0].first_child = 0;
+        passed &= check(!changed.restore_layout(broken), "restore_layout must reject a malformed snapshot");
         return passed;
     }
 
@@ -667,6 +715,7 @@ int main() {
     passed &= active_tab_drag_snapshot_is_local_and_remove_cancels_it();
     passed &= nonzero_workspace_origin_translates_rendering_and_tear_off_coordinates();
     passed &= dragging_a_tab_outside_the_workspace_requests_tear_off();
+    passed &= layout_saves_restores_and_round_trips_through_text();
 
 
     if (passed) {

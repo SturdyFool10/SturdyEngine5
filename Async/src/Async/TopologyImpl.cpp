@@ -91,7 +91,10 @@ namespace SFT::Async {
     ///
     /// @return Returns the boolean result of the operation.
     /// @note This function does not throw exceptions.
-    bool pin_thread_to_core(std::thread &           , u32               ) noexcept { return false; }
+    bool pin_native_thread_to_core(std::thread::native_handle_type, u32) noexcept { return false; }
+
+    /// Web has no thread affinity.
+    bool pin_current_thread_to_core(u32) noexcept { return false; }
 
 #elif defined(_WIN32)
 
@@ -102,13 +105,13 @@ namespace SFT::Async {
     ///
     /// @return Returns the boolean result of the operation.
     /// @note This function does not throw exceptions.
-    bool pin_thread_to_core(std::thread &thread, u32 core_index) noexcept {
-        if (!thread.joinable()) {
-            return false;
-        }
+    bool pin_native_thread_to_core(std::thread::native_handle_type handle, u32 core_index) noexcept {
         const DWORD_PTR mask = DWORD_PTR{1} << core_index;
-        return SetThreadAffinityMask(thread.native_handle(), mask) != 0;
+        return SetThreadAffinityMask(handle, mask) != 0;
     }
+
+    /// Pins the calling thread to `core_index`.
+    bool pin_current_thread_to_core(u32 core_index) noexcept { return pin_native_thread_to_core(GetCurrentThread(), core_index); }
 
 #elif defined(__APPLE__)
 
@@ -120,17 +123,17 @@ namespace SFT::Async {
     ///
     /// @return Returns the boolean result of the operation.
     /// @note This function does not throw exceptions.
-    bool pin_thread_to_core(std::thread &thread, u32 core_index) noexcept {
-        if (!thread.joinable()) {
-            return false;
-        }
+    bool pin_native_thread_to_core(std::thread::native_handle_type handle, u32 core_index) noexcept {
         thread_affinity_policy_data_t policy{.affinity_tag = static_cast<integer_t>(core_index)};
-        const mach_port_t mach_thread = pthread_mach_thread_np(thread.native_handle());
+        const mach_port_t mach_thread = pthread_mach_thread_np(handle);
         return thread_policy_set(mach_thread,
                                   THREAD_AFFINITY_POLICY,
                                   reinterpret_cast<thread_policy_t>(&policy),
                                   THREAD_AFFINITY_POLICY_COUNT) == KERN_SUCCESS;
     }
+
+    /// Pins the calling thread to `core_index`.
+    bool pin_current_thread_to_core(u32 core_index) noexcept { return pin_native_thread_to_core(pthread_self(), core_index); }
 
 #elif defined(__linux__)
 
@@ -141,15 +144,15 @@ namespace SFT::Async {
     ///
     /// @return Returns the boolean result of the operation.
     /// @note This function does not throw exceptions.
-    bool pin_thread_to_core(std::thread &thread, u32 core_index) noexcept {
-        if (!thread.joinable()) {
-            return false;
-        }
+    bool pin_native_thread_to_core(std::thread::native_handle_type handle, u32 core_index) noexcept {
         cpu_set_t cpu_set;
         CPU_ZERO(&cpu_set);
         CPU_SET(static_cast<int>(core_index), &cpu_set);
-        return pthread_setaffinity_np(thread.native_handle(), sizeof(cpu_set_t), &cpu_set) == 0;
+        return pthread_setaffinity_np(handle, sizeof(cpu_set_t), &cpu_set) == 0;
     }
+
+    /// Pins the calling thread to `core_index`.
+    bool pin_current_thread_to_core(u32 core_index) noexcept { return pin_native_thread_to_core(pthread_self(), core_index); }
 
 #else
 
@@ -158,8 +161,18 @@ namespace SFT::Async {
     ///
     /// @return Returns the boolean result of the operation.
     /// @note This function does not throw exceptions.
-    bool pin_thread_to_core(std::thread &           , u32               ) noexcept { return false; }
+    bool pin_native_thread_to_core(std::thread::native_handle_type, u32) noexcept { return false; }
+
+    /// Unsupported platform: no affinity control.
+    bool pin_current_thread_to_core(u32) noexcept { return false; }
 
 #endif
+
+    bool pin_thread_to_core(std::thread &thread, u32 core_index) noexcept {
+        if (!thread.joinable()) {
+            return false;
+        }
+        return pin_native_thread_to_core(thread.native_handle(), core_index);
+    }
 
 } // namespace SFT::Async

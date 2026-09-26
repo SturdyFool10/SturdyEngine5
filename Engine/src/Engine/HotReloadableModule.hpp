@@ -33,6 +33,47 @@ namespace SFT::Engine {
     using ModuleUnregisterTypesFn = void (*)(Reflection::TypeRegistry *registry);
     using ModuleVersionFn = i32 (*)();
 
+    /// C function table the host hands to a module written in a language that cannot (or should not)
+    /// see the C++ `TypeRegistry` layout -- Rust, Zig, plain C. The module registers its types by
+    /// calling these against `registry`, which is the very registry `HotReloadableModule::load` was
+    /// given, so it is correct whether or not the module image shares the host's singleton.
+    ///
+    /// A module opts in by exporting `sturdy_module_register_types_c` and
+    /// `sturdy_module_unregister_types_c` (both `void(const SturdyModuleReflectionApi *)`) plus
+    /// `sturdy_module_version`, instead of the C++ `sturdy_module_register_types` pair.
+    extern "C" {
+    struct SturdyModuleReflectionApi {
+        /// `sizeof(SturdyModuleReflectionApi)` as the host built it; grows by appending, so a module
+        /// checks it covers the entries it uses.
+        u32 struct_size;
+        /// 1 for this layout.
+        u32 abi_version;
+        /// Opaque; pass back as the first argument of the functions below that take it.
+        void *registry;
+        /// Starts describing a type. Returns an opaque builder, or null on failure.
+        void *(*type_builder_create)(void *registry, const char *canonical_name, u32 size, u32 align);
+        /// Supplies construct/destroy behaviour. `move_construct` and `destroy` are required.
+        void (*type_builder_set_constructors)(void *builder,
+                                              void (*move_construct)(void *destination, void *source, void *user_data),
+                                              void (*destroy)(void *object, void *user_data),
+                                              void (*default_construct)(void *destination, void *user_data),
+                                              void *user_data);
+        /// Declares a trivially copyable field. `primitive_kind` is 0 for none/opaque, 1 bool, 2 signed
+        /// integer, 3 unsigned integer, 4 floating point -- it is what lets the field appear as a real
+        /// number, not `null`, when the type is turned into a document.
+        void (*type_builder_add_field)(void *builder, const char *name, u32 offset, u32 size, u32 align, u32 primitive_kind);
+        /// Registers the described type and releases the builder. Returns non-zero on success.
+        int (*type_builder_finish)(void *builder);
+        /// Releases a builder without registering anything.
+        void (*type_builder_discard)(void *builder);
+        /// Unregisters a type by canonical name. Returns non-zero when it was registered.
+        int (*unregister_type)(void *registry, const char *canonical_name);
+    };
+    }
+
+    using ModuleRegisterTypesCFn = void (*)(const SturdyModuleReflectionApi *api);
+    using ModuleUnregisterTypesCFn = void (*)(const SturdyModuleReflectionApi *api);
+
     enum class HotReloadErrorCode : u32 {
         /// `Foundation::DynamicLibrary::load` failed — see the error message for the OS's reason.
         LibraryLoadFailed,
@@ -120,6 +161,9 @@ namespace SFT::Engine {
         ModuleRegisterTypesFn register_types_fn_ = nullptr;
         ModuleUnregisterTypesFn unregister_types_fn_ = nullptr;
         ModuleVersionFn version_fn_ = nullptr;
+        /// Set instead of the C++ pair when the module exports the C entry points.
+        ModuleRegisterTypesCFn register_types_c_fn_ = nullptr;
+        ModuleUnregisterTypesCFn unregister_types_c_fn_ = nullptr;
         Reflection::TypeRegistry *registered_against_ = nullptr;
     };
 

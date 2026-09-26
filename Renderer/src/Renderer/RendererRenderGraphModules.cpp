@@ -607,8 +607,22 @@ namespace SFT::Renderer {
                 .label = "custom graph HDR target",
             });
             switch (custom_pass.kind) {
-                case CustomGraphPassKind::RasterEffect:
-                    context.graph.add_render_pass("custom graph raster effect"_ustr)
+                case CustomGraphPassKind::RasterEffect: {
+                    vector<RenderGraphTextureHandle> extras;
+                    for (LogicalRenderGraphTexture extra_logical : custom_pass.extra_inputs) {
+                        const RenderGraphTextureHandle extra = concrete_texture(extra_logical);
+                        if (!extra) {
+                            return Core::graphics_backend_error(
+                                Core::GraphicsBackendErrorCode::OperationFailed,
+                                "Custom graph pass extra input was not produced before the pass was lowered.");
+                        }
+                        extras.push_back(extra);
+                    }
+                    RenderGraphRenderPassBuilder &raster_pass = context.graph.add_render_pass("custom graph raster effect"_ustr);
+                    for (const RenderGraphTextureHandle extra : extras) {
+                        raster_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = extra});
+                    }
+                    raster_pass
                         .add_color_attachment(RenderGraphColorAttachmentDesc{
                             .texture = output,
                             .load_op = RHI::LoadOp::DontCare,
@@ -621,9 +635,13 @@ namespace SFT::Renderer {
                             .width = context.render_extent.x,
                             .height = context.render_extent.y,
                         })
-                        .set_execute([this, &submission, input, pass_index,
+                        .set_execute([this, &submission, input, pass_index, extras = std::move(extras),
                                       extent = context.render_extent](RenderGraphContext &graph_context) -> Core::RendererResult {
                             RHI::RenderPassEncoder &pass = graph_context.render_pass();
+                            vector<RHI::TextureViewHandle> extra_views;
+                            for (const RenderGraphTextureHandle extra : extras) {
+                                extra_views.push_back(graph_context.texture(extra).default_view);
+                            }
                             pass.set_viewport(RHI::Viewport{
                                 .width = static_cast<f32>(extent.x),
                                 .height = static_cast<f32>(extent.y),
@@ -641,9 +659,11 @@ namespace SFT::Renderer {
                                 graph_context.texture(input).default_view,
                                 submission.deferred_formats.scene_color,
                                 submission.render_graph.custom_graph.passes[pass_index].raster,
-                                submission.transient_bind_groups);
+                                submission.transient_bind_groups,
+                                extra_views);
                         });
                     break;
+                }
                 case CustomGraphPassKind::ComputeEffect:
                     if (submission.deferred_formats.scene_color != RHI::Format::RGBA16Float) {
                         return Core::graphics_backend_error(
@@ -980,78 +1000,103 @@ namespace SFT::Renderer {
         return {};
     }
 
-    /// Builds tonemap module.
-    ///
-    /// @param context Context that supplies state required by the operation.
-    /// @param submission `submission` value used by the operation.
-    /// @param presentation_format Format used for the resource, render target, or conversion.
-    /// @param hdr_output `hdr_output` value used by the operation.
-    /// @param hdr_color_space `hdr_color_space` value used by the operation.
-    ///
-    /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
-    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-    Core::RendererResult Renderer::build_tonemap_module(
+    Core::RendererResult Renderer::build_display_effects_stage(
         RenderGraphModuleBuildContext &context,
         FrameSubmission &submission,
+        RenderGraphTextureHandle source,
+        RenderGraphTextureHandle final_target,
         RHI::Format presentation_format,
-        bool hdr_output,
-        Core::HdrColorSpaceMode hdr_color_space) {
-        ZoneScopedN("Renderer::build_tonemap_module");
-        using RenderGraphSemantics::PresentationTarget;
-        using RenderGraphSemantics::SceneHdrColor;
+        span<RenderGraphTextureHandle> logical_textures) {
+        ZoneScopedN("Renderer::build_display_effects_stage");
 
-        const RenderGraphTextureHandle source = context.resources.texture<SceneHdrColor>();
-        const RenderGraphTextureHandle destination = context.resources.texture<PresentationTarget>();
-        if (!source) {
-            return missing_module_texture("tone mapping"_ustr, "SceneHdrColor"_ustr);
-        }
-        if (!destination) {
-            return missing_module_texture("tone mapping"_ustr, "PresentationTarget"_ustr);
+        const CustomGraphProgram &program = submission.render_graph.custom_graph;
+        vector<usize> display_passes;
+        for (usize pass_index = 0; pass_index < program.passes.size(); ++pass_index) {
+            if (program.passes[pass_index].stage != PostProcessStage::AfterToneMap) {
+                continue;
+            }
+            if (program.passes[pass_index].kind != CustomGraphPassKind::RasterEffect) {
+                return Core::graphics_backend_error(
+                    Core::GraphicsBackendErrorCode::OperationFailed,
+                    "Only fullscreen raster effects can run after tone mapping.");
+            }
+            display_passes.push_back(pass_index);
         }
 
-        submission.render_graph.tone_mapping_hdr_output = hdr_output;
-        submission.render_graph.tone_mapping_hdr_color_space = hdr_color_space;
-        context.graph.add_render_pass(submission.render_graph.tone_mapping ? "tonemap"_ustr : "present scene color"_ustr)
-            .add_color_attachment(RenderGraphColorAttachmentDesc{
-                .texture = destination,
-                .load_op = RHI::LoadOp::DontCare,
-                .store_op = RHI::StoreOp::Store,
-            })
-            .add_sampled_texture(RenderGraphSampledTextureReadDesc{
-                .texture = source,
-                .stages = RHI::PipelineStage::FragmentShader,
-                .access = RHI::AccessFlags::ShaderRead,
-            })
-            .set_render_area(RHI::Rect2D{
-                .x = 0,
-                .y = 0,
-                .width = context.presentation_extent.x,
-                .height = context.presentation_extent.y,
-            })
-            .set_execute([this, &submission, source, presentation_format,
-                          extent = context.presentation_extent](RenderGraphContext &graph_context) -> Core::RendererResult {
-                RHI::RenderPassEncoder &pass = graph_context.render_pass();
-                pass.set_viewport(RHI::Viewport{
-                    .x = 0.0f,
-                    .y = 0.0f,
-                    .width = static_cast<f32>(extent.x),
-                    .height = static_cast<f32>(extent.y),
-                    .min_depth = 0.0f,
-                    .max_depth = 1.0f,
-                });
-                pass.set_scissor(RHI::Rect2D{
+        RenderGraphTextureHandle current = source;
+        for (usize position = 0; position < display_passes.size(); ++position) {
+            const usize pass_index = display_passes[position];
+            const CustomGraphPass &custom_pass = program.passes[pass_index];
+            const bool last = position + 1 == display_passes.size();
+            const RenderGraphTextureHandle input = current;
+            const RenderGraphTextureHandle output = last
+                ? final_target
+                : context.graph.create_texture(RenderGraphTextureDesc{
+                      .format = presentation_format,
+                      .extent = RHI::Extent3D{
+                          .width = context.presentation_extent.x,
+                          .height = context.presentation_extent.y,
+                          .depth_or_layers = 1,
+                      },
+                      .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+                      .label = "display-space effect target",
+                  });
+            vector<RenderGraphTextureHandle> extras;
+            for (LogicalRenderGraphTexture extra_logical : custom_pass.extra_inputs) {
+                const RenderGraphTextureHandle extra = extra_logical && extra_logical.index < logical_textures.size()
+                    ? logical_textures[extra_logical.index]
+                    : RenderGraphTextureHandle{};
+                if (!extra) {
+                    return Core::graphics_backend_error(
+                        Core::GraphicsBackendErrorCode::OperationFailed,
+                        "Display-space effect extra input was not produced before the pass was lowered.");
+                }
+                extras.push_back(extra);
+            }
+            RenderGraphRenderPassBuilder &display_pass = context.graph.add_render_pass("display-space raster effect"_ustr);
+            for (const RenderGraphTextureHandle extra : extras) {
+                display_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = extra});
+            }
+            display_pass
+                .add_color_attachment(RenderGraphColorAttachmentDesc{
+                    .texture = output,
+                    .load_op = RHI::LoadOp::DontCare,
+                    .store_op = RHI::StoreOp::Store,
+                })
+                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = input})
+                .set_render_area(RHI::Rect2D{
                     .x = 0,
                     .y = 0,
-                    .width = extent.x,
-                    .height = extent.y,
+                    .width = context.presentation_extent.x,
+                    .height = context.presentation_extent.y,
+                })
+                .set_execute([this, &submission, input, pass_index, presentation_format, extras = std::move(extras),
+                              extent = context.presentation_extent](RenderGraphContext &graph_context) -> Core::RendererResult {
+                    RHI::RenderPassEncoder &pass = graph_context.render_pass();
+                    vector<RHI::TextureViewHandle> extra_views;
+                    for (const RenderGraphTextureHandle extra : extras) {
+                        extra_views.push_back(graph_context.texture(extra).default_view);
+                    }
+                    pass.set_viewport(RHI::Viewport{
+                        .width = static_cast<f32>(extent.x),
+                        .height = static_cast<f32>(extent.y),
+                        .min_depth = 0.0f,
+                        .max_depth = 1.0f,
+                    });
+                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = extent.x, .height = extent.y});
+                    return record_custom_post_process(
+                        pass,
+                        graph_context.texture(input).default_view,
+                        presentation_format,
+                        submission.render_graph.custom_graph.passes[pass_index].raster,
+                        submission.transient_bind_groups,
+                        extra_views);
                 });
-                return record_tonemap(
-                    pass,
-                    graph_context.texture(source).default_view,
-                    presentation_format,
-                    submission.render_graph,
-                    submission.transient_bind_groups);
-            });
+            if (custom_pass.output && custom_pass.output.index < logical_textures.size()) {
+                logical_textures[custom_pass.output.index] = output;
+            }
+            current = output;
+        }
         return {};
     }
 

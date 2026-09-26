@@ -189,6 +189,9 @@ namespace SFT::Renderer {
                 if (frame_resources.view_buffer) {
                     device->destroy_buffer(frame_resources.view_buffer);
                 }
+                if (frame_resources.displacement_mesh_buffer) {
+                    device->destroy_buffer(frame_resources.displacement_mesh_buffer);
+                }
             }
         }
         resources.clear();

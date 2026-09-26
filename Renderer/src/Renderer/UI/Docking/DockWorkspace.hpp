@@ -133,6 +133,19 @@ namespace SFT::UI::Docking {
         /// @note Normal inability to produce a value is represented by an empty optional.
         [[nodiscard]] optional<DockPanelDesc> take_panel(const DockPanelId &id);
 
+        /// Captures the current arrangement (splits, ratios, tab order, active tabs, focus) so an
+        /// editor can persist it. Panel *contents* are not part of a layout: only their ids are.
+        [[nodiscard]] DockLayoutSnapshot save_layout() const;
+
+        /// Rearranges the registered panels to match a saved layout.
+        ///
+        /// Panel ids in the layout that are not registered here are dropped (their tab and, if it
+        /// empties, their leaf disappear); registered panels the layout does not mention are added
+        /// as tabs of the focused leaf so nothing becomes unreachable. In-flight drags are cancelled.
+        ///
+        /// @return `false`, leaving the workspace untouched, when the snapshot is malformed.
+        bool restore_layout(const DockLayoutSnapshot &layout);
+
         /// Reports whether this `DockWorkspace` has panel.
         ///
         /// @param id Identifier of the target object or resource.

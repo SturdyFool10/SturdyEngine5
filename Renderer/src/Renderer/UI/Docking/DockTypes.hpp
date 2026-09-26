@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <glm/vec2.hpp>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 #pragma endregion
 
@@ -63,6 +65,36 @@ namespace SFT::UI::Docking {
         bool closable = true;
     };
 
+
+    /// One node of a saved layout. Children are indices into `DockLayoutSnapshot::nodes`.
+    struct DockLayoutNode {
+        bool is_leaf = true;
+        DockSplitAxis split_axis = DockSplitAxis::Horizontal;
+        f32 split_ratio = 0.5f;
+        u32 first_child = 0;
+        u32 second_child = 0;
+        vector<DockPanelId> tabs;
+        usize active_tab_index = 0;
+    };
+
+    /// A workspace layout detached from live node ids, for saving and restoring editor layouts.
+    /// `nodes[0]` is the root. Only reachable nodes are stored.
+    struct DockLayoutSnapshot {
+        vector<DockLayoutNode> nodes;
+        /// Index of the leaf that had focus, when one did.
+        optional<u32> focused_leaf;
+    };
+
+    /// Encodes a snapshot as line-oriented text (`sturdy-dock-layout 1` header). Panel ids are
+    /// percent-encoded, so any id round-trips.
+    [[nodiscard]] std::string serialize_dock_layout(const DockLayoutSnapshot &snapshot);
+
+    /// Parses text produced by `serialize_dock_layout`. Returns `nullopt` for malformed input or a
+    /// structurally invalid layout (out-of-range or cyclic children, a split without two children).
+    [[nodiscard]] optional<DockLayoutSnapshot> parse_dock_layout(std::string_view text);
+
+    /// Checks that a snapshot describes a well-formed tree rooted at `nodes[0]`.
+    [[nodiscard]] bool dock_layout_is_valid(const DockLayoutSnapshot &snapshot) noexcept;
 
     class DockTree {
       public:
@@ -132,6 +164,15 @@ namespace SFT::UI::Docking {
         /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
         /// @note This function does not throw exceptions.
         [[nodiscard]] bool empty() const noexcept;
+
+        /// Captures the tree as a detached snapshot (root first, reachable nodes only).
+        [[nodiscard]] DockLayoutSnapshot snapshot() const;
+
+        /// Replaces the whole tree with `layout`.
+        ///
+        /// @return `false`, leaving the tree untouched, when the snapshot is not a well-formed tree.
+        /// @note Node ids are reassigned; ids held from before the call are stale.
+        bool restore(const DockLayoutSnapshot &layout);
 
         /// Sets the split ratio for this `DockTree`.
         ///

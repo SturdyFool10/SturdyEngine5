@@ -436,6 +436,9 @@ namespace SFT::Renderer {
                     .width = tile_size_,
                     .height = tile_size_,
                 },
+                .texture = it->second.texture,
+                .format = RHI::Format::RGBA8Unorm,
+                .size = tile_size_,
             });
         }
 

@@ -84,7 +84,13 @@ namespace SFT::Renderer {
                 ++j;
             }
             const usize count = j - i;
-            if (count >= kInstancedBatchMinSize) {
+            // The instanced shader has its own vertex stage and no heightfield: a displaced material must
+            // stay on the per-draw path or its displacement would silently vanish once it is drawn twice.
+            const MaterialInstanceResource *batch_material = material_instance(sorted_draws[i].material);
+            const MaterialTemplateResource *batch_template =
+                batch_material != nullptr ? material_template(batch_material->material_template) : nullptr;
+            const bool displaced = batch_template != nullptr && batch_template->displaced_surface;
+            if (count >= kInstancedBatchMinSize && !displaced) {
                 batches.push_back(InstancedBatch{
                     .mesh = sorted_draws[i].mesh,
                     .material = sorted_draws[i].material,

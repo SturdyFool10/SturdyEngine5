@@ -134,7 +134,7 @@ namespace SFT::Core::Slang {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         ShaderVariantCache(ShaderSource source, ShaderCompileOptions base_options = {}, ShaderCompiler compiler = {},
                            bool enable_disk_cache = false,
-                           std::filesystem::path disk_cache_directory = std::filesystem::path{string{default_shader_cache_directory}});
+                           std::filesystem::path disk_cache_directory = shader_cache_directory());
 
         /// Returns the current or globally available source value.
         ///
@@ -205,7 +205,7 @@ namespace SFT::Core::Slang {
         ShaderSource source_{};
         ShaderCompileOptions base_options_{};
         bool enable_disk_cache_ = false;
-        std::filesystem::path disk_cache_directory_{string{default_shader_cache_directory}};
+        std::filesystem::path disk_cache_directory_ = shader_cache_directory();
 
         unordered_map<string, Shader> variants_;
     };

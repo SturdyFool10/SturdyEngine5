@@ -6,7 +6,7 @@ namespace SFT::Engine {
 
     namespace {
 
-        [[nodiscard]] EcsReflectionBridgeExpected<std::vector<std::byte>> read_whole_component(Ecs::World &world,
+        [[nodiscard]] EcsReflectionBridgeExpected<std::vector<std::byte>> read_whole_component(const Ecs::World &world,
                                                                                                 Ecs::Entity entity,
                                                                                                 Ecs::ComponentId component,
                                                                                                 const Reflection::TypeInfo &type) {
@@ -24,7 +24,38 @@ namespace SFT::Engine {
 
     } // namespace
 
-    EcsReflectionBridgeExpected<void> read_component_field(Ecs::World &world,
+    EcsReflectionBridgeExpected<std::pair<Ecs::ComponentId, Reflection::TypeId>> ensure_reflected(
+        Ecs::ComponentRegistry &components, std::string_view component_name, std::string_view type_name) {
+        const UString component_ustring{component_name};
+        const auto component_id = components.find(component_ustring.as_ustr());
+        if (!component_id) {
+            return std::unexpected(EcsReflectionBridgeError{
+                .code = EcsReflectionBridgeErrorCode::ComponentNotRegistered,
+                .message = UString{"no ECS component is registered under that name"},
+                .world_error = std::nullopt,
+            });
+        }
+        const UString type_ustring{type_name};
+        const Reflection::TypeInfo *type = Reflection::TypeRegistry::instance().find(type_ustring.as_ustr());
+        if (type == nullptr) {
+            return std::unexpected(EcsReflectionBridgeError{
+                .code = EcsReflectionBridgeErrorCode::TypeNotRegistered,
+                .message = UString{"no reflection type is registered under that name"},
+                .world_error = std::nullopt,
+            });
+        }
+        const Ecs::ComponentInfo *component_info = components.info(*component_id);
+        if (component_info == nullptr || component_info->size != type->size || component_info->align != type->align) {
+            return std::unexpected(EcsReflectionBridgeError{
+                .code = EcsReflectionBridgeErrorCode::DescriptorMismatch,
+                .message = UString{"the ECS component and the reflection type disagree on size/align"},
+                .world_error = std::nullopt,
+            });
+        }
+        return std::pair{*component_id, type->key};
+    }
+
+    EcsReflectionBridgeExpected<void> read_component_field(const Ecs::World &world,
                                                             Ecs::Entity entity,
                                                             Ecs::ComponentId component,
                                                             const Reflection::TypeInfo &type,

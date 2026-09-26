@@ -23,6 +23,12 @@ namespace SFT::Core::Slang {
 
     inline constexpr string_view default_shader_cache_directory = "Shaders/.cache";
 
+    /// The shader cache directory in effect: `<cache root>/shaders` when a cache root is configured
+    /// (see `Foundation::set_cache_root`), otherwise the working-directory-relative legacy default.
+    [[nodiscard]] inline std::filesystem::path shader_cache_directory() {
+        return Foundation::cache_subdirectory("shaders", std::filesystem::path{string{default_shader_cache_directory}});
+    }
+
 
     struct ShaderCacheTargetArtifact {
         ShaderTarget target;

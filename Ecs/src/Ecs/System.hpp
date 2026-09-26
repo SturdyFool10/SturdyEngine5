@@ -107,6 +107,15 @@ namespace SFT::Ecs {
         Synchronous,
     };
 
+    /// Identifies one system registered on a `Schedule`, for removal, enabling/disabling, and
+    /// explicit ordering. A default-constructed handle refers to no system.
+    struct SystemHandle {
+        u64 id = 0;
+
+        [[nodiscard]] constexpr explicit operator bool() const noexcept { return id != 0; }
+        [[nodiscard]] friend constexpr bool operator==(SystemHandle, SystemHandle) noexcept = default;
+    };
+
     struct ScheduleConfig {
 
 
@@ -642,7 +651,7 @@ namespace SFT::Ecs {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <class F>
-        void add_system(F fn) {
+        SystemHandle add_system(F fn) {
             ZoneScopedN("Schedule::add_system");
             using Function = std::decay_t<F>;
             static_assert(std::copy_constructible<Function>,
@@ -662,7 +671,7 @@ namespace SFT::Ecs {
                 entry.access = Detail::QueryAccessOf<typename Traits::QueryType>::access();
                 Detail::ResourceAccessOf<typename Traits::ResourceArguments>::accumulate(entry.access);
                 entry.dispatch = Runner::make_dispatch(std::move(fn));
-                systems_.push_back(std::move(entry));
+                return register_entry(std::move(entry));
             } else {
                 using Traits = Detail::GlobalSystemTraits<ArgsTuple>;
                 using Runner = Detail::GlobalSystemRunner<typename Traits::ResourceArguments, Traits::HasCommands>;
@@ -673,9 +682,8 @@ namespace SFT::Ecs {
                 SystemEntry entry;
                 Detail::ResourceAccessOf<typename Traits::ResourceArguments>::accumulate(entry.access);
                 entry.dispatch = Runner::make_dispatch(std::move(fn));
-                systems_.push_back(std::move(entry));
+                return register_entry(std::move(entry));
             }
-            stages_dirty_ = true;
         }
 
         /// Registers a system whose body is a plain function pointer, with its data access declared
@@ -700,7 +708,7 @@ namespace SFT::Ecs {
         /// @param finish Optional per-dispatch teardown, always run if `prepare` ran.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void add_erased_system(SystemAccess access,
+        SystemHandle add_erased_system(SystemAccess access,
                                std::vector<ComponentId> component_ids,
                                ErasedSystemFn fn,
                                void *user_data,
@@ -720,11 +728,40 @@ namespace SFT::Ecs {
         /// @param finish Optional per-dispatch teardown, always run if `prepare` ran.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void add_erased_global_system(SystemAccess access,
+        SystemHandle add_erased_global_system(SystemAccess access,
                                       ErasedSystemFn fn,
                                       void *user_data,
                                       ErasedSystemPrepareFn prepare = nullptr,
                                       ErasedSystemFinishFn finish = nullptr);
+
+        /// Removes a system, so whatever state its callable owns can be released.
+        ///
+        /// @return `true` when the handle named a registered system; `false` for a stale or empty handle.
+        /// @note Must not be called while `run` is executing (including from inside a system);
+        ///       that is a contract violation.
+        bool remove_system(SystemHandle handle);
+
+        /// Enables or disables a system without unregistering it. A disabled system is skipped on
+        /// every run and is treated as already satisfied by systems ordered after it.
+        ///
+        /// @return `true` when the handle named a registered system.
+        /// @note Must not be called while `run` is executing.
+        bool set_system_enabled(SystemHandle handle, bool enabled);
+
+        /// Reports whether `handle` names a registered, enabled system.
+        [[nodiscard]] bool system_enabled(SystemHandle handle) const noexcept;
+
+        /// Forces `system` to run in a later stage than `dependency`, on top of whatever ordering its
+        /// declared access already implies. Replaces the need to fake ordering with dummy event keys.
+        ///
+        /// A cycle (directly or through other ordering edges) is a contract violation reported the
+        /// next time the schedule is built.
+        ///
+        /// @return `false` when either handle is stale or they name the same system.
+        bool order_after(SystemHandle system, SystemHandle dependency);
+
+        /// Number of currently registered systems.
+        [[nodiscard]] usize system_count() const noexcept { return systems_.size(); }
 
         /// Runs the requested work.
         ///
@@ -737,7 +774,15 @@ namespace SFT::Ecs {
         struct SystemEntry {
             SystemAccess access;
             Detail::SystemDispatch dispatch;
+            u64 id = 0;
+            bool enabled = true;
+            /// Ids of systems that must land in an earlier stage than this one.
+            std::vector<u64> after;
         };
+
+        /// Assigns the entry an id and stores it.
+        SystemHandle register_entry(SystemEntry entry);
+        [[nodiscard]] SystemEntry *find_entry(SystemHandle handle) noexcept;
 
         /// Performs the rebuild stages operation for `Schedule` using the supplied arguments.
         ///
@@ -752,6 +797,8 @@ namespace SFT::Ecs {
         std::vector<SystemEntry> systems_;
         std::vector<std::vector<usize>> stages_;
         bool stages_dirty_ = true;
+        bool running_ = false;
+        u64 next_system_id_ = 1;
     };
 
 } // namespace SFT::Ecs

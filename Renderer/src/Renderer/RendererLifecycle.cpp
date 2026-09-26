@@ -22,6 +22,7 @@
 #pragma endregion
 
 #include <Renderer/RendererModule.hpp>
+#include <Renderer/ToneMapping.hpp>
 #include <Renderer/Scene.hpp>
 #include <Renderer/RenderGraph.hpp>
 #include <Core/Core.hpp>
@@ -255,7 +256,7 @@ namespace SFT::Renderer {
     /// Constructs a `Renderer` in its default state.
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    Renderer::Renderer() = default;
+    Renderer::Renderer() { register_builtin_frame_features(); }
 
     /// Destroys the `Renderer` and releases resources owned by it.
     ///
@@ -376,6 +377,7 @@ namespace SFT::Renderer {
             submission.render_graph.spectral_path_tracing.mode = SpectralRenderMode::RasterDeferred;
         }
         submission.offscreen_target = desc.offscreen_target;
+        refresh_displaced_materials(desc.view.camera.world_position);
         submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
         submission.debug_label = desc.view.debug_label;
 
@@ -646,7 +648,30 @@ namespace SFT::Renderer {
                                                 "Render item material references an unknown material template.");
         }
 
-        const bool use_object_history = with_object_history && !depth_only;
+        // Mesh-shader displacement: task + mesh + fragment stages replace the vertex path entirely (prepass
+        // skipped, shadows drawn displaced, G-buffer with a standard depth test). See RendererDisplacementMesh.cpp.
+        if (displacement_mesh_template_count_.load(std::memory_order_relaxed) != 0 &&
+            displacement_mesh_geometry_active(material_resource->material_template)) {
+            return record_displacement_mesh_item(pass, item, *material_template_resource, *material_resource,
+                                                 color_formats, depth_format, frame_index, view_projection, depth_only,
+                                                 binding_state, shadow_map, shadow_depth_bias, shadow_slope_bias, samples);
+        }
+
+        // Displaced-depth materials write SV_Depth from the fragment stage, which the prepass's depthOnlyMain
+        // cannot reproduce (it only knows the base surface): keep them out of the prepass and let the
+        // G-buffer pass do a standard, depth-writing test instead of the prepass's "equal". They are also kept
+        // out of the shadow maps: deferred lighting reconstructs the *displaced* position from depth, which for
+        // a depth map lies below the base plane, so a base-surface caster would put the whole surface in its
+        // own shadow (verified in DisplacementRenderTest). The cost is that such a material casts no shadow;
+        // a displaced shadow caster needs the heightfield trace along the light direction (follow-up).
+        // Displaced shaders also carry their own vertex stage, so the generic object-history vertex shader
+        // must not replace it.
+        if (depth_only && material_template_resource->displaced_depth) {
+            return {};
+        }
+        standard_depth_test = standard_depth_test || material_template_resource->displaced_depth;
+        const bool use_object_history =
+            with_object_history && !depth_only && !material_template_resource->displaced_surface;
         auto pipeline = depth_only
                             ? depth_only_pipeline_for(*material_template_resource, depth_format, shadow_map,
                                                       shadow_depth_bias, shadow_slope_bias, item.cull_mode,
@@ -771,7 +796,9 @@ namespace SFT::Renderer {
                                                                f32 shadow_slope_bias,
                                                                RHI::SampleCount samples,
                                                                bool with_object_history,
-                                                               RHI::BindGroupHandle object_history_group) {
+                                                               RHI::BindGroupHandle object_history_group,
+                                                               optional<RHI::Viewport> bundle_viewport,
+                                                               optional<RHI::Rect2D> bundle_scissor) {
         ZoneScopedN("Renderer::record_render_items_culled");
         vector<const RenderItem *> visible;
         visible.reserve(items.size());
@@ -866,8 +893,15 @@ namespace SFT::Renderer {
                                                       color_formats, depth_format, frame_index, view_projection,
                                                       depth_only, standard_depth_test, shadow_map,
                                                       shadow_depth_bias, shadow_slope_bias, samples,
-                                                      with_object_history, object_history_group]() {
+                                                      with_object_history, object_history_group,
+                                                      bundle_viewport, bundle_scissor]() {
                 RHI::RenderBundleEncoder &encoder = *results[chunk].encoder;
+                if (bundle_viewport) {
+                    encoder.set_viewport(*bundle_viewport);
+                }
+                if (bundle_scissor) {
+                    encoder.set_scissor(*bundle_scissor);
+                }
                 RenderItemBindingState binding_state{};
                 for (usize i = begin; i < end; ++i) {
                     if (Core::RendererResult recorded = record_render_item(
@@ -1547,6 +1581,11 @@ namespace SFT::Renderer {
         }
 
 
+        if (Core::RendererResult mesh_frame = prepare_displacement_mesh_frame(record, frame.frame_index, submission, render_extent);
+            !mesh_frame.has_value()) {
+            return mesh_frame;
+        }
+
         const vector<InstancedBatch> instanced_batches =
             submission.render_graph.render_scene ? detect_instanced_batches(submission.draws) : vector<InstancedBatch>{};
 
@@ -1782,8 +1821,11 @@ namespace SFT::Renderer {
         }
         for (const CustomGraphPass &pass : submission.render_graph.custom_graph.passes) {
             if (pass.kind == CustomGraphPassKind::RasterEffect) {
+                // A display-space effect renders in the presentation format, not the HDR scene format.
                 if (Core::RendererResult ready = ensure_custom_post_process(
-                        pass.raster, submission.deferred_formats.scene_color);
+                        pass.raster, pass.stage == PostProcessStage::AfterToneMap
+                                         ? output_format
+                                         : submission.deferred_formats.scene_color);
                     !ready.has_value()) {
                     return ready;
                 }
@@ -1828,11 +1870,11 @@ namespace SFT::Renderer {
             record.ui_reference_white_nits = ui_reference_white_nits;
         }
         if (!direct_overlay_presentation || direct_overlay_display_transform) {
-            if (Core::RendererResult tonemap_ready = ensure_tonemap_resources(); !tonemap_ready.has_value()) {
+            // Compile the tone-mapping shader before the graph is declared (it is an ordinary fullscreen effect).
+            if (Core::RendererResult tonemap_ready = prepare_fullscreen_effect(
+                    tone_mapping_effect(submission.render_graph, false), output_format);
+                !tonemap_ready.has_value()) {
                 return tonemap_ready;
-            }
-            if (auto tonemap_pipeline = tonemap_pipeline_for(output_format); !tonemap_pipeline) {
-                return unexpected(tonemap_pipeline.error());
             }
         }
 
@@ -2618,7 +2660,13 @@ namespace SFT::Renderer {
                                                        frame.frame_index, submission.view_projection,
                                                                       true,                         false, "z prepass",
                                                        zprepass_uses_bundles, submission.transient_render_bundles,
-                                                                      false, 0.0f, 0.0f, framebuffer_samples);
+                                                                      false, 0.0f, 0.0f, framebuffer_samples,
+                                                       false, RHI::BindGroupHandle{},
+                                                       RHI::Viewport{.x = 0.0f, .y = 0.0f,
+                                                                     .width = static_cast<f32>(render_extent.x),
+                                                                     .height = static_cast<f32>(render_extent.y),
+                                                                     .min_depth = 0.0f, .max_depth = 1.0f},
+                                                       RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y});
                 });
 
 
@@ -2710,7 +2758,12 @@ namespace SFT::Renderer {
                                                     multisampled, "deferred gbuffer geometry",
                             gbuffer_uses_bundles, submission.transient_render_bundles,
                                            false, 0.0f, 0.0f, RHI::SampleCount::X1,
-                                                    true, object_history_group);
+                                                    true, object_history_group,
+                            RHI::Viewport{.x = 0.0f, .y = 0.0f,
+                                          .width = static_cast<f32>(render_extent.x),
+                                          .height = static_cast<f32>(render_extent.y),
+                                          .min_depth = 0.0f, .max_depth = 1.0f},
+                            RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y});
                         !recorded.has_value()) {
                         return recorded;
                     }
@@ -3085,171 +3138,45 @@ namespace SFT::Renderer {
                 });
         }
 
-        if (Core::RendererResult motion_blurred = build_motion_blur_module(
-                module_context, submission, gbuffer_motion, depth_texture);
-            !motion_blurred.has_value()) {
-            return motion_blurred;
-        }
-
-        if (Core::RendererResult anti_aliased = build_post_process_aa_module(module_context, submission);
-            !anti_aliased.has_value()) {
-            return anti_aliased;
-        }
-        map_logical_texture(
-            submission.render_graph.custom_graph.anti_aliasing_output,
-            graph_resources.texture<RenderGraphSemantics::SceneHdrColor>());
-
-
-        if (Core::RendererResult effects = build_custom_graph_stage(
-                module_context, submission, PostProcessStage::BeforeBloom, logical_graph_textures);
-            !effects.has_value()) {
-            return effects;
-        }
-
-        if (Core::RendererResult bloom = build_bloom_module(
-                module_context, submission, slot, bloom_active, bloom_format);
-            !bloom.has_value()) {
-            return bloom;
-        }
-
-        map_logical_texture(
-            submission.render_graph.custom_graph.bloom_output,
-            graph_resources.texture<RenderGraphSemantics::SceneHdrColor>());
-        if (Core::RendererResult effects = build_custom_graph_stage(
-                module_context, submission, PostProcessStage::AfterBloomBeforeToneMap, logical_graph_textures);
-            !effects.has_value()) {
-            return effects;
-        }
-
-
-        if (!direct_overlay_presentation) {
-            if (Core::RendererResult tone_mapped = build_tonemap_module(
-                    module_context, submission, output_format, hdr_output, record.presentation.hdr_color_space);
-                !tone_mapped.has_value()) {
-                return tone_mapped;
+        {
+            BuiltinFrameState builtin_state{
+                .submission = &submission,
+                .record = &record,
+                .slot = &slot,
+                .gbuffer_motion = gbuffer_motion,
+                .depth_texture = depth_texture,
+                .ui_overlay_target = ui_overlay_target,
+                .bloom_active = bloom_active,
+                .bloom_format = bloom_format,
+                .logical_graph_textures = &logical_graph_textures,
+                .map_logical_texture = map_logical_texture,
+                .text_overlay_batches = &text_overlay_batches,
+                .ui_glow_bloom_outputs = &ui_glow_bloom_outputs,
+                .direct_overlay_display_transform = direct_overlay_display_transform,
+                .ui_reference_white_nits = ui_reference_white_nits,
+                .frame_slot_index = frame_slot_index,
+                .background = background,
+            };
+            FrameBuildContext frame_context{
+                .renderer = *this,
+                .graph = graph,
+                .resources = graph_resources,
+                .module = module_context,
+                .settings = submission.render_graph,
+                .device = *device,
+                .transient_bind_groups = submission.transient_bind_groups,
+                .output_format = output_format,
+                .hdr_output = hdr_output,
+                .hdr_color_space = record.presentation.hdr_color_space,
+                .direct_overlay_presentation = direct_overlay_presentation,
+                .final_output = final_output,
+                .builtin = &builtin_state,
+            };
+            // A snapshot, so features can be rearranged from any thread without racing this frame.
+            const FramePipeline pipeline = *frame_pipeline_.lock();
+            if (Core::RendererResult built = pipeline.build(frame_context); !built.has_value()) {
+                return built;
             }
-        }
-
-        if (submission.render_graph.debug_overlay && submission.render_graph.draw_overlay_text) {
-
-
-            graph.add_render_pass("debug text overlay"_ustr)
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = final_output,
-                    .load_op = RHI::LoadOp::Load,
-                    .store_op = RHI::StoreOp::Store,
-                })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y})
-                .set_execute([this, presentation_extent, &text_overlay_batches](RenderGraphContext &context) -> Core::RendererResult {
-                    RHI::RenderPassEncoder &pass = context.render_pass();
-                    pass.set_viewport(RHI::Viewport{
-                        .x = 0.0f,
-                        .y = 0.0f,
-                        .width = static_cast<f32>(presentation_extent.x),
-                        .height = static_cast<f32>(presentation_extent.y),
-                        .min_depth = 0.0f,
-                        .max_depth = 1.0f,
-                    });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
-                    const glm::vec2 viewport_size{presentation_extent};
-
-
-                    return draw_text_overlay(pass, text_overlay_batches, viewport_size);
-                });
-        }
-
-        if (submission.render_graph.ui_overlay) {
-
-
-            RenderGraphRenderPassBuilder &ui_pass = graph.add_render_pass("UI overlay"_ustr)
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = ui_overlay_target,
-                    .load_op = direct_overlay_presentation ? RHI::LoadOp::Clear : RHI::LoadOp::Load,
-                    .store_op = RHI::StoreOp::Store,
-                    .clear_color = static_cast<bool>(record.presentation.transparent_composition)
-                                       ? RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f}
-                                       : RHI::ClearColor{background.r, background.g, background.b, 1.0f},
-                });
-            // Every glow-bloom output UI::UiRenderer's own prepare() hook queued this frame (see
-            // ui_glow_bloom_outputs above) must be declared as a read dependency here — otherwise the
-            // graph's transient-memory aliasing has no reason to know this pass still needs that
-            // texture's memory, and could reuse/corrupt it before draw() below samples it.
-            for (const RenderGraphTextureHandle glow_output : ui_glow_bloom_outputs) {
-                ui_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = glow_output});
-            }
-            ui_pass.set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y})
-                .set_execute([presentation_extent, surface = record.surface, frame_slot_index,
-                              &submission](RenderGraphContext &context) -> Core::RendererResult {
-                    RHI::RenderPassEncoder &pass = context.render_pass();
-                    pass.set_viewport(RHI::Viewport{
-                        .x = 0.0f,
-                        .y = 0.0f,
-                        .width = static_cast<f32>(presentation_extent.x),
-                        .height = static_cast<f32>(presentation_extent.y),
-                        .min_depth = 0.0f,
-                        .max_depth = 1.0f,
-                    });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = presentation_extent.x, .height = presentation_extent.y});
-                    const glm::vec2 viewport_size{presentation_extent};
-
-
-                    return submission.render_graph.ui_overlay.draw(pass, viewport_size, surface, frame_slot_index);
-                });
-        }
-
-        if (direct_overlay_display_transform) {
-            RenderGraphSettings ui_display_settings{};
-            ui_display_settings.tone_mapping = false;
-            ui_display_settings.tone_mapping_exposure = 1.0f;
-            ui_display_settings.tone_mapping_white_point = 1.0f;
-            ui_display_settings.tone_mapping_saturation = 1.0f;
-            ui_display_settings.tone_mapping_hdr_output = hdr_output;
-            ui_display_settings.tone_mapping_hdr_color_space = record.presentation.hdr_color_space;
-            ui_display_settings.tone_mapping_hdr_paper_white_nits = ui_reference_white_nits;
-            ui_display_settings.tone_mapping_hdr_peak_nits = submission.render_graph.tone_mapping_hdr_peak_nits;
-
-            graph.add_render_pass("UI display encode"_ustr)
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = final_output,
-                    .load_op = RHI::LoadOp::DontCare,
-                    .store_op = RHI::StoreOp::Store,
-                })
-                .add_sampled_texture(RenderGraphSampledTextureReadDesc{
-                    .texture = ui_overlay_target,
-                    .stages = RHI::PipelineStage::FragmentShader,
-                    .access = RHI::AccessFlags::ShaderRead,
-                })
-                .set_render_area(RHI::Rect2D{
-                    .x = 0,
-                    .y = 0,
-                    .width = presentation_extent.x,
-                    .height = presentation_extent.y,
-                })
-                .set_execute([this, ui_overlay_target, output_format, presentation_extent,
-                              ui_display_settings, &submission](RenderGraphContext &context) -> Core::RendererResult {
-                    RHI::RenderPassEncoder &pass = context.render_pass();
-                    pass.set_viewport(RHI::Viewport{
-                        .x = 0.0f,
-                        .y = 0.0f,
-                        .width = static_cast<f32>(presentation_extent.x),
-                        .height = static_cast<f32>(presentation_extent.y),
-                        .min_depth = 0.0f,
-                        .max_depth = 1.0f,
-                    });
-                    pass.set_scissor(RHI::Rect2D{
-                        .x = 0,
-                        .y = 0,
-                        .width = presentation_extent.x,
-                        .height = presentation_extent.y,
-                    });
-                    return record_tonemap(
-                        pass,
-                        context.texture(ui_overlay_target).default_view,
-                        output_format,
-                        ui_display_settings,
-                        submission.transient_bind_groups,
-                        true);
-                });
         }
 
         if (submission.render_graph.debug_overlay) {

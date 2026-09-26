@@ -1,6 +1,7 @@
 #include <Async/ParIter.hpp>
 #include <Async/Scheduler.hpp>
 #include <Async/Runtime.hpp>
+#include <Async/Topology.hpp>
 
 #include <atomic>
 #include <barrier>
@@ -147,6 +148,45 @@ namespace {
         return passed;
     }
 
+    /// Covers the type-erased parallel loop and the native-handle pinning overloads.
+    bool erased_parallel_for_and_native_pinning() {
+        SFT::Async::Scheduler::initialize(4);
+        constexpr std::size_t count = 10007;
+        std::vector<std::atomic<int>> hits(count);
+        SFT::Async::parallel_for_erased(
+            count, 64,
+            [](std::size_t begin, std::size_t end, void *user) {
+                auto *slots = static_cast<std::vector<std::atomic<int>> *>(user);
+                for (std::size_t index = begin; index < end; ++index) {
+                    (*slots)[index].fetch_add(1);
+                }
+            },
+            &hits);
+        bool passed = true;
+        for (std::size_t index = 0; index < count; ++index) {
+            if (hits[index].load() != 1) {
+                passed &= check(false, "parallel_for_erased visited an index other than exactly once");
+                break;
+            }
+        }
+
+        // Automatic chunking and a range smaller than one chunk.
+        std::atomic<int> total{0};
+        SFT::Async::parallel_for_erased(
+            100, 0, [](std::size_t begin, std::size_t end, void *user) { static_cast<std::atomic<int> *>(user)->fetch_add(static_cast<int>(end - begin)); },
+            &total);
+        passed &= check(total.load() == 100, "automatic chunking must cover the whole range");
+        SFT::Async::Scheduler::shutdown();
+
+        // Pinning a thread the caller did not create through std::thread. Failure is acceptable in a
+        // restricted environment, so only the call shape is asserted.
+        (void)SFT::Async::pin_current_thread_to_core(0);
+        std::thread worker([] {});
+        (void)SFT::Async::pin_native_thread_to_core(worker.native_handle(), 0);
+        worker.join();
+        return passed;
+    }
+
 } // namespace
 
 /// Runs the executable entry point and returns its process exit status.
@@ -158,7 +198,8 @@ int main() {
                         single_worker_nested_parallel_reduce() &&
                         worker_wait_wakes_for_late_dependency_work() &&
                         saturated_pool_nested_waits() &&
-                        heavy_and_light_tasks_complete();
+                        heavy_and_light_tasks_complete() &&
+                        erased_parallel_for_and_native_pinning();
     if (passed) {
         std::cout << "Async scheduler nested-wait tests passed.\n";
         return 0;

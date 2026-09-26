@@ -111,7 +111,7 @@ namespace SFT::Engine::Detail {
         [[nodiscard]] std::filesystem::path bc_cache_path_for(std::string_view extension, u64 hash) {
             char hex[17];
             std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(hash));
-            return std::filesystem::path{".cache"} / "compressed_textures" /
+            return Foundation::cache_subdirectory("compressed_textures", std::filesystem::path{".cache"} / "compressed_textures") /
                 (std::string{hex} + "." + std::string{extension});
         }
 
@@ -392,7 +392,8 @@ namespace SFT::Engine::Detail {
         [[nodiscard]] std::filesystem::path gdeflate_cache_path_for(u64 hash) {
             char hex[17];
             std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(hash));
-            return std::filesystem::path{".cache"} / "compressed_textures" / (std::string{hex} + ".sgdf");
+            return Foundation::cache_subdirectory("compressed_textures", std::filesystem::path{".cache"} / "compressed_textures") /
+                (std::string{hex} + ".sgdf");
         }
 
         /// Reads gdeflate cache from the associated source.

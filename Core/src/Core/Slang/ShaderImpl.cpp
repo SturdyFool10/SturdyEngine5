@@ -943,6 +943,16 @@ namespace SFT::Core::Slang {
                 type->binding_ranges.push_back(parse_binding_range(type_layout, index, query_image_format));
             }
 
+            // Constant/structured buffers and parameter blocks carry their members on the wrapped
+            // element type, not on the wrapper itself.
+            if (depth < 16 &&
+                (type->kind == ShaderTypeKind::ConstantBuffer || type->kind == ShaderTypeKind::ParameterBlock ||
+                 type->kind == ShaderTypeKind::TextureBuffer || type->kind == ShaderTypeKind::ShaderStorageBuffer)) {
+                if (slang::TypeLayoutReflection *element_layout = type_layout->getElementTypeLayout()) {
+                    type->element_type = parse_type_layout(element_layout, depth + 1, query_image_format);
+                }
+            }
+
 
             if (depth >= 16) {
                 return type;
@@ -1776,7 +1786,40 @@ namespace SFT::Core::Slang {
             // reflects the real linked_program instead, where the same call is safe and is the only
             // place image_format's value is ever actually used (ReflectionBinding.cpp's
             // to_rhi_storage_format()) -- see parse_binding_range's own comment for the full story.
-            ShaderExpected<ShaderReflection> reflection = parse_reflection((*shader_state)->module.get(), 0, false);
+            //
+            // When the caller asked for specific entry points, the bare module layout cannot describe them
+            // (entry points only exist in a composed program), so compose and link exactly as compile()
+            // does and reflect that -- still with query_image_format=false, since this result is never
+            // used to build a pipeline.
+            slang::IComponentType *reflected_program = (*shader_state)->module.get();
+            ::Slang::ComPtr<slang::IComponentType> linked_program;
+            if (!options.entry_points.empty()) {
+                auto entry_points = resolve_entry_points((*shader_state)->module.get(), options);
+                if (!entry_points) {
+                    return unexpected(entry_points.error());
+                }
+                vector<slang::IComponentType *> components;
+                components.reserve(entry_points->size() + 1);
+                components.push_back((*shader_state)->module.get());
+                for (const ::Slang::ComPtr<slang::IEntryPoint> &entry_point : *entry_points) {
+                    components.push_back(entry_point.get());
+                }
+
+                ::Slang::ComPtr<slang::IBlob> diagnostics;
+                ::Slang::ComPtr<slang::IComponentType> composed_program;
+                SlangResult result = (*shader_state)->session->createCompositeComponentType(
+                    components.data(), static_cast<SlangInt>(components.size()), composed_program.writeRef(), diagnostics.writeRef());
+                if (SLANG_FAILED(result) || !composed_program.get()) {
+                    return shader_error(ShaderErrorCode::CompilationFailed, "Failed to compose Slang shader program.", blob_string(diagnostics));
+                }
+                diagnostics.setNull();
+                result = composed_program->link(linked_program.writeRef(), diagnostics.writeRef());
+                if (SLANG_FAILED(result) || !linked_program.get()) {
+                    return shader_error(ShaderErrorCode::CompilationFailed, "Failed to link Slang shader program.", blob_string(diagnostics));
+                }
+                reflected_program = linked_program.get();
+            }
+            ShaderExpected<ShaderReflection> reflection = parse_reflection(reflected_program, 0, false);
 
 
             Foundation::log_debug("Slang: reflected '{}' in {}", source.module_name, stopwatch.elapsed_human());

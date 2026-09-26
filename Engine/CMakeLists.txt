@@ -52,11 +52,17 @@ if(STURDY_TESTS_ENABLED)
         sturdy_enable_warnings(${_fixture})
     endforeach()
 
+    # The same contract from a module written in plain C, which only ever sees the host's function
+    # table (SturdyModuleReflectionApi), never the C++ TypeRegistry.
+    add_library(EngineHotReloadCFixture MODULE tests/fixtures/HotReloadCFixtureModule.c)
+    set_target_properties(EngineHotReloadCFixture PROPERTIES C_VISIBILITY_PRESET hidden)
+
     sturdy_add_test(Engine tests/HotReloadTest.cpp TIMEOUT 20
-        DEPENDS EngineHotReloadFixtureV1 EngineHotReloadFixtureV2
+        DEPENDS EngineHotReloadFixtureV1 EngineHotReloadFixtureV2 EngineHotReloadCFixture
         DEFINES
             "STURDY_HOT_RELOAD_FIXTURE_V1=\"$<TARGET_FILE:EngineHotReloadFixtureV1>\""
-            "STURDY_HOT_RELOAD_FIXTURE_V2=\"$<TARGET_FILE:EngineHotReloadFixtureV2>\"")
+            "STURDY_HOT_RELOAD_FIXTURE_V2=\"$<TARGET_FILE:EngineHotReloadFixtureV2>\""
+            "STURDY_HOT_RELOAD_C_FIXTURE=\"$<TARGET_FILE:EngineHotReloadCFixture>\"")
 endif()
 
 sturdy_add_static_unused_test(Engine NAME_STEM EngineStaticAggregateUnused)

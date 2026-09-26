@@ -241,6 +241,7 @@ namespace SFT::Renderer {
 
         destroy_object_history_resources();
         destroy_instance_cull_resources();
+        destroy_displacement_mesh_resources();
         for (MaterialTemplateResource &resource : material_templates_) {
             if (resource.alive) {
                 destroy_material_template_gpu(resource);
@@ -250,7 +251,6 @@ namespace SFT::Renderer {
         material_templates_.clear();
 
         destroy_deferred_msaa_resources();
-        destroy_tonemap_resources();
         destroy_text_overlay_resources();
 
         for (MeshResource &resource : meshes_) {

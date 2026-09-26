@@ -540,6 +540,12 @@ namespace SFT::Core::Vulkan {
         optional_rhi_features.set(RHI::Feature::RenderBundles);
 
 
+        // Mesh/task shaders: used by the displacement mesh-shader geometry path (Renderer). Optional -- a
+        // device without them negotiates the features away and the Renderer keeps the vertex path.
+        optional_rhi_features.set(RHI::Feature::MeshShader);
+        optional_rhi_features.set(RHI::Feature::TaskShader);
+
+
         optional_rhi_features.set(RHI::Feature::DepthBoundsTest);
 
 

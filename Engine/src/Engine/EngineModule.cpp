@@ -50,6 +50,57 @@ namespace SFT::Engine {
         platform_event_inbox_.push(window, event);
     }
 
+    void Engine::inject_key_event(WindowManager::WindowId window, WindowManager::KeyboardKey key, bool pressed, u32 modifiers, bool repeat) {
+        WindowManager::WindowEvent event;
+        event.kind = pressed ? WindowManager::WindowEventKind::KeyPressed : WindowManager::WindowEventKind::KeyReleased;
+        event.keyboard.key_code = key;
+        event.keyboard.modifiers = modifiers;
+        event.keyboard.repeat = repeat;
+        queue_window_event(window, event);
+    }
+
+    void Engine::inject_text_event(WindowManager::WindowId window, std::string_view utf8) {
+        WindowManager::WindowEvent event;
+        event.kind = WindowManager::WindowEventKind::TextInput;
+        // Leave room for the terminator; longer input is split so no character is silently dropped.
+        constexpr usize capacity = sizeof(event.text.utf8) - 1;
+        while (!utf8.empty()) {
+            usize take = std::min(utf8.size(), capacity);
+            // Never cut a multi-byte sequence in half.
+            while (take < utf8.size() && take > 0 && (static_cast<unsigned char>(utf8[take]) & 0xC0U) == 0x80U) {
+                --take;
+            }
+            if (take == 0) {
+                break;
+            }
+            event.text = {};
+            std::copy_n(utf8.data(), take, event.text.utf8);
+            queue_window_event(window, event);
+            utf8.remove_prefix(take);
+        }
+    }
+
+    void Engine::inject_mouse_move(WindowManager::WindowId window, f32 x, f32 y, f32 delta_x, f32 delta_y, u32 buttons) {
+        WindowManager::WindowEvent event;
+        event.kind = WindowManager::WindowEventKind::MouseMoved;
+        event.mouse_move = {.x = x, .y = y, .delta_x = delta_x, .delta_y = delta_y, .buttons = buttons};
+        queue_window_event(window, event);
+    }
+
+    void Engine::inject_mouse_button(WindowManager::WindowId window, WindowManager::MouseButton button, bool pressed, f32 x, f32 y, u8 clicks) {
+        WindowManager::WindowEvent event;
+        event.kind = pressed ? WindowManager::WindowEventKind::MouseButtonPressed : WindowManager::WindowEventKind::MouseButtonReleased;
+        event.mouse_button = {.button = static_cast<u8>(button), .clicks = clicks, .x = x, .y = y, .button_code = button};
+        queue_window_event(window, event);
+    }
+
+    void Engine::inject_mouse_wheel(WindowManager::WindowId window, f32 x, f32 y, f32 mouse_x, f32 mouse_y) {
+        WindowManager::WindowEvent event;
+        event.kind = WindowManager::WindowEventKind::MouseWheel;
+        event.mouse_wheel = {.x = x, .y = y, .mouse_x = mouse_x, .mouse_y = mouse_y};
+        queue_window_event(window, event);
+    }
+
     /// Updates the `Engine` state from the supplied values.
     ///
     /// @param delta_seconds `delta_seconds` value used by the operation.
@@ -188,6 +239,17 @@ namespace SFT::Engine {
     /// @note This function does not throw exceptions.
     [[nodiscard]] WindowManager::Window *Engine::primary_window() noexcept { return primary_window_; }
 
+    /// Returns the OS-level handle of a managed window by id.
+    ///
+    /// @param window Window whose handle is wanted.
+    ///
+    /// @return Returns the handle, or `std::nullopt` when the window is unknown or the platform gave none.
+    /// @note This function does not throw exceptions.
+    [[nodiscard]] std::optional<WindowManager::NativeWindowHandle> Engine::native_window_handle(WindowManager::WindowId window) const noexcept {
+        const WindowSnapshot *snapshot = window_state_.find(window);
+        return snapshot != nullptr ? snapshot->native_handle : std::nullopt;
+    }
+
     /// Sets the primary window for this `Engine`.
     ///
     /// @param window Window used or affected by the operation.
@@ -201,5 +263,9 @@ namespace SFT::Engine {
     /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
     /// @note This function does not throw exceptions.
     [[nodiscard]] const vector<Core::Slang::UnCompiledShader> &Engine::shaders() const noexcept { return shaders_; }
+
+    void Engine::reset_camera_history(Core::RenderSurfaceHandle surface) {
+        camera_history_.lock()->erase(static_cast<usize>(surface.window_id));
+    }
 
 } // namespace SFT::Engine

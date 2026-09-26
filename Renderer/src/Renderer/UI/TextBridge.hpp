@@ -4,6 +4,8 @@
 
 #pragma region Imports
 #include <clay.h>
+#include <memory>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -84,6 +86,9 @@ namespace SFT::UI {
         [[nodiscard]] static Clay_Dimensions measure_callback(Clay_StringSlice text, Clay_TextElementConfig *config,
                                                                void *user_data);
 
+        /// Controls whether an unregistered font id 0 falls back to the embedded default font.
+        void set_load_default_font(bool enabled) noexcept { load_default_font_ = enabled; }
+
       private:
         /// Performs the measure operation for `TextBridge` using the supplied arguments.
         ///
@@ -133,7 +138,20 @@ namespace SFT::UI {
         /// @note This function does not throw exceptions.
         [[nodiscard]] const FontEntry *find_font(FontId id) const noexcept;
 
+        /// Registers the embedded default font under id 0 the first time text asks for an id nobody
+        /// registered, so a caller that never calls `register_font` still gets text.
+        ///
+        /// @return Returns the entry for font 0, or `nullptr` when the default font cannot load.
+        const FontEntry *ensure_default_font();
+
         vector<FontEntry> fonts_;
+        /// Owns the lazily loaded default font; heap-allocated so `FontStack::primary` stays valid
+        /// across `TextBridge` moves.
+        std::unique_ptr<Text::Font> default_font_;
+        bool default_font_attempted_ = false;
+        bool load_default_font_ = true;
+        /// Font ids already reported as missing, so a bad id logs once instead of once per label.
+        std::set<FontId> reported_missing_fonts_;
         unordered_map<ShapeCacheKey, CachedShape, ShapeCacheKeyHash> cache_;
     };
 

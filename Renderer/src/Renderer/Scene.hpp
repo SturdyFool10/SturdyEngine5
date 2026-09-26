@@ -83,8 +83,16 @@ namespace SFT::Renderer {
     enum class PostProcessStage : u8 {
         BeforeBloom,
         AfterBloomBeforeToneMap,
+        /// After tone mapping, on the display-encoded image. Raster effects only; the last one writes
+        /// the presentation target.
+        AfterToneMap,
     };
 
+
+    enum class FullscreenBlend : u8 {
+        None,
+        ConstantMix,
+    };
 
     struct CustomPostProcessEffect {
         std::string shader_path;
@@ -93,6 +101,13 @@ namespace SFT::Renderer {
         std::vector<std::byte> push_constants;
         UString label;
         PostProcessStage stage = PostProcessStage::BeforeBloom;
+        /// How many `extraTexture<N>` inputs the caller supplies (see `CustomGraphPass::extra_inputs`).
+        u32 extra_input_count = 0;
+        /// How the effect's output combines with what is already in the target. `None` overwrites it.
+        /// `ConstantMix` draws with blend `src * c + dst * (1 - c)` where `c` is `blend_constant`
+        /// (bloom's upsample accumulates this way); use a load-op that keeps the target's contents.
+        FullscreenBlend blend = FullscreenBlend::None;
+        f32 blend_constant = 1.0f;
     };
 
     struct LogicalRenderGraphTexture {
@@ -128,6 +143,8 @@ namespace SFT::Renderer {
         PostProcessStage stage = PostProcessStage::BeforeBloom;
         LogicalRenderGraphTexture input{};
         LogicalRenderGraphTexture output{};
+        /// Extra sampled textures for a raster effect, bound as `extraTexture0..N`.
+        std::vector<LogicalRenderGraphTexture> extra_inputs;
         CustomPostProcessEffect raster{};
         CustomComputeEffect compute{};
         UString label;

@@ -467,6 +467,17 @@ namespace SFT::Core::Vulkan {
                                       "Composition present is implemented only on Windows.");
     }
 
+    /// Non-Windows stub for the in-place resize path. The call site in the swapchain code is guarded only by a
+    /// runtime `composition_present_compiled()` check, so without this symbol a build that does not dead-strip
+    /// (no LTO) fails to link on Linux/macOS even though the path can never be taken.
+    ///
+    /// @return Always the `Unsupported` error alternative.
+    RendererExpected<CompositionSwapchainResources> resize_composition_swapchain_resources(
+        VkDevice, VkPhysicalDevice, CompositionSwapchainResources &&, VkFormat, VkImageUsageFlags, u32, u32) {
+        return graphics_backend_error(GraphicsBackendErrorCode::Unsupported,
+                                      "Composition present is implemented only on Windows.");
+    }
+
     /// Destroys the composition swapchain resources identified by the supplied parameters.
     ///
     /// @note This function does not throw exceptions.

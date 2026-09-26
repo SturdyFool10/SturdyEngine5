@@ -128,6 +128,75 @@ namespace {
         return passed;
     }
 
+    /// Fullscreen effects may follow tone mapping (display space); compute/copy may not.
+    bool display_space_effects_follow_tone_mapping() {
+        const auto effect = [](const char *label) {
+            return FullscreenEffectDescription{
+                .shader_path = "Shaders/grade.slang",
+                .module_name = "grade",
+                .push_constants = {},
+                .label = UString{label},
+            };
+        };
+        RenderGraph graph = RenderGraph::empty();
+        RenderGraphTextureHandle color = graph.compose(RenderModules::DeferredScene{});
+        color = graph.compose(RenderModules::ToneMapping{.input = color});
+        color = graph.add_fullscreen_effect(color, effect("grade"));
+        color = graph.add_fullscreen_effect(color, effect("grain"));
+        color = graph.compose(RenderModules::DebugOverlay{.input = color});
+        (void)graph.compose(RenderModules::Present{.input = color});
+        bool passed = check(graph.validate().has_value(), "fullscreen effects after tone mapping must validate");
+
+        // A display effect placed after the debug overlay is rejected.
+        RenderGraph late = RenderGraph::empty();
+        RenderGraphTextureHandle late_color = late.compose(RenderModules::DeferredScene{});
+        late_color = late.compose(RenderModules::ToneMapping{.input = late_color});
+        late_color = late.compose(RenderModules::DebugOverlay{.input = late_color});
+        late_color = late.add_fullscreen_effect(late_color, effect("late"));
+        (void)late.compose(RenderModules::Present{.input = late_color});
+        passed &= check(!late.validate().has_value(), "a display effect after the debug overlay must be rejected");
+
+        // Compute after tone mapping is still HDR-only.
+        RenderGraph compute = RenderGraph::empty();
+        RenderGraphTextureHandle compute_color = compute.compose(RenderModules::DeferredScene{});
+        compute_color = compute.compose(RenderModules::ToneMapping{.input = compute_color});
+        compute_color = compute.add_compute_effect(
+            compute_color, SFT::Engine::ComputeEffectDescription{.shader_path = "Shaders/c.slang", .module_name = "c", .label = UString{"c"_ustr}});
+        (void)compute.compose(RenderModules::Present{.input = compute_color});
+        passed &= check(!compute.validate().has_value(), "a compute effect after tone mapping must be rejected");
+        return passed;
+    }
+
+    /// Extra sampled inputs must name textures produced earlier in the same graph.
+    bool fullscreen_effects_accept_only_produced_extra_inputs() {
+        RenderGraph graph = RenderGraph::empty();
+        const RenderGraphTextureHandle scene = graph.compose(RenderModules::DeferredScene{});
+        FullscreenEffectDescription effect{
+            .shader_path = "Shaders/composite.slang",
+            .module_name = "composite",
+            .push_constants = {},
+            .label = UString{"composite"_ustr},
+            .extra_inputs = {scene},
+        };
+        RenderGraphTextureHandle color = graph.add_fullscreen_effect(scene, effect);
+        color = graph.compose(RenderModules::ToneMapping{.input = color});
+        (void)graph.compose(RenderModules::Present{.input = color});
+        bool passed = check(graph.validate().has_value(), "an effect sampling an earlier graph texture must validate");
+
+        RenderGraph bad = RenderGraph::empty();
+        const RenderGraphTextureHandle bad_scene = bad.compose(RenderModules::DeferredScene{});
+        effect.extra_inputs = {RenderGraphTextureHandle{.index = 99, .generation = 1}};
+        RenderGraphTextureHandle bad_color = bad.add_fullscreen_effect(bad_scene, effect);
+        bad_color = bad.compose(RenderModules::ToneMapping{.input = bad_color});
+        (void)bad.compose(RenderModules::Present{.input = bad_color});
+        passed &= check(!bad.validate().has_value(), "an effect sampling an unknown texture must be rejected");
+
+        // The extras survive a copy of the graph with their handles rebased.
+        const RenderGraph copy = graph;
+        passed &= check(copy.validate().has_value(), "a copied graph must keep valid extra-input handles");
+        return passed;
+    }
+
     /// Reports whether branches are valid and presentation lowering is reachable only.
     ///
     /// @return Returns the boolean result of the operation.
@@ -440,6 +509,8 @@ int main() {
     passed &= standard_graph_is_explicit();
     passed &= overlay_only_disables_scene_post_processing();
     passed &= application_module_can_declare_safe_passes();
+    passed &= display_space_effects_follow_tone_mapping();
+    passed &= fullscreen_effects_accept_only_produced_extra_inputs();
     passed &= branches_are_valid_and_presentation_lowering_is_reachable_only();
     passed &= fullscreen_modules_compose_by_dataflow();
     passed &= explicit_compute_copy_outputs_control_execution();

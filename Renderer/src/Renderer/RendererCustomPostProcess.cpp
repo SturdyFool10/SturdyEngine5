@@ -2,7 +2,9 @@
 
 #include <Renderer/ShaderTarget.hpp>
 
+#include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstddef>
 #include <expected>
 #include <span>
@@ -52,10 +54,15 @@ namespace SFT::Renderer {
         auto resources = custom_post_process_resources_.lock();
         for (const CustomPostProcessResources &resource : *resources) {
             if (resource.shader_path == effect.shader_path && resource.module_name == effect.module_name &&
-                resource.fragment_entry_point == effect.fragment_entry_point && resource.color_format == color_format) {
+                resource.fragment_entry_point == effect.fragment_entry_point && resource.color_format == color_format &&
+                resource.blend == effect.blend) {
                 if (effect.push_constants.size() != resource.push_constant_size) {
                     return unexpected(custom_effect_error(
                         "Custom post-process push-constant payload size does not match the shader's reflected range."));
+                }
+                if (effect.extra_input_count != resource.extra_bindings.size()) {
+                    return unexpected(custom_effect_error(
+                        "Custom post-process extra input count does not match the shader's extraTexture declarations."));
                 }
                 return {};
             }
@@ -69,6 +76,7 @@ namespace SFT::Renderer {
             .module_name = effect.module_name,
             .fragment_entry_point = effect.fragment_entry_point,
             .color_format = color_format,
+            .blend = effect.blend,
         };
         auto cleanup = [&]() noexcept {
             if (resource.pipeline) device->destroy_render_pipeline(resource.pipeline);
@@ -119,12 +127,16 @@ namespace SFT::Renderer {
         const slang::ShaderReflection &reflection = resource.shader.reflection();
         const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(reflection, reflected_stage_mask(reflection));
         const vector<ReflectedResource> reflected_resources = collect_resource_bindings(reflection);
-        if (generated.size() != 1 || generated.front().set != 0 || generated.front().entries.size() != 2 ||
-            reflected_resources.size() != 2) {
+        const usize expected_resources = 2 + static_cast<usize>(effect.extra_input_count);
+        if (generated.size() != 1 || generated.front().set != 0 || generated.front().entries.size() != expected_resources ||
+            reflected_resources.size() != expected_resources) {
             cleanup();
             return unexpected(custom_effect_error(
-                "Custom post-process shader must expose only set 0 with sourceTexture and sourceSampler."));
+                "Custom post-process shader must expose only set 0 with sourceTexture, sourceSampler and one "
+                "extraTexture<N> per extra input."));
         }
+        resource.extra_bindings.assign(effect.extra_input_count, 0);
+        vector<bool> has_extra(effect.extra_input_count, false);
         const GeneratedBindGroupLayout &layout = generated.front();
         for (const RHI::BindGroupLayoutEntry &entry : layout.entries) {
             if (entry.count != 1) {
@@ -146,16 +158,28 @@ namespace SFT::Renderer {
             } else if (binding.name == "sourceSampler" && binding.type == RHI::BindingType::Sampler) {
                 resource.sampler_binding = binding.binding;
                 has_sampler = true;
+            } else if (binding.type == RHI::BindingType::SampledTexture && binding.name.starts_with("extraTexture")) {
+                const std::string_view index_text = std::string_view{binding.name}.substr(std::string_view{"extraTexture"}.size());
+                usize extra_index = 0;
+                const auto parsed = std::from_chars(index_text.data(), index_text.data() + index_text.size(), extra_index);
+                if (parsed.ec != std::errc{} || parsed.ptr != index_text.data() + index_text.size() ||
+                    extra_index >= effect.extra_input_count || has_extra[extra_index]) {
+                    cleanup();
+                    return unexpected(custom_effect_error(
+                        "Custom post-process extraTexture<N> resources must be numbered 0.. matching the extra inputs supplied."));
+                }
+                resource.extra_bindings[extra_index] = binding.binding;
+                has_extra[extra_index] = true;
             } else {
                 cleanup();
                 return unexpected(custom_effect_error(
-                    "Custom post-process shader resources must be exactly Texture2D sourceTexture and SamplerState sourceSampler."));
+                    "Custom post-process shader resources must be Texture2D sourceTexture, SamplerState sourceSampler and optional Texture2D extraTexture<N>."));
             }
         }
-        if (!has_image || !has_sampler) {
+        if (!has_image || !has_sampler || std::ranges::find(has_extra, false) != has_extra.end()) {
             cleanup();
             return unexpected(custom_effect_error(
-                "Custom post-process shader resources must be exactly Texture2D sourceTexture and SamplerState sourceSampler."));
+                "Custom post-process shader resources must be Texture2D sourceTexture, SamplerState sourceSampler and one Texture2D extraTexture<N> per extra input."));
         }
         auto bind_layout = device->create_bind_group_layout(RHI::BindGroupLayoutDesc{
             .entries = span<const RHI::BindGroupLayoutEntry>{layout.entries.data(), layout.entries.size()},
@@ -194,7 +218,20 @@ namespace SFT::Renderer {
         if (!sampler) { cleanup(); return unexpected(graphics_error_from_rhi(sampler.error(), "create custom post-process sampler")); }
         resource.sampler = *sampler;
 
-        const RHI::ColorTargetState target{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All};
+        RHI::ColorTargetState target{.format = color_format, .blend_enable = false, .write_mask = RHI::ColorWriteMask::All};
+        if (effect.blend == FullscreenBlend::ConstantMix) {
+            target.blend_enable = true;
+            target.color = RHI::BlendComponent{
+                .src_factor = RHI::BlendFactor::ConstantColor,
+                .dst_factor = RHI::BlendFactor::OneMinusConstantColor,
+                .op = RHI::BlendOp::Add,
+            };
+            target.alpha = RHI::BlendComponent{
+                .src_factor = RHI::BlendFactor::Zero,
+                .dst_factor = RHI::BlendFactor::One,
+                .op = RHI::BlendOp::Add,
+            };
+        }
         auto pipeline = device->create_render_pipeline(RHI::RenderPipelineDesc{
             .layout = resource.pipeline_layout,
             .vertex = RHI::ShaderEntry{.module = resource.vertex_module, .entry_point = "vertexMain", .stage = RHI::ShaderStage::Vertex},
@@ -226,7 +263,8 @@ namespace SFT::Renderer {
                                                                RHI::TextureViewHandle source_view,
                                                                RHI::Format color_format,
                                                                const CustomPostProcessEffect &effect,
-                                                               vector<RHI::BindGroupHandle> &transient_bind_groups) {
+                                                               vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                               span<const RHI::TextureViewHandle> extra_views) {
         ZoneScopedN("Renderer::record_custom_post_process");
         if (Core::RendererResult ready = ensure_custom_post_process(effect, color_format); !ready) return ready;
         RHI::BindGroupLayoutHandle bind_group_layout{};
@@ -234,12 +272,14 @@ namespace SFT::Renderer {
         RHI::RenderPipelineHandle pipeline{};
         u32 image_binding = 0;
         u32 sampler_binding = 0;
+        vector<u32> extra_bindings;
         {
             auto resources = custom_post_process_resources_.lock();
             const CustomPostProcessResources *resource = nullptr;
             for (const CustomPostProcessResources &candidate : *resources) {
                 if (candidate.shader_path == effect.shader_path && candidate.module_name == effect.module_name &&
-                    candidate.fragment_entry_point == effect.fragment_entry_point && candidate.color_format == color_format) {
+                    candidate.fragment_entry_point == effect.fragment_entry_point && candidate.color_format == color_format &&
+                    candidate.blend == effect.blend) {
                     resource = &candidate;
                     break;
                 }
@@ -250,14 +290,21 @@ namespace SFT::Renderer {
             pipeline = resource->pipeline;
             image_binding = resource->image_binding;
             sampler_binding = resource->sampler_binding;
+            extra_bindings = resource->extra_bindings;
+        }
+        if (extra_views.size() != extra_bindings.size()) {
+            return unexpected(custom_effect_error("Custom post-process was given a different number of extra textures than its shader declares."));
         }
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !source_view) return unexpected(custom_effect_error("Cannot record custom post-process without device/source view."));
 
-        const array<RHI::BindGroupEntry, 2> entries{
+        vector<RHI::BindGroupEntry> entries{
             RHI::BindGroupEntry{.binding = image_binding, .texture_view = source_view},
             RHI::BindGroupEntry{.binding = sampler_binding, .sampler = sampler},
         };
+        for (usize extra = 0; extra < extra_views.size(); ++extra) {
+            entries.push_back(RHI::BindGroupEntry{.binding = extra_bindings[extra], .texture_view = extra_views[extra]});
+        }
         auto group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = bind_group_layout,
             .entries = span<const RHI::BindGroupEntry>{entries.data(), entries.size()},
@@ -270,6 +317,10 @@ namespace SFT::Renderer {
         { auto tbg_guard = transient_bind_groups_lock_.lock(); transient_bind_groups.push_back(*group); }
 
         pass.set_pipeline(pipeline);
+        if (effect.blend == FullscreenBlend::ConstantMix) {
+            const f32 factor = std::clamp(effect.blend_constant, 0.0f, 1.0f);
+            pass.set_blend_constant(RHI::ClearColor{factor, factor, factor, factor});
+        }
         pass.set_bind_group(0, *group);
         if (!effect.push_constants.empty()) {
             pass.set_push_constants(RHI::ShaderStage::Fragment, 0,

@@ -193,3 +193,24 @@ namespace SFT::Engine::Detail {
         std::span<const std::byte> metallic_roughness_rgba8, u32 width, u32 height);
 
 } // namespace SFT::Engine::Detail
+
+namespace SFT::Engine {
+
+    // Public names for texture compression and channel packing, usable standalone (asset cooking).
+    using Detail::compress_bc7;
+    using Detail::compress_bc7_mip_chain;
+    using Detail::compress_bc1;
+    using Detail::compress_bc1_mip_chain;
+    using Detail::compress_bc3;
+    using Detail::compress_bc3_mip_chain;
+    using Detail::compress_bc4;
+    using Detail::compress_bc4_mip_chain;
+    using Detail::compress_bc5;
+    using Detail::compress_bc5_mip_chain;
+    using Detail::compress_gdeflate_sibling;
+    using Detail::choose_bc_format;
+    using Detail::pack_orm_rgba8;
+    using Detail::pack_metallic_roughness_rg;
+
+} // namespace SFT::Engine
+

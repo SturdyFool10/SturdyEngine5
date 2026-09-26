@@ -117,6 +117,11 @@ namespace SFT::Engine {
             if (pass.output) {
                 pass.output.generation = generation_;
             }
+            for (RenderGraphTextureHandle &extra : pass.fullscreen_effect.extra_inputs) {
+                if (extra) {
+                    extra.generation = generation_;
+                }
+            }
         }
         for (RenderGraphTextureHandle &output : outputs_) {
             if (output) {
@@ -779,6 +784,9 @@ namespace SFT::Engine {
         };
         std::vector<i32> producer(textures_.size(), -1);
         std::vector<bool> scene_linear_hdr(textures_.size(), false);
+        // True for a texture holding display-encoded (post-tone-mapping) values. A fullscreen effect may
+        // consume one: display-space grading, grain, sharpening, LUTs.
+        std::vector<bool> display_encoded(textures_.size(), false);
         usize scene_count = 0;
         usize present_count = 0;
         RenderGraphTextureHandle present_input{};
@@ -839,6 +847,16 @@ namespace SFT::Engine {
                     .message = UString{"Render graph texture extent or mip declaration is invalid."_ustr},
                 });
             }
+            if (pass.kind == RenderGraphPassKind::FullscreenEffect) {
+                for (RenderGraphTextureHandle extra : pass.fullscreen_effect.extra_inputs) {
+                    if (!valid_texture(extra) || producer[extra.index] < 0) {
+                        return std::unexpected(RenderGraphError{
+                            .code = RenderGraphErrorCode::InvalidFullscreenEffect,
+                            .message = UString{"A fullscreen effect's extra input must be a texture produced earlier by this graph."_ustr},
+                        });
+                    }
+                }
+            }
             if (pass.kind == RenderGraphPassKind::FullscreenEffect &&
                 (pass.fullscreen_effect.shader_path.empty() ||
                  pass.fullscreen_effect.module_name.empty() ||
@@ -859,13 +877,16 @@ namespace SFT::Engine {
             const bool custom_hdr_operation = pass.kind == RenderGraphPassKind::FullscreenEffect ||
                                               pass.kind == RenderGraphPassKind::ComputeEffect ||
                                               pass.kind == RenderGraphPassKind::Copy;
-            if (custom_hdr_operation && !scene_linear_hdr[pass.input.index]) {
+            const bool display_space_effect = pass.kind == RenderGraphPassKind::FullscreenEffect &&
+                                              display_encoded[pass.input.index];
+            if (custom_hdr_operation && !scene_linear_hdr[pass.input.index] && !display_space_effect) {
                 return std::unexpected(RenderGraphError{
                     .code = RenderGraphErrorCode::UnsupportedPassOrder,
-                    .message = UString{"Custom raster, compute, and copy passes currently require a scene-linear HDR input before tone mapping."_ustr},
+                    .message = UString{"Custom compute and copy passes require a scene-linear HDR input before tone mapping; only fullscreen raster effects may run on the display-encoded image after it."_ustr},
                 });
             }
             producer[pass.output.index] = static_cast<i32>(index);
+            display_encoded[pass.output.index] = pass.kind == RenderGraphPassKind::ToneMapping || display_space_effect;
             scene_linear_hdr[pass.output.index] = pass.kind != RenderGraphPassKind::ToneMapping &&
                                                   pass.kind != RenderGraphPassKind::DebugOverlay &&
                                                   scene_linear_hdr[pass.input.index];
@@ -915,6 +936,12 @@ namespace SFT::Engine {
                 return std::unexpected(RenderGraphError{
                     .code = RenderGraphErrorCode::UnsupportedPassOrder,
                     .message = UString{"Explicit non-presentation outputs currently support custom raster, compute, and copy branches only."_ustr},
+                });
+            }
+            if (display_encoded[passes_[handle.index].output.index]) {
+                return std::unexpected(RenderGraphError{
+                    .code = RenderGraphErrorCode::UnsupportedPassOrder,
+                    .message = UString{"Display-space effects must be on the presentation path, not a side branch."_ustr},
                 });
             }
         }
@@ -967,10 +994,16 @@ namespace SFT::Engine {
                             .message = UString{"Custom HDR passes on the presentation path must run after the anti-aliasing module."_ustr},
                         });
                     }
-                    if (saw_tone_mapping) {
+                    if (saw_tone_mapping && pass.kind != RenderGraphPassKind::FullscreenEffect) {
                         return std::unexpected(RenderGraphError{
                             .code = RenderGraphErrorCode::UnsupportedPassOrder,
-                            .message = UString{"Custom HDR raster, compute, and copy passes must run before tone mapping on the presentation path."_ustr},
+                            .message = UString{"Custom HDR compute and copy passes must run before tone mapping on the presentation path; only fullscreen effects may follow it."_ustr},
+                        });
+                    }
+                    if (saw_tone_mapping && saw_debug_overlay) {
+                        return std::unexpected(RenderGraphError{
+                            .code = RenderGraphErrorCode::UnsupportedPassOrder,
+                            .message = UString{"Display-space effects must run before the debug overlay."_ustr},
                         });
                     }
                     break;

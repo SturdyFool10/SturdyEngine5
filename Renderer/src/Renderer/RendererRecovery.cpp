@@ -222,13 +222,13 @@ namespace SFT::Renderer {
         *shadow_lighting_.lock() = {};
         *gtao_.lock() = {};
         *deferred_msaa_.lock() = {};
-        *tonemap_.lock() = {};
         *text_overlay_.lock() = {};
         custom_post_process_resources_.lock()->clear();
         custom_compute_effect_resources_.lock()->clear();
         *spectral_path_tracing_.lock() = {};
         *instance_cull_.lock() = {};
         instanced_pipeline_variants_.lock()->clear();
+        reset_displacement_mesh_gpu_after_device_loss();
         *object_history_.lock() = {};
         object_history_pipeline_variants_.lock()->clear();
         *hiz_build_.lock() = {};
