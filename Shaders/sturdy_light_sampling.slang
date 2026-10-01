@@ -76,24 +76,33 @@ struct LightSampleResult {
     bool isSun;
 };
 
-// Uniformly selects one candidate among {sun, lightCount point/spot lights}. Dividing the returned
+// Uniform single-light selection over {sun, lightCount point/spot lights}. Dividing the sampled
 // `radiance` by `pdf` (and multiplying by BSDF * cosine * visibility) gives an unbiased single-sample
-// NEE estimate of the full light set's contribution; for the sun specifically, `balanceHeuristicWeight`
-// against `diffuseCosinePdf` should also be applied (see restir_gi_initial_sample.slang) since a BSDF-
-// sampled ray can legitimately also land on the sun's disk.
-LightSampleResult sampleOneLightUniform(
+// NEE estimate of the full light set's contribution. The balance-heuristic helpers above remain for
+// callers that also run the competing BSDF strategy for the sun.
+// Picks the candidate index: 0 = the sun, 1..lightCount = the point/spot light at index (selection - 1).
+// Split from the evaluation below so callers can fetch only the ONE selected light straight from their
+// constant buffer — passing the whole light array by value forced a local copy that the runtime-random
+// index then turned into scratch/private-memory traffic on GPUs that cannot dynamically index registers.
+uint pickLightSelection(uint lightCount, inout uint rng)
+{
+    uint candidateCount = 1u + min(lightCount, kRestirGiMaxLights);
+    return min((uint)(spectralRandom(rng) * (float)candidateCount), candidateCount - 1u);
+}
+
+// Evaluates the candidate chosen by `pickLightSelection`. `selectedLight` is only read when
+// `selection != 0` (callers may pass any value, e.g. light 0, for the sun).
+LightSampleResult sampleSelectedLight(
     float3 shadingPosition,
     float3 sunDirectionToward,
     float3 sunRadiance,
     float sunAngularRadius,
-    SturdyPackedLight lights[kRestirGiMaxLights],
-    uint lightCount,
-    inout uint rng)
+    uint selection,
+    SturdyPackedLight selectedLight,
+    uint lightCount)
 {
-    uint clampedCount = min(lightCount, kRestirGiMaxLights);
-    uint candidateCount = 1u + clampedCount;
+    uint candidateCount = 1u + min(lightCount, kRestirGiMaxLights);
     float selectionProbability = 1.0 / (float)candidateCount;
-    uint selection = min((uint)(spectralRandom(rng) * (float)candidateCount), candidateCount - 1u);
 
     LightSampleResult result;
     if (selection == 0u) {
@@ -106,7 +115,7 @@ LightSampleResult sampleOneLightUniform(
         return result;
     }
 
-    SturdyPackedLight light = lights[min(selection - 1u, kRestirGiMaxLights - 1u)];
+    SturdyPackedLight light = selectedLight;
     float3 toLight = light.positionRange.xyz - shadingPosition;
     float dist = length(toLight);
     result.direction = dist > SFT_EPSILON ? toLight / dist : float3(0.0, 1.0, 0.0);

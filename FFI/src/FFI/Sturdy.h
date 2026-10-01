@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 28u
+#define STURDY_ABI_VERSION_MINOR 30u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -439,6 +439,7 @@ typedef struct SturdyRuntimeConfig {
     /// absolute. Null selects `"Shaders"`.
     const char *shaders_directory;
 
+    /// Primary window client-area size in physical pixels.
     uint32_t window_width;
     uint32_t window_height;
     SturdyBool window_resizable;
@@ -964,6 +965,95 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_motion_blur_settings_init(SturdyM
 /// Replaces the motion-blur stage's settings for the frame being built.
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_motion_blur_settings(
     SturdyFrame frame, const SturdyMotionBlurSettings *settings);
+
+typedef struct SturdyAutoExposureSettings {
+    /// Set to `sizeof(SturdyAutoExposureSettings)` by `sturdy_auto_exposure_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    /// Luminance range the histogram meters, as log2(scene-linear luminance).
+    float min_log2_luminance;
+    float max_log2_luminance;
+    /// Fractions of the metered pixel mass ignored at the dark / bright end (`0 <= low < high <= 1`).
+    float low_percent;
+    float high_percent;
+    /// Luminance the metered average is mapped to (middle grey).
+    float key_value;
+    /// Exposure compensation in stops.
+    float compensation_ev;
+    float min_exposure;
+    float max_exposure;
+    /// Adaptation rates per second when the scene darkens (exposure rises) / brightens.
+    float adapt_up_speed;
+    float adapt_down_speed;
+    /// 0 = every pixel counts equally, 1 = the frame edges count for nothing.
+    float center_weight;
+} SturdyAutoExposureSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (disabled — auto exposure is opt-in).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_auto_exposure_settings_init(SturdyAutoExposureSettings *settings);
+
+/// Replaces the histogram auto-exposure stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_auto_exposure_settings(
+    SturdyFrame frame, const SturdyAutoExposureSettings *settings);
+
+typedef struct SturdyCameraEmulationSettings {
+    /// Set to `sizeof(SturdyCameraEmulationSettings)` by `sturdy_camera_emulation_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    /// Barrel distortion, 0 = none; the image is zoomed so the corners still reach the frame edge.
+    float fisheye_strength;
+    /// Radial red/blue separation as a fraction of the frame half-size at the corners.
+    float chromatic_aberration;
+    float vignette_strength;
+    /// Brightness-dependent temporal sensor noise, 0 = none.
+    float sensor_noise;
+    float sharpen;
+    float saturation;
+    /// Contrast about middle grey (1 = unchanged).
+    float contrast;
+    /// White-balance multiplier (1, 1, 1 = neutral).
+    float tint_r;
+    float tint_g;
+    float tint_b;
+    /// Darkens a rounded-rectangle "camera housing" frame around the edges, 0 = none.
+    float housing;
+} SturdyCameraEmulationSettings;
+
+typedef struct SturdyScreenSpaceGiSettings {
+    /// Set to `sizeof(SturdyScreenSpaceGiSettings)` by `sturdy_screen_space_gi_settings_init`.
+    uint32_t struct_size;
+    /// Screen-space indirect lighting (no ray tracing needed, every backend). Used when ReSTIR GI is off.
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    float intensity;
+    /// How far, in world units, a surface can light its neighbours.
+    float radius;
+    /// Assumed thickness of what the depth buffer shows, in world units.
+    float thickness;
+    /// Search directions per pixel and depth taps per direction (at half resolution).
+    uint32_t slice_count;
+    uint32_t step_count;
+    /// Weight of the newest frame in the temporal accumulation.
+    float temporal_alpha;
+    /// Brightest scene-linear luminance a texel may contribute.
+    float max_radiance;
+} SturdyScreenSpaceGiSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (disabled).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_screen_space_gi_settings_init(SturdyScreenSpaceGiSettings *settings);
+
+/// Replaces the screen-space GI stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_screen_space_gi_settings(
+    SturdyFrame frame, const SturdyScreenSpaceGiSettings *settings);
+
+/// Fills `settings` with `struct_size` and engine defaults (disabled — the body-camera look is opt-in).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_camera_emulation_settings_init(SturdyCameraEmulationSettings *settings);
+
+/// Replaces the camera-emulation stage's settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_camera_emulation_settings(
+    SturdyFrame frame, const SturdyCameraEmulationSettings *settings);
 
 // ---------------------------------------------------------------------------------------------
 // Input
@@ -2008,6 +2098,206 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gltf_spawn_all(SturdyEngine engin
                                                               uint32_t *out_spawned);
 
 // ---------------------------------------------------------------------------------------------
+// Model import, animation and animation graphs
+// ---------------------------------------------------------------------------------------------
+//
+// `sturdy_model_import` loads glTF/GLB, FBX and OBJ into the same `SturdyGltfScene` the glTF functions above use,
+// including skeletons, blend shapes and every animation the file carries. `sturdy_scene_spawn` then creates the
+// entities with animation already wired up (skinned characters play, animated props move). Control playback per
+// entity with the `sturdy_animation_*` calls; animation can also come from separate files (Mixamo, BVH mocap) and be
+// retargeted onto a character.
+
+/// Imports a model file of any supported format, chosen from its extension: `.gltf`/`.glb`, `.fbx`, `.obj`.
+/// Same ownership and release rules as `sturdy_gltf_import`; the handle works with every `sturdy_gltf_*` call.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_model_import(SturdyEngine engine,
+                                                            const char *source,
+                                                            SturdyAsset shader,
+                                                            SturdyGltfScene *out_scene);
+
+/// Returns how many animation clips the imported scene carries.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_scene_clip_count(SturdyGltfScene scene, uint32_t *out_count);
+
+/// Reads the name of clip `index`. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_scene_clip_name(SturdyGltfScene scene,
+                                                               uint32_t index,
+                                                               char *buffer,
+                                                               size_t capacity,
+                                                               size_t *out_length);
+
+/// Reads the length of clip `index` in seconds.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_scene_clip_duration(SturdyGltfScene scene,
+                                                                   uint32_t index,
+                                                                   float *out_seconds);
+
+/// How `sturdy_scene_spawn` places and starts a scene.
+typedef struct SturdySpawnOptions {
+    /// Set to `sizeof(SturdySpawnOptions)`.
+    uint32_t struct_size;
+    /// Start playing as soon as the entities exist.
+    SturdyBool auto_play;
+    /// Loop the starting clip.
+    SturdyBool loop;
+    uint16_t reserved;
+    /// Playback speed multiplier.
+    float speed;
+    /// Clip to start with, or null for the file's first.
+    const char *initial_clip;
+    /// Column-major 4x4 transform applied on top of the file's own placement (identity to keep it as authored).
+    float transform[16];
+} SturdySpawnOptions;
+
+/// Fills `options` with the defaults: auto-play, looping, speed 1, first clip, identity transform.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_spawn_options_init(SturdySpawnOptions *options);
+
+/// Spawns every model and light of the scene with its animation wired up: skinned characters get a private
+/// deformable copy and an animator, blend-shape meshes likewise, and plain animated nodes follow the file's node
+/// animation. `sturdy_gltf_spawn_all` is this with default options.
+///
+/// @param options Null for the defaults.
+/// @param out_entities Optional array receiving the created entities (renderers first, then lights).
+/// @param capacity Length of `out_entities`.
+/// @param out_count Receives how many entities were created (may exceed `capacity`). May be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_scene_spawn(SturdyEngine engine,
+                                                           SturdyGltfScene scene,
+                                                           const SturdySpawnOptions *options,
+                                                           SturdyEntity *out_entities,
+                                                           uint32_t capacity,
+                                                           uint32_t *out_count);
+
+/// Starts the named clip from its beginning on an animated entity (a character or a node of an animated prop).
+/// Fails with `STURDY_ERROR_NOT_AVAILABLE` when the entity has no clip of that name or no animation.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_play(SturdyEngine engine,
+                                                              SturdyEntity entity,
+                                                              const char *clip_name,
+                                                              SturdyBool loop,
+                                                              float speed);
+
+/// Scales playback speed (1 = authored speed, 0 freezes, negative runs backwards where supported).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_set_speed(SturdyEngine engine,
+                                                                   SturdyEntity entity,
+                                                                   float speed);
+
+/// Pauses or resumes the entity's animation.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_set_playing(SturdyEngine engine,
+                                                                     SturdyEntity entity,
+                                                                     SturdyBool playing);
+
+/// Returns how many clips the entity can play by name.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_clip_count(SturdyEngine engine,
+                                                                    SturdyEntity entity,
+                                                                    uint32_t *out_count);
+
+/// Reads the name of the entity's clip `index`. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_clip_name(SturdyEngine engine,
+                                                                   SturdyEntity entity,
+                                                                   uint32_t index,
+                                                                   char *buffer,
+                                                                   size_t capacity,
+                                                                   size_t *out_length);
+
+/// Makes the entity's animation graph-driven. `graph_json` (`graph_length` bytes, or 0 for null-terminated) is an
+/// animation graph document: parameters, clip/blend/additive/state-machine nodes, layers with joint masks and root
+/// motion. Clips are referenced by name from the entity's own clips (add more first with
+/// `sturdy_animation_adopt`). On failure the error message says what is wrong with the document.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_graph_attach(SturdyEngine engine,
+                                                                      SturdyEntity entity,
+                                                                      const char *graph_json,
+                                                                      size_t graph_length);
+
+/// Sets a float/int graph parameter. Unknown names are ignored.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_graph_set_float(SturdyEngine engine,
+                                                                         SturdyEntity entity,
+                                                                         const char *name,
+                                                                         float value);
+
+/// Sets a bool graph parameter.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_graph_set_bool(SturdyEngine engine,
+                                                                        SturdyEntity entity,
+                                                                        const char *name,
+                                                                        SturdyBool value);
+
+/// Fires a trigger parameter (it resets once a transition consumes it).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_graph_trigger(SturdyEngine engine,
+                                                                       SturdyEntity entity,
+                                                                       const char *name);
+
+/// Reads the name of the graph's current state-machine state. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_graph_state(SturdyEngine engine,
+                                                                     SturdyEntity entity,
+                                                                     char *buffer,
+                                                                     size_t capacity,
+                                                                     size_t *out_length);
+
+/// Animation loaded from a file on its own (BVH mocap, or glTF/FBX with no mesh such as Mixamo downloads).
+/// Owned: valid until `sturdy_animation_set_release`.
+typedef struct SturdyAnimationSet {
+    uint64_t token;
+} SturdyAnimationSet;
+
+/// Loads only the animation from `.bvh`, `.gltf`/`.glb` or `.fbx`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_set_import(SturdyEngine engine,
+                                                                    const char *source,
+                                                                    SturdyAnimationSet *out_set);
+
+/// Releases an animation set. Clips already adopted by entities keep working.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_set_release(SturdyAnimationSet set);
+
+/// Returns how many clips the set holds.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_set_clip_count(SturdyAnimationSet set, uint32_t *out_count);
+
+/// Reads the name of clip `index` of the set. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_set_clip_name(SturdyAnimationSet set,
+                                                                       uint32_t index,
+                                                                       char *buffer,
+                                                                       size_t capacity,
+                                                                       size_t *out_length);
+
+/// Retargets every clip of the set onto the entity's skeleton (by bone name when the rigs match, through a humanoid
+/// mapping otherwise) and adds them to the entity so `sturdy_animation_play` can play them.
+///
+/// @param out_added Receives how many clips were added. May be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_adopt(SturdyEngine engine,
+                                                               SturdyEntity entity,
+                                                               SturdyAnimationSet set,
+                                                               uint32_t *out_added);
+
+/// Adds a two-bone IK constraint (a leg onto the ground, a hand onto a prop), solved every frame after the
+/// animation. Joints are named as in the skeleton; `pole` is the model-space direction the knee/elbow bends toward
+/// (zero = keep the animated bend).
+///
+/// @param out_index Receives the constraint index for `sturdy_animation_ik_set_target`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_ik_add_two_bone(SturdyEngine engine,
+                                                                         SturdyEntity entity,
+                                                                         const char *root_joint,
+                                                                         const char *mid_joint,
+                                                                         const char *tip_joint,
+                                                                         const float pole[3],
+                                                                         uint32_t *out_index);
+
+/// Moves a two-bone IK constraint's target (model space) and sets its blend weight (0 = off, 1 = fully solved).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_ik_set_target(SturdyEngine engine,
+                                                                       SturdyEntity entity,
+                                                                       uint32_t index,
+                                                                       const float target[3],
+                                                                       float weight);
+
+/// Adds a look-at constraint (head tracking): the joint's `forward_axis` (local) turns toward the target, limited to
+/// `max_angle_degrees` from the animated direction.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_look_at_add(SturdyEngine engine,
+                                                                     SturdyEntity entity,
+                                                                     const char *joint,
+                                                                     const float forward_axis[3],
+                                                                     float max_angle_degrees,
+                                                                     uint32_t *out_index);
+
+/// Moves a look-at constraint's target (model space) and sets its blend weight.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_animation_look_at_set_target(SturdyEngine engine,
+                                                                            SturdyEntity entity,
+                                                                            uint32_t index,
+                                                                            const float target[3],
+                                                                            float weight);
+
+// ---------------------------------------------------------------------------------------------
 // Async tasks
 // ---------------------------------------------------------------------------------------------
 
@@ -2182,6 +2472,21 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_register_font(SturdyEngine eng
                                                                 const char *source,
                                                                 uint32_t font_id);
 
+/// How UI units map onto the framebuffer.
+typedef enum SturdyUiScaleMode {
+    /// One UI unit covers `sturdy_window_content_scale` pixels, so the UI keeps its physical size on
+    /// every display and text stays sharp. The default.
+    STURDY_UI_SCALE_MODE_CONTENT_SCALE = 0,
+    /// One UI unit is one framebuffer pixel, whatever the display scale.
+    STURDY_UI_SCALE_MODE_RAW_PIXELS = 1,
+    STURDY_UI_SCALE_MODE_FORCE_U32 = 0x7fffffff
+} SturdyUiScaleMode;
+
+/// Chooses how UI units map onto the framebuffer. Takes effect at the next `sturdy_ui_begin`.
+///
+/// @return `STURDY_ERROR_INVALID_ARGUMENT` for an unknown mode.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_set_scale_mode(SturdyEngine engine, SturdyUiScaleMode mode);
+
 /// Opens a UI frame, to be built and then closed with `sturdy_ui_end`.
 ///
 /// Call this from `request_render_frame` before building any UI. It readies the UI renderer,
@@ -2235,7 +2540,9 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ui_clicked(SturdyEngine engine,
                                                           const char *id,
                                                           SturdyBool *out_clicked);
 
-/// Reads the pointer position in UI coordinates.
+/// Reads the pointer position in UI coordinates: the same units as element sizes and positions,
+/// which are framebuffer pixels divided by the content scale unless
+/// `STURDY_UI_SCALE_MODE_RAW_PIXELS` is set.
 ///
 /// @param out_x Receives the horizontal position. May be null.
 /// @param out_y Receives the vertical position. May be null.
@@ -2528,8 +2835,8 @@ typedef enum SturdyWindowEffectKind {
     STURDY_WINDOW_EFFECT_FORCE_U32 = 0x7fffffff
 } SturdyWindowEffectKind;
 
-/// Screen-space hint for where an IME should draw its candidate/composition window, in the same
-/// logical units as `SturdyWindowSnapshot::width`/`height`. `cursor_offset_x` is the caret's
+/// Screen-space hint for where an IME should draw its candidate/composition window, in window
+/// coordinates (the same units as `SturdyWindowSnapshot::width`/`height` and mouse positions). `cursor_offset_x` is the caret's
 /// offset from `x` within that area, for IMEs that anchor the popup to caret position rather than
 /// the area's top-left corner.
 typedef struct SturdyTextInputArea {
@@ -2542,9 +2849,10 @@ typedef struct SturdyTextInputArea {
 
 /// Observed state of one window this frame.
 ///
-/// `size` is in logical units and `framebuffer_size` in physical pixels; they differ on a
-/// high-DPI display, and rendering must use the framebuffer values while UI hit-testing uses the
-/// logical ones.
+/// `width`/`height` are window coordinates (the space mouse positions and `position_x/y` use) and
+/// `framebuffer_width/height` are physical pixels. They are equal on Windows/X11 and differ on
+/// macOS, scaled Wayland and the Web. Render with the framebuffer values. The display's UI scale is
+/// separate; read it with `sturdy_window_content_scale`.
 typedef struct SturdyWindowSnapshot {
     /// Set by the engine to `sizeof(SturdyWindowSnapshot)` as this build sees it.
     uint32_t struct_size;
@@ -2587,6 +2895,15 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_find(SturdyEngine engine,
                                                            SturdySurface surface,
                                                            SturdyWindowSnapshot *out_snapshot);
 
+/// Reads the UI scale the OS asks for on the display the window is on (1.0 at 100%, 2.0 at 200%).
+/// Updated when the window moves to a display with a different scale.
+///
+/// @param surface Surface identifier, as handed to `request_render_frame`.
+/// @return `STURDY_ERROR_NOT_AVAILABLE` when no managed window matches.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_content_scale(SturdyEngine engine,
+                                                                    SturdySurface surface,
+                                                                    float *out_scale);
+
 // ---------------------------------------------------------------------------------------------
 // Window requests
 // ---------------------------------------------------------------------------------------------
@@ -2601,6 +2918,7 @@ typedef struct SturdyWindowConfig {
     /// Copied by the engine before this call returns; the pointer need not outlive it. Null means
     /// "Sturdy Engine".
     const char *title;
+    /// Client-area size in physical pixels on every platform.
     uint32_t width;
     uint32_t height;
     int32_t position_x;
@@ -2747,7 +3065,7 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_text_input_active(Stur
                                                                             SturdySurface surface,
                                                                             SturdyBool active);
 
-/// Hints the IME where to draw its candidate/composition window, in the window's logical units.
+/// Hints the IME where to draw its candidate/composition window, in window coordinates.
 /// Only meaningful while text input is active (see `sturdy_window_set_text_input_active`).
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_text_input_area(SturdyEngine engine,
                                                                           SturdySurface surface,
@@ -4779,6 +5097,22 @@ typedef enum SturdyPlatformQueryStatus {
     STURDY_PLATFORM_QUERY_STATUS_FORCE_U32 = 0x7fffffff
 } SturdyPlatformQueryStatus;
 
+/// The "FPS Limit" dial: how the render loop caps its own dispatch rate, independent of and
+/// composing with whatever the resolved present mode is already doing. Matches
+/// `Core::FrameRateLimitMode`.
+typedef enum SturdyFrameRateLimitMode {
+    /// No engine-imposed cap. Correct with a vsync-blocking present mode (Fifo/FifoLatestReady);
+    /// with a non-blocking one (Mailbox/Immediate/FifoRelaxed) this really is uncapped dispatch,
+    /// an explicit choice rather than something the engine silently overrides.
+    STURDY_FRAME_RATE_LIMIT_MODE_UNLIMITED = 0,
+    /// Cap dispatch to `SturdyPresentationSettings::frame_rate_limit_fps`, regardless of present mode.
+    STURDY_FRAME_RATE_LIMIT_MODE_CUSTOM,
+    /// Cap dispatch to the display's current refresh rate (queried per frame; a window can move between
+    /// displays with different rates). Falls back to unlimited if the platform/window can't report one.
+    STURDY_FRAME_RATE_LIMIT_MODE_MATCH_DISPLAY_REFRESH,
+    STURDY_FRAME_RATE_LIMIT_MODE_FORCE_U32 = 0x7fffffff
+} SturdyFrameRateLimitMode;
+
 /// A surface's presentation policy. Mirrors `Core::PresentationSettings` field-for-field.
 typedef struct SturdyPresentationSettings {
     /// Set to `sizeof(SturdyPresentationSettings)` by `sturdy_presentation_settings_init`.
@@ -4797,6 +5131,24 @@ typedef struct SturdyPresentationSettings {
     /// Requested swapchain image count. Zero uses the engine's default.
     uint32_t swapchain_image_count;
     SturdyBool allow_present_from_compute;
+    SturdyFrameRateLimitMode frame_rate_limit_mode;
+    /// Target frames per second; meaningful only when `frame_rate_limit_mode ==
+    /// STURDY_FRAME_RATE_LIMIT_MODE_CUSTOM`. A value `<= 0` behaves the same as
+    /// `STURDY_FRAME_RATE_LIMIT_MODE_UNLIMITED`.
+    double frame_rate_limit_fps;
+    /// Headroom kept below the display's refresh rate while `variable_refresh` is engaged, in fps.
+    /// Applied automatically whenever the display's current refresh rate can be queried, on top of
+    /// (never loosening) whatever `frame_rate_limit_mode` otherwise picked -- including
+    /// `STURDY_FRAME_RATE_LIMIT_MODE_UNLIMITED`, so enabling variable refresh alone is enough to get a
+    /// safe cap. Defaults to 3.0 in `sturdy_presentation_settings_init`.
+    double variable_refresh_margin_fps;
+    /// A separate, usually lower cap applied while the window is not focused, to save power/heat.
+    /// `<= 0` disables this. Only ever tightens an existing cap, never loosens one.
+    double unfocused_frame_rate_limit_fps;
+    /// On a fixed-refresh display, round a frame-rate limit below the refresh rate down to the nearest
+    /// `refresh / n` so every frame is on screen for the same number of refreshes (144 Hz with a 60 fps
+    /// limit -> 48 fps). Ignored under variable refresh. Defaults to true.
+    SturdyBool snap_frame_rate_limit_to_refresh;
 } SturdyPresentationSettings;
 
 /// Fills `settings` with `struct_size` and the engine's defaults (vsync on, no HDR, opaque

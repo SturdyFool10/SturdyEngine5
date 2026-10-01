@@ -34,4 +34,14 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle view;
     };
 
+    /// A buffer bound by name to a storage or constant buffer the kernel declares in set 0. `structure_stride`
+    /// is the element size for `StructuredBuffer<T>` (D3D12 needs it); leave 0 for raw/byte-address buffers.
+    struct ComputeBufferBinding {
+        std::string_view name;
+        RHI::BufferHandle buffer;
+        u32 structure_stride = 0;
+        u64 offset = 0;
+        u64 size = 0;
+    };
+
 } // namespace SFT::Renderer

@@ -63,7 +63,11 @@ namespace SFT::Core::Vulkan {
             return rhi::rhi_error(rhi::RhiErrorCode::InvalidArgument, "submit: queue lane is not available.");
         }
 
-        vector<VkCommandBufferSubmitInfo> command_buffers;
+        // submit() can run concurrently on several threads (one per window's render thread, plus async compute),
+        // so the scratch vectors below are thread_local rather than shared: each calling thread settles into zero
+        // heap traffic here after its first few calls, with no cross-thread reuse to make safe.
+        thread_local vector<VkCommandBufferSubmitInfo> command_buffers;
+        command_buffers.clear();
         command_buffers.reserve(desc.command_buffers.size());
         for (const rhi::CommandBufferHandle handle : desc.command_buffers) {
             CommandBufferRecord *record = command_buffers_.find(handle);
@@ -77,7 +81,8 @@ namespace SFT::Core::Vulkan {
             command_buffers.push_back(record->command_buffer.submit_info());
         }
 
-        vector<VkSemaphoreSubmitInfo> waits;
+        thread_local vector<VkSemaphoreSubmitInfo> waits;
+        waits.clear();
         waits.reserve(desc.waits.size() + desc.presented_textures.size());
         for (const rhi::QueueSemaphoreWait &wait : desc.waits) {
             VulkanSemaphore *semaphore = semaphores_.find(wait.semaphore);
@@ -87,7 +92,8 @@ namespace SFT::Core::Vulkan {
             waits.push_back(semaphore->submit_info(to_vk(wait.stages), wait.value));
         }
 
-        vector<VkSemaphoreSubmitInfo> signals;
+        thread_local vector<VkSemaphoreSubmitInfo> signals;
+        signals.clear();
         signals.reserve(desc.signals.size() + desc.presented_textures.size());
         for (const rhi::QueueSemaphoreSignal &signal : desc.signals) {
             VulkanSemaphore *semaphore = semaphores_.find(signal.semaphore);

@@ -71,6 +71,8 @@ namespace SFT::Ffi {
         /// Also owned: an in-progress `SFT::Reflection::TypeInfoBuilder`. Lives until
         /// `sturdy_reflection_type_builder_finish`/`_discard`.
         ReflectionTypeBuilder = 11,
+        /// Also owned: animation loaded from a file on its own. Lives until `sturdy_animation_set_release`.
+        AnimationSet = 12,
     };
 
     /// Mints a token referring to `pointer`, valid until `revoke_handle`.

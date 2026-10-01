@@ -69,24 +69,25 @@ namespace SFT::Core::WebGpu {
             return layout;
         }
 
-        /// Applies one `set_push_constants` call to an encoder's shadow block and obtains the ring
-        /// slice to bind.
+        /// Applies one `set_push_constants` call to an encoder's shadow block. Marks it dirty rather than
+        /// allocating a ring slice and rebinding right away: a draw's vertex and fragment stages routinely both
+        /// write into the same block before the draw that reads it, and only the state as of the *last* write
+        /// before a draw is ever observed, so every write but the last was previously wasted ring space, an
+        /// upload and a bind-group rebind. `flush_push_constants` (called from every draw/dispatch entry point,
+        /// below) does that work once, only when something changed since the last flush.
         ///
-        /// The stage mask is dropped: the emulation's bind group layout makes the block visible to
-        /// every stage, because WebGPU has no way to vary a binding's visibility per draw and a
-        /// block visible to more stages than a shader reads costs nothing.
+        /// The stage mask is dropped: the emulation's bind group layout makes the block visible to every stage,
+        /// because WebGPU has no way to vary a binding's visibility per draw and a block visible to more stages
+        /// than a shader reads costs nothing.
         ///
-        /// @param device Device owning the ring.
         /// @param shadow The encoder's mirror of the whole block, updated in place.
         /// @param offset Byte offset within the block the caller is writing at.
         /// @param data Bytes to write there.
+        /// @param dirty Set to true on a successful write.
         ///
-        /// @return Returns the group and dynamic offset to bind, or `std::nullopt` when the write
-        ///         was out of range or no slice could be obtained.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] std::optional<WebGpuDevice::PushConstantBinding> stage_push_constants(
-            WebGpuDevice &device, std::array<std::byte, push_constant_shadow_size> &shadow, u32 offset,
-            span<const std::byte> data) noexcept {
+        void stage_push_constants(std::array<std::byte, push_constant_shadow_size> &shadow, u32 offset,
+                                  span<const std::byte> data, bool &dirty) noexcept {
             static_assert(push_constant_shadow_size == WebGpuDevice::push_constant_block_size,
                           "the encoder shadow block and the device's ring slice must be the same size");
             if (static_cast<usize>(offset) + data.size() > shadow.size()) {
@@ -94,10 +95,10 @@ namespace SFT::Core::WebGpu {
                     "WebGPU backend: a push-constant write of {} byte(s) at offset {} does not fit the "
                     "{}-byte block this backend emulates.",
                     data.size(), offset, shadow.size());
-                return std::nullopt;
+                return;
             }
             std::memcpy(shadow.data() + offset, data.data(), data.size());
-            return device.allocate_push_constant_slice(span<const std::byte>{shadow.data(), shadow.size()});
+            dirty = true;
         }
 
     } // namespace
@@ -143,10 +144,19 @@ namespace SFT::Core::WebGpu {
     void WebGpuRenderPassEncoder::set_push_constants(rhi::ShaderStage stages, u32 offset,
                                                      span<const std::byte> data) {
         (void)stages;
-        if (const auto binding = stage_push_constants(device_, push_constants_, offset, data)) {
-            wgpuRenderPassEncoderSetBindGroup(pass_, WebGpuDevice::push_constant_group_index,
-                                              binding->group, 1, &binding->dynamic_offset);
+        stage_push_constants(push_constants_, offset, data, push_constants_dirty_);
+    }
+
+    void WebGpuRenderPassEncoder::flush_push_constants() noexcept {
+        if (!push_constants_dirty_) {
+            return;
         }
+        if (const auto binding = device_.allocate_push_constant_slice(
+                span<const std::byte>{push_constants_.data(), push_constants_.size()})) {
+            wgpuRenderPassEncoderSetBindGroup(pass_, WebGpuDevice::push_constant_group_index,
+                                    binding->group, 1, &binding->dynamic_offset);
+        }
+        push_constants_dirty_ = false;
     }
 
     void WebGpuRenderPassEncoder::set_viewport(const rhi::Viewport &viewport) {
@@ -192,11 +202,13 @@ namespace SFT::Core::WebGpu {
     }
 
     void WebGpuRenderPassEncoder::draw(const rhi::DrawArgs &args) {
+        flush_push_constants();
         wgpuRenderPassEncoderDraw(pass_, args.vertex_count, args.instance_count, args.first_vertex,
                                   args.first_instance);
     }
 
     void WebGpuRenderPassEncoder::draw_indexed(const rhi::DrawIndexedArgs &args) {
+        flush_push_constants();
         wgpuRenderPassEncoderDrawIndexed(pass_, args.index_count, args.instance_count, args.first_index,
                                          args.base_vertex, args.first_instance);
     }
@@ -207,12 +219,14 @@ namespace SFT::Core::WebGpu {
     }
 
     void WebGpuRenderPassEncoder::draw_indirect(rhi::BufferHandle indirect_buffer, u64 offset) {
+        flush_push_constants();
         if (WGPUBuffer b = device_.lookup_buffer(indirect_buffer); b != nullptr) {
             wgpuRenderPassEncoderDrawIndirect(pass_, b, offset);
         }
     }
 
     void WebGpuRenderPassEncoder::draw_indexed_indirect(rhi::BufferHandle indirect_buffer, u64 offset) {
+        flush_push_constants();
         if (WGPUBuffer b = device_.lookup_buffer(indirect_buffer); b != nullptr) {
             wgpuRenderPassEncoderDrawIndexedIndirect(pass_, b, offset);
         }
@@ -220,6 +234,7 @@ namespace SFT::Core::WebGpu {
 
     void WebGpuRenderPassEncoder::draw_indirect(rhi::BufferHandle indirect_buffer, u64 offset,
                                                 u32 draw_count, u32 stride) {
+        flush_push_constants();
         // WebGPU has no multi-draw indirect. Issuing the draws one at a time is exactly equivalent
         // apart from the per-call overhead, so this is emulated rather than refused.
         WGPUBuffer b = device_.lookup_buffer(indirect_buffer);
@@ -233,6 +248,7 @@ namespace SFT::Core::WebGpu {
 
     void WebGpuRenderPassEncoder::draw_indexed_indirect(rhi::BufferHandle indirect_buffer, u64 offset,
                                                         u32 draw_count, u32 stride) {
+        flush_push_constants();
         WGPUBuffer b = device_.lookup_buffer(indirect_buffer);
         if (b == nullptr) {
             return;
@@ -249,7 +265,8 @@ namespace SFT::Core::WebGpu {
     }
 
     void WebGpuRenderPassEncoder::execute_bundles(span<const rhi::RenderBundleHandle> bundles) {
-        std::vector<WGPURenderBundle> resolved;
+        thread_local std::vector<WGPURenderBundle> resolved;
+        resolved.clear();
         resolved.reserve(bundles.size());
         for (rhi::RenderBundleHandle handle : bundles) {
             if (WGPURenderBundle bundle = device_.lookup_render_bundle(handle); bundle != nullptr) {
@@ -307,17 +324,28 @@ namespace SFT::Core::WebGpu {
     void WebGpuComputePassEncoder::set_push_constants(rhi::ShaderStage stages, u32 offset,
                                                       span<const std::byte> data) {
         (void)stages;
-        if (const auto binding = stage_push_constants(device_, push_constants_, offset, data)) {
-            wgpuComputePassEncoderSetBindGroup(pass_, WebGpuDevice::push_constant_group_index,
-                                               binding->group, 1, &binding->dynamic_offset);
+        stage_push_constants(push_constants_, offset, data, push_constants_dirty_);
+    }
+
+    void WebGpuComputePassEncoder::flush_push_constants() noexcept {
+        if (!push_constants_dirty_) {
+            return;
         }
+        if (const auto binding = device_.allocate_push_constant_slice(
+                span<const std::byte>{push_constants_.data(), push_constants_.size()})) {
+            wgpuComputePassEncoderSetBindGroup(pass_, WebGpuDevice::push_constant_group_index,
+                                    binding->group, 1, &binding->dynamic_offset);
+        }
+        push_constants_dirty_ = false;
     }
 
     void WebGpuComputePassEncoder::dispatch(u32 group_count_x, u32 group_count_y, u32 group_count_z) {
+        flush_push_constants();
         wgpuComputePassEncoderDispatchWorkgroups(pass_, group_count_x, group_count_y, group_count_z);
     }
 
     void WebGpuComputePassEncoder::dispatch_indirect(rhi::BufferHandle indirect_buffer, u64 offset) {
+        flush_push_constants();
         if (WGPUBuffer b = device_.lookup_buffer(indirect_buffer); b != nullptr) {
             wgpuComputePassEncoderDispatchWorkgroupsIndirect(pass_, b, offset);
         }
@@ -371,10 +399,7 @@ namespace SFT::Core::WebGpu {
     void WebGpuRenderBundleEncoder::set_push_constants(rhi::ShaderStage stages, u32 offset,
                                                        span<const std::byte> data) {
         (void)stages;
-        if (const auto binding = stage_push_constants(device_, push_constants_, offset, data)) {
-            wgpuRenderBundleEncoderSetBindGroup(encoder_, WebGpuDevice::push_constant_group_index,
-                                                binding->group, 1, &binding->dynamic_offset);
-        }
+        stage_push_constants(push_constants_, offset, data, push_constants_dirty_);
     }
 
     // Viewport, scissor, blend constant, stencil reference, depth bounds, sample locations and
@@ -382,6 +407,18 @@ namespace SFT::Core::WebGpu {
     // whatever the pass executing it has set. The RHI declares them on the bundle encoder because
     // Vulkan and D3D12 allow them in a secondary command buffer, so they are accepted and ignored
     // here rather than reported — the pass has already established the correct values.
+
+    void WebGpuRenderBundleEncoder::flush_push_constants() noexcept {
+        if (!push_constants_dirty_) {
+            return;
+        }
+        if (const auto binding = device_.allocate_push_constant_slice(
+                span<const std::byte>{push_constants_.data(), push_constants_.size()})) {
+            wgpuRenderBundleEncoderSetBindGroup(encoder_, WebGpuDevice::push_constant_group_index,
+                                    binding->group, 1, &binding->dynamic_offset);
+        }
+        push_constants_dirty_ = false;
+    }
 
     void WebGpuRenderBundleEncoder::set_viewport(const rhi::Viewport &viewport) { (void)viewport; }
 
@@ -406,11 +443,13 @@ namespace SFT::Core::WebGpu {
     }
 
     void WebGpuRenderBundleEncoder::draw(const rhi::DrawArgs &args) {
+        flush_push_constants();
         wgpuRenderBundleEncoderDraw(encoder_, args.vertex_count, args.instance_count, args.first_vertex,
                                     args.first_instance);
     }
 
     void WebGpuRenderBundleEncoder::draw_indexed(const rhi::DrawIndexedArgs &args) {
+        flush_push_constants();
         wgpuRenderBundleEncoderDrawIndexed(encoder_, args.index_count, args.instance_count,
                                            args.first_index, args.base_vertex, args.first_instance);
     }
@@ -421,12 +460,14 @@ namespace SFT::Core::WebGpu {
     }
 
     void WebGpuRenderBundleEncoder::draw_indirect(rhi::BufferHandle indirect_buffer, u64 offset) {
+        flush_push_constants();
         if (WGPUBuffer b = device_.lookup_buffer(indirect_buffer); b != nullptr) {
             wgpuRenderBundleEncoderDrawIndirect(encoder_, b, offset);
         }
     }
 
     void WebGpuRenderBundleEncoder::draw_indexed_indirect(rhi::BufferHandle indirect_buffer, u64 offset) {
+        flush_push_constants();
         if (WGPUBuffer b = device_.lookup_buffer(indirect_buffer); b != nullptr) {
             wgpuRenderBundleEncoderDrawIndexedIndirect(encoder_, b, offset);
         }
@@ -434,6 +475,7 @@ namespace SFT::Core::WebGpu {
 
     void WebGpuRenderBundleEncoder::draw_indirect(rhi::BufferHandle indirect_buffer, u64 offset,
                                                   u32 draw_count, u32 stride) {
+        flush_push_constants();
         WGPUBuffer b = device_.lookup_buffer(indirect_buffer);
         if (b == nullptr) {
             return;
@@ -445,6 +487,7 @@ namespace SFT::Core::WebGpu {
 
     void WebGpuRenderBundleEncoder::draw_indexed_indirect(rhi::BufferHandle indirect_buffer, u64 offset,
                                                           u32 draw_count, u32 stride) {
+        flush_push_constants();
         WGPUBuffer b = device_.lookup_buffer(indirect_buffer);
         if (b == nullptr) {
             return;
@@ -487,7 +530,10 @@ namespace SFT::Core::WebGpu {
 
     rhi::RhiExpected<unique_ptr<rhi::RenderPassEncoder>> WebGpuCommandEncoder::begin_render_pass(
         const rhi::RenderPassDesc &desc) {
-        std::vector<WGPURenderPassColorAttachment> color_attachments;
+        // Only read synchronously by wgpuCommandEncoderBeginRenderPass below, so a reused thread_local scratch
+        // vector is safe and avoids a heap allocation on every render pass (several per frame).
+        thread_local std::vector<WGPURenderPassColorAttachment> color_attachments;
+        color_attachments.clear();
         color_attachments.reserve(desc.color_attachments.size());
         for (const rhi::ColorAttachment &attachment : desc.color_attachments) {
             WGPUTextureView view = device_.lookup_texture_view(attachment.view);
@@ -970,6 +1016,7 @@ namespace SFT::Core::WebGpu {
     void WebGpuRenderPassEncoder::draw_indirect_count(rhi::BufferHandle indirect_buffer, u64 indirect_offset,
                                           rhi::BufferHandle count_buffer, u64 count_offset, u32 max_draws,
                                           u32 stride) {
+        flush_push_constants();
         (void)indirect_buffer;
         (void)indirect_offset;
         (void)count_buffer;
@@ -985,6 +1032,7 @@ namespace SFT::Core::WebGpu {
     void WebGpuRenderPassEncoder::draw_indexed_indirect_count(rhi::BufferHandle indirect_buffer, u64 indirect_offset,
                                           rhi::BufferHandle count_buffer, u64 count_offset, u32 max_draws,
                                           u32 stride) {
+        flush_push_constants();
         (void)indirect_buffer;
         (void)indirect_offset;
         (void)count_buffer;
@@ -1015,6 +1063,7 @@ namespace SFT::Core::WebGpu {
     void WebGpuRenderBundleEncoder::draw_indirect_count(rhi::BufferHandle indirect_buffer, u64 indirect_offset,
                                           rhi::BufferHandle count_buffer, u64 count_offset, u32 max_draws,
                                           u32 stride) {
+        flush_push_constants();
         (void)indirect_buffer;
         (void)indirect_offset;
         (void)count_buffer;
@@ -1030,6 +1079,7 @@ namespace SFT::Core::WebGpu {
     void WebGpuRenderBundleEncoder::draw_indexed_indirect_count(rhi::BufferHandle indirect_buffer, u64 indirect_offset,
                                           rhi::BufferHandle count_buffer, u64 count_offset, u32 max_draws,
                                           u32 stride) {
+        flush_push_constants();
         (void)indirect_buffer;
         (void)indirect_offset;
         (void)count_buffer;

@@ -965,6 +965,9 @@ static void apply_frame_settings(SturdyEngine engine, SturdyFrame frame) {
     SturdyToneMappingSettings tone_mapping;
     SturdyRestirGiSettings restir_gi;
     SturdyMotionBlurSettings motion_blur;
+    SturdyAutoExposureSettings auto_exposure;
+    SturdyCameraEmulationSettings camera_emulation;
+    SturdyScreenSpaceGiSettings screen_space_gi;
     SturdyFrame wrong_kind;
 
     printf("--- render graph settings ---\n");
@@ -1033,6 +1036,27 @@ static void apply_frame_settings(SturdyEngine engine, SturdyFrame frame) {
     (void)sturdy_motion_blur_settings_init(&motion_blur);
     result = sturdy_frame_set_motion_blur_settings(frame, &motion_blur);
     printf("set_motion_blur_settings -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+
+    (void)sturdy_auto_exposure_settings_init(&auto_exposure);
+    result = sturdy_frame_set_auto_exposure_settings(frame, &auto_exposure);
+    printf("set_auto_exposure_settings -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+
+    (void)sturdy_camera_emulation_settings_init(&camera_emulation);
+    result = sturdy_frame_set_camera_emulation_settings(frame, &camera_emulation);
+    printf("set_camera_emulation_settings -> %d\n", (int)result);
+    if (result != STURDY_OK) {
+        printf("  %s\n", sturdy_last_error_message());
+    }
+
+    (void)sturdy_screen_space_gi_settings_init(&screen_space_gi);
+    result = sturdy_frame_set_screen_space_gi_settings(frame, &screen_space_gi);
+    printf("set_screen_space_gi_settings -> %d\n", (int)result);
     if (result != STURDY_OK) {
         printf("  %s\n", sturdy_last_error_message());
     }

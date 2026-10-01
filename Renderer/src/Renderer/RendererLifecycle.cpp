@@ -2,6 +2,7 @@
 
 #pragma region Imports
 #include <algorithm>
+#include <limits>
 #include <array>
 #include <bit>
 #include <chrono>
@@ -378,7 +379,17 @@ namespace SFT::Renderer {
         }
         submission.offscreen_target = desc.offscreen_target;
         refresh_displaced_materials(desc.view.camera.world_position);
-        submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
+        {
+            const std::shared_ptr<const SpaceModel> space = *space_model_.lock();
+            if (space->camera_payload) {
+                const CameraPayload payload = space->camera_payload(desc.view.camera);
+                submission.view_projection = payload.view_projection;
+                submission.inverse_view_projection = payload.inverse_view_projection;
+            } else {
+                submission.view_projection = desc.view.camera.projection * desc.view.camera.view;
+                submission.inverse_view_projection = glm::inverse(submission.view_projection);
+            }
+        }
         submission.debug_label = desc.view.debug_label;
 
         {
@@ -588,10 +599,6 @@ namespace SFT::Renderer {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    bool Renderer::render_item_visible(const RenderItem &item, const Frustum &frustum) noexcept {
-        ZoneScopedN("Renderer::render_item_visible");
-        return frustum_intersects_sphere(frustum, item.world_bounds_center, item.world_bounds_radius);
-    }
 
     /// Records render item using the supplied arguments and current state.
     ///
@@ -698,13 +705,20 @@ namespace SFT::Renderer {
                 pass.set_bind_group(1, object_history_group);
                 binding_state.bound_object_history_group = object_history_group;
             }
-            const ObjectHistoryDrawConstants draw_constants{.object_index = item.object_index};
+            const ObjectHistoryDrawConstants draw_constants{.object_index = item.object_index,
+                                                            .skinned = mesh_resource->skinned ? 1u : 0u};
             pass.set_push_constants(RHI::ShaderStage::Vertex, 0,
                                     std::as_bytes(span<const ObjectHistoryDrawConstants>{&draw_constants, 1}));
         } else {
+            // The camera lens rides in the model matrix's otherwise-unused w column (see sturdy_space.slang);
+            // shadow views never carry it.
+            glm::mat4 draw_model = item.world_transform;
+            if (!shadow_map && binding_state.camera_lens > 0.0f) {
+                draw_model[0][3] = binding_state.camera_lens;
+            }
             const SceneDrawConstants draw_constants{
                 .view_projection = view_projection,
-                .model = item.world_transform,
+                .model = draw_model,
             };
             pass.set_push_constants(RHI::ShaderStage::Vertex, 0,
                                     std::as_bytes(span<const SceneDrawConstants>{&draw_constants, 1}));
@@ -734,11 +748,13 @@ namespace SFT::Renderer {
             }
             binding_state.arena_bound = true;
         }
+        // Camera passes under the vertex-warp lens draw the mesh's tessellated variant (shadow views never do).
+        const bool lens_variant = !shadow_map && binding_state.camera_lens > 0.0f && mesh_resource->has_lens_variant;
         if (index_arena_.buffer && mesh_resource->index_count > 0) {
             pass.draw_indexed(RHI::DrawIndexedArgs{
-                .index_count = mesh_resource->index_count,
-                .first_index = mesh_resource->index_offset,
-                .base_vertex = static_cast<i32>(mesh_resource->vertex_offset),
+                .index_count = lens_variant ? mesh_resource->lens_index_count : mesh_resource->index_count,
+                .first_index = lens_variant ? mesh_resource->lens_index_offset : mesh_resource->index_offset,
+                .base_vertex = static_cast<i32>(lens_variant ? mesh_resource->lens_vertex_offset : mesh_resource->vertex_offset),
             });
         } else {
             pass.draw(RHI::DrawArgs{
@@ -781,7 +797,7 @@ namespace SFT::Renderer {
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::record_render_items_culled(RHI::RenderPassEncoder &pass,
                                                                span<const RenderItem> items,
-                                                               const Frustum &frustum,
+                                                               const ItemCuller &culler,
                                                                span<const RHI::Format> color_formats,
                                                                RHI::Format depth_format,
                                                                u64 frame_index,
@@ -798,12 +814,13 @@ namespace SFT::Renderer {
                                                                bool with_object_history,
                                                                RHI::BindGroupHandle object_history_group,
                                                                optional<RHI::Viewport> bundle_viewport,
-                                                               optional<RHI::Rect2D> bundle_scissor) {
+                                                               optional<RHI::Rect2D> bundle_scissor,
+                                                               f32 camera_lens) {
         ZoneScopedN("Renderer::record_render_items_culled");
         vector<const RenderItem *> visible;
         visible.reserve(items.size());
         for (const RenderItem &item : items) {
-            if (render_item_visible(item, frustum)) {
+            if (culler(item)) {
                 visible.push_back(&item);
             }
         }
@@ -813,6 +830,7 @@ namespace SFT::Renderer {
 
         if (shadow_map || !use_bundles) {
             RenderItemBindingState binding_state{};
+            binding_state.camera_lens = camera_lens;
             for (const RenderItem *item : visible) {
                 if (Core::RendererResult recorded = record_render_item(
                         pass, *item, color_formats, depth_format, frame_index, view_projection,
@@ -894,7 +912,7 @@ namespace SFT::Renderer {
                                                       depth_only, standard_depth_test, shadow_map,
                                                       shadow_depth_bias, shadow_slope_bias, samples,
                                                       with_object_history, object_history_group,
-                                                      bundle_viewport, bundle_scissor]() {
+                                                      bundle_viewport, bundle_scissor, camera_lens]() {
                 RHI::RenderBundleEncoder &encoder = *results[chunk].encoder;
                 if (bundle_viewport) {
                     encoder.set_viewport(*bundle_viewport);
@@ -903,6 +921,7 @@ namespace SFT::Renderer {
                     encoder.set_scissor(*bundle_scissor);
                 }
                 RenderItemBindingState binding_state{};
+                binding_state.camera_lens = camera_lens;
                 for (usize i = begin; i < end; ++i) {
                     if (Core::RendererResult recorded = record_render_item(
                             encoder, *visible[i], color_formats, depth_format, frame_index, view_projection,
@@ -989,12 +1008,18 @@ namespace SFT::Renderer {
                                             false,                true, shadow_depth_bias,
                     shadow_slope_bias, RHI::SampleCount::X1, false, RHI::BindGroupHandle{});
             };
+            const std::shared_ptr<const SpaceModel> space = *space_model_.lock();
+            const ItemVisibilityFn *custom_rule = space->item_visible ? &space->item_visible : nullptr;
+            const ItemCuller shadow_culler{.frustum = view.frustum,
+                                           .view_projection = view.view_projection,
+                                           .shadow_view = true,
+                                           .custom = custom_rule};
             if (view.has_caster_list) {
                 // Directional cascades already determined their caster set while fitting the
                 // cascade depth range; re-scanning every submitted draw here would repeat that
                 // work once per cascade for no gain.
                 for (const u32 index : view.caster_indices) {
-                    if (index >= draws.size()) {
+                    if (index >= draws.size() || (custom_rule != nullptr && !shadow_culler(draws[index]))) {
                         continue;
                     }
                     if (Core::RendererResult recorded = record_one(draws[index]); !recorded.has_value()) {
@@ -1004,7 +1029,7 @@ namespace SFT::Renderer {
                 continue;
             }
             for (const RenderItem &item : draws) {
-                if (!item.casts_shadows || !render_item_visible(item, view.frustum)) {
+                if (!item.casts_shadows || !shadow_culler(item)) {
                     continue;
                 }
                 if (Core::RendererResult recorded = record_one(item); !recorded.has_value()) {
@@ -1128,6 +1153,170 @@ namespace SFT::Renderer {
                 break;
         }
         return {};
+    }
+
+    void Renderer::reset_present_feedback(WindowSurfaceRecord &record) {
+        RHI::RhiDevice *device = rhi_device();
+        record.present_timing_caps = device != nullptr ? device->present_timing_capabilities(record.rhi_swapchain)
+                                                        : RHI::PresentTimingCapabilities{};
+        record.next_present_id = 1;
+        if (!record.present_feedback) {
+            return;
+        }
+        auto state = record.present_feedback->lock();
+        *state = PresentFeedbackState{};
+        state->swapchain = record.rhi_swapchain;
+        state->feedback.available = record.present_timing_caps.display_timing_feedback;
+        if (device != nullptr) {
+            state->feedback.effective_present_mode = device->presentation_resolution(record.rhi_swapchain).effective_mode;
+        }
+    }
+
+    void Renderer::update_present_feedback(WindowSurfaceRecord &record) {
+        ZoneScopedN("Renderer::update_present_feedback");
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr || !record.rhi_swapchain || !record.present_feedback ||
+            !record.present_timing_caps.display_timing_feedback) {
+            return;
+        }
+        auto guard = record.present_feedback->lock();
+        PresentFeedbackState &state = *guard;
+        Core::PresentTimingFeedback &feedback = state.feedback;
+
+        // The refresh cycle / fixed-vs-variable report can arrive late (some platforms learn it after the first
+        // present), so poll while unknown and then only occasionally to follow display changes.
+        if (!feedback.refresh_duration_seconds || ++state.frames_since_timing_query >= 120) {
+            state.frames_since_timing_query = 0;
+            if (auto timing = device->swapchain_timing(record.rhi_swapchain); timing) {
+                if (timing->refresh_duration_ns != 0 &&
+                    timing->refresh_duration_ns != std::numeric_limits<u64>::max()) {
+                    feedback.refresh_duration_seconds = static_cast<f64>(timing->refresh_duration_ns) * 1.0e-9;
+                }
+                if (timing->variable_refresh_known) {
+                    state.variable_refresh_reported = true;
+                    feedback.variable_refresh_active = timing->variable_refresh;
+                }
+            }
+        }
+
+        thread_local std::vector<RHI::PastPresentTiming> drained;
+        drained.clear();
+        if (!device->drain_past_presentation_timings(record.rhi_swapchain, drained)) {
+            return;
+        }
+        const f64 refresh = feedback.refresh_duration_seconds.value_or(0.0);
+        const bool fixed_refresh = feedback.variable_refresh_active.has_value() && !*feedback.variable_refresh_active;
+        for (const RHI::PastPresentTiming &entry : drained) {
+            ++feedback.presents_reported;
+            if (entry.display_time_ns == 0) {
+                continue;
+            }
+            if (state.last_display_time_ns != 0 && entry.display_time_ns > state.last_display_time_ns) {
+                const f64 interval = static_cast<f64>(entry.display_time_ns - state.last_display_time_ns) * 1.0e-9;
+                if (state.intervals.size() < PresentFeedbackState::interval_window) {
+                    state.intervals.push_back(interval);
+                } else {
+                    state.intervals[state.interval_cursor] = interval;
+                    state.interval_cursor = (state.interval_cursor + 1) % PresentFeedbackState::interval_window;
+                }
+                if (fixed_refresh && refresh > 0.0) {
+                    // Refresh cycles this frame stayed up beyond the one an unpaced frame would take.
+                    const f64 cycles = interval / refresh;
+                    if (cycles > 1.5 && entry.present_id > state.last_displayed_present_id + 1) {
+                        feedback.missed_refreshes += static_cast<u64>(std::llround(cycles)) - 1;
+                    }
+                }
+            }
+            state.last_display_time_ns = entry.display_time_ns;
+            state.last_displayed_present_id = entry.present_id;
+            feedback.last_display_time_ns = entry.display_time_ns;
+            for (usize i = 0; i < state.pending_starts.size(); ++i) {
+                if (state.pending_starts[i].first != entry.present_id) {
+                    continue;
+                }
+                const u64 start = state.pending_starts[i].second;
+                if (entry.display_time_ns > start) {
+                    const f64 latency = static_cast<f64>(entry.display_time_ns - start) * 1.0e-9;
+                    if (state.frame_to_display.size() < PresentFeedbackState::interval_window) {
+                        state.frame_to_display.push_back(latency);
+                    } else {
+                        state.frame_to_display[state.frame_to_display_cursor] = latency;
+                        state.frame_to_display_cursor =
+                            (state.frame_to_display_cursor + 1) % PresentFeedbackState::interval_window;
+                    }
+                }
+                state.pending_starts.erase(state.pending_starts.begin(), state.pending_starts.begin() + i + 1);
+                break;
+            }
+        }
+        // A presentation engine that cannot say fixed-vs-variable refresh (Mesa's Wayland WSI reports "unknown")
+        // is still recognisable from its results: on a fixed-refresh display every frame stays up a whole number
+        // of refresh cycles, so intervals cluster on multiples of the cycle; under VRR they follow the app's cadence.
+        if (!state.variable_refresh_reported && refresh > 0.0 && state.intervals.size() >= 120) {
+            usize on_grid = 0;
+            for (const f64 v : state.intervals) {
+                const f64 cycles = v / refresh;
+                if (std::abs(cycles - std::round(cycles)) < 0.04 && std::round(cycles) >= 1.0) {
+                    ++on_grid;
+                }
+            }
+            feedback.variable_refresh_active = on_grid * 100 < state.intervals.size() * 92;
+        }
+        if (state.frame_to_display.size() >= 8) {
+            f64 sum = 0.0;
+            for (const f64 v : state.frame_to_display) {
+                sum += v;
+            }
+            const f64 mean = sum / static_cast<f64>(state.frame_to_display.size());
+            f64 variance = 0.0;
+            for (const f64 v : state.frame_to_display) {
+                variance += (v - mean) * (v - mean);
+            }
+            feedback.frame_to_display_estimate =
+                mean + 2.0 * std::sqrt(variance / static_cast<f64>(state.frame_to_display.size()));
+        }
+        if (!state.intervals.empty()) {
+            f64 sum = 0.0;
+            f64 max_interval = 0.0;
+            for (const f64 v : state.intervals) {
+                sum += v;
+                max_interval = std::max(max_interval, v);
+            }
+            const f64 mean = sum / static_cast<f64>(state.intervals.size());
+            f64 variance = 0.0;
+            for (const f64 v : state.intervals) {
+                variance += (v - mean) * (v - mean);
+            }
+            feedback.sample_count = static_cast<u32>(state.intervals.size());
+            feedback.mean_display_interval = mean;
+            feedback.display_interval_jitter = std::sqrt(variance / static_cast<f64>(state.intervals.size()));
+            feedback.max_display_interval = max_interval;
+        }
+    }
+
+    void Renderer::bound_present_queue(WindowSurfaceRecord &record, vector<pair<string, f64>> *stage_timings_ms) {
+        const u32 max_queued = record.presentation.latency == Core::LatencyMode::Normal ? 0u : 1u;
+        if (max_queued == 0 || !record.present_timing_caps.present_wait || record.next_present_id <= max_queued + 1) {
+            return;
+        }
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr) {
+            return;
+        }
+        // Only a vblank-blocking mode builds a queue of frames ahead of the display. Mailbox, FifoLatestReady
+        // and Immediate replace or skip queued images, so there is nothing to bound; waiting on present
+        // there would just tie the loop to the display (an `Unsynchronized` UI that ran at thousands of FPS
+        // dropped to ~2x refresh before this check).
+        const RHI::PresentMode effective_mode = device->presentation_resolution(record.rhi_swapchain).effective_mode;
+        if (effective_mode != RHI::PresentMode::Fifo && effective_mode != RHI::PresentMode::FifoRelaxed) {
+            return;
+        }
+        // Ids handed out so far are 1..next_present_id-1; keep at most `max_queued` of the newest undisplayed.
+        const u64 wait_id = record.next_present_id - 1 - max_queued;
+        ScopedRendererStageTimer timer{"wait present queue", stage_timings_ms};
+        // A bounded wait: a compositor that stops presenting (occluded window) must not stall the render thread.
+        constexpr u64 timeout_ns = 100'000'000;
+        (void)device->wait_for_present(record.rhi_swapchain, wait_id, timeout_ns);
     }
 
     /// Recreates RHI swapchain using the supplied arguments and current state.
@@ -1264,6 +1453,7 @@ namespace SFT::Renderer {
         record.depth_texture = {};
         record.depth_view = {};
         record.swapchain_extent = extent;
+        reset_present_feedback(record);
         record.rhi_swapchain_dirty = false;
         record.explicit_presentation_change_pending = false;
 
@@ -1330,6 +1520,9 @@ namespace SFT::Renderer {
                                                     const Core::FrameInput &frame,
                                                     FrameSubmission &submission) {
         ZoneScopedN("Renderer::render_frame_rhi");
+        record.frame_start_steady_ns = static_cast<u64>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
+                .count());
         auto backend_operation = backend_operation_mutex_.lock();
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -1354,6 +1547,17 @@ namespace SFT::Renderer {
         const u32 frame_count = capabilities_.max_frames_in_flight;
         if (record.frames_in_flight.size() != frame_count) {
             for (FrameInFlight &old_slot : record.frames_in_flight) {
+                if (RHI::RhiDevice *cache_device = rhi_device()) {
+                    auto &cache = old_slot.spectral_scene_cache;
+                    if (cache.tlas) cache_device->destroy_acceleration_structure(cache.tlas);
+                    for (RHI::BufferHandle buffer : {cache.scratch, cache.instance_buffer,
+                                                     cache.scene_instance_buffer, cache.material_buffer}) {
+                        if (buffer) cache_device->destroy_buffer(buffer);
+                    }
+                    if (old_slot.restir_gi_constants) cache_device->destroy_buffer(old_slot.restir_gi_constants);
+                    old_slot.restir_gi_constants = {};
+                    old_slot.spectral_scene_cache = {};
+                }
                 destroy_frame_gpu_timing_target(old_slot);
                 destroy_frame_pregraph_gpu_timing_target(old_slot);
                 destroy_frame_shadow_targets(old_slot);
@@ -1528,6 +1732,8 @@ namespace SFT::Renderer {
                 return drained;
             }
             reclaim_completed_presentation_fences(record);
+            update_present_feedback(record);
+            bound_present_queue(record, &current_frame_cpu_stage_timings_ms);
 
 
             const Core::Extent2D surface_extent{frame.framebuffer_width, frame.framebuffer_height};
@@ -1583,8 +1789,13 @@ namespace SFT::Renderer {
             return mesh_frame;
         }
 
+        const std::shared_ptr<const SpaceModel> space_model_snapshot = *space_model_.lock();
+        // A custom visibility rule bypasses the frustum-based GPU instance culling unless the model says it is compatible.
+        // The instanced path draws the original meshes and its HiZ test does not know the lens, so it is off under the lens.
+        const bool gpu_instance_culling = space_model_snapshot->gpu_culling && !space_model_snapshot->item_visible &&
+                                          !(submission.render_graph.camera_emulation.lens_strength > 0.0f);
         const vector<InstancedBatch> instanced_batches =
-            submission.render_graph.render_scene ? detect_instanced_batches(submission.draws) : vector<InstancedBatch>{};
+            submission.render_graph.render_scene && gpu_instance_culling ? detect_instanced_batches(submission.draws) : vector<InstancedBatch>{};
 
 
         const u32 scene_frame_count = capabilities_.max_frames_in_flight;
@@ -1730,7 +1941,8 @@ namespace SFT::Renderer {
                 .extent_width = record.hiz_pyramid.extent.x,
                 .extent_height = record.hiz_pyramid.extent.y,
                 .mip_count = record.hiz_pyramid.mip_levels,
-                .valid = record.hiz_pyramid.has_valid_data,
+                // The pyramid holds lens-warped depth; the culling shader projects bounds without the lens.
+                .valid = record.hiz_pyramid.has_valid_data && !(submission.render_graph.camera_emulation.lens_strength > 0.0f),
             };
         }
         PreparedShadowFrame shadow_frame{};
@@ -2022,7 +2234,7 @@ namespace SFT::Renderer {
         });
         graph.mark_output(final_output);
         const RHI::Extent3D frame_extent{.width = render_extent.x, .height = render_extent.y, .depth_or_layers = 1};
-        const RenderGraphTextureHandle gbuffer_albedo = graph.import_texture(RenderGraphImportedTextureDesc{
+        RenderGraphTextureHandle gbuffer_albedo = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.gbuffer_albedo,
             .default_view = slot.deferred_targets.gbuffer_albedo_view,
             .format = submission.deferred_formats.albedo,
@@ -2034,7 +2246,7 @@ namespace SFT::Renderer {
             .initial_access = RHI::AccessFlags::None,
             .label = "deferred gbuffer albedo",
         });
-        const RenderGraphTextureHandle gbuffer_normal = graph.import_texture(RenderGraphImportedTextureDesc{
+        RenderGraphTextureHandle gbuffer_normal = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.gbuffer_normal,
             .default_view = slot.deferred_targets.gbuffer_normal_view,
             .format = submission.deferred_formats.normal,
@@ -2046,7 +2258,7 @@ namespace SFT::Renderer {
             .initial_access = RHI::AccessFlags::None,
             .label = "deferred gbuffer normal",
         });
-        const RenderGraphTextureHandle gbuffer_material = graph.import_texture(RenderGraphImportedTextureDesc{
+        RenderGraphTextureHandle gbuffer_material = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.gbuffer_material,
             .default_view = slot.deferred_targets.gbuffer_material_view,
             .format = submission.deferred_formats.material,
@@ -2058,7 +2270,7 @@ namespace SFT::Renderer {
             .initial_access = RHI::AccessFlags::None,
             .label = "deferred gbuffer material",
         });
-        const RenderGraphTextureHandle gbuffer_emissive = graph.import_texture(RenderGraphImportedTextureDesc{
+        RenderGraphTextureHandle gbuffer_emissive = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.gbuffer_emissive,
             .default_view = slot.deferred_targets.gbuffer_emissive_view,
             .format = submission.deferred_formats.emissive,
@@ -2070,7 +2282,7 @@ namespace SFT::Renderer {
             .initial_access = RHI::AccessFlags::None,
             .label = "deferred gbuffer emissive",
         });
-        const RenderGraphTextureHandle gbuffer_motion = graph.import_texture(RenderGraphImportedTextureDesc{
+        RenderGraphTextureHandle gbuffer_motion = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.motion,
             .default_view = slot.deferred_targets.motion_view,
             .format = submission.deferred_formats.motion,
@@ -2193,6 +2405,7 @@ namespace SFT::Renderer {
         });
 
         graph.mark_output(hiz_pyramid_texture);
+        graph_resources.publish_texture<RenderGraphSemantics::HiZPyramid>(hiz_pyramid_texture);
 
 
         RenderGraphTextureHandle raster_depth = depth_texture;
@@ -2227,6 +2440,11 @@ namespace SFT::Renderer {
         map_logical_texture(submission.render_graph.custom_graph.deferred_scene_output, scene_color);
         graph_resources.publish_texture<RenderGraphSemantics::SceneHdrColor>(scene_color);
         graph_resources.publish_texture<RenderGraphSemantics::ResolvedSceneDepth>(depth_texture);
+        graph_resources.publish_texture<RenderGraphSemantics::GBufferAlbedo>(gbuffer_albedo);
+        graph_resources.publish_texture<RenderGraphSemantics::GBufferNormal>(gbuffer_normal);
+        graph_resources.publish_texture<RenderGraphSemantics::GBufferMaterial>(gbuffer_material);
+        graph_resources.publish_texture<RenderGraphSemantics::GBufferEmissive>(gbuffer_emissive);
+        graph_resources.publish_texture<RenderGraphSemantics::GBufferMotion>(gbuffer_motion);
         graph_resources.publish_texture<RenderGraphSemantics::RasterVisibilityDepth>(raster_depth);
         graph_resources.publish_texture<RenderGraphSemantics::PresentationTarget>(final_output);
         if (submission.deferred_formats.emissive == submission.deferred_formats.scene_color) {
@@ -2234,6 +2452,81 @@ namespace SFT::Renderer {
 
             graph_resources.publish_texture<RenderGraphSemantics::ReusableSceneHdrScratch>(gbuffer_emissive);
         }
+
+        const ItemVisibilityFn *custom_visibility = space_model_snapshot->item_visible ? &space_model_snapshot->item_visible : nullptr;
+        const ItemCuller camera_culler = ItemCuller::from_view_projection(
+            submission.view_projection, submission.camera.world_position, custom_visibility);
+        SceneFrameState scene_state{
+            .instanced_batches = &instanced_batches,
+            .instance_cull_resources = &instance_cull_resources,
+            .hiz_cull_input = &hiz_cull_input,
+            .shadow_frame = &shadow_frame,
+            .object_history_group = object_history_group,
+            .gbuffer_draws = gbuffer_draws,
+            .culler = camera_culler,
+            .full_path_tracing = full_path_tracing,
+            .multisampled = multisampled,
+            .hybrid_spectral = submission.render_graph.render_scene &&
+                               submission.render_graph.spectral_path_tracing.mode != SpectralRenderMode::RasterDeferred &&
+                               submission.render_graph.spectral_path_tracing.mode != SpectralRenderMode::FullPathTracing,
+            .spectral_photon_emission_needed = spectral_photon_emission_needed,
+            .spectral_photon_mapping = spectral_photon_mapping,
+            .spectral_accumulation_reset = spectral_accumulation_reset,
+            .spectral_effect = spectral_effect,
+            .spectral_primary_depth = spectral_primary_depth,
+            .spectral_accumulation = spectral_accumulation,
+            .spectral_photons = spectral_photons,
+            .spectral_photon_count = spectral_photon_count,
+            .spectral_photon_hash_heads = spectral_photon_hash_heads,
+        };
+        BuiltinFrameState builtin_state{
+            .submission = &submission,
+            .record = &record,
+            .slot = &slot,
+            .gbuffer_motion = gbuffer_motion,
+            .depth_texture = depth_texture,
+            .logical_graph_textures = &logical_graph_textures,
+            .map_logical_texture = map_logical_texture,
+            .frame_slot_index = frame_slot_index,
+            .framebuffer_samples = framebuffer_samples,
+            .background = background,
+            .scene = &scene_state,
+        };
+        FrameBuildContext frame_context{
+            .renderer = *this,
+            .graph = graph,
+            .resources = graph_resources,
+            .module = module_context,
+            .settings = submission.render_graph,
+            .device = *device,
+            .transient_bind_groups = submission.transient_bind_groups,
+            .output_format = output_format,
+            .hdr_output = hdr_output,
+            .hdr_color_space = record.presentation.hdr_color_space,
+            .direct_overlay_presentation = direct_overlay_presentation,
+            .final_output = final_output,
+            .encoder = &**encoder,
+            .surface = record.surface,
+            .frame_slot_index = frame_slot_index,
+            .frame_index = frame.frame_index,
+            .transient_buffers = &submission.transient_buffers,
+            .deferred_formats = submission.deferred_formats,
+            .camera = submission.camera,
+            .exposure = submission.lighting.exposure,
+            .view_projection = submission.view_projection,
+            .framebuffer_samples = framebuffer_samples,
+            .transient_render_bundles = &submission.transient_render_bundles,
+            .retired_text_atlas_resources = &submission.retired_text_atlas_resources,
+            .overlay_display_transform = direct_overlay_display_transform,
+            .overlay_reference_white_nits = ui_reference_white_nits,
+            .overlay_clear_color = static_cast<bool>(record.presentation.transparent_composition)
+                                       ? RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f}
+                                       : RHI::ClearColor{background.r, background.g, background.b, 1.0f},
+            .builtin = &builtin_state,
+        };
+        // A snapshot, so features can be rearranged from any thread without racing this frame.
+        const FramePipeline frame_pipeline = *frame_pipeline_.lock();
+
 
         RenderGraphTextureHandle directional_shadow_atlas{};
         if (shadow_frame.directional_atlas_used) {
@@ -2274,763 +2567,40 @@ namespace SFT::Renderer {
         }
 
 
-        const Frustum camera_frustum = frustum_from_view_projection(submission.view_projection);
+        if (directional_shadow_atlas) {
+            graph_resources.publish_texture<RenderGraphSemantics::DirectionalShadowAtlas>(directional_shadow_atlas);
+        }
+        if (shadow_atlas) {
+            graph_resources.publish_texture<RenderGraphSemantics::PunctualShadowAtlas>(shadow_atlas);
+        }
 
 
         RenderGraphTextureHandle transmittance_lut{};
         RenderGraphTextureHandle multi_scattering_lut{};
         RenderGraphTextureHandle sky_view_lut{};
-        if (submission.render_graph.render_scene) {
-            if (Core::RendererResult atmosphere_luts = record_atmosphere_lut_bakes(
-                    graph, slot.atmosphere_targets.constants_buffer, transmittance_lut, multi_scattering_lut,
-                    sky_view_lut, submission.transient_bind_groups);
-                !atmosphere_luts.has_value()) {
-                return atmosphere_luts;
-            }
+        // The scene-half features (instance culling, shadow maps, z prepass, G-buffer, HiZ build) run here. Whatever they
+        // publish on the blackboard is what the passes below consume, so a replaced feature's textures are picked up.
+        if (Core::RendererResult scene_features = frame_pipeline.build(frame_context, FrameStage::Scene);
+            !scene_features.has_value()) {
+            return scene_features;
         }
-
-        RenderGraphBufferHandle instance_indirect_commands{};
-        RenderGraphBufferHandle compacted_instance_indices{};
-        if (!instanced_batches.empty()) {
-            instance_indirect_commands = graph.import_buffer(RenderGraphImportedBufferDesc{
-                .buffer = instance_cull_resources.indirect_commands_buffer,
-                .size = instance_cull_resources.indirect_commands_capacity * sizeof(GpuDrawIndexedIndirectCommand),
-                .initial_stage = RHI::PipelineStage::DrawIndirect,
-                .initial_access = RHI::AccessFlags::IndirectCommandRead,
-                .label = "GPU-culling indirect commands",
-            });
-            compacted_instance_indices = graph.import_buffer(RenderGraphImportedBufferDesc{
-                .buffer = instance_cull_resources.compacted_indices_buffer,
-                .size = instance_cull_resources.compacted_indices_capacity * sizeof(u32),
-                .initial_stage = RHI::PipelineStage::VertexShader,
-                .initial_access = RHI::AccessFlags::ShaderRead,
-                .label = "GPU-culling compacted instance indices",
-            });
-            graph.add_compute_pass("gpu instance cull"_ustr)
-                .add_sampled_texture(hiz_pyramid_texture)
-                .add_buffer(RenderGraphBufferAccessDesc{
-                    .buffer = instance_indirect_commands,
-                    .stages = RHI::PipelineStage::ComputeShader,
-                    .access = RHI::AccessFlags::ShaderWrite,
-                    .read = false,
-                    .write = true,
-                })
-                .add_buffer(RenderGraphBufferAccessDesc{
-                    .buffer = compacted_instance_indices,
-                    .stages = RHI::PipelineStage::ComputeShader,
-                    .access = RHI::AccessFlags::ShaderWrite,
-                    .read = false,
-                    .write = true,
-                })
-                .set_execute([this, &submission, &instanced_batches, &instance_cull_resources, &hiz_cull_input](
-                                 RenderGraphComputeContext &context) -> Core::RendererResult {
-                    return record_instance_cull(
-                        context.compute_pass(), instanced_batches, submission.view_projection,
-                        submission.camera.world_position, hiz_cull_input, instance_cull_resources,
-                        submission.transient_bind_groups);
-                });
-        }
-
-        if (submission.render_graph.render_scene && !full_path_tracing) {
-            // Directional cascades and punctual shadows render into separate atlases, so the pass
-            // body is shared rather than duplicated. Both are depth-only, use identical state, and
-            // parallelize the same way; only the target, the view list and the extent differ.
-            const auto add_shadow_atlas_pass =
-                [&](auto label, RenderGraphTextureHandle atlas,
-                    const vector<ShadowRenderView> &view_storage, u32 width, u32 height) {
-                    const bool uses_bundles = device->is_enabled(RHI::Feature::RenderBundles) &&
-                                              view_storage.size() >= 2 &&
-                                              Async::Scheduler::worker_count() > 1;
-                    graph.add_render_pass(label)
-                        .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
-                            .texture = atlas,
-                            .depth_load_op = RHI::LoadOp::Clear,
-                            .depth_store_op = RHI::StoreOp::Store,
-                            .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
-                        })
-                        .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = width, .height = height})
-                        .set_allow_bundles(uses_bundles)
-                        .set_execute([this, &submission, &view_storage, &slot, frame, uses_bundles](
-                                         RenderGraphContext &context) -> Core::RendererResult {
-                            RHI::RenderPassEncoder &pass = context.render_pass();
-                            const f32 shadow_depth_bias = std::isfinite(submission.render_graph.shadow_depth_bias)
-                                                              ? std::max(submission.render_graph.shadow_depth_bias, 0.0f)
-                                                              : 0.75f;
-                            const f32 shadow_slope_bias = std::isfinite(submission.render_graph.shadow_slope_bias)
-                                                              ? std::max(submission.render_graph.shadow_slope_bias, 0.0f)
-                                                              : 1.0f;
-                            const span<const ShadowRenderView> views{view_storage.data(), view_storage.size()};
-                            const RHI::Format depth_format = slot.shadow_targets.format;
-                            const u32 worker_count = Async::Scheduler::worker_count();
-
-                            if (!uses_bundles) {
-                                return record_shadow_view_chunk(pass, views, submission.draws, depth_format,
-                                                                frame.frame_index, shadow_depth_bias,
-                                                                shadow_slope_bias);
-                            }
-
-                            RHI::RhiDevice *device = rhi_device();
-                            if (device == nullptr) {
-                                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                                    "Cannot record shadow atlas without an RHI device.");
-                            }
-
-                            const usize chunk_count = std::min<usize>(worker_count, views.size());
-                            const usize chunk_size = (views.size() + chunk_count - 1) / chunk_count;
-
-                            struct ShadowChunkResult {
-                                Core::RendererResult status{};
-                                RHI::RenderBundleHandle bundle{};
-                                unique_ptr<RHI::RenderBundleEncoder> encoder;
-                            };
-                            vector<ShadowChunkResult> results(chunk_count);
-
-                            for (usize chunk = 0; chunk < chunk_count; ++chunk) {
-                                const usize begin = chunk * chunk_size;
-                                const usize end = std::min(views.size(), begin + chunk_size);
-                                if (begin >= end) {
-                                    continue;
-                                }
-                                const RHI::RenderBundleDesc bundle_desc{
-                                    .color_formats = {},
-                                    .depth_stencil_format = depth_format,
-                                    .samples = RHI::SampleCount::X1,
-                                    .view_mask = 0,
-                                    .label = "shadow view chunk",
-                                };
-                                auto encoder = device->create_render_bundle_encoder(bundle_desc);
-                                if (!encoder) {
-                                    return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                                        "Cannot create shadow bundle encoder.");
-                                }
-                                results[chunk].encoder = std::move(*encoder);
-                            }
-
-                            vector<Async::TaskHandle<void>> tasks;
-                            tasks.reserve(chunk_count);
-                            for (usize chunk = 0; chunk < chunk_count; ++chunk) {
-                                const usize begin = chunk * chunk_size;
-                                const usize end = std::min(views.size(), begin + chunk_size);
-                                if (begin >= end) {
-                                    continue;
-                                }
-                                tasks.push_back(Async::Scheduler::spawn([this, &submission, &results, chunk, views,
-                                                                          begin, end, depth_format,
-                                                                          frame_index = frame.frame_index,
-                                                                          shadow_depth_bias, shadow_slope_bias]() {
-                                    RHI::RenderBundleEncoder &encoder = *results[chunk].encoder;
-                                    Core::RendererResult recorded = record_shadow_view_chunk(
-                                        encoder, views.subspan(begin, end - begin), submission.draws, depth_format,
-                                        frame_index, shadow_depth_bias, shadow_slope_bias);
-                                    if (!recorded.has_value()) {
-                                        results[chunk].status = recorded;
-                                        return;
-                                    }
-                                    auto finished = encoder.finish();
-                                    if (!finished) {
-                                        results[chunk].status =
-                                            unexpected(graphics_error_from_rhi(finished.error(), "finish shadow bundle"));
-                                        return;
-                                    }
-                                    results[chunk].bundle = *finished;
-                                }));
-                            }
-                            for (const Async::TaskHandle<void> &task : tasks) {
-                                task.wait();
-                            }
-
-                            vector<RHI::RenderBundleHandle> bundles;
-                            bundles.reserve(chunk_count);
-                            Core::RendererResult first_error{};
-                            bool has_error = false;
-                            for (ShadowChunkResult &result : results) {
-                                if (!result.status.has_value() && !has_error) {
-                                    first_error = result.status;
-                                    has_error = true;
-                                }
-                                if (result.bundle) {
-                                    bundles.push_back(result.bundle);
-                                }
-                            }
-                            if (!bundles.empty()) {
-                                pass.execute_bundles(span<const RHI::RenderBundleHandle>{bundles.data(), bundles.size()});
-                            }
-
-                            submission.transient_render_bundles.insert(submission.transient_render_bundles.end(),
-                                                                        bundles.begin(), bundles.end());
-                            if (has_error) {
-                                return first_error;
-                            }
-                            return {};
-                        });
-                };
-
-            if (shadow_frame.directional_atlas_used) {
-                add_shadow_atlas_pass("directional shadow cascades"_ustr, directional_shadow_atlas,
-                                      shadow_frame.directional_views,
-                                      slot.shadow_targets.directional_layout.width,
-                                      slot.shadow_targets.directional_layout.height);
-            }
-            if (shadow_frame.atlas_used) {
-                add_shadow_atlas_pass("raster shadow atlas"_ustr, shadow_atlas,
-                                      shadow_frame.punctual_views, slot.shadow_targets.atlas_size,
-                                      slot.shadow_targets.atlas_size);
-            }
-
-
-            usize zprepass_visible_count = 0;
-            for (const RenderItem &item : submission.draws) {
-                if (render_item_visible(item, camera_frustum)) {
-                    ++zprepass_visible_count;
-                }
-            }
-            const bool zprepass_uses_bundles =
-                device->is_enabled(RHI::Feature::RenderBundles) &&
-                zprepass_visible_count >= kParallelRecordThreshold && Async::Scheduler::worker_count() > 1;
-            graph.add_render_pass("z prepass"_ustr)
-                .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
-                    .texture = raster_depth,
-                    .depth_load_op = RHI::LoadOp::Clear,
-                    .depth_store_op = RHI::StoreOp::Store,
-                    .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
-                })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
-                .set_allow_bundles(zprepass_uses_bundles)
-                .set_execute([this, &submission, render_extent, frame, camera_frustum,
-                              framebuffer_samples, zprepass_uses_bundles](RenderGraphContext &context) -> Core::RendererResult {
-                    RHI::RenderPassEncoder &pass = context.render_pass();
-                    pass.set_viewport(RHI::Viewport{
-                        .x = 0.0f, .y = 0.0f,
-                        .width = static_cast<f32>(render_extent.x),
-                        .height = static_cast<f32>(render_extent.y),
-                        .min_depth = 0.0f, .max_depth = 1.0f,
-                    });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y});
-                    return record_render_items_culled(pass, submission.draws, camera_frustum,
-                                                       span<const RHI::Format>{}, submission.deferred_formats.depth,
-                                                       frame.frame_index, submission.view_projection,
-                                                                      true,                         false, "z prepass",
-                                                       zprepass_uses_bundles, submission.transient_render_bundles,
-                                                                      false, 0.0f, 0.0f, framebuffer_samples,
-                                                       false, RHI::BindGroupHandle{},
-                                                       RHI::Viewport{.x = 0.0f, .y = 0.0f,
-                                                                     .width = static_cast<f32>(render_extent.x),
-                                                                     .height = static_cast<f32>(render_extent.y),
-                                                                     .min_depth = 0.0f, .max_depth = 1.0f},
-                                                       RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y});
-                });
-
-
-            usize gbuffer_visible_count = 0;
-            for (const RenderItem &item : gbuffer_draws) {
-                if (render_item_visible(item, camera_frustum)) {
-                    ++gbuffer_visible_count;
-                }
-            }
-            const bool gbuffer_uses_bundles =
-                device->is_enabled(RHI::Feature::RenderBundles) &&
-                gbuffer_visible_count >= kParallelRecordThreshold && Async::Scheduler::worker_count() > 1;
-            RenderGraphRenderPassBuilder &gbuffer_pass = graph.add_render_pass("deferred gbuffer geometry"_ustr);
-            gbuffer_pass.add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = gbuffer_albedo,
-                    .load_op = RHI::LoadOp::Clear,
-                    .store_op = RHI::StoreOp::Store,
-                    .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 1.0f},
-                })
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = gbuffer_normal,
-                    .load_op = RHI::LoadOp::Clear,
-                    .store_op = RHI::StoreOp::Store,
-                    .clear_color = RHI::ClearColor{0.5f, 0.5f, 0.0f, 0.0f},
-                })
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = gbuffer_material,
-                    .load_op = RHI::LoadOp::Clear,
-                    .store_op = RHI::StoreOp::Store,
-                    .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f},
-                })
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = gbuffer_emissive,
-                    .load_op = RHI::LoadOp::Clear,
-                    .store_op = RHI::StoreOp::Store,
-                    .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 1.0f},
-                })
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = gbuffer_motion,
-                    .load_op = RHI::LoadOp::Clear,
-                    .store_op = RHI::StoreOp::Store,
-                    .clear_color = RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f},
-                })
-                .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
-                    .texture = depth_texture,
-
-
-                    .depth_load_op = multisampled ? RHI::LoadOp::Clear : RHI::LoadOp::Load,
-                    .depth_store_op = RHI::StoreOp::Store,
-                    .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
-                })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
-                .set_allow_bundles(gbuffer_uses_bundles);
-            if (!instanced_batches.empty()) {
-                gbuffer_pass
-                    .add_buffer(RenderGraphBufferAccessDesc{
-                        .buffer = instance_indirect_commands,
-                        .stages = RHI::PipelineStage::DrawIndirect,
-                        .access = RHI::AccessFlags::IndirectCommandRead,
-                    })
-                    .add_buffer(RenderGraphBufferAccessDesc{
-                        .buffer = compacted_instance_indices,
-                        .stages = RHI::PipelineStage::VertexShader,
-                        .access = RHI::AccessFlags::ShaderRead,
-                    });
-            }
-            gbuffer_pass.set_execute([this, &submission, render_extent, frame, camera_frustum, gbuffer_draws, &instanced_batches,
-                             &instance_cull_resources, multisampled, object_history_group,
-                             gbuffer_uses_bundles](RenderGraphContext &context) -> Core::RendererResult {
-                    RHI::RenderPassEncoder &pass = context.render_pass();
-                    pass.set_viewport(RHI::Viewport{
-                        .x = 0.0f, .y = 0.0f,
-                        .width = static_cast<f32>(render_extent.x),
-                        .height = static_cast<f32>(render_extent.y),
-                        .min_depth = 0.0f, .max_depth = 1.0f,
-                    });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y});
-                    const array<RHI::Format, 5> gbuffer_formats{
-                        submission.deferred_formats.albedo,
-                        submission.deferred_formats.normal,
-                        submission.deferred_formats.material,
-                        submission.deferred_formats.emissive,
-                        submission.deferred_formats.motion,
-                    };
-                    const span<const RHI::Format> gbuffer_formats_span{gbuffer_formats.data(), gbuffer_formats.size()};
-                    if (Core::RendererResult recorded = record_render_items_culled(
-                            pass, gbuffer_draws, camera_frustum, gbuffer_formats_span, submission.deferred_formats.depth,
-                            frame.frame_index, submission.view_projection,                false,
-                                                    multisampled, "deferred gbuffer geometry",
-                            gbuffer_uses_bundles, submission.transient_render_bundles,
-                                           false, 0.0f, 0.0f, RHI::SampleCount::X1,
-                                                    true, object_history_group,
-                            RHI::Viewport{.x = 0.0f, .y = 0.0f,
-                                          .width = static_cast<f32>(render_extent.x),
-                                          .height = static_cast<f32>(render_extent.y),
-                                          .min_depth = 0.0f, .max_depth = 1.0f},
-                            RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y});
-                        !recorded.has_value()) {
-                        return recorded;
-                    }
-                    if (!instanced_batches.empty()) {
-                        if (Core::RendererResult recorded_instanced = record_instanced_batches(
-                                pass, instanced_batches, gbuffer_formats_span, submission.deferred_formats.depth,
-                                frame.frame_index, submission.view_projection, submission.camera.previous_view_projection,
-                                instance_cull_resources, submission.transient_bind_groups, RHI::SampleCount::X1);
-                            !recorded_instanced.has_value()) {
-                            return recorded_instanced;
-                        }
-                    }
-                    return {};
-                });
-
-
-            if (Core::RendererResult hiz_built = record_hiz_build(
-                    graph, depth_texture, slot.deferred_targets.depth_view, render_extent,
-                    hiz_pyramid_texture, record.hiz_pyramid, submission.transient_bind_groups);
-                !hiz_built.has_value()) {
-                return hiz_built;
-            }
-        }
-
-        const SpectralRenderMode spectral_mode = submission.render_graph.spectral_path_tracing.mode;
-        const bool hybrid_spectral = submission.render_graph.render_scene &&
-                                     spectral_mode != SpectralRenderMode::RasterDeferred &&
-                                     spectral_mode != SpectralRenderMode::FullPathTracing;
-        if (hybrid_spectral) {
-            graph.add_compute_pass("hybrid spectral ray query"_ustr)
-                .add_sampled_texture(gbuffer_albedo)
-                .add_sampled_texture(gbuffer_normal)
-                .add_sampled_texture(gbuffer_material)
-                .add_sampled_texture(gbuffer_emissive)
-                .add_sampled_texture(gbuffer_motion)
-                .add_sampled_texture(depth_texture)
-                .add_sampled_texture(transmittance_lut)
-                .add_sampled_texture(sky_view_lut)
-                .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = spectral_effect})
-                .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
-                              gbuffer_material, gbuffer_emissive, gbuffer_motion, depth_texture,
-                              transmittance_lut, sky_view_lut,
-                              spectral_effect](RenderGraphComputeContext &context) -> Core::RendererResult {
-                    const RHI::TextureViewHandle output = context.texture(spectral_effect).default_view;
-                    return record_spectral_integrator(
-                        context.compute_pass(), slot, submission, render_extent,
-                        SpectralIntegratorViews{
-                            .raster_albedo = context.texture(gbuffer_albedo).default_view,
-                            .raster_normal = context.texture(gbuffer_normal).default_view,
-                            .raster_material = context.texture(gbuffer_material).default_view,
-                            .raster_emissive = context.texture(gbuffer_emissive).default_view,
-                            .raster_motion = context.texture(gbuffer_motion).default_view,
-                            .raster_depth = context.texture(depth_texture).default_view,
-                            .effect_output = output,
-                            .scene_color_output = output,
-                            .gbuffer_motion_output = output,
-                            .primary_depth_output = output,
-                            .accumulation_output = output,
-                            .transmittance_lut = context.texture(transmittance_lut).default_view,
-                            .sky_view_lut = context.texture(sky_view_lut).default_view,
-                            .atmosphere_constants = slot.atmosphere_targets.constants_buffer,
-                        }, false);
-                });
-        }
-
-        if (spectral_photon_emission_needed) {
-            graph.add_compute_pass("spectral photon emission"_ustr)
-                .add_buffer(RenderGraphBufferAccessDesc{
-                    .buffer = spectral_photons,
-                    .stages = RHI::PipelineStage::ComputeShader,
-                    .access = RHI::AccessFlags::ShaderWrite,
-                    .read = false,
-                    .write = true,
-                })
-                .add_buffer(RenderGraphBufferAccessDesc{
-                    .buffer = spectral_photon_count,
-                    .stages = RHI::PipelineStage::ComputeShader,
-                    .access = RHI::AccessFlags::ShaderRead | RHI::AccessFlags::ShaderWrite,
-                    .read = true,
-                    .write = true,
-                })
-                .set_execute([this, &slot, &submission](
-                                 RenderGraphComputeContext &context) -> Core::RendererResult {
-                    return record_spectral_photon_emission(context.compute_pass(), slot, submission);
-                });
-
-            graph.add_compute_pass("spectral photon spatial hash"_ustr)
-                .add_buffer(RenderGraphBufferAccessDesc{
-                    .buffer = spectral_photons,
-                    .stages = RHI::PipelineStage::ComputeShader,
-                    .access = RHI::AccessFlags::ShaderRead | RHI::AccessFlags::ShaderWrite,
-                    .read = true,
-                    .write = true,
-                })
-                .add_buffer(RenderGraphBufferAccessDesc{
-                    .buffer = spectral_photon_count,
-                    .stages = RHI::PipelineStage::ComputeShader,
-                    .access = RHI::AccessFlags::ShaderRead,
-                    .read = true,
-                    .write = false,
-                })
-                .add_buffer(RenderGraphBufferAccessDesc{
-                    .buffer = spectral_photon_hash_heads,
-                    .stages = RHI::PipelineStage::ComputeShader,
-                    .access = RHI::AccessFlags::ShaderRead | RHI::AccessFlags::ShaderWrite,
-                    .read = true,
-                    .write = true,
-                })
-                .set_execute([this, &slot, &submission](
-                                 RenderGraphComputeContext &context) -> Core::RendererResult {
-                    return record_spectral_photon_hash(context.compute_pass(), slot, submission);
-                });
-        }
-
-        if (submission.render_graph.render_scene && full_path_tracing) {
-            RenderGraphComputePassBuilder &full_path_pass = graph.add_compute_pass("full spectral path tracing"_ustr);
-            full_path_pass
-                .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = spectral_effect})
-                .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = scene_color})
-                .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = gbuffer_motion})
-                .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = spectral_primary_depth})
-                .add_storage_texture(RenderGraphStorageTextureAccessDesc{
-                    .texture = spectral_accumulation,
-                    .read = true,
-                    .write = true,
-                })
-                .add_sampled_texture(transmittance_lut)
-                .add_sampled_texture(sky_view_lut);
-            if (spectral_photon_mapping) {
-                full_path_pass
-                    .add_buffer(RenderGraphBufferAccessDesc{
-                        .buffer = spectral_photons,
-                        .stages = RHI::PipelineStage::ComputeShader,
-                        .access = RHI::AccessFlags::ShaderRead,
-                        .read = true,
-                        .write = false,
-                    })
-                    .add_buffer(RenderGraphBufferAccessDesc{
-                        .buffer = spectral_photon_count,
-                        .stages = RHI::PipelineStage::ComputeShader,
-                        .access = RHI::AccessFlags::ShaderRead,
-                        .read = true,
-                        .write = false,
-                    })
-                    .add_buffer(RenderGraphBufferAccessDesc{
-                        .buffer = spectral_photon_hash_heads,
-                        .stages = RHI::PipelineStage::ComputeShader,
-                        .access = RHI::AccessFlags::ShaderRead,
-                        .read = true,
-                        .write = false,
-                    });
-            }
-            full_path_pass.set_execute([this, &submission, &slot, render_extent, spectral_effect, scene_color,
-                              gbuffer_motion, spectral_primary_depth, spectral_accumulation,
-                              transmittance_lut, sky_view_lut,
-                              spectral_accumulation_reset](
-                                 RenderGraphComputeContext &context) -> Core::RendererResult {
-                    const RHI::TextureViewHandle dummy = context.texture(spectral_effect).default_view;
-                    return record_spectral_integrator(
-                        context.compute_pass(), slot, submission, render_extent,
-                        SpectralIntegratorViews{
-                            .raster_albedo = dummy,
-                            .raster_normal = dummy,
-                            .raster_material = dummy,
-                            .raster_emissive = dummy,
-                            .raster_motion = dummy,
-                            .raster_depth = dummy,
-                            .effect_output = dummy,
-                            .scene_color_output = context.texture(scene_color).default_view,
-                            .gbuffer_motion_output = context.texture(gbuffer_motion).default_view,
-                            .primary_depth_output = context.texture(spectral_primary_depth).default_view,
-                            .accumulation_output = context.texture(spectral_accumulation).default_view,
-                            .transmittance_lut = context.texture(transmittance_lut).default_view,
-                            .sky_view_lut = context.texture(sky_view_lut).default_view,
-                            .atmosphere_constants = slot.atmosphere_targets.constants_buffer,
-                        }, spectral_accumulation_reset);
-                });
-
-            graph.add_render_pass("path traced depth commit"_ustr)
-                .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
-                    .texture = depth_texture,
-                    .depth_load_op = RHI::LoadOp::DontCare,
-                    .depth_store_op = RHI::StoreOp::Store,
-                })
-                .add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = spectral_primary_depth})
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0,
-                                             .width = render_extent.x, .height = render_extent.y})
-                .set_execute([this, &slot, spectral_primary_depth, render_extent](
-                                 RenderGraphContext &context) -> Core::RendererResult {
-                    return record_spectral_depth_commit(
-                        context.render_pass(), slot,
-                        context.texture(spectral_primary_depth).default_view, render_extent);
-                });
-        }
-
-        // Screen-space ambient occlusion runs after the G-buffer is complete and before deferred
-        // lighting consumes it. Full path tracing computes its own occlusion along the transport
-        // path, so the screen-space approximation is skipped entirely there rather than layered on
-        // top of a result that already accounts for it.
-        RenderGraphTextureHandle gtao_ambient_occlusion{};
-        if (submission.render_graph.render_scene && !full_path_tracing) {
-            auto gtao_texture = build_gtao_module(module_context, submission, slot,
-                                                  gbuffer_normal, depth_texture);
-            if (!gtao_texture.has_value()) {
-                return unexpected(gtao_texture.error());
-            }
-            gtao_ambient_occlusion = *gtao_texture;
-        }
-
-        RenderGraphTextureHandle surfel_irradiance{};
-        if (submission.render_graph.render_scene && !full_path_tracing) {
-            auto restir_gi_texture = build_restir_gi_module(
-                module_context, submission, slot, gbuffer_normal, gbuffer_albedo, gbuffer_material,
-                gbuffer_emissive, gbuffer_motion, depth_texture, transmittance_lut, sky_view_lut);
-            if (!restir_gi_texture.has_value()) {
-                return unexpected(restir_gi_texture.error());
-            }
-            surfel_irradiance = *restir_gi_texture;
-        }
-
-        if (submission.render_graph.render_scene && !full_path_tracing) {
-            const RenderGraphTextureHandle lighting_spectral_effect = hybrid_spectral
-                ? spectral_effect : gbuffer_emissive;
-            RenderGraphRenderPassBuilder &lighting_pass = graph.add_render_pass("deferred shadow lighting"_ustr);
-            lighting_pass.add_color_attachment(RenderGraphColorAttachmentDesc{
-                .texture = scene_color,
-                .load_op = RHI::LoadOp::DontCare,
-                .store_op = RHI::StoreOp::Store,
-            });
-            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_albedo});
-            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_normal});
-            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_material});
-            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = gbuffer_emissive});
-            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = depth_texture});
-            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = lighting_spectral_effect});
-            if (shadow_frame.atlas_used) {
-                lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = shadow_atlas});
-            }
-            if (shadow_frame.directional_atlas_used) {
-                lighting_pass.add_sampled_texture(
-                    RenderGraphSampledTextureReadDesc{.texture = directional_shadow_atlas});
-            }
-            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = transmittance_lut});
-            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = multi_scattering_lut});
-            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = sky_view_lut});
-            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = surfel_irradiance});
-            lighting_pass.add_sampled_texture(
-                RenderGraphSampledTextureReadDesc{.texture = gtao_ambient_occlusion});
-            lighting_pass
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
-                .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
-                              gbuffer_material, gbuffer_emissive, depth_texture, lighting_spectral_effect,
-                              shadow_atlas, directional_shadow_atlas, &shadow_frame, surfel_irradiance,
-                              gtao_ambient_occlusion, transmittance_lut, multi_scattering_lut, sky_view_lut](
-                                 RenderGraphContext &context) -> Core::RendererResult {
-                    RHI::RenderPassEncoder &pass = context.render_pass();
-                    pass.set_viewport(RHI::Viewport{
-                        .x = 0.0f, .y = 0.0f,
-                        .width = static_cast<f32>(render_extent.x),
-                        .height = static_cast<f32>(render_extent.y),
-                        .min_depth = 0.0f, .max_depth = 1.0f,
-                    });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0,
-                                                 .width = render_extent.x, .height = render_extent.y});
-                    // The resolve always binds both atlas slots; when one is unused it aliases the
-                    // scene depth view, which the shader never reads because no view indexes it.
-                    const RHI::TextureViewHandle atlas_view = shadow_frame.atlas_used
-                        ? context.texture(shadow_atlas).default_view
-                        : context.texture(depth_texture).default_view;
-                    const RHI::TextureViewHandle directional_atlas_view =
-                        shadow_frame.directional_atlas_used
-                            ? context.texture(directional_shadow_atlas).default_view
-                            : context.texture(depth_texture).default_view;
-                    return record_shadow_lighting(
-                        pass,
-                        context.texture(gbuffer_albedo).default_view,
-                        context.texture(gbuffer_normal).default_view,
-                        context.texture(gbuffer_material).default_view,
-                        context.texture(gbuffer_emissive).default_view,
-                        context.texture(depth_texture).default_view,
-                        context.texture(lighting_spectral_effect).default_view,
-                        atlas_view,
-                        directional_atlas_view,
-                        slot.shadow_targets.lighting_buffer,
-                        context.texture(transmittance_lut).default_view,
-                        context.texture(multi_scattering_lut).default_view,
-                        context.texture(sky_view_lut).default_view,
-                        context.texture(surfel_irradiance).default_view,
-                        context.texture(gtao_ambient_occlusion).default_view,
-                        slot.atmosphere_targets.constants_buffer,
-                        submission.deferred_formats.scene_color,
-                        submission.transient_bind_groups);
-                });
-        } else if (!submission.render_graph.render_scene && !direct_overlay_presentation) {
-
-            graph.add_render_pass("scene background"_ustr)
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = scene_color,
-                    .load_op = RHI::LoadOp::Clear,
-                    .store_op = RHI::StoreOp::Store,
-                    .clear_color = RHI::ClearColor{background.r, background.g, background.b, background.a},
-                })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x,
-                                             .height = render_extent.y});
-        }
-
-        // Copies this frame's just-finished final scene color into ReSTIR GI's history texture, read
-        // back next frame by restir_gi_initial_sample.slang for multi-bounce feedback. Must run after
-        // the lighting pass above has written `scene_color` and is gated identically to
-        // build_restir_gi_module so the history texture only exists/updates while ReSTIR GI is enabled.
-        if (submission.render_graph.render_scene && !full_path_tracing && submission.render_graph.restir_gi.enabled) {
-            graph.add_compute_pass("restir gi history copy"_ustr)
-                .add_sampled_texture(scene_color)
-                .set_side_effect(true)
-                .set_execute([this, &submission, scene_color](
-                                 RenderGraphComputeContext &graph_context) -> Core::RendererResult {
-                    return record_restir_gi_history_copy(
-                        graph_context.compute_pass(),
-                        graph_context.texture(scene_color).default_view,
-                        submission.transient_bind_groups);
-                });
-        }
-
-        if (submission.render_graph.render_scene && multisampled) {
-            if (Core::RendererResult reconstructed = build_deferred_msaa_module(
-                    module_context, submission, framebuffer_samples);
-                !reconstructed.has_value()) {
-                return reconstructed;
-            }
-        }
+        gbuffer_albedo = graph_resources.texture<RenderGraphSemantics::GBufferAlbedo>();
+        gbuffer_normal = graph_resources.texture<RenderGraphSemantics::GBufferNormal>();
+        gbuffer_material = graph_resources.texture<RenderGraphSemantics::GBufferMaterial>();
+        gbuffer_emissive = graph_resources.texture<RenderGraphSemantics::GBufferEmissive>();
+        gbuffer_motion = graph_resources.texture<RenderGraphSemantics::GBufferMotion>();
+        directional_shadow_atlas = graph_resources.texture<RenderGraphSemantics::DirectionalShadowAtlas>();
+        shadow_atlas = graph_resources.texture<RenderGraphSemantics::PunctualShadowAtlas>();
+        transmittance_lut = graph_resources.texture<RenderGraphSemantics::TransmittanceLut>();
+        multi_scattering_lut = graph_resources.texture<RenderGraphSemantics::MultiScatteringLut>();
+        sky_view_lut = graph_resources.texture<RenderGraphSemantics::SkyViewLut>();
 
         const RenderGraphTextureHandle scene_before_bloom =
             graph_resources.texture<RenderGraphSemantics::SceneHdrColor>();
 
 
-        if (!submission.gizmo_draws.empty()) {
-            const array<RHI::Format, 1> gizmo_color_formats{submission.deferred_formats.scene_color};
-            graph.add_render_pass("pre-bloom light indicators"_ustr)
-                .add_color_attachment(RenderGraphColorAttachmentDesc{
-                    .texture = scene_before_bloom,
-                    .load_op = RHI::LoadOp::Load,
-                    .store_op = RHI::StoreOp::Store,
-                })
-                .set_depth_stencil_attachment(RenderGraphDepthStencilAttachmentDesc{
-                    .texture = depth_texture,
-                    .depth_load_op = submission.render_graph.render_scene ? RHI::LoadOp::Load : RHI::LoadOp::Clear,
-                    .depth_store_op = RHI::StoreOp::Store,
-                    .clear_value = RHI::ClearDepthStencil{.depth = 1.0f, .stencil = 0},
-                })
-                .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
-                .set_execute([this, &submission, render_extent, frame, gizmo_color_formats](
-                                 RenderGraphContext &context) -> Core::RendererResult {
-                    RHI::RenderPassEncoder &pass = context.render_pass();
-                    pass.set_viewport(RHI::Viewport{
-                        .x = 0.0f, .y = 0.0f,
-                        .width = static_cast<f32>(render_extent.x),
-                        .height = static_cast<f32>(render_extent.y),
-                        .min_depth = 0.0f, .max_depth = 1.0f,
-                    });
-                    pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y});
-                    RenderItemBindingState binding_state{};
-                    for (const RenderItem &item : submission.gizmo_draws) {
-                        if (Core::RendererResult recorded = record_render_item(
-                                pass, item, span<const RHI::Format>{gizmo_color_formats.data(), gizmo_color_formats.size()},
-                                submission.deferred_formats.depth, frame.frame_index, submission.view_projection,
-                                               false, binding_state,                         true);
-                            !recorded.has_value()) {
-                            return recorded;
-                        }
-                    }
-                    return {};
-                });
-        }
-
-        {
-            BuiltinFrameState builtin_state{
-                .submission = &submission,
-                .record = &record,
-                .slot = &slot,
-                .gbuffer_motion = gbuffer_motion,
-                .depth_texture = depth_texture,
-                .logical_graph_textures = &logical_graph_textures,
-                .map_logical_texture = map_logical_texture,
-                .frame_slot_index = frame_slot_index,
-                .background = background,
-            };
-            FrameBuildContext frame_context{
-                .renderer = *this,
-                .graph = graph,
-                .resources = graph_resources,
-                .module = module_context,
-                .settings = submission.render_graph,
-                .device = *device,
-                .transient_bind_groups = submission.transient_bind_groups,
-                .output_format = output_format,
-                .hdr_output = hdr_output,
-                .hdr_color_space = record.presentation.hdr_color_space,
-                .direct_overlay_presentation = direct_overlay_presentation,
-                .final_output = final_output,
-                .encoder = &**encoder,
-                .surface = record.surface,
-                .frame_slot_index = frame_slot_index,
-                .transient_buffers = &submission.transient_buffers,
-                .retired_text_atlas_resources = &submission.retired_text_atlas_resources,
-                .overlay_display_transform = direct_overlay_display_transform,
-                .overlay_reference_white_nits = ui_reference_white_nits,
-                .overlay_clear_color = static_cast<bool>(record.presentation.transparent_composition)
-                                           ? RHI::ClearColor{0.0f, 0.0f, 0.0f, 0.0f}
-                                           : RHI::ClearColor{background.r, background.g, background.b, 1.0f},
-                .builtin = &builtin_state,
-            };
-            // A snapshot, so features can be rearranged from any thread without racing this frame.
-            const FramePipeline pipeline = *frame_pipeline_.lock();
-            if (Core::RendererResult built = pipeline.build(frame_context); !built.has_value()) {
-                return built;
-            }
+        if (Core::RendererResult built = frame_pipeline.build(frame_context, FrameStage::Post); !built.has_value()) {
+            return built;
         }
 
         if (submission.render_graph.frame_timings) {
@@ -3170,6 +2740,18 @@ namespace SFT::Renderer {
                 .completion_fence = completion_fence,
                 .label = "renderer present",
             };
+            if (record.present_timing_caps.present_id) {
+                present_desc.present_id = record.next_present_id++;
+                if (record.present_feedback) {
+                    auto state = record.present_feedback->lock();
+                    state->feedback.last_present_id = present_desc.present_id;
+                    state->pending_starts.emplace_back(present_desc.present_id, record.frame_start_steady_ns);
+                    // Results that never arrive (dropped frames) must not grow this without bound.
+                    if (state->pending_starts.size() > 128) {
+                        state->pending_starts.erase(state->pending_starts.begin(), state->pending_starts.begin() + 64);
+                    }
+                }
+            }
             // A backend whose presentation shares queue state with ordinary submission cannot have
             // present running while this thread carries on into the next frame -- on WebGPU the two
             // would record into the same queue at once. Such a backend presents inline here.
@@ -3535,6 +3117,16 @@ namespace SFT::Renderer {
                     device->destroy_acceleration_structure(acceleration_structure);
                 }
             }
+            if (destroy_retired_presentation) {
+                // Full slot teardown: also release the persistent scene TLAS cache.
+                auto &cache = slot.spectral_scene_cache;
+                if (cache.tlas) device->destroy_acceleration_structure(cache.tlas);
+                if (slot.restir_gi_constants) device->destroy_buffer(slot.restir_gi_constants);
+                for (RHI::BufferHandle buffer : {cache.scratch, cache.instance_buffer, cache.scene_instance_buffer,
+                                                 cache.material_buffer}) {
+                    if (buffer) device->destroy_buffer(buffer);
+                }
+            }
             for (RHI::BufferHandle buffer : slot.transient_buffers) {
                 if (buffer) {
                     device->destroy_buffer(buffer);
@@ -3593,6 +3185,10 @@ namespace SFT::Renderer {
             slot.retired_swapchains.clear();
         }
         slot.command_buffers.clear();
+        if (destroy_retired_presentation) {
+            slot.spectral_scene_cache = {};
+            slot.restir_gi_constants = {};
+        }
         slot.scene_tlas = {};
         slot.spectral_scene_instances = {};
         slot.spectral_materials = {};
@@ -3911,5 +3507,11 @@ namespace SFT::Renderer {
         ZoneScopedN("Renderer::rhi_device");
         return graphics_backend_ ? graphics_backend_->rhi_device() : nullptr;
     }
+
+    // Instantiated here for the shadow_maps feature (RendererFrameFeatures.cpp), which records the same chunks.
+    template Core::RendererResult Renderer::record_shadow_view_chunk<RHI::RenderPassEncoder>(
+        RHI::RenderPassEncoder &, span<const ShadowRenderView>, span<const RenderItem>, RHI::Format, u64, f32, f32);
+    template Core::RendererResult Renderer::record_shadow_view_chunk<RHI::RenderBundleEncoder>(
+        RHI::RenderBundleEncoder &, span<const ShadowRenderView>, span<const RenderItem>, RHI::Format, u64, f32, f32);
 
 } // namespace SFT::Renderer

@@ -12,6 +12,7 @@
 #include <RHI/RHI.hpp>
 #include <Renderer/RenderGraph.hpp>
 #include <Renderer/RenderGraphModule.hpp>
+#include <Renderer/DrawItems.hpp>
 #include <Renderer/Scene.hpp>
 
 /// The renderer's frame, as an ordered list of named features that anyone can rearrange.
@@ -38,6 +39,14 @@
 namespace SFT::Renderer {
 
     class Renderer;
+
+    /// Where in the frame a feature runs. `Scene` features run while the scene half of the frame is being declared
+    /// (before the passes that depend on their output); `Post` features run once the scene's colour and depth exist.
+    /// A feature inserted next to another inherits its stage.
+    enum class FrameStage : u8 {
+        Scene,
+        Post,
+    };
 
     /// What a feature is given each frame.
     struct FrameBuildContext {
@@ -67,9 +76,21 @@ namespace SFT::Renderer {
         RHI::CommandEncoder *encoder = nullptr;
         Core::RenderSurfaceHandle surface{};
         u32 frame_slot_index = 0;
+        u64 frame_index = 0;
         /// Frame-transient GPU objects a feature creates for this frame only; the renderer frees them when the
         /// frame has finished on the GPU (with `transient_bind_groups`).
         std::vector<RHI::BufferHandle> *transient_buffers = nullptr;
+        /// Formats of the deferred targets (G-buffer, scene colour, depth) this frame.
+        DeferredTargetFormats deferred_formats{};
+        /// The frame's camera (view, projection, position, clip planes) and the lighting exposure the lighting pass
+        /// applied to the scene colour.
+        CameraView camera{};
+        f32 exposure = 1.0f;
+        /// The frame camera's combined view-projection matrix, and the sample count of the raster targets.
+        glm::mat4 view_projection{1.0f};
+        RHI::SampleCount framebuffer_samples = RHI::SampleCount::X1;
+        /// Render bundles a feature records for this frame only (see `Renderer::record_draw_items`).
+        std::vector<RHI::RenderBundleHandle> *transient_render_bundles = nullptr;
         TextAtlasRetiredResources *retired_text_atlas_resources = nullptr;
         /// HDR output, or an overlay-only frame on a transparent surface: overlays draw into a linear intermediate that
         /// is encoded to the display and composited over the frame afterwards (see `add_overlay_passes`).
@@ -101,7 +122,7 @@ namespace SFT::Renderer {
     class FramePipeline {
       public:
         /// Appends a feature after every existing one.
-        FramePipelineExpected<void> add(std::string name, FrameFeatureFn build);
+        FramePipelineExpected<void> add(std::string name, FrameFeatureFn build, FrameStage stage = FrameStage::Post);
         /// Inserts a feature immediately before/after the named one.
         FramePipelineExpected<void> insert_before(std::string_view anchor, std::string name, FrameFeatureFn build);
         FramePipelineExpected<void> insert_after(std::string_view anchor, std::string name, FrameFeatureFn build);
@@ -121,13 +142,14 @@ namespace SFT::Renderer {
         [[nodiscard]] std::vector<std::string> names() const;
 
         /// Runs every enabled feature in order, stopping at the first failure.
-        [[nodiscard]] Core::RendererResult build(FrameBuildContext &context) const;
+        [[nodiscard]] Core::RendererResult build(FrameBuildContext &context, FrameStage stage = FrameStage::Post) const;
 
       private:
         struct Entry {
             std::string name;
             FrameFeatureFn build;
             bool enabled = true;
+            FrameStage stage = FrameStage::Post;
         };
         [[nodiscard]] Entry *find(std::string_view name) noexcept;
         [[nodiscard]] const Entry *find(std::string_view name) const noexcept;

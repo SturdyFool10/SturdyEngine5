@@ -67,8 +67,10 @@ namespace SFT::Renderer {
             glm::vec4 radius_falloff_power_thin{};
             glm::vec4 sample_params{};
             glm::vec4 depth_linearize_edge_intensity{};
+            /// x = camera lens strength (vertex-warp fisheye), yzw unused.
+            glm::vec4 lens{};
         };
-        static_assert(sizeof(GtaoGpuConstants) == 64 + 5 * 16);
+        static_assert(sizeof(GtaoGpuConstants) == 64 + 6 * 16);
 
         struct GtaoQualityConfiguration {
             u32 slice_count = 3;
@@ -691,6 +693,7 @@ namespace SFT::Renderer {
                 std::max(4.0f, 0.01f * std::min(width, height)),
                 intensity,
             },
+            .lens = glm::vec4{std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f), 0.0f, 0.0f, 0.0f},
         };
 
         auto constant_buffer = device->create_buffer(RHI::BufferDesc{

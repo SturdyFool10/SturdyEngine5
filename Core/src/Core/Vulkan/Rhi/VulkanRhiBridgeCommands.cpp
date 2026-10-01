@@ -1623,28 +1623,31 @@ namespace SFT::Core::Vulkan {
                 return families;
             };
 
-            vector<VkMemoryBarrier2> memory;
-            vector<VkBufferMemoryBarrier2> buffers;
-            vector<VkImageMemoryBarrier2> images;
-            memory.reserve(global_barriers.size());
-            buffers.reserve(buffer_barriers.size());
-            images.reserve(texture_barriers.size());
+            // Scratch storage reused across every barrier() call on this encoder (one encoder per recording
+            // thread): clear() keeps the allocated capacity, so a frame with many barrier() calls settles into
+            // zero heap traffic here after its first few calls instead of allocating three vectors every time.
+            barrier_memory_scratch_.clear();
+            barrier_buffers_scratch_.clear();
+            barrier_images_scratch_.clear();
+            barrier_memory_scratch_.reserve(global_barriers.size());
+            barrier_buffers_scratch_.reserve(buffer_barriers.size());
+            barrier_images_scratch_.reserve(texture_barriers.size());
             for (const rhi::GlobalBarrier &barrier : global_barriers) {
-                memory.push_back(to_vk_memory_barrier(barrier));
+                barrier_memory_scratch_.push_back(to_vk_memory_barrier(barrier));
             }
             for (const rhi::BufferBarrier &barrier : buffer_barriers) {
                 if (VulkanBuffer *record = buffer(barrier.buffer)) {
                     const auto families = ownership_families(barrier.ownership);
-                    buffers.push_back(to_vk_buffer_barrier(barrier, record->vk_handle(), families.src, families.dst));
+                    barrier_buffers_scratch_.push_back(to_vk_buffer_barrier(barrier, record->vk_handle(), families.src, families.dst));
                 }
             }
             for (const rhi::TextureBarrier &barrier : texture_barriers) {
                 if (auto *record = texture(barrier.texture)) {
                     const auto families = ownership_families(barrier.ownership);
-                    images.push_back(to_vk_image_barrier(barrier, record->image.vk_handle(), record->format, families.src, families.dst));
+                    barrier_images_scratch_.push_back(to_vk_image_barrier(barrier, record->image.vk_handle(), record->format, families.src, families.dst));
                 }
             }
-            command_buffer_.pipeline_barrier2(memory, buffers, images);
+            command_buffer_.pipeline_barrier2(barrier_memory_scratch_, barrier_buffers_scratch_, barrier_images_scratch_);
         }
         /// Resets query set to its baseline state.
         ///
@@ -1844,6 +1847,11 @@ namespace SFT::Core::Vulkan {
         VulkanRhiDeviceBridge::CommandBufferRecord record_;
         VkQueryPool active_pipeline_statistics_query_pool_ = VK_NULL_HANDLE;
         u32 active_pipeline_statistics_query_index_ = 0;
+
+        // barrier() scratch storage; see the comment at its first use.
+        vector<VkMemoryBarrier2> barrier_memory_scratch_;
+        vector<VkBufferMemoryBarrier2> barrier_buffers_scratch_;
+        vector<VkImageMemoryBarrier2> barrier_images_scratch_;
     };
 
     /// Performs the checkout command buffer operation for `Vulkan` using the supplied arguments.

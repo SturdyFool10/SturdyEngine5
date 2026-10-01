@@ -120,6 +120,12 @@ float2 ndcToUv(float2 ndc) {
     return float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
 }
 
+// The G-buffer's motion vector (gbuffer_geometry.slang: (currentNdc - previousNdc) * 0.5) is in NDC's Y-up
+// orientation; as a UV delta its Y flips. Where the pixel was last frame: `uv - motionToUvDelta(motion)`.
+float2 motionToUvDelta(float2 motion) {
+    return float2(motion.x, -motion.y);
+}
+
 float2 uvToNdc(float2 uv) {
     return float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
 }

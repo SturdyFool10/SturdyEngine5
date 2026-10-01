@@ -463,6 +463,11 @@ namespace SFT::Core::WebGpu {
             // creates the replacement before destroying the original. Without this, destroying the
             // original tears down the configuration the replacement is depending on.
             rhi::SwapchainHandle configured_by{};
+            /// What `create_swapchain` actually configured `surface` with, so `presentation_resolution` can
+            /// report it instead of a hardcoded guess -- a frame-pacing caller (see
+            /// `Application::render_managed_window`) reads this every frame to decide whether the swapchain
+            /// is already pacing itself (Fifo-family) or needs a CPU-side cap (Mailbox/Immediate/FifoRelaxed).
+            rhi::PresentationResolution resolution{};
         };
 
         /// Tracks a fence's real GPU-completion state.
@@ -499,6 +504,23 @@ namespace SFT::Core::WebGpu {
         WebGpuResourcePool<rhi::ShaderModuleHandle, WGPUShaderModule> shader_modules_;
         WebGpuResourcePool<rhi::BindGroupLayoutHandle, BindGroupLayoutRecord> bind_group_layouts_;
         WebGpuResourcePool<rhi::BindGroupHandle, WGPUBindGroup> bind_groups_;
+
+        /// One content-identical `BindGroupLifetime::FrameTransient` bind group, shared by every
+        /// `create_bind_group` call whose layout and entries match. WebGPU bind groups are immutable
+        /// specifically so they can be built once and reused; the renderer re-describes the same transient
+        /// bind group (the same GTAO/HiZ/shadow/compute-kernel textures and buffers) every frame instead of
+        /// caching it itself, so this cache is what turns those repeat descriptions back into one real Dawn
+        /// object. `Persistent`-lifetime bind groups (materials, ...) are not cached: they are already created
+        /// once and reused by the caller, so there is nothing to deduplicate.
+        struct BindGroupCacheEntry {
+            rhi::BindGroupLayoutHandle layout{};
+            vector<rhi::BindGroupEntry> entries;
+            rhi::BindGroupHandle handle{};
+            /// How many outstanding `create_bind_group` calls this entry answers for; the underlying
+            /// `WGPUBindGroup` is only released once every one of them has had a matching `destroy_bind_group`.
+            u32 ref_count = 0;
+        };
+        Async::Mutex<vector<BindGroupCacheEntry>> transient_bind_group_cache_;
         WebGpuResourcePool<rhi::PipelineLayoutHandle, WGPUPipelineLayout> pipeline_layouts_;
         WebGpuResourcePool<rhi::RenderPipelineHandle, WGPURenderPipeline> render_pipelines_;
         WebGpuResourcePool<rhi::ComputePipelineHandle, WGPUComputePipeline> compute_pipelines_;

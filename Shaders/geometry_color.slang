@@ -2,6 +2,7 @@
 // The renderer's material pipeline feeds position/normal/uv/color at locations 0..3.
 // This pass-through shader is useful for debug geometry and as the simplest material baseline.
 import sturdy_common;
+import sturdy_space;
 
 struct VertexInput {
     float3 position : POSITION;
@@ -42,8 +43,8 @@ struct SceneDrawConstants {
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
     VertexOutput output;
-    float4 world_position = mul(float4(input.position, 1.0), scene_draw.model);
-    output.position = mul(world_position, scene_draw.view_projection);
+    float3 world_position = sturdySpaceModelToWorld(input.position, scene_draw.model);
+    output.position = sturdySpaceWorldToClip(world_position, scene_draw.view_projection);
     output.color = input.color;
     return output;
 }

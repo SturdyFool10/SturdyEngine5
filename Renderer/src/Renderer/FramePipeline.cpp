@@ -20,14 +20,14 @@ namespace SFT::Renderer {
         return found == entries_.end() ? nullptr : &*found;
     }
 
-    FramePipelineExpected<void> FramePipeline::add(std::string name, FrameFeatureFn build) {
+    FramePipelineExpected<void> FramePipeline::add(std::string name, FrameFeatureFn build, FrameStage stage) {
         if (name.empty()) {
             return fail(FramePipelineErrorCode::EmptyName, "a frame feature needs a name");
         }
         if (find(name) != nullptr) {
             return fail(FramePipelineErrorCode::DuplicateName, "a frame feature named '" + name + "' already exists");
         }
-        entries_.push_back(Entry{std::move(name), std::move(build), true});
+        entries_.push_back(Entry{std::move(name), std::move(build), true, stage});
         return {};
     }
 
@@ -42,7 +42,7 @@ namespace SFT::Renderer {
         if (position == entries_.end()) {
             return fail(FramePipelineErrorCode::UnknownName, "no frame feature named '" + std::string{anchor} + "'");
         }
-        entries_.insert(position, Entry{std::move(name), std::move(build), true});
+        entries_.insert(position, Entry{std::move(name), std::move(build), true, position->stage});
         return {};
     }
 
@@ -57,7 +57,7 @@ namespace SFT::Renderer {
         if (position == entries_.end()) {
             return fail(FramePipelineErrorCode::UnknownName, "no frame feature named '" + std::string{anchor} + "'");
         }
-        entries_.insert(position + 1, Entry{std::move(name), std::move(build), true});
+        entries_.insert(position + 1, Entry{std::move(name), std::move(build), true, position->stage});
         return {};
     }
 
@@ -116,9 +116,9 @@ namespace SFT::Renderer {
         return result;
     }
 
-    Core::RendererResult FramePipeline::build(FrameBuildContext &context) const {
+    Core::RendererResult FramePipeline::build(FrameBuildContext &context, FrameStage stage) const {
         for (const Entry &entry : entries_) {
-            if (!entry.enabled) {
+            if (!entry.enabled || entry.stage != stage) {
                 continue;
             }
             if (Core::RendererResult built = entry.build(context); !built.has_value()) {

@@ -31,22 +31,20 @@
 // E.ON) lobe, matching surfel GI's scope — this pass produces indirect *diffuse* GI, not indirect
 // specular (which remains SSR/probe-driven elsewhere in the pipeline).
 import sturdy_common;
+import sturdy_space;
+import sturdy_lens;
 import sturdy_pbr;
 import sturdy_spectral_common;
 import sturdy_path_transport;
 import sturdy_spectral_scene;
 import sturdy_atmosphere;
 import sturdy_light_sampling;
-
-struct ReservoirGpuData {
-    float4 samplePositionPdf;
-    float4 sampleRadianceNormalX;
-    float4 normalYValid;
-    float4 weightM;
-};
+import restir_gi_common;
 
 struct GuideGpuData {
     float4 directionStrength;
+    // xyz = world normal, w = camera distance of the cell's surface (0 = none); read by the temporal pass.
+    float4 normalDistance;
 };
 
 struct RestirGiPackedLight {
@@ -58,6 +56,8 @@ struct RestirGiFrameConstants {
     float4x4 inverseViewProjection;
     float4x4 previousViewProjection;
     float4 cameraPositionFrameIndex;
+    // xy = GI grid extent, z = GI grid downscale relative to the G-buffer (1 = trace every pixel,
+    // 2 = one ray per 2x2 block), w = max ray distance.
     float4 extentMaxRayDistance;
     float4 sunDirectionAngularRadius;
     float4 sunRadiance;
@@ -84,7 +84,7 @@ StructuredBuffer<GuideGpuData> guideDirectionPrev;
 RWStructuredBuffer<GuideGpuData> guideDirectionCurrent;
 
 static const uint2 SFT_RESTIR_SKY_VIEW_LUT_SIZE = uint2(192, 108);
-static const float3 SFT_LUMINANCE_WEIGHTS = float3(0.2126, 0.7152, 0.0722);
+static const float3 SFT_LUMINANCE_WEIGHTS = SFT_RESTIR_LUMINANCE_WEIGHTS;
 static const uint SFT_RESTIR_GUIDE_CANDIDATE_COUNT = 4u;
 static const float SFT_RESTIR_GUIDE_LOBE_EXPONENT = 8.0;
 static const float SFT_RESTIR_GUIDE_MAX_BIAS = 6.0;
@@ -93,8 +93,7 @@ static const float SFT_RESTIR_GUIDE_BLEND_ALPHA = 0.25;
 float3 reconstructWorldPosition(uint2 pixel, uint2 extent, float depth) {
     float2 uv = (float2(pixel) + 0.5) / float2(extent);
     float4 clip = float4(uvToNdc(uv), depth, 1.0);
-    float4 world = mul(clip, frame.inverseViewProjection);
-    return world.xyz / max(world.w, 1.0e-6);
+    return sturdySpaceCameraClipToWorld(clip, frame.inverseViewProjection, frame.lightCountParams.w);
 }
 
 // Sampled from the same baked atmosphere LUTs the rasterized sky and spectral path tracer's
@@ -120,7 +119,7 @@ float3 sampleEnvironmentRadiance(float3 direction) {
 // amplify, and skipped entirely (returns 0) off-screen, behind the camera, or before any history exists.
 float3 sampleMultiBounceFeedback(float3 worldPosition) {
     if (frame.lightCountParams.z < 0.5) return float3(0.0, 0.0, 0.0);
-    float4 previousClip = mul(float4(worldPosition, 1.0), frame.previousViewProjection);
+    float4 previousClip = sturdyLensWarpClip(mul(float4(worldPosition, 1.0), frame.previousViewProjection), frame.lightCountParams.w);
     if (previousClip.w <= 1.0e-4) return float3(0.0, 0.0, 0.0);
     float2 previousUv = ndcToUv(previousClip.xy / previousClip.w);
     if (any(previousUv < 0.0) || any(previousUv > 1.0)) return float3(0.0, 0.0, 0.0);
@@ -138,57 +137,36 @@ float evaluateGuideLobe(float3 direction, float3 guideDirection, float guideBias
 }
 
 float3 shadeHit(SurfaceSample surface, float3 viewDirection, uint instanceMask, inout uint rng) {
-    SturdyPackedLight sturdyLights[kRestirGiMaxLights];
-    [unroll]
-    for (uint j = 0; j < kRestirGiMaxLights; ++j) {
-        sturdyLights[j].positionRange = frame.lights[j].positionRange;
-        sturdyLights[j].radianceSourceRadius = frame.lights[j].radianceSourceRadius;
-    }
-
     float3 sunDirection = normalize(-frame.sunDirectionAngularRadius.xyz);
     float sunAngularRadius = frame.sunDirectionAngularRadius.w;
     uint lightCount = (uint)frame.lightCountParams.x;
-    float selectionProbability = 1.0 / (1.0 + (float)min(lightCount, kRestirGiMaxLights));
-    float pdfLightForSun = selectionProbability * sunDirectionPdf(sunAngularRadius);
 
-    // --- Light-sampling (NEE) strategy: one candidate light, MIS-weighted only for the sun. ---
-    LightSampleResult picked = sampleOneLightUniform(
+    // Light-sampling (NEE) only: one candidate light, one shadow ray. The sun has a real (if tiny)
+    // angular extent, so a BSDF-sampled second strategy exists in theory, but the balance-heuristic
+    // partner needed a second visibility ray that almost never lands in the disk; light sampling alone
+    // is unbiased for the sun's disk and point/spot lights are delta lights, so plain NEE is exact.
+    // Only the ONE selected light is read, straight from the constant buffer (a runtime-indexed local
+    // copy of the whole array spills to private memory on GPUs without indexable registers).
+    uint selection = pickLightSelection(lightCount, rng);
+    SturdyPackedLight selectedLight;
+    selectedLight.positionRange = frame.lights[min(max(selection, 1u) - 1u, kRestirGiMaxLights - 1u)].positionRange;
+    selectedLight.radianceSourceRadius =
+        frame.lights[min(max(selection, 1u) - 1u, kRestirGiMaxLights - 1u)].radianceSourceRadius;
+    LightSampleResult picked = sampleSelectedLight(
         surface.position, sunDirection, frame.sunRadiance.rgb, sunAngularRadius,
-        sturdyLights, lightCount, rng);
+        selection, selectedLight, lightCount);
 
     float3 direct = float3(0.0, 0.0, 0.0);
     if (picked.pdf > 0.0) {
-        float visibility = traceSpectralVisibility(
-            surface.position + surface.shadingNormal * 0.001, picked.direction, picked.distance, instanceMask);
         float cosine = saturate(dot(surface.shadingNormal, picked.direction));
-        float3 diffuseBrdf = evaluateEonDiffuse(
-            surface.material.baseColor.rgb, surface.material.surface.x,
-            surface.shadingNormal, picked.direction, viewDirection);
-        float misWeight = picked.isSun
-            ? balanceHeuristicWeight(picked.pdf, diffuseCosinePdf(surface.shadingNormal, picked.direction))
-            : 1.0;
-        direct = diffuseBrdf * (1.0 - surface.material.surface.y) * cosine * picked.radiance
-               * (misWeight * visibility / picked.pdf);
-    }
-
-    // --- BSDF-sampling strategy's reciprocal MIS term, sun only (see file header): draw one cosine-
-    // sampled direction and, only on the rare occasion it actually lands within the sun's disk, spend a
-    // second visibility ray to add its MIS-weighted contribution. ---
-    if (pdfLightForSun > 0.0) {
-        float3 bsdfDirection = cosineHemisphere(surface.shadingNormal, rng);
-        if (dot(bsdfDirection, sunDirection) > cos(sunAngularRadius)) {
-            float pdfBsdf = diffuseCosinePdf(surface.shadingNormal, bsdfDirection);
-            if (pdfBsdf > 0.0) {
-                float visibility = traceSpectralVisibility(
-                    surface.position + surface.shadingNormal * 0.001, bsdfDirection, 1.0e6, instanceMask);
-                float misWeight = balanceHeuristicWeight(pdfBsdf, pdfLightForSun);
-                float3 diffuseBrdf = evaluateEonDiffuse(
-                    surface.material.baseColor.rgb, surface.material.surface.x,
-                    surface.shadingNormal, bsdfDirection, viewDirection);
-                float cosine = saturate(dot(surface.shadingNormal, bsdfDirection));
-                direct += diffuseBrdf * (1.0 - surface.material.surface.y) * (cosine / pdfBsdf)
-                        * frame.sunRadiance.rgb * (misWeight * visibility);
-            }
+        if (cosine > 0.0) {
+            float visibility = traceSpectralVisibility(
+                surface.position + surface.shadingNormal * 0.001, picked.direction, picked.distance, instanceMask);
+            float3 diffuseBrdf = evaluateEonDiffuse(
+                surface.material.baseColor.rgb, surface.material.surface.x,
+                surface.shadingNormal, picked.direction, viewDirection);
+            direct = diffuseBrdf * (1.0 - surface.material.surface.y) * cosine * picked.radiance
+                   * (visibility / picked.pdf);
         }
     }
 
@@ -200,19 +178,27 @@ float3 shadeHit(SurfaceSample surface, float3 viewDirection, uint instanceMask, 
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void initialSampleMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
-    uint2 extent = (uint2)frame.extentMaxRayDistance.xy;
-    if (any(dispatchThreadId.xy >= extent)) return;
-    uint pixelIndex = dispatchThreadId.y * extent.x + dispatchThreadId.x;
+    uint2 giExtent = (uint2)frame.extentMaxRayDistance.xy;
+    if (any(dispatchThreadId.xy >= giExtent)) return;
+    uint pixelIndex = dispatchThreadId.y * giExtent.x + dispatchThreadId.x;
 
-    float depth = gbufferDepth.Load(int3(dispatchThreadId.xy, 0));
+    // The GI grid can be coarser than the G-buffer; this cell shades one (rotating) G-buffer pixel.
+    uint fullWidth, fullHeight;
+    gbufferDepth.GetDimensions(fullWidth, fullHeight);
+    uint2 fullExtent = uint2(fullWidth, fullHeight);
+    uint2 pixel = restirRepresentativePixel(
+        dispatchThreadId.xy, (uint)frame.extentMaxRayDistance.z, fullExtent, (uint)frame.cameraPositionFrameIndex.w);
+
+    float depth = gbufferDepth.Load(int3(pixel, 0));
     if (depth >= 0.999999) {
-        reservoirCandidate[pixelIndex] = (ReservoirGpuData)0;
+        reservoirCandidate[pixelIndex] = restirEmptyReservoir();
         guideDirectionCurrent[pixelIndex].directionStrength = float4(0.0, 0.0, 0.0, 0.0);
+        guideDirectionCurrent[pixelIndex].normalDistance = float4(0.0, 0.0, 0.0, 0.0);
         return;
     }
 
-    float3 worldPosition = reconstructWorldPosition(dispatchThreadId.xy, extent, depth);
-    float3 normal = decodeOctahedralNormal(gbufferNormal.Load(int3(dispatchThreadId.xy, 0)));
+    float3 worldPosition = reconstructWorldPosition(pixel, fullExtent, depth);
+    float3 normal = decodeOctahedralNormal(gbufferNormal.Load(int3(pixel, 0)));
     float3 viewDirection = safeNormalizeOr(frame.cameraPositionFrameIndex.xyz - worldPosition, normal);
 
     // Reproject last frame's per-pixel guide direction via the motion vector — the same screen-space
@@ -220,12 +206,12 @@ void initialSampleMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
     float3 guideDirection = float3(0.0, 0.0, 0.0);
     float guideStrengthRaw = 0.0;
     if (frame.lightCountParams.z > 0.5) {
-        float2 uv = (float2(dispatchThreadId.xy) + 0.5) / float2(extent);
-        float2 motion = gbufferMotion.Load(int3(dispatchThreadId.xy, 0));
-        float2 previousUv = uv - motion;
+        float2 uv = (float2(pixel) + 0.5) / float2(fullExtent);
+        float2 motion = gbufferMotion.Load(int3(pixel, 0));
+        float2 previousUv = uv - motionToUvDelta(motion);
         if (all(previousUv >= 0.0) && all(previousUv <= 1.0)) {
-            int2 previousPixel = clamp(int2(previousUv * float2(extent)), int2(0, 0), int2(extent) - int2(1, 1));
-            uint previousIndex = (uint)previousPixel.y * extent.x + (uint)previousPixel.x;
+            int2 previousPixel = clamp(int2(previousUv * float2(giExtent)), int2(0, 0), int2(giExtent) - int2(1, 1));
+            uint previousIndex = (uint)previousPixel.y * giExtent.x + (uint)previousPixel.x;
             float4 packed = guideDirectionPrev[previousIndex].directionStrength;
             guideDirection = packed.xyz;
             guideStrengthRaw = packed.w;
@@ -274,35 +260,20 @@ void initialSampleMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
     SpectralRayHit hit;
     SurfaceSample surface;
     float3 radiance;
-    float3 hitPosition = worldPosition;
-    float3 hitNormal = normal;
-    bool valid = false;
-    if (traceSpectralClosestSurface(
+    if (traceSpectralClosestSurfaceDetail(
             worldPosition + normal * 0.01, direction, 0.01, frame.extentMaxRayDistance.w,
-            0xffu, hit, surface)) {
+            0xffu, true, hit, surface)) {
         radiance = shadeHit(surface, -direction, 0xffu, rng);
-        hitPosition = surface.position;
-        hitNormal = surface.shadingNormal;
-        valid = true;
     } else {
         radiance = sampleEnvironmentRadiance(direction);
-        hitPosition = worldPosition + direction * frame.extentMaxRayDistance.w;
-        hitNormal = -direction;
-        valid = true;
     }
     radiance *= risWeight;
 
     // Single-sample reservoir: pHat(y) = luminance(radiance), p(y) = 1 (the cosine-hemisphere direction
     // pdf cancels algebraically against the Lambertian target the same way surfel_ray_trace.slang's
     // plain cosine average already relied on; the RIS weight above already folds in the guiding bias
-    // correction), so this candidate's own W is exactly 1.
-    float2 encodedNormal = encodeOctahedralNormal(hitNormal);
-    ReservoirGpuData reservoir;
-    reservoir.samplePositionPdf = float4(hitPosition, 1.0);
-    reservoir.sampleRadianceNormalX = float4(radiance, encodedNormal.x);
-    reservoir.normalYValid = float4(encodedNormal.y, valid ? 1.0 : 0.0, 0.0, 0.0);
-    reservoir.weightM = float4(max(dot(radiance, SFT_LUMINANCE_WEIGHTS), 0.0), valid ? 1.0 : 0.0, 1.0, 0.0);
-    reservoirCandidate[pixelIndex] = reservoir;
+    // correction), so this candidate's own W is exactly 1 and its sample count M is 1.
+    reservoirCandidate[pixelIndex] = restirMakeReservoir(radiance, 1.0, 1.0);
 
     // Update the guide cache for next frame from what this sample actually found.
     float luminance = max(dot(radiance, SFT_LUMINANCE_WEIGHTS), 0.0);
@@ -312,4 +283,6 @@ void initialSampleMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
         measuredDirection);
     float blendedGuideStrength = lerp(guideStrengthRaw, luminance, SFT_RESTIR_GUIDE_BLEND_ALPHA);
     guideDirectionCurrent[pixelIndex].directionStrength = float4(blendedGuideDirection, blendedGuideStrength);
+    guideDirectionCurrent[pixelIndex].normalDistance =
+        float4(normal, length(worldPosition - frame.cameraPositionFrameIndex.xyz));
 }

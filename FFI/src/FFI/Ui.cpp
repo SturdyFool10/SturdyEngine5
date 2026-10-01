@@ -481,6 +481,31 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_clicked(SturdyEngine engine,
     });
 }
 
+SturdyResult STURDY_ABI_CALL sturdy_ui_set_scale_mode(SturdyEngine engine, SturdyUiScaleMode mode) {
+    return guarded([&]() -> SturdyResult {
+        SFT::UI::UiScaleMode engine_mode{};
+        switch (mode) {
+        case STURDY_UI_SCALE_MODE_CONTENT_SCALE:
+            engine_mode = SFT::UI::UiScaleMode::ContentScale;
+            break;
+        case STURDY_UI_SCALE_MODE_RAW_PIXELS:
+            engine_mode = SFT::UI::UiScaleMode::RawPixels;
+            break;
+        case STURDY_UI_SCALE_MODE_FORCE_U32:
+        default:
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unknown UI scale mode");
+        }
+
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        const SturdyResult resolved = resolve_engine(engine, &resolved_engine);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        screen_ui_for(*resolved_engine).set_scale_mode(engine_mode);
+        return STURDY_OK;
+    });
+}
+
 SturdyResult STURDY_ABI_CALL sturdy_ui_pointer_position(SturdyEngine engine,
                                                         float *out_x,
                                                         float *out_y) {

@@ -3,6 +3,7 @@
 #include <Foundation/Foundation.hpp>
 #pragma region Imports
 #include "volk.h"
+#include <array>
 #include <span>
 #include <vector>
 #pragma endregion
@@ -198,7 +199,14 @@ namespace SFT::Core::Vulkan {
         u32 view_mask_ = 0;
         VkRenderingFlags flags_ = 0;
         const void *pnext_ = nullptr;
-        vector<VkRenderingAttachmentInfo> color_attachments_vk_;
+        // Every Vulkan implementation in practice reports VkPhysicalDeviceLimits::maxColorAttachments == 8 (the
+        // spec only guarantees a minimum of 4); a fixed array avoids a heap allocation on every render pass
+        // (several per frame) without the silent-truncation risk a hard cap normally carries, because
+        // add_color()/set_color() clamp defensively (log + drop) rather than write out of bounds if a caller
+        // somehow asks for more than a real device could ever support.
+        static constexpr usize kMaxColorAttachments = 8;
+        std::array<VkRenderingAttachmentInfo, kMaxColorAttachments> color_attachments_vk_{};
+        u32 color_attachment_count_ = 0;
         VkRenderingAttachmentInfo depth_vk_ = {};
         VkRenderingAttachmentInfo stencil_vk_ = {};
         bool has_depth_ = false;

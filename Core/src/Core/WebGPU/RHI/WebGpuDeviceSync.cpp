@@ -26,7 +26,11 @@ namespace SFT::Core::WebGpu {
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     rhi::RhiResult WebGpuDevice::submit(const rhi::SubmitDesc &desc) {
-        std::vector<WGPUCommandBuffer> buffers;
+        // Reused across calls (this device's queue is only ever submitted to from one thread, by design -- see
+        // the presentation-coordinator note in WebGpuDeviceSwapchain.cpp): clear() keeps the allocated capacity,
+        // so a frame with several submits settles into zero heap traffic here after its first few calls.
+        thread_local std::vector<WGPUCommandBuffer> buffers;
+        buffers.clear();
         buffers.reserve(desc.command_buffers.size());
         for (rhi::CommandBufferHandle handle : desc.command_buffers) {
             WGPUCommandBuffer *buffer = command_buffers_.find(handle);

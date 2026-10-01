@@ -878,27 +878,31 @@ namespace SFT::UiWorkbench {
         Surface &surface,
         glm::vec2 viewport,
         f32 delta_seconds) {
+        // Mouse events are in window coordinates; the context takes framebuffer pixels. Mapping through
+        // this frame's `viewport` (rather than the snapshot's framebuffer size) also absorbs a snapshot
+        // that lags a live resize by a frame.
         UI::PointerState framebuffer_pointer = surface.pointer;
         if (const Engine::WindowSnapshot *window = engine.window_state().find(surface.handle.window_id)) {
-
-
-            const glm::vec2 framebuffer_size{window->framebuffer_size};
-            if (framebuffer_size.x > 0.0f && framebuffer_size.y > 0.0f) {
-                const glm::vec2 snapshot_to_framebuffer = viewport / framebuffer_size;
-                framebuffer_pointer.position *= snapshot_to_framebuffer;
+            surface.context.set_pixel_scale(window->content_scale);
+            const glm::vec2 window_size{window->size};
+            if (window_size.x > 0.0f && window_size.y > 0.0f) {
+                const glm::vec2 window_to_framebuffer = viewport / window_size;
+                framebuffer_pointer.position *= window_to_framebuffer;
                 if (framebuffer_pointer.press_position) {
-                    *framebuffer_pointer.press_position *= snapshot_to_framebuffer;
+                    *framebuffer_pointer.press_position *= window_to_framebuffer;
                 }
             }
         }
 
 
+        // Element bounds are logical units; compare against the pointer in the same space.
+        const glm::vec2 logical_pointer = framebuffer_pointer.position / surface.context.pixel_scale();
         if (const std::optional<UI::ElementBounds> bounds =
                 surface.context.element_bounds(UString{"workbench-text-markdown"});
-            bounds && framebuffer_pointer.position.x >= bounds->position.x &&
-            framebuffer_pointer.position.y >= bounds->position.y &&
-            framebuffer_pointer.position.x < bounds->position.x + bounds->size.x &&
-            framebuffer_pointer.position.y < bounds->position.y + bounds->size.y) {
+            bounds && logical_pointer.x >= bounds->position.x &&
+            logical_pointer.y >= bounds->position.y &&
+            logical_pointer.x < bounds->position.x + bounds->size.x &&
+            logical_pointer.y < bounds->position.y + bounds->size.y) {
             const UString text_area_id{"workbench-text-markdown"};
             const UI::Context::ScrollMetrics metrics = surface.context.scroll_metrics(text_area_id);
             if (metrics.found) {
@@ -925,6 +929,7 @@ namespace SFT::UiWorkbench {
             }
         }
         surface.context.begin_layout(viewport, framebuffer_pointer, delta_seconds);
+        const glm::vec2 layout_size = surface.context.viewport_size();
         surface.pointer.pressed = false;
         surface.pointer.press_position.reset();
         surface.pointer.released = false;
@@ -944,7 +949,7 @@ namespace SFT::UiWorkbench {
 
 
             auto background = surface.context.element(UI::ElementDecl{
-                .sizing = {UI::SizingAxis::fixed(viewport.x), UI::SizingAxis::fixed(viewport.y)},
+                .sizing = {UI::SizingAxis::fixed(layout_size.x), UI::SizingAxis::fixed(layout_size.y)},
                 .padding = UI::Padding::symmetric(18, 12),
                 .child_gap = 10,
                 .child_alignment = {UI::AlignX::Left, UI::AlignY::Top},
@@ -980,8 +985,8 @@ namespace SFT::UiWorkbench {
             status_pill(surface.context, font_id_, surface.primary ? "PRIMARY SURFACE" : "DETACHED SURFACE", surface.primary ? success : accent_hot);
         }
 
-        const glm::vec2 workspace_size{std::max(viewport.x - 36.0f, 1.0f),
-                                       std::max(viewport.y - 72.0f, 1.0f)};
+        const glm::vec2 workspace_size{std::max(layout_size.x - 36.0f, 1.0f),
+                                       std::max(layout_size.y - 72.0f, 1.0f)};
         surface.context.set_scroll_settings(UI::ScrollSettings{
             .click_and_drag_scroll = scroll_click_drag_,
             .smooth_scrolling = scroll_smooth_,
@@ -1644,7 +1649,7 @@ namespace SFT::UiWorkbench {
                 } else {
                     const WindowManager::WindowConfig config{
                         .title = "Sturdy UI Workbench",
-                        .extent = primary_snapshot->size,
+                        .extent = primary_snapshot->framebuffer_size,
                         .position = primary_snapshot->position,
                         .use_default_position = false,
                         .visible = true,
@@ -2347,6 +2352,7 @@ namespace SFT::UiWorkbench {
                 .field_bounds = field_bounds ? *field_bounds : *caret_bounds,
                 .caret_bounds = *caret_bounds,
                 .ime_enabled = ime_enabled,
+                .pixel_scale = ctx.pixel_scale(),
             };
         };
         std::optional<Engine::TextInputFocusInfo> focus =
@@ -3173,13 +3179,11 @@ namespace SFT::UiWorkbench {
             if (const Engine::WindowSnapshot *origin_window = engine.window_state().find(surface.handle.window_id)) {
 
 
-                const glm::vec2 physical_local = kWorkspaceOrigin + request.workspace_local_drop_position;
-                const glm::vec2 framebuffer_size{origin_window->framebuffer_size};
-                const glm::vec2 logical_size{origin_window->size};
-                const glm::vec2 physical_to_logical = framebuffer_size.x > 0.0f && framebuffer_size.y > 0.0f
-                                                          ? logical_size / framebuffer_size
-                                                          : glm::vec2{1.0f};
-                const glm::vec2 global_drop = glm::vec2{origin_window->position} + physical_local * physical_to_logical;
+                // Drop position: UI logical units -> framebuffer pixels -> window coordinates (the space
+                // window positions and sizes are in).
+                const glm::vec2 ui_local = kWorkspaceOrigin + request.workspace_local_drop_position;
+                const glm::vec2 framebuffer_local = ui_local * surface.context.pixel_scale();
+                const glm::vec2 global_drop = glm::vec2{origin_window->position} + origin_window->framebuffer_to_window(framebuffer_local);
                 std::optional<WindowManager::WindowId> redock_target;
                 for (const Engine::WindowSnapshot &candidate : engine.window_state().windows()) {
                     if (candidate.id == surface.handle.window_id) {
@@ -3200,9 +3204,15 @@ namespace SFT::UiWorkbench {
                 }
             }
 
+            // WindowConfig::extent is physical pixels; size the detached panel for the origin display's UI scale.
+            f32 detached_scale = 1.0f;
+            if (const Engine::WindowSnapshot *origin_window = engine.window_state().find(surface.handle.window_id)) {
+                detached_scale = origin_window->content_scale;
+            }
             const WindowManager::WindowConfig config{
                 .title = "Sturdy UI — Detached Panel",
-                .extent = {720, 620},
+                .extent = {static_cast<u32>(std::lround(720.0f * detached_scale)),
+                           static_cast<u32>(std::lround(620.0f * detached_scale))},
                 .position = {0, 0},
                 .use_default_position = true,
                 .visible = true,

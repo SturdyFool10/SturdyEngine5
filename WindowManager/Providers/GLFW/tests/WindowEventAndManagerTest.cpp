@@ -252,6 +252,7 @@ namespace {
             thread_trace.sampled = std::this_thread::get_id();
             return WindowExtent{640, 480};
         }
+        [[nodiscard]] expected<f32, WindowError> refresh_rate_hz() const noexcept override { return 60.0f; }
         /// Sets the minimum size for this `AffinityWindow`.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.

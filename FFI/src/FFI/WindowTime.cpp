@@ -470,6 +470,30 @@ SturdyResult STURDY_ABI_CALL sturdy_window_find(SturdyEngine engine,
     });
 }
 
+SturdyResult STURDY_ABI_CALL sturdy_window_content_scale(SturdyEngine engine,
+                                                          SturdySurface surface,
+                                                          float *out_scale) {
+    return guarded([&]() -> SturdyResult {
+        if (out_scale == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        const SturdyResult resolved = resolve_engine(engine, &resolved_engine);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+
+        const auto window_id = static_cast<SFT::WindowManager::WindowId>(surface.id);
+        const SFT::Engine::WindowSnapshot *found = resolved_engine->window_state().find(window_id);
+        if (found == nullptr) {
+            return set_error(STURDY_ERROR_NOT_AVAILABLE, "no managed window matches that surface");
+        }
+        *out_scale = found->content_scale;
+        return STURDY_OK;
+    });
+}
+
 SturdyResult STURDY_ABI_CALL sturdy_window_config_init(SturdyWindowConfig *config) {
     return guarded([&]() -> SturdyResult {
         if (config == nullptr) {
@@ -755,12 +779,21 @@ SturdyResult STURDY_ABI_CALL sturdy_window_set_text_input_area(SturdyEngine engi
             !std::isfinite(area->height) || !std::isfinite(area->cursor_offset_x)) {
             return set_error(STURDY_ERROR_INVALID_ARGUMENT, "text input area must be finite");
         }
+        // The ABI takes window coordinates; the engine's TextInputArea is framebuffer pixels.
+        glm::vec2 density{1.0f};
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        if (resolve_engine(engine, &resolved_engine) == STURDY_OK) {
+            const auto window_id = static_cast<SFT::WindowManager::WindowId>(surface.id);
+            if (const SFT::Engine::WindowSnapshot *found = resolved_engine->window_state().find(window_id)) {
+                density = found->pixel_density();
+            }
+        }
         SFT::WindowManager::TextInputArea engine_area{};
-        engine_area.x = area->x;
-        engine_area.y = area->y;
-        engine_area.width = area->width;
-        engine_area.height = area->height;
-        engine_area.cursor_offset_x = area->cursor_offset_x;
+        engine_area.x = area->x * density.x;
+        engine_area.y = area->y * density.y;
+        engine_area.width = area->width * density.x;
+        engine_area.height = area->height * density.y;
+        engine_area.cursor_offset_x = area->cursor_offset_x * density.x;
         return queue_window_request(engine, surface,
                                     [&](SFT::Engine::WindowRequests &requests,
                                         SFT::WindowManager::WindowId window_id) {

@@ -242,6 +242,16 @@ namespace SFT::Engine {
             Asset shader{};
             std::vector<Asset> textures;
             bool double_sided = false;
+            /// Skinning source: bind-pose vertices (the renderer's copy is overwritten by posing) and weights.
+            std::shared_ptr<const Animation::SkinWeights> skin;
+            std::shared_ptr<const Animation::MorphTargetSet> morph;
+            /// The skin was invented (all vertices on joint 0) so a morph-only primitive can use the skinning pass.
+            bool synthetic_skin = false;
+            std::shared_ptr<const std::vector<SFT::Renderer::GeometryVertex>> bind_vertices;
+            /// Cloned primitives reference the source model's material instance instead of owning one.
+            bool shares_material = false;
+            /// Posed by the renderer's compute pass (`Renderer::attach_skin`) instead of on the CPU.
+            bool gpu_skinned = false;
         };
 
         struct ModelData {
@@ -344,7 +354,7 @@ namespace SFT::Engine {
             }
             if (auto *model = std::get_if<ModelData>(&record.data)) {
                 for (ModelPrimitiveData &primitive : model->primitives) {
-                    if (primitive.material) {
+                    if (primitive.material && !primitive.shares_material) {
                         renderer.destroy_material_instance(primitive.material);
                     }
                     if (primitive.mesh) {
@@ -1036,6 +1046,24 @@ namespace SFT::Engine {
                 .shader = primitive.shader,
                 .double_sided = primitive.double_sided,
             };
+            const bool morph_ok = primitive.morph && !primitive.morph->empty() &&
+                                  primitive.morph->vertex_count() == primitive.mesh.vertices().size();
+            if (morph_ok) {
+                created.morph = primitive.morph;
+            }
+            std::shared_ptr<const Animation::SkinWeights> effective_skin = primitive.skin;
+            if (!(effective_skin && effective_skin->vertex_count() == primitive.mesh.vertices().size()) && morph_ok) {
+                auto synthetic = std::make_shared<Animation::SkinWeights>();
+                synthetic->joints.assign(primitive.mesh.vertices().size(), glm::uvec4{0});
+                synthetic->weights.assign(primitive.mesh.vertices().size(), glm::vec4{1.0f, 0.0f, 0.0f, 0.0f});
+                effective_skin = std::move(synthetic);
+                created.synthetic_skin = true;
+            }
+            if (effective_skin && effective_skin->vertex_count() == primitive.mesh.vertices().size()) {
+                created.skin = effective_skin;
+                created.bind_vertices = std::make_shared<const std::vector<SFT::Renderer::GeometryVertex>>(
+                    primitive.mesh.vertices().begin(), primitive.mesh.vertices().end());
+            }
             created.textures.reserve(primitive.textures.size());
             for (const ModelTextureBinding &binding : primitive.textures) {
                 const Impl::Record *texture_record = impl_->find(binding.texture);
@@ -1079,6 +1107,149 @@ namespace SFT::Engine {
             .memory_bytes = approximate_bytes,
             .data = std::move(model),
         });
+    }
+
+    bool AssetManager::is_skinnable(Asset model) const {
+        std::shared_lock lock{impl_->mutex};
+        const Impl::Record *record = impl_->find(model);
+        const auto *data = record ? std::get_if<Impl::ModelData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return false;
+        }
+        return std::any_of(data->primitives.begin(), data->primitives.end(),
+                           [](const Impl::ModelPrimitiveData &p) { return p.skin != nullptr; });
+    }
+
+    AssetExpected<Asset> AssetManager::create_skinned_instance(Asset model, UString label) {
+        std::unique_lock lock{impl_->mutex};
+        const Impl::Record *record = impl_->find(model);
+        const auto *source = record ? std::get_if<Impl::ModelData>(&record->data) : nullptr;
+        if (source == nullptr) {
+            return std::unexpected(error(model && model.type() != AssetType::Model ? AssetErrorCode::WrongType
+                                                                                   : AssetErrorCode::InvalidAsset,
+                                         "create_skinned_instance requires a live model asset."));
+        }
+        if (label.empty()) {
+            label = record->label;
+        }
+        Impl::ModelData clone{};
+        clone.info = source->info;
+        const auto rollback = [this, &clone]() noexcept {
+            for (Impl::ModelPrimitiveData &created : clone.primitives) {
+                impl_->renderer.destroy_mesh(created.mesh);
+            }
+        };
+        bool any_skinned = false;
+        for (const Impl::ModelPrimitiveData &primitive : source->primitives) {
+            Impl::ModelPrimitiveData copy = primitive;
+            copy.shares_material = true;
+            if (primitive.skin && primitive.bind_vertices) {
+                const SFT::Renderer::MeshResource *resource = impl_->renderer.mesh(primitive.mesh);
+                if (resource == nullptr) {
+                    rollback();
+                    return std::unexpected(error(AssetErrorCode::InvalidAsset, "Source model mesh is no longer alive."));
+                }
+                auto mesh = impl_->renderer.create_mesh(*primitive.bind_vertices, resource->indices, label.c_str());
+                if (!mesh) {
+                    rollback();
+                    return std::unexpected(backend_error(mesh.error()));
+                }
+                copy.mesh = *mesh;
+                std::vector<SFT::Renderer::SkinInfluence> influences(primitive.skin->vertex_count());
+                for (usize v = 0; v < influences.size(); ++v) {
+                    influences[v] = SFT::Renderer::SkinInfluence{.joints = primitive.skin->joints[v],
+                                                                .weights = primitive.skin->weights[v]};
+                }
+                SFT::Renderer::SkinAttachDesc attach{.influences = influences};
+                std::vector<SFT::Renderer::MorphDelta> deltas;
+                if (primitive.morph) {
+                    deltas.resize(primitive.morph->entries.size());
+                    for (usize i = 0; i < deltas.size(); ++i) {
+                        const Animation::MorphEntry &e = primitive.morph->entries[i];
+                        deltas[i] = SFT::Renderer::MorphDelta{.position_delta = e.position_delta, .target = e.target,
+                                                              .normal_delta = e.normal_delta};
+                    }
+                    attach.morph = SFT::Renderer::SkinMorphDesc{.target_count = primitive.morph->target_count(),
+                                                                .vertex_offsets = primitive.morph->vertex_offsets,
+                                                                .entries = deltas};
+                }
+                copy.gpu_skinned = impl_->renderer.attach_skin(*mesh, attach).has_value();
+                any_skinned = true;
+            } else {
+                // Rigid primitive: nothing deforms, so it keeps the source mesh. Destroying the clone would
+                // destroy that shared mesh, so mark it as not owned by dropping the handle's ownership: the
+                // simplest correct option is a private copy of the geometry.
+                const SFT::Renderer::MeshResource *resource = impl_->renderer.mesh(primitive.mesh);
+                if (resource == nullptr) {
+                    rollback();
+                    return std::unexpected(error(AssetErrorCode::InvalidAsset, "Source model mesh is no longer alive."));
+                }
+                auto mesh = impl_->renderer.create_mesh(resource->vertices, resource->indices, label.c_str());
+                if (!mesh) {
+                    rollback();
+                    return std::unexpected(backend_error(mesh.error()));
+                }
+                copy.mesh = *mesh;
+            }
+            clone.primitives.push_back(std::move(copy));
+        }
+        if (!any_skinned) {
+            rollback();
+            return std::unexpected(error(AssetErrorCode::InvalidDescription, "Model has no skinned primitives."));
+        }
+        return impl_->insert(Impl::Record{
+            .type = AssetType::Model,
+            .label = std::move(label),
+            .memory_bytes = record->memory_bytes,
+            .data = std::move(clone),
+        });
+    }
+
+    AssetResult AssetManager::set_skinned_pose(Asset model, std::span<const glm::mat4> skin_matrices,
+                                               std::span<const f32> morph_weights) {
+        std::unique_lock lock{impl_->mutex};
+        Impl::Record *record = impl_->find(model);
+        auto *data = record ? std::get_if<Impl::ModelData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return std::unexpected(error(model && model.type() != AssetType::Model ? AssetErrorCode::WrongType
+                                                                                   : AssetErrorCode::InvalidAsset,
+                                         "set_skinned_pose requires a live model asset."));
+        }
+        std::vector<SFT::Renderer::GeometryVertex> posed;
+        for (Impl::ModelPrimitiveData &primitive : data->primitives) {
+            if (!primitive.skin || !primitive.bind_vertices) {
+                continue;
+            }
+            static const glm::mat4 identity_matrix{1.0f};
+            const std::span<const glm::mat4> matrices =
+                primitive.synthetic_skin ? std::span<const glm::mat4>{&identity_matrix, 1} : skin_matrices;
+            if (primitive.gpu_skinned) {
+                if (Core::RendererResult result = impl_->renderer.set_skin_pose(primitive.mesh, matrices, morph_weights); !result) {
+                    return std::unexpected(backend_error(result.error()));
+                }
+                continue;
+            }
+            const auto &bind = *primitive.bind_vertices;
+            posed.assign(bind.begin(), bind.end());
+            for (usize v = 0; v < posed.size(); ++v) {
+                glm::vec3 position = bind[v].position;
+                glm::vec3 normal = bind[v].normal;
+                if (primitive.morph) {
+                    Animation::apply_morph(*primitive.morph, v, morph_weights, position, normal);
+                    normal = glm::normalize(normal);
+                }
+                const Animation::SkinnedVertex out = Animation::skin_vertex(
+                    matrices, primitive.skin->joints[v], primitive.skin->weights[v], position,
+                    normal, glm::vec3(bind[v].tangent));
+                posed[v].position = out.position;
+                posed[v].normal = out.normal;
+                posed[v].tangent = glm::vec4(out.tangent, bind[v].tangent.w);
+            }
+            if (Core::RendererResult result = impl_->renderer.update_mesh_vertices(primitive.mesh, posed); !result) {
+                return std::unexpected(backend_error(result.error()));
+            }
+        }
+        return {};
     }
 
     /// Sets the model float for this `Engine`.

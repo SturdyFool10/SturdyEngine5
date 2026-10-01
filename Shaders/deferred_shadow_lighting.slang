@@ -6,6 +6,8 @@
 // maxima so cost is deterministic and the shader remains portable across Vulkan/D3D12/Metal-class hardware.
 
 import sturdy_common;
+import sturdy_space;
+import sturdy_lens;
 import sturdy_pbr;
 import sturdy_atmosphere;
 
@@ -123,7 +125,7 @@ struct ShadowLightingGpuData {
     float4 counts;
     float4 shadowParams;
     float4 contactShadowParams;
-    // (max intensity, fade-out view distance, unused, unused)
+    // (max intensity, fade-out view distance, camera lens strength, unused)
     float4 contactShadowParamsExtra;
     float4 viewportParams;
     float4 spectralParams;
@@ -134,6 +136,10 @@ struct ShadowLightingGpuData {
 };
 
 ConstantBuffer<ShadowLightingGpuData> lightingData;
+
+// Strength of the vertex-warp camera lens (0 = none); see sturdy_space.slang. Every reconstruction of the
+// camera's own view from the depth buffer must undo it.
+float cameraLensStrength() { return lightingData.contactShadowParamsExtra.z; }
 ConstantBuffer<AtmosphereGpuData> atmosphereData;
 Texture2D<float4> gbufferAlbedo;
 Texture2D<float2> gbufferNormal;
@@ -229,8 +235,8 @@ float2 receiverPlaneDepthGradient(float2 localUv, float receiverDepth,
     // Convert screen-space position derivatives to d(light depth)/d(light UV). Each PCF/PCSS tap
     // can then compare against the receiver plane at that tap instead of reusing the center depth.
     // This removes the need for a large global bias on sloped, finely tessellated receivers.
-    float4 clipDx = mul(float4(biasedPosition + worldDx, 1.0), view.viewProjection);
-    float4 clipDy = mul(float4(biasedPosition + worldDy, 1.0), view.viewProjection);
+    float4 clipDx = sturdySpaceWorldToClip(biasedPosition + worldDx, view.viewProjection);
+    float4 clipDy = sturdySpaceWorldToClip(biasedPosition + worldDy, view.viewProjection);
     if (abs(clipDx.w) <= SFT_EPSILON || abs(clipDy.w) <= SFT_EPSILON) {
         return float2(0.0);
     }
@@ -326,7 +332,7 @@ ShadowReceiver projectShadowReceiver(ShadowViewGpuData view, float3 worldPositio
 
     // Project once without bias so the offset below can be expressed in shadow texels. A fixed
     // world-space offset is necessarily too large for small/near geometry or too small far away.
-    float4 unbiasedClip = mul(float4(worldPosition, 1.0), view.viewProjection);
+    float4 unbiasedClip = sturdySpaceWorldToClip(worldPosition, view.viewProjection);
     if (unbiasedClip.w <= SFT_EPSILON) {
         return receiver;
     }
@@ -363,7 +369,7 @@ ShadowReceiver projectShadowReceiver(ShadowViewGpuData view, float3 worldPositio
     float normalOffsetTexels = min(lightingData.shadowParams.y * (1.0 + grazing * 2.5), 3.0);
     float3 biasedPosition = worldPosition + receiverNormal * (worldTexel * normalOffsetTexels);
 
-    float4 clip = mul(float4(biasedPosition, 1.0), view.viewProjection);
+    float4 clip = sturdySpaceWorldToClip(biasedPosition, view.viewProjection);
     if (clip.w <= SFT_EPSILON) {
         return receiver;
     }
@@ -638,7 +644,7 @@ float screenSpaceSunContactShadow(float3 worldPosition, float3 normal, float3 su
         float t = ((float)i + dither) * stepLength;
         float3 candidate = origin + sunVector * t;
 
-        float4 candidateClip = mul(float4(candidate, 1.0), lightingData.viewProjection);
+        float4 candidateClip = sturdySpaceCameraWorldToClip(candidate, lightingData.viewProjection, cameraLensStrength());
         bool behindCamera = candidateClip.w <= SFT_EPSILON;
         // Guarded so an already-invalid iteration cannot divide by (near-)zero and carry a NaN/Inf
         // into candidateUv -- harmless for the math below since `active` masks it out regardless,
@@ -658,8 +664,8 @@ float screenSpaceSunContactShadow(float3 worldPosition, float3 normal, float3 su
         // Sky: nothing occludes here.
         active = active && sceneDepth < 0.999999;
 
-        float4 sceneWorldH = mul(float4(uvToNdc(candidateUv), sceneDepth, 1.0),
-                                 lightingData.inverseViewProjection);
+        float4 sceneWorldH = sturdySpaceCameraClipToWorldH(float4(uvToNdc(candidateUv), sceneDepth, 1.0),
+                                                           lightingData.inverseViewProjection, cameraLensStrength());
         bool degenerateWorldH = abs(sceneWorldH.w) <= SFT_EPSILON;
         float3 sceneWorld = sceneWorldH.xyz / (degenerateWorldH ? 1.0 : sceneWorldH.w);
         active = active && !degenerateWorldH;
@@ -849,7 +855,7 @@ bool directionalShadowDebug(uint mode, float3 worldPosition, float3 normal, floa
         return true;
     }
     if (mode == SFT_SHADOW_DEBUG_NORMAL_BIAS) {
-        float4 unbiasedClip = mul(float4(worldPosition, 1.0), view.viewProjection);
+        float4 unbiasedClip = sturdySpaceWorldToClip(worldPosition, view.viewProjection);
         float2 unbiasedUv = ndcToUv(unbiasedClip.xy / max(unbiasedClip.w, SFT_EPSILON));
         float offsetTexels = length((receiver.localUv - unbiasedUv) * tileResolution);
         if (coverageOk) {
@@ -964,8 +970,7 @@ float punctualAttenuation(float distanceToLight, float range) {
 // unproject the far clip plane instead and point away from the camera through it).
 float3 reconstructWorldRayDirection(float2 uv) {
     float4 clip = float4(uvToNdc(uv), 1.0, 1.0);
-    float4 worldH = mul(clip, lightingData.inverseViewProjection);
-    float3 worldFar = worldH.xyz / max(abs(worldH.w), SFT_EPSILON) * signNotZero(worldH.w);
+    float3 worldFar = sturdySpaceCameraClipToWorld(clip, lightingData.inverseViewProjection, cameraLensStrength());
     return safeNormalizeOr(worldFar - lightingData.cameraPositionNear.xyz, float3(0.0, 1.0, 0.0));
 }
 
@@ -1017,8 +1022,7 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     }
 
     float4 clip = float4(uvToNdc(input.uv), depth, 1.0);
-    float4 worldH = mul(clip, lightingData.inverseViewProjection);
-    float3 worldPosition = worldH.xyz / max(abs(worldH.w), SFT_EPSILON) * signNotZero(worldH.w);
+    float3 worldPosition = sturdySpaceCameraClipToWorld(clip, lightingData.inverseViewProjection, cameraLensStrength());
     float4 albedoSample = gbufferAlbedo.SampleLevel(gbufferSampler, input.uv, 0.0);
     float3 albedo = albedoSample.rgb;
     float3 normal = decodeOctahedralNormal(gbufferNormal.SampleLevel(gbufferSampler, input.uv, 0.0));

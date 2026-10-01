@@ -25,6 +25,7 @@
 #include <Foundation/Utils.hpp>
 #include <Foundation/CacheDirectory.hpp>
 #include <Foundation/Stopwatch.hpp>
+#include <Foundation/FramePacer.hpp>
 #include <Foundation/Cli.hpp>
 
 using b8 [[maybe_unused]] = SFT::Foundation::b8;

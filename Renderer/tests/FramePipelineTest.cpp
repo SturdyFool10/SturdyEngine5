@@ -70,6 +70,16 @@ int main() {
     ran.clear();
     check(!failing.build(*no_context).has_value() && ran == "k", "a failing feature stops the rest");
 
+    // Stages: scene features run in the scene pass of the frame, post features after it; inserts inherit the anchor's stage.
+    FramePipeline staged;
+    (void)staged.add("scene", mark('s'), FrameStage::Scene);
+    (void)staged.add("post", mark('p'));
+    check(staged.insert_after("scene", "scene2", mark('t')).has_value(), "inserting next to a scene feature succeeds");
+    ran.clear();
+    check(staged.build(*no_context, FrameStage::Scene).has_value() && ran == "st", "the scene stage runs scene features only");
+    ran.clear();
+    check(staged.build(*no_context, FrameStage::Post).has_value() && ran == "p", "the post stage skips scene features");
+
     const auto names = pipeline.names();
     check(names.size() == 4 && names.front() == "a", "names() lists execution order");
     return failures == 0 ? 0 : 1;

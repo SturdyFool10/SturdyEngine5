@@ -13,6 +13,9 @@
 #include <Engine/AssetManager.hpp>
 #include <Engine/Docking/DockWindowCoordinator.hpp>
 #include <Engine/EcsEvents.hpp>
+#include <Engine/EcsAnimation.hpp>
+#include <Engine/ModelImport.hpp>
+#include <Engine/SpawnImported.hpp>
 #include <Engine/EcsRendering.hpp>
 #include <Engine/EcsUi.hpp>
 #include <Engine/FrameTime.hpp>
@@ -177,6 +180,10 @@ namespace SFT::Engine {
         ///         actual current policy forward onto the replacement.
         /// @note This function does not throw exceptions.
         [[nodiscard]] Core::PresentationSettings presentation_settings(Core::RenderSurfaceHandle surface) const noexcept;
+
+        /// Display-clock feedback for `surface` (refresh cycle, fixed/variable refresh, measured display
+        /// intervals); all-unknown when the backend cannot report presentation timing.
+        [[nodiscard]] Core::PresentTimingFeedback present_timing_feedback(Core::RenderSurfaceHandle surface) const noexcept;
 
         /// Applies runtime settings using the supplied arguments and current state.
         ///
@@ -500,6 +507,7 @@ namespace SFT::Engine {
         Ecs::Events<MouseButtonEvent> mouse_button_events_{};
         Ecs::Events<MouseWheelEvent> mouse_wheel_events_{};
         Ecs::Events<WindowStateEvent> window_state_events_{};
+        Ecs::Events<AnimationEvent> animation_events_{};
         WindowState window_state_{};
         DockWindowCoordinator dock_coordinator_{};
         InputState input_state_{};
@@ -511,6 +519,8 @@ namespace SFT::Engine {
         Ecs::Schedule update_schedule_;
         /// Previous frame's view-projection per surface, for `engine_managed_camera_history`.
         Async::Mutex<std::unordered_map<usize, glm::mat4>> camera_history_;
+        /// Per surface: the temporal upscaler's jitter (scene UV shift) applied last frame.
+        Async::Mutex<std::unordered_map<usize, glm::vec2>> jitter_history_;
         Ecs::Schedule render_extraction_schedule_{Ecs::ScheduleConfig{.clear_events_on_run = false}};
         Core::RendererCapabilities capabilities_{};
         Core::Slang::ShaderCompiler shader_compiler_;

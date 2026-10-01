@@ -260,6 +260,14 @@ namespace SFT::Engine {
     /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
     /// @note This function does not throw exceptions.
     MotionBlurSettings &RenderGraph::motion_blur() noexcept { return description_.motion_blur; }
+    const CameraEmulationSettings &RenderGraph::camera_emulation() const noexcept { return description_.camera_emulation; }
+    CameraEmulationSettings &RenderGraph::camera_emulation() noexcept { return description_.camera_emulation; }
+    const AutoExposureSettings &RenderGraph::auto_exposure() const noexcept { return description_.auto_exposure; }
+    AutoExposureSettings &RenderGraph::auto_exposure() noexcept { return description_.auto_exposure; }
+    const ScreenSpaceGiSettings &RenderGraph::screen_space_gi() const noexcept { return description_.screen_space_gi; }
+    ScreenSpaceGiSettings &RenderGraph::screen_space_gi() noexcept { return description_.screen_space_gi; }
+    const TemporalUpscalerSettings &RenderGraph::temporal_upscaler() const noexcept { return description_.temporal_upscaler; }
+    TemporalUpscalerSettings &RenderGraph::temporal_upscaler() noexcept { return description_.temporal_upscaler; }
     /// Returns the current or globally available execution mode value.
     ///
     /// @return Returns the current execution mode value.

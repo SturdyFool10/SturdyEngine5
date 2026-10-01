@@ -2,6 +2,8 @@
 
 #include <Engine/Asset.hpp>
 
+#include <Animation/Morph.hpp>
+#include <Animation/Skin.hpp>
 #include <Renderer/Handles.hpp>
 #include <Renderer/Mesh.hpp>
 
@@ -141,6 +143,10 @@ namespace SFT::Engine {
         std::optional<glm::vec4> vertex_color;
         std::vector<ModelTextureBinding> textures;
         bool double_sided = false;
+        /// Optional skin influences (one entry per mesh vertex); lets `create_skinned_instance` deform a copy.
+        std::shared_ptr<const Animation::SkinWeights> skin;
+        /// Optional blend shapes. A primitive with morph targets but no skin is posed with an identity joint.
+        std::shared_ptr<const Animation::MorphTargetSet> morph;
     };
 
     struct ModelAssetDesc {
@@ -347,6 +353,21 @@ namespace SFT::Engine {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`, `AssetErrorCode::InvalidDescription`.
         [[nodiscard]] AssetResult set_model_float(Asset model, usize primitive, std::string_view name, f32 value);
+
+        /// Clones a model whose primitives carry skin weights into a new model asset with its own vertex storage
+        /// (materials are shared with the source), so each skinned character can be posed independently. The
+        /// clone starts in bind pose. Unload it like any model; unloading the source first leaves the clone's
+        /// materials dangling, so keep the source alive while clones exist.
+        /// True when `create_skinned_instance` has something to deform: skin weights or blend shapes.
+        [[nodiscard]] bool is_skinnable(Asset model) const;
+
+        [[nodiscard]] AssetExpected<Asset> create_skinned_instance(Asset model, UString label = {});
+
+        /// Deforms every skinned primitive of a `create_skinned_instance` model with `skin_matrices` (see
+        /// `Animation::skin_matrices`) and uploads the result.
+        /// `morph_weights` drive the primitives' blend shapes (one weight per target); pass none for default weights.
+        [[nodiscard]] AssetResult set_skinned_pose(Asset model, std::span<const glm::mat4> skin_matrices,
+                                                   std::span<const f32> morph_weights = {});
         /// Sets the model vec4 for this `AssetManager`.
         ///
         /// @param model `model` value used by the operation.

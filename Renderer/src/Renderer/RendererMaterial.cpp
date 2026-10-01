@@ -481,13 +481,13 @@ namespace SFT::Renderer {
     ///
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-    Core::RendererResult Renderer::reload_material_template(MaterialTemplateHandle handle) {
+    Core::RendererResult Renderer::reload_material_template(MaterialTemplateHandle handle, bool include_in_memory_sources) {
         ZoneScopedN("Renderer::reload_material_template");
         MaterialTemplateResource *tmpl = material_template(handle);
         if (tmpl == nullptr) {
             return unexpected(material_error("Cannot reload an unknown material template."));
         }
-        if (!tmpl->hot_reloadable) {
+        if (!tmpl->hot_reloadable && !include_in_memory_sources) {
             return {};
         }
         if (rhi_device() == nullptr) {

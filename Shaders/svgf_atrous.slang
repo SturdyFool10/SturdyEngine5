@@ -22,6 +22,7 @@ struct SvgfFrameConstants {
     float4x4 previousViewProjection;
     float4 extentHistoryValidFrameIndex;
     float4 temporalPhiParams;
+    float4 cameraPosition;
 };
 
 struct SvgfAtrousConstants {

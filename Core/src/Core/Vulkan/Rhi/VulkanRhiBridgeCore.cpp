@@ -7,14 +7,18 @@
 #include "volk.h"
 #include <algorithm>
 #include <expected>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 #pragma endregion
 
+#include <Foundation/CacheDirectory.hpp>
 #include <Foundation/Foundation.hpp>
 
 #include <Core/GraphicsBackendError.hpp>
@@ -35,6 +39,66 @@ namespace SFT::Core::Vulkan {
     namespace rhi = SFT::RHI;
 
     namespace {
+
+        /// Where the on-disk `VkPipelineCache` blob for one physical device lives: driver-managed pipeline
+        /// compiles (shader-to-native-ISA translation, PSO setup) are otherwise repeated in full on every process
+        /// launch, even though the driver already did this exact work last run on the same GPU/driver. Keyed by
+        /// `stable_device_id()` so switching GPUs (or a driver update, which changes the id) never mixes caches.
+        [[nodiscard]] std::filesystem::path pipeline_cache_path(const std::string &stable_device_id) {
+            const std::filesystem::path dir =
+                Foundation::cache_subdirectory("pipelines", std::filesystem::path{".cache/pipelines"});
+            const std::string file_name = stable_device_id.empty() ? "vulkan_unknown_device.bin"
+                                                                    : "vulkan_" + stable_device_id + ".bin";
+            return dir / file_name;
+        }
+
+        /// Reads a previously-saved pipeline cache blob for this device, or an empty vector if there is none
+        /// (first run on this GPU, cache root cleared, ...). `VkPipelineCache` validates the blob's header
+        /// (vendor/device id, driver version, cache UUID) itself and silently ignores it if it doesn't match the
+        /// current driver, so no validation is needed here beyond "does the file exist".
+        [[nodiscard]] vector<u8> read_pipeline_cache_blob(const std::string &stable_device_id) {
+            std::error_code ec;
+            const std::filesystem::path path = pipeline_cache_path(stable_device_id);
+            const auto size = std::filesystem::file_size(path, ec);
+            if (ec || size == 0) {
+                return {};
+            }
+            std::ifstream file(path, std::ios::binary);
+            if (!file) {
+                return {};
+            }
+            vector<u8> data(static_cast<usize>(size));
+            if (!file.read(reinterpret_cast<char *>(data.data()), static_cast<std::streamsize>(data.size()))) {
+                return {};
+            }
+            return data;
+        }
+
+        /// Writes the pipeline cache blob back out (atomically, via a temp file + rename) so the next launch on
+        /// this device starts from every pipeline this run ever created.
+        void write_pipeline_cache_blob(const std::string &stable_device_id, span<const u8> data) {
+            if (data.empty()) {
+                return;
+            }
+            const std::filesystem::path path = pipeline_cache_path(stable_device_id);
+            std::error_code ec;
+            std::filesystem::create_directories(path.parent_path(), ec);
+            const std::filesystem::path temp_path = path.string() + ".tmp";
+            {
+                std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
+                if (!file) {
+                    return;
+                }
+                file.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size()));
+                if (!file) {
+                    return;
+                }
+            }
+            std::filesystem::rename(temp_path, path, ec);
+            if (ec) {
+                std::filesystem::remove(temp_path, ec);
+            }
+        }
 
         /// Returns the queue lane count for this `Vulkan`.
         ///
@@ -330,8 +394,12 @@ namespace SFT::Core::Vulkan {
         }
 
 
-        if (auto cache = VulkanPipelineCache::create(logical_device_->vk_handle(), {})) {
+        pipeline_cache_device_id_ = physical_device_ != nullptr ? physical_device_->stable_device_id() : std::string{};
+        const vector<u8> initial_data = read_pipeline_cache_blob(pipeline_cache_device_id_);
+        if (auto cache = VulkanPipelineCache::create(logical_device_->vk_handle(), initial_data)) {
             pipeline_cache_ = std::move(*cache);
+            Foundation::log_info("Vulkan: pipeline cache ready ({}).",
+                                 initial_data.empty() ? "created fresh" : "loaded from disk cache");
         }
     }
 
@@ -343,6 +411,11 @@ namespace SFT::Core::Vulkan {
 
 
         wait_idle();
+        if (pipeline_cache_.is_valid()) {
+            if (auto blob = pipeline_cache_.serialize()) {
+                write_pipeline_cache_blob(pipeline_cache_device_id_, *blob);
+            }
+        }
         if (logical_device_ != nullptr) {
             shader_modules_.drain([this](VkShaderModule module) noexcept {
                 if (module != VK_NULL_HANDLE) {

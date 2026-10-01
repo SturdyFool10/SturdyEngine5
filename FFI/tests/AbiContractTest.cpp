@@ -250,6 +250,11 @@ int main() {
               "sturdy_window_primary must reject an expired handle");
         check(sturdy_window_find(dead, any_surface, &snapshot) == STURDY_ERROR_HANDLE_EXPIRED,
               "sturdy_window_find must reject an expired handle");
+        float content_scale = 0.0f;
+        check(sturdy_window_content_scale(dead, any_surface, &content_scale) == STURDY_ERROR_HANDLE_EXPIRED,
+              "sturdy_window_content_scale must reject an expired handle");
+        check(sturdy_ui_set_scale_mode(dead, STURDY_UI_SCALE_MODE_RAW_PIXELS) == STURDY_ERROR_HANDLE_EXPIRED,
+              "sturdy_ui_set_scale_mode must reject an expired handle");
         check(sturdy_window_request_close(dead, any_surface, nullptr) == STURDY_ERROR_HANDLE_EXPIRED,
               "sturdy_window_request_close must reject an expired handle");
         check(sturdy_window_set_decorated(dead, any_surface, STURDY_TRUE) == STURDY_ERROR_HANDLE_EXPIRED,

@@ -82,6 +82,12 @@ namespace SFT::WindowManager {
         });
     }
 
+    /// Returns the content scale; providers without a platform query report 1.0.
+    ///
+    /// @return Always 1.0 for the base implementation.
+    /// @note This function does not throw exceptions.
+    f32 Window::content_scale() const noexcept { return 1.0f; }
+
     /// Starts text input using the supplied arguments and current state.
     ///
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.

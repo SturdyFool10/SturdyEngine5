@@ -7,6 +7,7 @@
 
 #include <Ecs/System.hpp>
 #include <Engine/EcsEvents.hpp>
+#include <Engine/WindowState.hpp>
 #include <Renderer/UI/UI.hpp>
 #include <WindowManager/WindowManager.hpp>
 
@@ -17,8 +18,8 @@ namespace SFT::Engine {
     /// Translates window events into `UI::UiInput` calls. This is the whole of "window input drives a UI"; use it
     /// directly to feed a UI from events you route yourself (one UI per window, an in-world UI you only forward
     /// events to while it has focus).
-    void apply_window_event(UI::UiInput &input, const MouseMoveEvent &event) noexcept;
-    void apply_window_event(UI::UiInput &input, const MouseButtonEvent &event) noexcept;
+    void apply_window_event(UI::UiInput &input, const MouseMoveEvent &event, glm::vec2 pixel_density = glm::vec2{1.0f}) noexcept;
+    void apply_window_event(UI::UiInput &input, const MouseButtonEvent &event, glm::vec2 pixel_density = glm::vec2{1.0f}) noexcept;
     void apply_window_event(UI::UiInput &input, const MouseWheelEvent &event) noexcept;
     void apply_window_event(UI::UiInput &input, const KeyboardEvent &event);
     void apply_window_event(UI::UiInput &input, const TextInputEvent &event);
@@ -61,7 +62,10 @@ namespace SFT::Engine {
 
         /// See `UI::UiSurface::ensure_ready`; uses the engine's device.
         [[nodiscard]] bool ensure_ready(RHI::Format color_format);
-        UI::Context &begin_frame(glm::vec2 viewport, f32 delta_seconds) { return surface_.begin_frame(viewport, delta_seconds); }
+        /// Starts a UI frame at `viewport` framebuffer pixels, picking up the window's current content scale.
+        UI::Context &begin_frame(glm::vec2 viewport, f32 delta_seconds);
+        /// Switches between logical-unit (default) and raw-pixel layout; see `UI::UiScaleMode`.
+        void set_scale_mode(UI::UiScaleMode mode) noexcept { surface_.set_scale_mode(mode); }
         /// The overlay to append to `RenderFrameParameters::overlay_passes`.
         [[nodiscard]] Renderer::OverlayPass finish_overlay(UI::UiOverlayOptions options = {});
 
@@ -73,6 +77,11 @@ namespace SFT::Engine {
         Engine &engine_;
         UI::UiSurface surface_{};
         std::optional<WindowManager::WindowId> window_{};
+
+        /// Returns the snapshot of the window this UI follows (the `set_window` one, else the primary).
+        [[nodiscard]] const WindowSnapshot *tracked_window() const noexcept;
+        /// Returns physical pixels per window-coordinate unit for `window`, or 1 when it is unknown.
+        [[nodiscard]] glm::vec2 pixel_density_for(WindowManager::WindowId window) const noexcept;
         std::vector<Ecs::SystemHandle> systems_;
     };
 

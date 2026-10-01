@@ -114,6 +114,13 @@ namespace SFT::Renderer {
         }
 
         std::vector<SceneObjectGpuData> objects(submission.draws.size());
+        // The camera lens strength rides in the unused w column of the (affine) model matrices; these objects are
+        // only ever drawn from the camera's view (see sturdy_space.slang).
+        const f32 lens_strength = std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f);
+        const auto with_lens = [lens_strength](glm::mat4 matrix) {
+            matrix[0][3] = lens_strength;
+            return matrix;
+        };
         constexpr usize async_object_packing_threshold = 512;
         const u32 worker_count = Async::Scheduler::worker_count();
         if (submission.draws.size() >= async_object_packing_threshold && worker_count > 1) {
@@ -127,12 +134,12 @@ namespace SFT::Renderer {
                 if (begin >= end) {
                     continue;
                 }
-                tasks.push_back(Async::Scheduler::spawn([&submission, &objects, begin, end]() {
+                tasks.push_back(Async::Scheduler::spawn([&submission, &objects, &with_lens, begin, end]() {
                     for (usize i = begin; i < end; ++i) {
                         const RenderItem &item = submission.draws[i];
                         objects[i] = SceneObjectGpuData{
-                            .model = item.world_transform,
-                            .previous_model = item.previous_world_transform,
+                            .model = with_lens(item.world_transform),
+                            .previous_model = with_lens(item.previous_world_transform),
                             .id_sort_visibility_flags = glm::vec4{static_cast<f32>(item.stable_id),
                                                                    static_cast<f32>(item.sort_key),
                                                                    1.0f,
@@ -148,8 +155,8 @@ namespace SFT::Renderer {
             for (usize i = 0; i < submission.draws.size(); ++i) {
                 const RenderItem &item = submission.draws[i];
                 objects[i] = SceneObjectGpuData{
-                    .model = item.world_transform,
-                    .previous_model = item.previous_world_transform,
+                    .model = with_lens(item.world_transform),
+                    .previous_model = with_lens(item.previous_world_transform),
                     .id_sort_visibility_flags = glm::vec4{static_cast<f32>(item.stable_id),
                                                            static_cast<f32>(item.sort_key),
                                                            1.0f,

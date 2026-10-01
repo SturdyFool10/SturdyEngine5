@@ -40,6 +40,16 @@ namespace SFT::UI {
         f32 hdr_reference_white_scale = 1.0f;
     };
 
+    /// How a `UiSurface` maps its layout units onto the framebuffer.
+    enum class UiScaleMode : u8 {
+        /// Layout units are logical: one unit covers `content_scale` pixels, so the UI keeps the same
+        /// physical size on every display and text is rasterized at full resolution. The default.
+        ContentScale,
+        /// Layout units are framebuffer pixels regardless of content scale (pixel-art UI, off-screen
+        /// targets whose resolution is the design size, debug overlays).
+        RawPixels,
+    };
+
     class UiSurface {
       public:
         using OverlayOptions = UiOverlayOptions;
@@ -54,8 +64,23 @@ namespace SFT::UI {
         [[nodiscard]] UiInput &input() noexcept { return input_; }
         [[nodiscard]] const UiInput &input() const noexcept { return input_; }
 
-        /// Starts a layout at `extent` pixels using the accumulated input, then clears the input's one-frame edges
-        /// and records whether the UI wants the pointer (`input().pointer_consumed()`).
+        /// Sets the display's content scale (1.0 = 100%). `Engine::ScreenUi` feeds this from the window snapshot;
+        /// other owners should do the same for on-screen surfaces. Ignored in `UiScaleMode::RawPixels`.
+        void set_content_scale(f32 scale) noexcept { content_scale_ = scale; }
+        [[nodiscard]] f32 content_scale() const noexcept { return content_scale_; }
+
+        /// Chooses between logical-unit (default) and raw-pixel layout.
+        void set_scale_mode(UiScaleMode mode) noexcept { scale_mode_ = mode; }
+        [[nodiscard]] UiScaleMode scale_mode() const noexcept { return scale_mode_; }
+
+        /// Framebuffer pixels per layout unit for the current mode.
+        [[nodiscard]] f32 pixel_scale() const noexcept {
+            return scale_mode_ == UiScaleMode::RawPixels || !(content_scale_ > 0.0f) ? 1.0f : content_scale_;
+        }
+
+        /// Starts a layout at `extent` framebuffer pixels using the accumulated input (whose pointer positions are
+        /// framebuffer pixels too), then clears the input's one-frame edges and records whether the UI wants the
+        /// pointer (`input().pointer_consumed()`). Layout itself runs in `extent / pixel_scale()` units.
         Context &begin_frame(glm::vec2 extent, f32 delta_seconds);
 
         /// Finishes the frame and returns the overlay that draws it. `texture_resolver` is the renderer the UI's
@@ -85,6 +110,8 @@ namespace SFT::UI {
         Context context_{};
         UiInput input_{};
         std::shared_ptr<RendererState> renderer_state_ = std::make_shared<RendererState>();
+        f32 content_scale_ = 1.0f;
+        UiScaleMode scale_mode_ = UiScaleMode::ContentScale;
         bool context_created_ = false;
         bool create_attempted_ = false;
     };

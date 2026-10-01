@@ -10,6 +10,7 @@
 #include <limits>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 #include <glm/geometric.hpp>
@@ -795,14 +796,16 @@ namespace SFT::Renderer {
             static_cast<usize>(material_texture_capacity), submission.draws.size() * 5u + 1u));
         slot.spectral_material_textures.push_back(*default_texture);
         bool material_texture_overflow = false;
+        // Texture -> heap index, so deduplication is O(1) per lookup rather than a linear scan of the heap.
+        std::unordered_map<u64, u32> material_texture_indices;
+        material_texture_indices.reserve(slot.spectral_material_textures.capacity());
         const auto append_material_texture = [&](TextureHandle handle) -> u32 {
             if (!handle || texture(handle) == nullptr) {
                 return ~0u;
             }
-            const auto existing = std::find(
-                slot.spectral_material_textures.begin(), slot.spectral_material_textures.end(), handle);
-            if (existing != slot.spectral_material_textures.end()) {
-                return static_cast<u32>(std::distance(slot.spectral_material_textures.begin(), existing));
+            const auto existing = material_texture_indices.find(handle.value);
+            if (existing != material_texture_indices.end()) {
+                return existing->second;
             }
             if (slot.spectral_material_textures.size() >= material_texture_capacity) {
                 material_texture_overflow = true;
@@ -810,6 +813,7 @@ namespace SFT::Renderer {
             }
             const u32 index = static_cast<u32>(slot.spectral_material_textures.size());
             slot.spectral_material_textures.push_back(handle);
+            material_texture_indices.emplace(handle.value, index);
             return index;
         };
         glm::vec3 scene_bounds_min{std::numeric_limits<f32>::max()};
@@ -940,45 +944,60 @@ namespace SFT::Renderer {
                                              "The selected spectral mode requires at least one traceable scene mesh."));
         }
 
-        auto create_uploaded_buffer = [&](u64 size, RHI::BufferUsage usage, const char *label,
-                                          span<const std::byte> bytes) -> Core::RendererExpected<RHI::BufferHandle> {
-            auto buffer = device->create_buffer(RHI::BufferDesc{
-                .size = size,
-                .usage = usage,
-                .memory = RHI::MemoryLocation::HostUpload,
-                .label = label,
-            });
-            if (!buffer) {
-                return unexpected(graphics_error_from_rhi(buffer.error(), label));
+        // The scene TLAS, its scratch and the three per-frame upload buffers live in a per-frame-in-flight
+        // cache that only ever grows: a slot is reused only after its previous frame retired, so the same
+        // HostUpload buffers are safe to rewrite and the TLAS is rebuilt in place instead of allocating and
+        // destroying five GPU objects every frame.
+        auto &cache = slot.spectral_scene_cache;
+        const auto retire_buffer = [&](RHI::BufferHandle &handle) {
+            if (handle) slot.transient_buffers.push_back(handle);
+            handle = {};
+        };
+        auto ensure_uploaded_buffer = [&](RHI::BufferHandle &handle, u64 &capacity, u64 size,
+                                          RHI::BufferUsage usage, const char *label,
+                                          span<const std::byte> bytes) -> Core::RendererResult {
+            if (!handle || capacity < size) {
+                retire_buffer(handle);
+                const u64 new_capacity = std::max<u64>(size + size / 2u, 256u);
+                auto buffer = device->create_buffer(RHI::BufferDesc{
+                    .size = new_capacity,
+                    .usage = usage,
+                    .memory = RHI::MemoryLocation::HostUpload,
+                    .label = label,
+                });
+                if (!buffer) {
+                    return unexpected(graphics_error_from_rhi(buffer.error(), label));
+                }
+                handle = *buffer;
+                capacity = new_capacity;
             }
-            if (auto written = device->write_buffer(*buffer, 0, bytes); !written) {
-                device->destroy_buffer(*buffer);
+            if (auto written = device->write_buffer(handle, 0, bytes); !written) {
                 return unexpected(graphics_error_from_rhi(written.error(), label));
             }
-            slot.transient_buffers.push_back(*buffer);
-            return *buffer;
+            return {};
         };
 
-        auto instance_buffer = create_uploaded_buffer(
-            tlas_instances.size() * sizeof(RHI::AccelerationStructureInstance),
-            RHI::BufferUsage::AccelerationStructureInput,
-            "spectral TLAS instances",
-            std::as_bytes(span<const RHI::AccelerationStructureInstance>{tlas_instances.data(), tlas_instances.size()}));
-        if (!instance_buffer) return unexpected(instance_buffer.error());
-        auto scene_instance_buffer = create_uploaded_buffer(
-            scene_instances.size() * sizeof(SpectralSceneInstanceGpu), RHI::BufferUsage::Storage,
-            "spectral scene instances",
-            std::as_bytes(span<const SpectralSceneInstanceGpu>{scene_instances.data(), scene_instances.size()}));
-        if (!scene_instance_buffer) return unexpected(scene_instance_buffer.error());
-        auto material_buffer = create_uploaded_buffer(
-            materials.size() * sizeof(SpectralMaterialGpu), RHI::BufferUsage::Storage,
-            "spectral materials",
-            std::as_bytes(span<const SpectralMaterialGpu>{materials.data(), materials.size()}));
-        if (!material_buffer) return unexpected(material_buffer.error());
+        if (auto r = ensure_uploaded_buffer(
+                cache.instance_buffer, cache.instance_capacity,
+                tlas_instances.size() * sizeof(RHI::AccelerationStructureInstance),
+                RHI::BufferUsage::AccelerationStructureInput, "spectral TLAS instances",
+                std::as_bytes(span<const RHI::AccelerationStructureInstance>{tlas_instances.data(), tlas_instances.size()}));
+            !r.has_value()) return r;
+        if (auto r = ensure_uploaded_buffer(
+                cache.scene_instance_buffer, cache.scene_instance_capacity,
+                scene_instances.size() * sizeof(SpectralSceneInstanceGpu), RHI::BufferUsage::Storage,
+                "spectral scene instances",
+                std::as_bytes(span<const SpectralSceneInstanceGpu>{scene_instances.data(), scene_instances.size()}));
+            !r.has_value()) return r;
+        if (auto r = ensure_uploaded_buffer(
+                cache.material_buffer, cache.material_capacity,
+                materials.size() * sizeof(SpectralMaterialGpu), RHI::BufferUsage::Storage, "spectral materials",
+                std::as_bytes(span<const SpectralMaterialGpu>{materials.data(), materials.size()}));
+            !r.has_value()) return r;
 
         const RHI::AccelerationStructureGeometryDesc geometry{
             .type = RHI::AccelerationStructureGeometryType::Instances,
-            .instances = RHI::AccelerationStructureInstancesDesc{.buffer = *instance_buffer},
+            .instances = RHI::AccelerationStructureInstancesDesc{.buffer = cache.instance_buffer},
         };
         const RHI::AccelerationStructureBuildRangeInfo range{
             .primitive_count = static_cast<u32>(tlas_instances.size()),
@@ -991,29 +1010,41 @@ namespace SFT::Renderer {
         };
         auto sizes = device->acceleration_structure_build_sizes(build);
         if (!sizes) return unexpected(graphics_error_from_rhi(sizes.error(), "query spectral TLAS build sizes"));
-        auto tlas = device->create_acceleration_structure(RHI::AccelerationStructureDesc{
-            .type = RHI::AccelerationStructureType::TopLevel,
-            .size = sizes->acceleration_structure_size,
-            .label = "spectral scene TLAS",
-        });
-        if (!tlas) return unexpected(graphics_error_from_rhi(tlas.error(), "create spectral scene TLAS"));
-        slot.transient_acceleration_structures.push_back(*tlas);
+        if (!cache.tlas || cache.tlas_size < sizes->acceleration_structure_size) {
+            if (cache.tlas) slot.transient_acceleration_structures.push_back(cache.tlas);
+            cache.tlas = {};
+            const u64 tlas_size = sizes->acceleration_structure_size + sizes->acceleration_structure_size / 2u;
+            auto tlas = device->create_acceleration_structure(RHI::AccelerationStructureDesc{
+                .type = RHI::AccelerationStructureType::TopLevel,
+                .size = tlas_size,
+                .label = "spectral scene TLAS",
+            });
+            if (!tlas) return unexpected(graphics_error_from_rhi(tlas.error(), "create spectral scene TLAS"));
+            cache.tlas = *tlas;
+            cache.tlas_size = tlas_size;
+        }
         const u64 scratch_alignment = std::max<u64>(
             device->feature_properties().ray_tracing.min_acceleration_structure_scratch_offset_alignment, 1u);
-        auto scratch = device->create_buffer(RHI::BufferDesc{
-            .size = sizes->build_scratch_size + scratch_alignment - 1u,
-            .usage = RHI::BufferUsage::AccelerationStructureScratch,
-            .memory = RHI::MemoryLocation::DeviceLocal,
-            .label = "spectral TLAS scratch",
-        });
-        if (!scratch) return unexpected(graphics_error_from_rhi(scratch.error(), "create spectral TLAS scratch"));
-        slot.transient_buffers.push_back(*scratch);
-        auto scratch_address = device->buffer_device_address(*scratch);
+        const u64 scratch_needed = sizes->build_scratch_size + scratch_alignment - 1u;
+        if (!cache.scratch || cache.scratch_size < scratch_needed) {
+            retire_buffer(cache.scratch);
+            const u64 scratch_size = scratch_needed + scratch_needed / 2u;
+            auto scratch = device->create_buffer(RHI::BufferDesc{
+                .size = scratch_size,
+                .usage = RHI::BufferUsage::AccelerationStructureScratch,
+                .memory = RHI::MemoryLocation::DeviceLocal,
+                .label = "spectral TLAS scratch",
+            });
+            if (!scratch) return unexpected(graphics_error_from_rhi(scratch.error(), "create spectral TLAS scratch"));
+            cache.scratch = *scratch;
+            cache.scratch_size = scratch_size;
+        }
+        auto scratch_address = device->buffer_device_address(cache.scratch);
         if (!scratch_address) {
             return unexpected(graphics_error_from_rhi(scratch_address.error(), "query spectral TLAS scratch address"));
         }
-        build.dst = *tlas;
-        build.scratch_buffer = *scratch;
+        build.dst = cache.tlas;
+        build.scratch_buffer = cache.scratch;
         build.scratch_offset = ((*scratch_address + scratch_alignment - 1u) / scratch_alignment) *
                                scratch_alignment - *scratch_address;
         encoder.build_acceleration_structures(span<const RHI::AccelerationStructureBuildDesc>{&build, 1});
@@ -1025,9 +1056,9 @@ namespace SFT::Renderer {
         };
         encoder.barrier(span<const RHI::GlobalBarrier>{&ready_for_queries, 1}, {}, {});
 
-        slot.scene_tlas = *tlas;
-        slot.spectral_scene_instances = *scene_instance_buffer;
-        slot.spectral_materials = *material_buffer;
+        slot.scene_tlas = cache.tlas;
+        slot.spectral_scene_instances = cache.scene_instance_buffer;
+        slot.spectral_materials = cache.material_buffer;
         return {};
     }
 
@@ -1446,8 +1477,8 @@ namespace SFT::Renderer {
 
         const SpectralPathTracingSettings &settings = submission.render_graph.spectral_path_tracing;
         const SpectralFrameConstantsGpu constants{
-            .inverse_view_projection = glm::inverse(submission.camera.projection * submission.camera.view),
-            .view_projection = submission.camera.projection * submission.camera.view,
+            .inverse_view_projection = submission.inverse_view_projection,
+            .view_projection = submission.view_projection,
             .previous_view_projection = submission.camera.previous_view_projection,
             .camera_position = glm::vec4(submission.camera.world_position, 1.0f),
             .sun_direction_and_angular_radius = glm::vec4(
@@ -1466,7 +1497,8 @@ namespace SFT::Renderer {
             .wavelength_max_nm = settings.wavelength_max_nm,
             .environment_intensity = submission.render_graph.background_intensity,
             .caustic_gather_parameters = glm::vec4{
-                settings.caustic_gather_radius, settings.caustic_gather_radius, 0.0f, 0.0f},
+                settings.caustic_gather_radius, settings.caustic_gather_radius,
+                std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f), 0.0f},
             .caustic_gather_control = glm::uvec4{
                 slot.spectral_photon_targets.hash_capacity,
                 128u,

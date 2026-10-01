@@ -7,6 +7,8 @@
 // frame-varying sampling pattern, so the pattern is a pure function of the pixel coordinate and the
 // 5x5 spatial denoiser is the only noise-removal stage. See Shaders/gtao_main.slang.
 import sturdy_common;
+import sturdy_space;
+import sturdy_lens;
 
 // XeGTAO's depth hierarchy depth. Mip 0 is full resolution linear view depth; mips 1..4 exist so
 // far-away taps read a coarser (and much more cache-friendly) representation.
@@ -37,6 +39,10 @@ struct GtaoConstants {
     // x, y = depth linearization (viewZ = x / (y - deviceDepth)),
     // z = screen-border fade width in pixels, w = AO intensity (0 => no occlusion, 1 => full).
     float4 depthLinearizeEdgeIntensity;
+
+    // x = camera lens strength (vertex-warp fisheye; 0 = none). Screen UVs are warped by it, so a tap's
+    // view-space position is reconstructed from the *unwarped* UV.
+    float4 lens;
 };
 
 // Device depth -> positive view-space distance from the camera plane.
@@ -55,6 +61,9 @@ float gtaoLinearizeDepth(float deviceDepth, GtaoConstants gtao) {
 // mixing the two conventions silently mirrors every horizon and is the single easiest way to get a
 // plausible-looking but wrong AO term.
 float3 gtaoViewSpacePosition(float2 uv, float viewZ, GtaoConstants gtao) {
+    if (gtao.lens.x > 0.0) {
+        uv = ndcToUv(sturdyLensToWide(uvToNdc(uv), gtao.lens.x));
+    }
     float2 xy = (gtao.ndcToViewMulAdd.xy * uv + gtao.ndcToViewMulAdd.zw) * viewZ;
     return float3(xy, viewZ);
 }

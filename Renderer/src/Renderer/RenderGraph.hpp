@@ -573,6 +573,9 @@ namespace SFT::Renderer {
         /// @return Returns the value produced by the operation.
         /// @note This function does not throw exceptions.
         [[nodiscard]] RenderGraphTextureAccess texture_access(RenderGraphTextureHandle handle) const noexcept;
+        /// The size a texture was declared (created or imported) with; usable while passes are still being declared,
+        /// unlike `texture_access`. Zero for an unknown handle.
+        [[nodiscard]] RHI::Extent3D texture_extent(RenderGraphTextureHandle handle) const noexcept;
         /// Performs the buffer access operation for `RenderGraph` using the supplied arguments.
         ///
         /// @param handle Handle identifying the target object or resource.

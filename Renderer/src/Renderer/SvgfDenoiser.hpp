@@ -17,8 +17,11 @@ namespace SFT::Renderer {
         /// x = temporal blend alpha, y = phi-normal, z = phi-depth, w = phi-luminance (a-trous
         /// edge-stopping strengths).
         glm::vec4 temporal_phi_params{};
+        /// xyz = camera world position. The temporal pass validates history against the distance from the
+        /// camera and the surface normal it stored for each pixel last frame.
+        glm::vec4 camera_position{};
     };
-    static_assert(sizeof(SvgfFrameConstants) == 64 * 2 + 16 * 2);
+    static_assert(sizeof(SvgfFrameConstants) == 64 * 2 + 16 * 3);
 
     /// Push-constant payload for `svgf_atrous.slang`: the wavelet step size doubles each of the
     /// `RestirGiSettings::svgf_atrous_iterations` dispatches (1, 2, 4, 8, 16, ...), so it varies within

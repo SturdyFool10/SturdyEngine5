@@ -228,6 +228,17 @@ namespace SFT::WindowManager::SDL3 {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note This function does not throw exceptions.
         [[nodiscard]] expected<WindowExtent, WindowError> framebuffer_size() const noexcept override;
+        /// Returns the current refresh rate, in Hz, of whichever display this window is presently on.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] expected<f32, WindowError> refresh_rate_hz() const noexcept override;
+        /// Returns the cached `SDL_GetWindowDisplayScale()` value, refreshed on SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED.
+        ///
+        /// @return The window's content scale.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] f32 content_scale() const noexcept override;
         /// Sets the minimum size for this `SDL3Window`.
         ///
         /// @param extent `extent` value used by the operation.
@@ -464,6 +475,7 @@ namespace SFT::WindowManager::SDL3 {
         bool use_windows_sizing_hook_ = false;
 #endif
         atomic_bool close_requested_ = false;
+        std::atomic<f32> content_scale_{1.0f};
         bool mouse_locked_ = false;
 
 

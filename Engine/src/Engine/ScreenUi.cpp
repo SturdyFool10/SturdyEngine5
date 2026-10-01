@@ -4,15 +4,16 @@
 
 namespace SFT::Engine {
 
-    void apply_window_event(UI::UiInput &input, const MouseMoveEvent &event) noexcept {
-        input.move_pointer({event.mouse.x, event.mouse.y});
+    void apply_window_event(UI::UiInput &input, const MouseMoveEvent &event, glm::vec2 pixel_density) noexcept {
+        // Mouse events arrive in window coordinates; UiInput works in framebuffer pixels.
+        input.move_pointer(glm::vec2{event.mouse.x, event.mouse.y} * pixel_density);
     }
 
-    void apply_window_event(UI::UiInput &input, const MouseButtonEvent &event) noexcept {
+    void apply_window_event(UI::UiInput &input, const MouseButtonEvent &event, glm::vec2 pixel_density) noexcept {
         if (event.mouse.button_code != WindowManager::MouseButton::Left) {
             return;
         }
-        input.move_pointer({event.mouse.x, event.mouse.y});
+        input.move_pointer(glm::vec2{event.mouse.x, event.mouse.y} * pixel_density);
         input.set_pointer_down(event.action == ButtonAction::Pressed);
     }
 
@@ -67,10 +68,10 @@ namespace SFT::Engine {
                    Ecs::EventReader<MouseWheelEvent> mouse_wheel) noexcept {
                 const auto wanted = [this](WindowManager::WindowId window) { return !window_ || *window_ == window; };
                 for (const MouseMoveEvent &event : mouse_move.read()) {
-                    if (wanted(event.window)) apply_window_event(surface_.input(), event);
+                    if (wanted(event.window)) apply_window_event(surface_.input(), event, pixel_density_for(event.window));
                 }
                 for (const MouseButtonEvent &event : mouse_button.read()) {
-                    if (wanted(event.window)) apply_window_event(surface_.input(), event);
+                    if (wanted(event.window)) apply_window_event(surface_.input(), event, pixel_density_for(event.window));
                 }
                 for (const MouseWheelEvent &event : mouse_wheel.read()) {
                     if (wanted(event.window)) apply_window_event(surface_.input(), event);
@@ -104,6 +105,23 @@ namespace SFT::Engine {
     bool ScreenUi::ensure_ready(RHI::Format color_format) {
         RHI::RhiDevice *device = engine_.rhi_device();
         return device != nullptr && surface_.ensure_ready(*device, color_format);
+    }
+
+    const WindowSnapshot *ScreenUi::tracked_window() const noexcept {
+        const WindowState &windows = engine_.window_state();
+        return window_ ? windows.find(*window_) : windows.primary();
+    }
+
+    glm::vec2 ScreenUi::pixel_density_for(WindowManager::WindowId window) const noexcept {
+        const WindowSnapshot *snapshot = engine_.window_state().find(window);
+        return snapshot != nullptr ? snapshot->pixel_density() : glm::vec2{1.0f};
+    }
+
+    UI::Context &ScreenUi::begin_frame(glm::vec2 viewport, f32 delta_seconds) {
+        if (const WindowSnapshot *window = tracked_window()) {
+            surface_.set_content_scale(window->content_scale);
+        }
+        return surface_.begin_frame(viewport, delta_seconds);
     }
 
     Renderer::OverlayPass ScreenUi::finish_overlay(UI::UiOverlayOptions options) {

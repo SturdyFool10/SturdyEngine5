@@ -174,9 +174,17 @@ namespace SFT::Renderer {
         }
 
         const glm::uvec2 render_extent{context.render_extent.x, context.render_extent.y};
-        if (Core::RendererResult ready = ensure_restir_gi_resources(render_extent); !ready.has_value()) {
+        const u32 grid_scale = restir_gi_grid_scale(settings.quality);
+        if (Core::RendererResult ready = ensure_restir_gi_resources(render_extent, grid_scale); !ready.has_value()) {
             return unexpected(ready.error());
         }
+        glm::uvec2 grid_extent{};
+        {
+            auto guard = restir_gi_.lock();
+            grid_extent = glm::uvec2{guard->reservoir_extent_x, guard->reservoir_extent_y};
+        }
+        // `quality` bounds the reuse work; the explicit settings can only ask for less than the cap.
+        const u32 spatial_taps = std::min(settings.spatial_reuse_samples, restir_gi_max_spatial_taps(settings.quality));
 
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -192,7 +200,7 @@ namespace SFT::Renderer {
             previous_view_projection = guard->previous_view_projection;
         }
 
-        const glm::mat4 view_projection = submission.camera.projection * submission.camera.view;
+        const glm::mat4 view_projection = submission.view_projection;
         const DirectionalLight &sun = submission.lighting.sun;
         const glm::vec3 sun_direction = glm::length(sun.direction) > 1.0e-5f
             ? glm::normalize(sun.direction) : glm::vec3{0.0f, -1.0f, 0.0f};
@@ -221,20 +229,20 @@ namespace SFT::Renderer {
         }
 
         RestirGiFrameConstants constants{
-            .inverse_view_projection = glm::inverse(view_projection),
+            .inverse_view_projection = submission.inverse_view_projection,
             .previous_view_projection = previous_view_projection,
             .camera_position_frame_index = glm::vec4{
                 submission.camera.world_position, static_cast<f32>(submission.frame_index)},
             .extent_max_ray_distance = glm::vec4{
-                static_cast<f32>(render_extent.x), static_cast<f32>(render_extent.y),
-                0.0f, settings.max_ray_distance,
+                static_cast<f32>(grid_extent.x), static_cast<f32>(grid_extent.y),
+                static_cast<f32>(grid_scale), settings.max_ray_distance,
             },
             .sun_direction_angular_radius = glm::vec4{
                 sun_direction, glm::radians(std::clamp(sun.angular_radius_degrees, 0.0f, 10.0f))},
             .sun_radiance = glm::vec4{glm::max(sun.radiance, glm::vec3{0.0f}), 0.0f},
             .temporal_spatial_params = glm::vec4{
                 static_cast<f32>(settings.temporal_history_max),
-                static_cast<f32>(settings.spatial_reuse_samples),
+                static_cast<f32>(spatial_taps),
                 settings.spatial_reuse_radius_px,
                 settings.intensity,
             },
@@ -242,7 +250,7 @@ namespace SFT::Renderer {
                 static_cast<f32>(light_count),
                 settings.multi_bounce_feedback,
                 has_history ? 1.0f : 0.0f,
-                0.0f,
+                std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f),
             },
         };
         constants.lights = packed_lights;
@@ -251,21 +259,24 @@ namespace SFT::Renderer {
             guard->previous_view_projection = view_projection;
         }
 
-        auto constant_buffer = device->create_buffer(RHI::BufferDesc{
-            .size = sizeof(constants),
-            .usage = RHI::BufferUsage::Uniform,
-            .memory = RHI::MemoryLocation::HostUpload,
-            .label = "ReSTIR GI frame constants",
-        });
-        if (!constant_buffer) {
-            return unexpected(graphics_error_from_rhi(constant_buffer.error(), "create ReSTIR GI frame constants"));
+        // One persistent constants buffer per frame slot, rewritten each frame (the slot is only reused
+        // after its previous frame retired) instead of a fresh buffer every frame.
+        if (!slot.restir_gi_constants) {
+            auto constant_buffer = device->create_buffer(RHI::BufferDesc{
+                .size = sizeof(constants),
+                .usage = RHI::BufferUsage::Uniform,
+                .memory = RHI::MemoryLocation::HostUpload,
+                .label = "ReSTIR GI frame constants",
+            });
+            if (!constant_buffer) {
+                return unexpected(graphics_error_from_rhi(constant_buffer.error(), "create ReSTIR GI frame constants"));
+            }
+            slot.restir_gi_constants = *constant_buffer;
         }
-        if (auto written = device->write_buffer(*constant_buffer, 0, std::as_bytes(span{&constants, 1})); !written) {
-            device->destroy_buffer(*constant_buffer);
+        if (auto written = device->write_buffer(slot.restir_gi_constants, 0, std::as_bytes(span{&constants, 1})); !written) {
             return unexpected(graphics_error_from_rhi(written.error(), "write ReSTIR GI frame constants"));
         }
-        slot.transient_buffers.push_back(*constant_buffer);
-        const RHI::BufferHandle constants_buffer = *constant_buffer;
+        const RHI::BufferHandle constants_buffer = slot.restir_gi_constants;
         const RHI::BufferHandle atmosphere_constants = slot.atmosphere_targets.constants_buffer;
 
         context.graph.add_compute_pass("restir gi initial sample"_ustr)
@@ -336,18 +347,14 @@ namespace SFT::Renderer {
         context.graph.add_compute_pass("restir gi shade resolve"_ustr)
             .add_sampled_texture(gbuffer_normal)
             .add_sampled_texture(depth_texture)
-            .add_sampled_texture(gbuffer_albedo)
-            .add_sampled_texture(gbuffer_material)
             .add_storage_texture(RenderGraphStorageTextureAccessDesc{.texture = raw_irradiance, .read = false, .write = true})
-            .set_execute([this, &submission, gbuffer_normal, depth_texture, gbuffer_albedo, gbuffer_material,
+            .set_execute([this, &submission, gbuffer_normal, depth_texture,
                           raw_irradiance, constants_buffer, render_extent](
                              RenderGraphComputeContext &graph_context) -> Core::RendererResult {
                 return record_restir_gi_shade_resolve(
                     graph_context.compute_pass(),
                     graph_context.texture(gbuffer_normal).default_view,
                     graph_context.texture(depth_texture).default_view,
-                    graph_context.texture(gbuffer_albedo).default_view,
-                    graph_context.texture(gbuffer_material).default_view,
                     graph_context.texture(raw_irradiance).default_view,
                     constants_buffer,
                     submission.render_graph,
@@ -683,6 +690,7 @@ namespace SFT::Renderer {
             }
             current = output;
         }
+
         return {};
     }
 

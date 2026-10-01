@@ -4,6 +4,7 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <algorithm>
 #include <chrono>
 #include <expected>
 #include <limits>
@@ -157,9 +158,11 @@ namespace SFT::WindowManager::GLFW {
                 glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
             }
 
-            if (config.high_dpi) [[likely]] {
-                glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
-            }
+            // WindowConfig::extent is physical pixels, so never let GLFW grow the window by the
+            // monitor's content scale (GLFW_SCALE_TO_MONITOR, Win32/X11). GLFW_SCALE_FRAMEBUFFER
+            // is what controls a full-resolution framebuffer on macOS/Wayland.
+            glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_FALSE);
+            glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, config.high_dpi ? GLFW_TRUE : GLFW_FALSE);
         }
 
 #if defined(_WIN32)
@@ -329,6 +332,48 @@ namespace SFT::WindowManager::GLFW {
             return state;
         }
 
+        /// Reads the window's current framebuffer-to-window ratio.
+        ///
+        /// @param window Live GLFW window.
+        ///
+        /// @return Physical pixels per screen coordinate.
+        [[nodiscard]] glm::vec2 glfw_pixel_density(GLFWwindow *window) noexcept {
+            int width = 0;
+            int height = 0;
+            int fb_width = 0;
+            int fb_height = 0;
+            glfwGetWindowSize(window, &width, &height);
+            glfwGetFramebufferSize(window, &fb_width, &fb_height);
+            if (width <= 0 || height <= 0 || fb_width <= 0 || fb_height <= 0) {
+                return glm::vec2{1.0f};
+            }
+            return pixel_density(WindowExtent{static_cast<u32>(width), static_cast<u32>(height)},
+                                 WindowExtent{static_cast<u32>(fb_width), static_cast<u32>(fb_height)});
+        }
+
+        /// Converts a physical-pixel extent into GLFW screen coordinates using the window's current
+        /// framebuffer-to-window ratio (1 on Win32/X11, the output scale on macOS/Wayland).
+        ///
+        /// @param window Live GLFW window.
+        /// @param extent Extent in physical pixels.
+        ///
+        /// @return The extent in screen coordinates.
+        [[nodiscard]] WindowExtent glfw_window_extent_from_physical(GLFWwindow *window, WindowExtent extent) noexcept {
+            return physical_to_window_extent(extent, glfw_pixel_density(window));
+        }
+
+        /// Reads the window's content scale (x axis; GLFW reports both but they match on every platform).
+        ///
+        /// @param window Live GLFW window.
+        ///
+        /// @return The content scale, or 1.0 when GLFW reports nothing usable.
+        [[nodiscard]] f32 glfw_content_scale(GLFWwindow *window) noexcept {
+            float x_scale = 1.0f;
+            float y_scale = 1.0f;
+            glfwGetWindowContentScale(window, &x_scale, &y_scale);
+            return x_scale > 0.0f ? x_scale : 1.0f;
+        }
+
     } // namespace
 
     /// Handles the GLFW close callback callback and updates the associated platform state.
@@ -388,6 +433,24 @@ namespace SFT::WindowManager::GLFW {
                     previous_framebuffer.y != target->last_framebuffer_size_.y,
             };
             target->pending_resize_ = event.resize;
+            target->events_.push_back(event);
+        }
+    }
+
+    /// Handles the GLFW content-scale callback: caches the new scale and queues a ContentScaleChanged event.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param x_scale Horizontal content scale.
+    /// @param y_scale Vertical content scale (unused; matches x_scale on every platform).
+    void glfw_window_content_scale_callback(GLFWwindow *window, float x_scale, float y_scale) {
+        ZoneScopedN("GLFW::glfw_window_content_scale_callback");
+        (void)y_scale;
+        if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
+            const f32 scale = x_scale > 0.0f ? x_scale : 1.0f;
+            target->content_scale_.store(scale, std::memory_order_relaxed);
+            WindowEvent event{WindowEventKind::ContentScaleChanged};
+            event.timestamp_ns = steady_now_ns();
+            event.content_scale = scale;
             target->events_.push_back(event);
         }
     }
@@ -647,6 +710,7 @@ namespace SFT::WindowManager::GLFW {
             last_framebuffer_size_ =
                 WindowExtent{static_cast<u32>(width),
                              static_cast<u32>(height)};
+            content_scale_.store(glfw_content_scale(window_), std::memory_order_relaxed);
         }
     }
 
@@ -841,6 +905,13 @@ namespace SFT::WindowManager::GLFW {
                 config.position.y);
         }
 
+        if (config.mode == WindowMode::Windowed) {
+            const WindowExtent window_extent = glfw_window_extent_from_physical(window, config.extent);
+            if (window_extent != config.extent) {
+                glfwSetWindowSize(window, static_cast<int>(window_extent.x), static_cast<int>(window_extent.y));
+            }
+        }
+
         try {
             auto wrapper = unique_ptr<GLFWWindow>(new GLFWWindow(key, window));
 
@@ -851,6 +922,7 @@ namespace SFT::WindowManager::GLFW {
             glfwSetWindowPosCallback(window, glfw_window_pos_callback);
             glfwSetWindowSizeCallback(window, glfw_window_size_callback);
             glfwSetFramebufferSizeCallback(window, glfw_framebuffer_size_callback);
+            glfwSetWindowContentScaleCallback(window, glfw_window_content_scale_callback);
             glfwSetWindowFocusCallback(window, glfw_window_focus_callback);
             glfwSetCursorEnterCallback(window, glfw_cursor_enter_callback);
             glfwSetKeyCallback(window, glfw_key_callback);
@@ -1364,7 +1436,8 @@ namespace SFT::WindowManager::GLFW {
             static_cast<void *>(window_),
             extent.x,
             extent.y);
-        glfwSetWindowSize(window_, static_cast<int>(extent.x), static_cast<int>(extent.y));
+        const WindowExtent window_extent = glfw_window_extent_from_physical(window_, extent);
+        glfwSetWindowSize(window_, static_cast<int>(window_extent.x), static_cast<int>(window_extent.y));
         return glfw_success();
     }
 
@@ -1390,6 +1463,75 @@ namespace SFT::WindowManager::GLFW {
             height);
         return WindowExtent{static_cast<u32>(width),
                             static_cast<u32>(height)};
+    }
+
+    /// Returns the cached content scale.
+    ///
+    /// @return The window's content scale.
+    /// @note This function does not throw exceptions.
+    f32 GLFWWindow::content_scale() const noexcept { return content_scale_.load(std::memory_order_relaxed); }
+
+    /// Returns the current refresh rate, in Hz, of whichever monitor this window is presently on.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
+    expected<f32, WindowError> GLFWWindow::refresh_rate_hz() const noexcept {
+        ZoneScopedN("GLFWWindow::refresh_rate_hz");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "refresh_rate_hz"); !live) [[unlikely]] {
+            return unexpected(live.error());
+        }
+
+        // Fullscreen: GLFW already knows the exact monitor. Windowed: GLFW has no "monitor this window is on"
+        // query, so the nearest equivalent is the monitor whose bounds overlap the window's the most -- the
+        // same heuristic every other windowing API's own "get monitor for window" boils down to internally.
+        GLFWmonitor *monitor = glfwGetWindowMonitor(window_);
+        if (monitor == nullptr) {
+            int win_x = 0;
+            int win_y = 0;
+            int win_w = 0;
+            int win_h = 0;
+            glfwGetWindowPos(window_, &win_x, &win_y);
+            glfwGetWindowSize(window_, &win_w, &win_h);
+
+            int monitor_count = 0;
+            GLFWmonitor **monitors = glfwGetMonitors(&monitor_count);
+            i64 best_overlap_area = -1;
+            for (int i = 0; i < monitor_count; ++i) {
+                int mon_x = 0;
+                int mon_y = 0;
+                glfwGetMonitorPos(monitors[i], &mon_x, &mon_y);
+                const GLFWvidmode *mode = glfwGetVideoMode(monitors[i]);
+                if (mode == nullptr) {
+                    continue;
+                }
+                const int overlap_x =
+                    std::max(0, std::min(win_x + win_w, mon_x + mode->width) - std::max(win_x, mon_x));
+                const int overlap_y =
+                    std::max(0, std::min(win_y + win_h, mon_y + mode->height) - std::max(win_y, mon_y));
+                const i64 overlap_area = static_cast<i64>(overlap_x) * static_cast<i64>(overlap_y);
+                if (overlap_area > best_overlap_area) {
+                    best_overlap_area = overlap_area;
+                    monitor = monitors[i];
+                }
+            }
+            if (monitor == nullptr) {
+                // No monitor at all (extremely unusual) or the window sits entirely off every one of
+                // them (a moment mid-drag): fall back to whichever GLFW considers primary.
+                monitor = glfwGetPrimaryMonitor();
+            }
+        }
+        if (monitor == nullptr) {
+            return unexpected(WindowError{WindowErrorCode::OperationFailed, "GLFW reports no monitors."});
+        }
+
+        const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+        if (mode == nullptr || mode->refreshRate <= 0) {
+            return unexpected(WindowError{WindowErrorCode::OperationFailed,
+                                          "GLFW reported no usable refresh rate for this monitor."});
+        }
+        return static_cast<f32>(mode->refreshRate);
     }
 
     /// Sets the minimum size for this `GLFW`.
@@ -1424,7 +1566,8 @@ namespace SFT::WindowManager::GLFW {
             static_cast<void *>(window_),
             extent.x,
             extent.y);
-        glfwSetWindowSizeLimits(window_, static_cast<int>(extent.x), static_cast<int>(extent.y), GLFW_DONT_CARE, GLFW_DONT_CARE);
+        const WindowExtent window_extent = glfw_window_extent_from_physical(window_, extent);
+        glfwSetWindowSizeLimits(window_, static_cast<int>(window_extent.x), static_cast<int>(window_extent.y), GLFW_DONT_CARE, GLFW_DONT_CARE);
         return glfw_success();
     }
 
@@ -1460,7 +1603,8 @@ namespace SFT::WindowManager::GLFW {
             static_cast<void *>(window_),
             extent.x,
             extent.y);
-        glfwSetWindowSizeLimits(window_, GLFW_DONT_CARE, GLFW_DONT_CARE, static_cast<int>(extent.x), static_cast<int>(extent.y));
+        const WindowExtent window_extent = glfw_window_extent_from_physical(window_, extent);
+        glfwSetWindowSizeLimits(window_, GLFW_DONT_CARE, GLFW_DONT_CARE, static_cast<int>(window_extent.x), static_cast<int>(window_extent.y));
         return glfw_success();
     }
 
@@ -1957,8 +2101,10 @@ namespace SFT::WindowManager::GLFW {
     /// @note This function does not throw exceptions.
     expected<void, WindowError> GLFWWindow::set_text_input_area(TextInputArea area) noexcept {
         ZoneScopedN("GLFWWindow::set_text_input_area");
-        Detail::set_ime_composition_exclude_rect(window_, static_cast<int>(area.x), static_cast<int>(area.y),
-                                                 static_cast<int>(area.width), static_cast<int>(area.height));
+        // TextInputArea is in physical pixels; the native IME hooks take window coordinates.
+        const glm::vec2 density = glfw_pixel_density(window_);
+        Detail::set_ime_composition_exclude_rect(window_, static_cast<int>(area.x / density.x), static_cast<int>(area.y / density.y),
+                                                 static_cast<int>(area.width / density.x), static_cast<int>(area.height / density.y));
         return {};
     }
 

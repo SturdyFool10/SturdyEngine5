@@ -78,9 +78,12 @@ namespace SFT::Engine {
 
 
     struct TextInputFocusInfo {
+        /// Bounds in the UI context's logical units (what `UI::Context::element_bounds` returns).
         UI::ElementBounds field_bounds;
         UI::ElementBounds caret_bounds;
         bool ime_enabled = true;
+        /// Framebuffer pixels per logical unit: the context's `UI::Context::pixel_scale()`.
+        f32 pixel_scale = 1.0f;
     };
 
 

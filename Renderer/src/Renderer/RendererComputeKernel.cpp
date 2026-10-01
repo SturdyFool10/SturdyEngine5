@@ -111,9 +111,10 @@ namespace SFT::Renderer {
                 continue;
             }
             if (binding.type != RHI::BindingType::SampledTexture && binding.type != RHI::BindingType::StorageTexture &&
-                binding.type != RHI::BindingType::Sampler) {
+                binding.type != RHI::BindingType::Sampler && binding.type != RHI::BindingType::StorageBuffer &&
+                binding.type != RHI::BindingType::ReadOnlyStorageBuffer && binding.type != RHI::BindingType::UniformBuffer) {
                 cleanup();
-                return unexpected(compute_kernel_error(context + " may only declare textures and samplers in set 0; '" +
+                return unexpected(compute_kernel_error(context + " may only declare textures, samplers and buffers in set 0; '" +
                                                        binding.name + "' is something else."));
             }
             resource.bindings.push_back(ComputeKernelResource::Binding{binding.name, binding.binding, binding.type});
@@ -181,7 +182,8 @@ namespace SFT::Renderer {
 
     Core::RendererResult Renderer::record_compute_kernel(RHI::ComputePassEncoder &pass, ComputeKernelId kernel,
                                                          span<const ComputeBinding> bindings, span<const std::byte> push_constants,
-                                                         glm::uvec3 groups, vector<RHI::BindGroupHandle> &transient_bind_groups) {
+                                                         glm::uvec3 groups, vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                         span<const ComputeBufferBinding> buffers) {
         ZoneScopedN("Renderer::record_compute_kernel");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -223,6 +225,24 @@ namespace SFT::Renderer {
         for (const ComputeKernelResource::Binding &binding : declared) {
             if (binding.type == RHI::BindingType::Sampler) {
                 entries.push_back(RHI::BindGroupEntry{.binding = binding.binding, .sampler = sampler});
+                continue;
+            }
+            if (binding.type == RHI::BindingType::StorageBuffer || binding.type == RHI::BindingType::ReadOnlyStorageBuffer ||
+                binding.type == RHI::BindingType::UniformBuffer) {
+                const ComputeBufferBinding *found = nullptr;
+                for (const ComputeBufferBinding &supplied : buffers) {
+                    if (supplied.name == binding.name) {
+                        found = &supplied;
+                        break;
+                    }
+                }
+                if (found == nullptr || !found->buffer) {
+                    return unexpected(compute_kernel_error("Compute kernel '" + name + "' was not given a buffer for '" +
+                                                           binding.name + "'."));
+                }
+                entries.push_back(RHI::BindGroupEntry{.binding = binding.binding, .buffer = found->buffer,
+                                                      .offset = found->offset, .size = found->size,
+                                                      .structure_stride = found->structure_stride});
                 continue;
             }
             RHI::TextureViewHandle view{};

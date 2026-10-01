@@ -1,5 +1,8 @@
 #include <Foundation/Foundation.hpp>
 
+#include <cstdlib>
+#include <string_view>
+
 #include <Runtime/Runtime.hpp>
 #include <RuntimeDemoGameLogic/RuntimeDemoGameLogic.hpp>
 
@@ -36,6 +39,25 @@ namespace {
         config.application.engine.features.presentation.preference = SFT::Core::PresentationPreference::LowestLatency;
         config.application.primary_window_title_update_interval_seconds = 0.25;
         config.primary_window_title = UString{"SturdyEngine 5 Runtime Demo"};
+#if !defined(STURDY_PLATFORM_WEB)
+        // Development override, same as the UI workbench's: reproduce a backend's behaviour from the first frame.
+        // Unset in normal use.
+        if (const char *requested = std::getenv("STURDY_GRAPHICS_BACKEND"); requested != nullptr) {
+            const std::string_view name{requested};
+            if (name == "webgpu") {
+                config.application.engine.graphics_backend = SFT::RHI::BackendType::WebGpu;
+            } else if (name == "vulkan") {
+                config.application.engine.graphics_backend = SFT::RHI::BackendType::Vulkan;
+            } else if (name == "d3d12") {
+                config.application.engine.graphics_backend = SFT::RHI::BackendType::D3D12;
+            } else {
+                SFT::Foundation::log_warn(
+                    "STURDY_GRAPHICS_BACKEND='{}' names no known backend; expected one of vulkan, webgpu, d3d12. "
+                    "Using the default instead.",
+                    name);
+            }
+        }
+#endif
         return config;
     }
 

@@ -352,7 +352,8 @@ namespace SFT::WindowManager {
         [[nodiscard]] virtual expected<WindowPosition, WindowError> global_cursor_position() const noexcept;
 
 
-        /// Returns the size for this `Window`.
+        /// Returns the size for this `Window` in the provider's window coordinates (physical pixels on
+        /// Win32/X11, points on macOS/scaled Wayland/Web). Use `framebuffer_size()` for pixels.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
@@ -362,7 +363,8 @@ namespace SFT::WindowManager {
 
         /// Sets the size for this `Window`.
         ///
-        /// @param extent `extent` value used by the operation.
+        /// @param extent Requested client-area size in physical pixels; providers convert it to their own
+        ///        window coordinates using the window's current pixel density.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
@@ -378,9 +380,33 @@ namespace SFT::WindowManager {
         [[nodiscard]] virtual expected<WindowExtent, WindowError> framebuffer_size() const noexcept = 0;
 
 
+        /// Returns the window's content scale: the UI scale factor the OS asks applications to use on the
+        /// display the window is on (1.0 at 100%, 2.0 at 200%). A `ContentScaleChanged` event is queued
+        /// when it changes.
+        ///
+        /// @return The content scale, or 1.0 for providers that cannot report one.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] virtual f32 content_scale() const noexcept;
+
+
+        /// Returns the current refresh rate, in Hz, of whichever display this window is presently on.
+        ///
+        /// A window can move between displays with different refresh rates (a multi-monitor setup, most
+        /// commonly), so this reflects "right now," not a value fixed at window creation; a caller pacing
+        /// frames to it (see `Core::FrameRateLimitMode::MatchDisplayRefresh`) should re-query it periodically
+        /// rather than caching it once. Real hardware occasionally reports a rate too small to trust (0, or a
+        /// display that hasn't settled after a mode change) — never a negative or otherwise nonsensical one —
+        /// so a value at or below zero here means "not currently available," not "the display runs at 0Hz."
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the
+        ///         operation failed (no display owns this window yet, or the platform has nothing to report).
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] virtual expected<f32, WindowError> refresh_rate_hz() const noexcept = 0;
+
+
         /// Sets the minimum size for this `Window`.
         ///
-        /// @param extent `extent` value used by the operation.
+        /// @param extent Minimum client-area size in physical pixels (see `set_size()`).
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
@@ -390,7 +416,7 @@ namespace SFT::WindowManager {
 
         /// Sets the maximum size for this `Window`.
         ///
-        /// @param extent `extent` value used by the operation.
+        /// @param extent Maximum client-area size in physical pixels (see `set_size()`).
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.

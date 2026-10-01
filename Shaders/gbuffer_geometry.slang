@@ -30,6 +30,8 @@
 // align with a normal map's UV-space orientation).
 
 import sturdy_common;
+import sturdy_space;
+import sturdy_lens;
 
 struct VertexInput {
     float3 position : POSITION;
@@ -153,15 +155,16 @@ Sampler2D emissive_texture;
 [shader("vertex")]
 VertexOutput vertexMain(VertexInput input) {
     VertexOutput output;
-    float4 world_position = mul(float4(input.position, 1.0), scene_draw.model);
-    output.position = mul(world_position, scene_draw.view_projection);
-    output.worldNormal = normalize(mul(input.normal, (float3x3)scene_draw.model));
+    float3 world_position = sturdySpaceModelToWorld(input.position, scene_draw.model);
+    output.position = sturdySpaceCameraWorldToClip(world_position, scene_draw.view_projection,
+                                                   sturdySpaceLensStrength(scene_draw.model));
+    output.worldNormal = sturdySpaceTransformDirection(input.normal, scene_draw.model);
     output.uv = input.uv;
     output.color = input.color;
     // Same (float3x3)model convention as worldNormal above (no inverse-transpose) — consistent
     // under the same uniform-scale assumption, and tangents specifically transform correctly with
     // the plain model matrix even under non-uniform scale (unlike normals).
-    output.worldTangent = float4(normalize(mul(input.tangent.xyz, (float3x3)scene_draw.model)), input.tangent.w);
+    output.worldTangent = float4(sturdySpaceTransformDirection(input.tangent.xyz, scene_draw.model), input.tangent.w);
     // No per-object history available on this push-constant-only path — report zero self-motion
     // (camera-movement-only, same as this pipeline's ordinary use before object history existed).
     output.currentClip = output.position;

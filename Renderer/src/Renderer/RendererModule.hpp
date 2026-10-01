@@ -25,6 +25,8 @@
 #include <RHI/RHI.hpp>
 #include <WindowManager/WindowManager.hpp>
 #include <Renderer/Text/Text.hpp>
+#include <Renderer/AutoExposure.hpp>
+#include <Renderer/HistoryTextures.hpp>
 #include <Renderer/Culling.hpp>
 #include <Renderer/Mesh.hpp>
 #include <Renderer/Material.hpp>
@@ -38,7 +40,9 @@
 #include <Renderer/SvgfDenoiser.hpp>
 #include <Renderer/RenderGraphModule.hpp>
 #include <Renderer/ComputeKernel.hpp>
+#include <Renderer/MeshSkinning.hpp>
 #include <Renderer/FramePipeline.hpp>
+#include <Renderer/SpaceModel.hpp>
 #include <Renderer/TileGrid.hpp>
 #include <Renderer/TextAtlas.hpp>
 #include <Renderer/TextInstance.hpp>
@@ -207,6 +211,10 @@ namespace SFT::Renderer {
         /// @note This function does not throw exceptions.
         [[nodiscard]] FrameTimingSnapshot last_frame_timings(Core::RenderSurfaceHandle surface) const noexcept;
 
+        /// Display-clock feedback for `surface` (refresh cycle, fixed/variable refresh, measured display interval).
+        [[nodiscard]] Core::PresentTimingFeedback present_timing_feedback(Core::RenderSurfaceHandle surface) const noexcept;
+
+
         /// Renders frame using the current rendering state.
         ///
         /// @param surface Surface used or affected by the operation.
@@ -325,6 +333,19 @@ namespace SFT::Renderer {
         ///
         /// @note This function does not throw exceptions.
         void destroy_mesh(MeshHandle handle) noexcept;
+        /// Overwrites the vertices of a resident mesh in place (same vertex count), for deformed meshes such as skinned
+        /// characters. The camera-lens variant is dropped for such a mesh and its bounds are recomputed. The mesh's
+        /// bottom-level acceleration structure is not rebuilt, so ray-traced effects keep seeing the uploaded pose.
+        [[nodiscard]] Core::RendererResult update_mesh_vertices(MeshHandle handle, span<const GeometryVertex> vertices);
+
+        /// Makes a resident mesh GPU-skinned: its current vertices become the bind pose and a compute pass poses it
+        /// in place every frame `set_skin_pose` changed something. Fails (leaving the mesh untouched) when the device
+        /// cannot run the pass, in which case callers can pose on the CPU with `update_mesh_vertices`.
+        [[nodiscard]] Core::RendererResult attach_skin(MeshHandle mesh, const SkinAttachDesc &desc);
+        /// Sets the skinning matrices (joint model matrix times inverse bind) a GPU-skinned mesh is posed with.
+        /// `morph_weights` (one per target) is ignored for a skin attached without morph data.
+        [[nodiscard]] Core::RendererResult set_skin_pose(MeshHandle mesh, std::span<const glm::mat4> matrices,
+                                                         std::span<const f32> morph_weights = {});
         /// Performs the mesh operation for `Renderer` using the supplied arguments.
         ///
         /// @param handle Handle identifying the target object or resource.
@@ -553,7 +574,7 @@ namespace SFT::Renderer {
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult reload_material_template(MaterialTemplateHandle handle);
+        [[nodiscard]] Core::RendererResult reload_material_template(MaterialTemplateHandle handle, bool include_in_memory_sources = false);
 
 
         /// Polls shader hot reload for available work or state changes.
@@ -728,6 +749,13 @@ namespace SFT::Renderer {
         ///     (void)pipeline.replace("tone_mapping", my_tone_mapper);
         /// });
         /// ```
+        /// Installs the space model (see `SpaceModel`). Replaces the `sturdy_space` shader module and the
+        /// visibility rule, recompiles every material template (file-based or in-memory) and drops the engine's
+        /// own compiled effect shaders that use the module (deferred lighting, ReSTIR GI, spectral integrators) so
+        /// they rebuild against it. Call between frames: it waits for the GPU to go idle.
+        Core::RendererResult set_space_model(SpaceModel model);
+        [[nodiscard]] std::shared_ptr<const SpaceModel> space_model() const;
+
         template <class Edit>
         decltype(auto) edit_frame_pipeline(Edit &&edit) {
             auto pipeline = frame_pipeline_.lock();
@@ -738,6 +766,12 @@ namespace SFT::Renderer {
         /// follows the custom post-process contract: `vertexMain`, a fragment entry, `Texture2D
         /// sourceTexture`, `SamplerState sourceSampler`, optional `extraTexture<N>`, one optional
         /// push-constant block. This is the same machinery the engine's own effects use.
+        /// Draws `items` into the render pass being recorded, the way the engine's own geometry passes do (culling,
+        /// materials, pipelines, bundles). Call from a pass's execute callback.
+        [[nodiscard]] Core::RendererResult record_draw_items(RHI::RenderPassEncoder &pass,
+                                                             const DrawItemPass &desc,
+                                                             FrameBuildContext &frame);
+
         [[nodiscard]] Core::RendererResult prepare_fullscreen_effect(const CustomPostProcessEffect &effect, RHI::Format target_format) {
             return ensure_custom_post_process(effect, target_format);
         }
@@ -749,8 +783,8 @@ namespace SFT::Renderer {
             return record_custom_post_process(pass, source, target_format, effect, transient_bind_groups, extra_sources);
         }
         /// Compiles (once) the compute shader a kernel names and returns its handle. Unlike
-        /// `CustomComputeEffect`, the shader chooses its own resources: any sampled/storage textures and
-        /// samplers in set 0, addressed by name at record time, plus one optional push-constant block.
+        /// `CustomComputeEffect`, the shader chooses its own resources: any sampled/storage textures, samplers and
+        /// storage/constant buffers in set 0, addressed by name at record time, plus one optional push-constant block.
         [[nodiscard]] Core::RendererExpected<ComputeKernelId> prepare_compute_kernel(const ComputeKernelDescription &kernel);
         /// Binds `bindings` to the kernel's textures by name and dispatches `groups` workgroups.
         /// Every non-sampler resource the shader declares must be supplied; `push_constants` may be at most the
@@ -758,7 +792,13 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult record_compute_kernel(RHI::ComputePassEncoder &pass, ComputeKernelId kernel,
                                                                  std::span<const ComputeBinding> bindings,
                                                                  std::span<const std::byte> push_constants, glm::uvec3 groups,
-                                                                 std::vector<RHI::BindGroupHandle> &transient_bind_groups);
+                                                                 std::vector<RHI::BindGroupHandle> &transient_bind_groups,
+                                                                 std::span<const ComputeBufferBinding> buffers = {});
+        /// The persistent exposure state the engine's `auto_exposure` feature adapts; a replacement metering feature can
+        /// share it or keep its own `AutoExposureHistory`.
+        [[nodiscard]] AutoExposureHistory &auto_exposure_history() noexcept { return auto_exposure_history_; }
+        /// Persistent per-window textures the engine's temporal effects (screen-space GI, ...) keep between frames.
+        [[nodiscard]] HistoryTextureCache &history_textures() noexcept { return history_textures_; }
         /// A copy of the current arrangement, for inspection (`names()`, `enabled()`).
         [[nodiscard]] FramePipeline frame_pipeline_snapshot() { return *frame_pipeline_.lock(); }
 
@@ -770,7 +810,58 @@ namespace SFT::Renderer {
         /// carries the values the monolithic frame builder had as locals.
         struct BuiltinFrameState;
         Async::Mutex<FramePipeline> frame_pipeline_;
+        AutoExposureHistory auto_exposure_history_;
+        HistoryTextureCache history_textures_;
+        mutable Async::Mutex<std::shared_ptr<const SpaceModel>> space_model_{std::make_shared<const SpaceModel>()};
         void register_builtin_frame_features();
+        [[nodiscard]] Core::RendererResult build_frame_feature_mesh_skinning(FrameBuildContext &context);
+        void destroy_skinning_gpu_resources() noexcept;
+        /// The buffer of previous-frame skinned positions, parallel to the vertex arena (at least `min_vertices`
+        /// entries; always valid once a device exists). Recreating it invalidates every skin's history.
+        [[nodiscard]] RHI::BufferHandle ensure_previous_positions_buffer(u64 min_vertices);
+        struct SkinResource {
+            std::vector<GeometryVertex> bind_vertices;
+            std::vector<SkinInfluence> influences;
+            std::vector<glm::mat4> pending;
+            std::vector<u32> morph_offsets;
+            std::vector<MorphDelta> morph_entries;
+            u32 morph_target_count = 0;
+            std::vector<f32> pending_weights;
+            bool first_pose = true;      // no earlier pose has been written to the arena
+            bool settle_pending = false; // pose just changed; re-run once so previous == current when it stops
+            RHI::BufferHandle bind_buffer{};
+            RHI::BufferHandle influence_buffer{};
+            RHI::BufferHandle morph_offset_buffer{};
+            RHI::BufferHandle morph_entry_buffer{};
+            bool dirty = false;
+        };
+        struct SkinningState {
+            static constexpr u32 kRingSlots = 8;
+            static constexpr u32 kRingMatrices = 16384;
+            static constexpr u32 kRingWeights = 65536;
+            std::unordered_map<u64, SkinResource> skins;
+            RHI::BufferHandle joint_ring[kRingSlots]{};
+            RHI::BufferHandle weight_ring[kRingSlots]{};
+            RHI::BufferHandle dummy_buffer{};
+            RHI::BufferHandle previous_positions{};
+            u64 previous_capacity_vertices = 0;
+            u64 ring_counter = 0;
+        };
+        Async::Mutex<SkinningState> skinning_;
+        [[nodiscard]] Core::RendererResult build_frame_feature_atmosphere_luts(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_spectral_path_tracing(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_ambient_occlusion(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_global_illumination(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_lighting(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_restir_history_copy(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_msaa_resolve(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_instance_culling(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_shadow_maps(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_z_prepass(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_gbuffer(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_hiz_build(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_scene_background(FrameBuildContext &context);
+        [[nodiscard]] Core::RendererResult build_frame_feature_light_indicators(FrameBuildContext &context);
         [[nodiscard]] Core::RendererResult build_frame_feature_motion_blur(FrameBuildContext &context);
         [[nodiscard]] Core::RendererResult build_frame_feature_post_process_aa(FrameBuildContext &context);
         [[nodiscard]] Core::RendererResult build_frame_feature_effects_before_bloom(FrameBuildContext &context);
@@ -1100,6 +1191,22 @@ namespace SFT::Renderer {
 
             RHI::QuerySetHandle pregraph_gpu_timing_query_set{};
             vector<RenderGraph::GpuPassTiming> pregraph_gpu_timing_pending;
+            /// Persistent, grow-only scene TLAS + scratch + upload buffers for this frame slot (see
+            /// `prepare_spectral_scene_acceleration_structure`); destroyed only on full slot teardown.
+            struct SpectralSceneCache {
+                RHI::AccelerationStructureHandle tlas{};
+                u64 tlas_size = 0;
+                RHI::BufferHandle scratch{};
+                u64 scratch_size = 0;
+                RHI::BufferHandle instance_buffer{};
+                u64 instance_capacity = 0;
+                RHI::BufferHandle scene_instance_buffer{};
+                u64 scene_instance_capacity = 0;
+                RHI::BufferHandle material_buffer{};
+                u64 material_capacity = 0;
+            } spectral_scene_cache;
+            /// Persistent ReSTIR GI frame-constants uniform buffer for this frame slot.
+            RHI::BufferHandle restir_gi_constants{};
             RHI::AccelerationStructureHandle scene_tlas{};
             RHI::BufferHandle spectral_scene_instances{};
             RHI::BufferHandle spectral_materials{};
@@ -1160,6 +1267,24 @@ namespace SFT::Renderer {
             u32 displacement_mesh_capacity = 0;
         };
 
+        /// Rolling display-timing state for one swapchain, updated once per frame from the RHI's past-presentation
+        /// results. Reset whenever the swapchain is recreated.
+        struct PresentFeedbackState {
+            Core::PresentTimingFeedback feedback{};
+            RHI::SwapchainHandle swapchain{};
+            bool variable_refresh_reported = false;
+            u64 last_display_time_ns = 0;
+            u64 last_displayed_present_id = 0;
+            u32 frames_since_timing_query = 0;
+            std::vector<f64> intervals;   // ring of the last `interval_window` display intervals
+            usize interval_cursor = 0;
+            static constexpr usize interval_window = 240;
+            /// Frame-start time (steady ns) per present id, for the frames whose display time is still pending.
+            std::vector<std::pair<u64, u64>> pending_starts;
+            std::vector<f64> frame_to_display; // ring, same window size
+            usize frame_to_display_cursor = 0;
+        };
+
         struct WindowSurfaceRecord {
             WindowManager::Window *window = nullptr;
             Core::RenderSurfaceHandle surface{};
@@ -1215,28 +1340,16 @@ namespace SFT::Renderer {
 
             unique_ptr<Async::Mutex<FrameTimingSnapshot>> last_frame_timings =
                 std::make_unique<Async::Mutex<FrameTimingSnapshot>>();
+
+
+            RHI::PresentTimingCapabilities present_timing_caps{};
+            u64 next_present_id = 1;
+            u64 frame_start_steady_ns = 0;
+            // Shared with other threads' `present_timing_feedback` / `wait_for_present_queue` readers.
+            unique_ptr<Async::Mutex<PresentFeedbackState>> present_feedback =
+                std::make_unique<Async::Mutex<PresentFeedbackState>>();
         };
 
-        struct RenderItem {
-            MeshHandle mesh{};
-            MaterialInstanceHandle material{};
-            glm::mat4 world_transform{1.0f};
-            glm::mat4 previous_world_transform{1.0f};
-            u64 stable_id = 0;
-            u32 sort_key = 0;
-            bool casts_shadows = true;
-            RHI::CullMode cull_mode = RHI::CullMode::Back;
-            RHI::FrontFace front_face = RHI::FrontFace::CounterClockwise;
-            glm::vec3 world_bounds_center{0.0f};
-            f32 world_bounds_radius = 0.0f;
-
-
-            u32 object_index = 0;
-
-            // Per-frame data for the mesh-shader displacement path (RendererDisplacementMesh.cpp); null unless
-            // the frame has draws whose material template enabled that path.
-            const DisplacementMeshFrame *displacement_frame = nullptr;
-        };
 
 
         struct RenderItemBindingState {
@@ -1246,6 +1359,9 @@ namespace SFT::Renderer {
 
 
             bool arena_bound = false;
+
+            /// Camera lens strength carried to the shader in the model matrix (0 = none).
+            f32 camera_lens = 0.0f;
 
 
             RHI::BindGroupHandle bound_object_history_group{};
@@ -1258,6 +1374,7 @@ namespace SFT::Renderer {
 
             vector<RenderItem> gizmo_draws;
             glm::mat4 view_projection{1.0f};
+            glm::mat4 inverse_view_projection{1.0f};
             u64 frame_index = 0;
             CameraView camera{};
             SceneLighting lighting{};
@@ -1277,6 +1394,7 @@ namespace SFT::Renderer {
             vector<std::pair<string, f64>> pre_dispatch_stage_timings_ms;
         };
 
+        struct SceneFrameState;
         struct BuiltinFrameState {
             FrameSubmission *submission = nullptr;
             WindowSurfaceRecord *record = nullptr;
@@ -1286,7 +1404,9 @@ namespace SFT::Renderer {
             vector<RenderGraphTextureHandle> *logical_graph_textures = nullptr;
             std::function<void(LogicalRenderGraphTexture, RenderGraphTextureHandle)> map_logical_texture;
             u32 frame_slot_index = 0;
+            RHI::SampleCount framebuffer_samples = RHI::SampleCount::X1;
             glm::vec4 background{0.0f};
+            SceneFrameState *scene = nullptr;
         };
 
 
@@ -1318,6 +1438,31 @@ namespace SFT::Renderer {
             u32 extent_height = 0;
             u32 mip_count = 0;
             bool valid = false;
+        };
+
+        /// The scene half's per-frame working set, shared by the Scene-stage features (`instance_culling`,
+        /// `shadow_maps`, `z_prepass`, `gbuffer`, `hiz_build`). Everything a feature *produces for another feature*
+        /// goes through the blackboard instead; this is only the engine's own culling/batching data.
+        struct SceneFrameState {
+            const vector<InstancedBatch> *instanced_batches = nullptr;
+            SceneFrameGpuResources *instance_cull_resources = nullptr;
+            HiZCullInput *hiz_cull_input = nullptr;
+            const PreparedShadowFrame *shadow_frame = nullptr;
+            RHI::BindGroupHandle object_history_group{};
+            std::span<const RenderItem> gbuffer_draws;
+            ItemCuller culler{};
+            bool full_path_tracing = false;
+            bool multisampled = false;
+            bool hybrid_spectral = false;
+            bool spectral_photon_emission_needed = false;
+            bool spectral_photon_mapping = false;
+            bool spectral_accumulation_reset = false;
+            RenderGraphTextureHandle spectral_effect{};
+            RenderGraphTextureHandle spectral_primary_depth{};
+            RenderGraphTextureHandle spectral_accumulation{};
+            RenderGraphBufferHandle spectral_photons{};
+            RenderGraphBufferHandle spectral_photon_count{};
+            RenderGraphBufferHandle spectral_photon_hash_heads{};
         };
 
 
@@ -1392,8 +1537,15 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle previous_scene_color_view{};
             RHI::SamplerHandle linear_sampler{};
             RHI::SamplerHandle atmosphere_sampler{};
+            /// GI-grid extent (render extent / `grid_scale`, rounded up) the reservoir and guide buffers are sized for.
             u32 reservoir_extent_x = 0;
             u32 reservoir_extent_y = 0;
+            u32 grid_scale = 0;
+            /// Extent of `previous_scene_color_texture` (half the render extent, rounded up).
+            u32 history_extent_x = 0;
+            u32 history_extent_y = 0;
+            u32 render_extent_x = 0;
+            u32 render_extent_y = 0;
             bool previous_is_a = false;
             bool has_history = false;
             /// This is Renderer-level singleton state (not per-`FrameInFlight` slot) deliberately: the
@@ -1782,6 +1934,17 @@ namespace SFT::Renderer {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult drain_pending_present(
             WindowSurfaceRecord &record, vector<std::pair<string, f64>> *stage_timings_ms);
+
+        /// Bounds how many presents may wait for the display before the next frame starts (latency modes), using
+        /// present wait. A no-op without present-wait support or with `LatencyMode::Normal`.
+        void bound_present_queue(WindowSurfaceRecord &record,
+                                 vector<std::pair<string, f64>> *stage_timings_ms);
+
+        /// Folds the presentation engine's newly completed display timings into `record`'s feedback state.
+        void update_present_feedback(WindowSurfaceRecord &record);
+
+        /// Resets `record`'s present feedback for a freshly created swapchain.
+        void reset_present_feedback(WindowSurfaceRecord &record);
         /// Finds or creates the RHI depth resources required by the operation.
         ///
         /// @param record `record` value used by the operation.
@@ -2045,7 +2208,6 @@ namespace SFT::Renderer {
         ///
         /// @return Returns the boolean result of the operation.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] bool render_item_visible(const RenderItem &item, const Frustum &frustum) noexcept;
 
 
         /// Records render item using the supplied arguments and current state.
@@ -2095,7 +2257,7 @@ namespace SFT::Renderer {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult record_render_items_culled(RHI::RenderPassEncoder &pass,
                                                                        span<const RenderItem> items,
-                                                                       const Frustum &frustum,
+                                                                       const ItemCuller &culler,
                                                                        span<const RHI::Format> color_formats,
                                                                        RHI::Format depth_format,
                                                                        u64 frame_index,
@@ -2114,7 +2276,8 @@ namespace SFT::Renderer {
                                                                        // Vulkan secondary command buffers inherit no dynamic state: bundle
                                                                        // chunk encoders need the pass's viewport/scissor set explicitly.
                                                                        optional<RHI::Viewport> bundle_viewport = std::nullopt,
-                                                                       optional<RHI::Rect2D> bundle_scissor = std::nullopt);
+                                                                       optional<RHI::Rect2D> bundle_scissor = std::nullopt,
+                                                                       f32 camera_lens = 0.0f);
 
 
         /// Records shadow view chunk using the supplied arguments and current state.
@@ -2679,7 +2842,7 @@ namespace SFT::Renderer {
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-        [[nodiscard]] Core::RendererResult ensure_restir_gi_resources(glm::uvec2 render_extent);
+        [[nodiscard]] Core::RendererResult ensure_restir_gi_resources(glm::uvec2 render_extent, u32 grid_scale);
         /// Destroys the ReSTIR GI resources identified by the supplied parameters.
         ///
         /// @note This function does not throw exceptions.
@@ -2737,8 +2900,6 @@ namespace SFT::Renderer {
             RHI::ComputePassEncoder &pass,
             RHI::TextureViewHandle gbuffer_normal_view,
             RHI::TextureViewHandle gbuffer_depth_view,
-            RHI::TextureViewHandle gbuffer_albedo_view,
-            RHI::TextureViewHandle gbuffer_material_view,
             RHI::TextureViewHandle output_view,
             RHI::BufferHandle constants_buffer,
             const RenderGraphSettings &settings,

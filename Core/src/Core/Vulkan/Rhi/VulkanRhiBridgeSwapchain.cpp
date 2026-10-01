@@ -851,9 +851,13 @@ namespace SFT::Core::Vulkan {
             });
         }
 
+        VkSwapchainCreateFlagsKHR create_flags = 0;
+        SwapchainRecord::PresentTiming present_timing = negotiate_present_timing(surface->surface, create_flags);
+
         VkSwapchainCreateInfoKHR info{
             .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
             .pNext = full_screen_exclusive_request ? full_screen_exclusive_request->pnext() : nullptr,
+            .flags = create_flags,
             .surface = surface->surface,
             .minImageCount = choose_image_count(*caps, desc.image_count),
             .imageFormat = format.format,
@@ -930,6 +934,8 @@ namespace SFT::Core::Vulkan {
         record.presentation_resolution = resolution;
         record.present_via_compute = present_via_compute;
         record.full_screen_exclusive_active = full_screen_exclusive_active;
+        record.present_timing = std::move(present_timing);
+        finish_present_timing_setup(record);
 
 
         record.stored_hdr_metadata = initial_hdr_metadata;
@@ -1280,9 +1286,70 @@ namespace SFT::Core::Vulkan {
             completion_fence = fence->vk_handle();
             completion_info.pFences = &completion_fence;
         }
+        const void *present_chain = desc.completion_fence ? &completion_info : nullptr;
+
+        // Present id + timing request (plans/frame-pacing.md). The id lets the caller wait for / match display
+        // timings to this present; the timing request asks the presentation engine to record when it reached the
+        // display and, where supported, not to show it before a target time.
+        SwapchainRecord::PresentTiming &timing = record->present_timing;
+        const u64 present_id = timing.present_id_version != 0 ? desc.present_id : 0;
+        VkPresentId2KHR present_id2_info{
+            .sType = VK_STRUCTURE_TYPE_PRESENT_ID_2_KHR,
+            .swapchainCount = 1,
+            .pPresentIds = &present_id,
+        };
+        VkPresentIdKHR present_id1_info{
+            .sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR,
+            .swapchainCount = 1,
+            .pPresentIds = &present_id,
+        };
+        if (present_id != 0) {
+            if (timing.present_id_version == 2) {
+                present_id2_info.pNext = present_chain;
+                present_chain = &present_id2_info;
+            } else {
+                present_id1_info.pNext = present_chain;
+                present_chain = &present_id1_info;
+            }
+        }
+        VkPresentTimingInfoEXT timing_info{
+            .sType = VK_STRUCTURE_TYPE_PRESENT_TIMING_INFO_EXT,
+            .timeDomainId = timing.time_domain_id,
+            .presentStageQueries = timing.stage,
+            .targetTimeDomainPresentStage = timing.stage,
+        };
+        VkPresentTimingsInfoEXT timings_info{
+            .sType = VK_STRUCTURE_TYPE_PRESENT_TIMINGS_INFO_EXT,
+            .swapchainCount = 1,
+            .pTimingInfos = &timing_info,
+        };
+        bool timing_requested = false;
+        if (timing.timing && present_id != 0 && timing.shared) {
+            // Leave headroom in the presentation engine's result queue: a full queue fails the whole present
+            // (VK_ERROR_PRESENT_TIMING_QUEUE_FULL_EXT), which would be far worse than one unreported frame.
+            if (timing.shared->outstanding.load(std::memory_order_relaxed) + 2 < timing.queue_size) {
+                if (desc.minimum_display_duration_ns != 0 && timing.capabilities.minimum_display_duration) {
+                    timing_info.flags = VK_PRESENT_TIMING_INFO_PRESENT_AT_RELATIVE_TIME_BIT_EXT |
+                                        VK_PRESENT_TIMING_INFO_PRESENT_AT_NEAREST_REFRESH_CYCLE_BIT_EXT;
+                    timing_info.targetTime = desc.minimum_display_duration_ns;
+                } else if (desc.target_display_time_ns != 0 && timing.capabilities.target_display_time &&
+                           timing.shared->calibrated.load(std::memory_order_acquire)) {
+                    const i64 target = static_cast<i64>(desc.target_display_time_ns) -
+                                       timing.shared->offset_ns.load(std::memory_order_relaxed);
+                    if (target > 0) {
+                        timing_info.flags = VK_PRESENT_TIMING_INFO_PRESENT_AT_NEAREST_REFRESH_CYCLE_BIT_EXT;
+                        timing_info.targetTime = static_cast<u64>(target);
+                    }
+                }
+                timings_info.pNext = present_chain;
+                present_chain = &timings_info;
+                timing_requested = true;
+            }
+        }
+
         const VkPresentInfoKHR info{
             .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-            .pNext = desc.completion_fence ? &completion_info : nullptr,
+            .pNext = present_chain,
             .waitSemaphoreCount = 1,
             .pWaitSemaphores = &wait,
             .swapchainCount = 1,
@@ -1296,6 +1363,9 @@ namespace SFT::Core::Vulkan {
         auto result = present_queue.present(info, queue_lock_wait_ms);
         if (!result) {
             return rhi_error_from_graphics(result.error());
+        }
+        if (timing_requested) {
+            timing.shared->outstanding.fetch_add(1, std::memory_order_relaxed);
         }
 
 

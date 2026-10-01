@@ -7,6 +7,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 #pragma endregion
 
 #include <RHI/Binding.hpp>
@@ -661,6 +662,47 @@ namespace SFT::RHI {
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] virtual RhiExpected<PresentOutcome> present(const PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) = 0;
+
+        /// Presentation-engine timing supported by `swapchain` (frame pacing; see plans/frame-pacing.md).
+        /// Backends without any report everything unsupported.
+        ///
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] virtual PresentTimingCapabilities present_timing_capabilities(SwapchainHandle swapchain) const noexcept {
+            (void)swapchain;
+            return {};
+        }
+
+        /// The presentation engine's refresh duration and fixed/variable refresh mode for `swapchain`.
+        ///
+        /// @return The timing, or `RhiErrorCode::Unsupported` without presentation-engine timing.
+        [[nodiscard]] virtual RhiExpected<SwapchainTiming> swapchain_timing(SwapchainHandle swapchain) {
+            (void)swapchain;
+            return rhi_error(RhiErrorCode::Unsupported, "swapchain_timing: this backend has no presentation-engine timing.");
+        }
+
+        /// Blocks until the present carrying `present_id` has reached the display (or been replaced without being
+        /// shown), or `timeout_ns` elapses. May run concurrently with `present()` on another thread, but not with
+        /// swapchain creation/destruction.
+        ///
+        /// @return `true` once presented, `false` on timeout; `RhiErrorCode::Unsupported` without present wait.
+        [[nodiscard]] virtual RhiExpected<bool> wait_for_present(SwapchainHandle swapchain, u64 present_id, u64 timeout_ns) {
+            (void)swapchain;
+            (void)present_id;
+            (void)timeout_ns;
+            return rhi_error(RhiErrorCode::Unsupported, "wait_for_present: this backend has no present wait.");
+        }
+
+        /// Appends to `out` every completed display timing the presentation engine has collected for `swapchain`
+        /// since the last call, in present order. Each result is reported once.
+        ///
+        /// @return `RhiErrorCode::Unsupported` without display timing feedback.
+        [[nodiscard]] virtual RhiResult drain_past_presentation_timings(SwapchainHandle swapchain,
+                                                                        std::vector<PastPresentTiming> &out) {
+            (void)swapchain;
+            (void)out;
+            return rhi_error(RhiErrorCode::Unsupported,
+                             "drain_past_presentation_timings: this backend has no display timing feedback.");
+        }
 
 
         /// Creates a semaphore from the supplied parameters.

@@ -5,6 +5,7 @@
 #pragma region Imports
 #include <GLFW/glfw3.h>
 
+#include <atomic>
 #include <deque>
 #include <expected>
 #include <memory>
@@ -76,6 +77,12 @@ namespace SFT::WindowManager::GLFW {
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_framebuffer_size_callback(GLFWwindow *window, int width, int height);
+    /// Queues a ContentScaleChanged event when the window's content scale changes.
+    ///
+    /// @param window Window used or affected by the operation.
+    /// @param x_scale Horizontal content scale.
+    /// @param y_scale Vertical content scale.
+    void glfw_window_content_scale_callback(GLFWwindow *window, float x_scale, float y_scale);
     /// Performs the GLFW window focus callback operation using the supplied arguments.
     ///
     /// @param window Window used or affected by the operation.
@@ -295,6 +302,17 @@ namespace SFT::WindowManager::GLFW {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note This function does not throw exceptions.
         [[nodiscard]] expected<WindowExtent, WindowError> framebuffer_size() const noexcept override;
+        /// Returns the current refresh rate, in Hz, of whichever monitor this window is presently on.
+        ///
+        /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+        /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] expected<f32, WindowError> refresh_rate_hz() const noexcept override;
+        /// Returns the cached `glfwGetWindowContentScale()` value, refreshed by the content-scale callback.
+        ///
+        /// @return The window's content scale.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] f32 content_scale() const noexcept override;
         /// Sets the minimum size for this `GLFWWindow`.
         ///
         /// @param extent `extent` value used by the operation.
@@ -523,6 +541,7 @@ namespace SFT::WindowManager::GLFW {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         friend void glfw_framebuffer_size_callback(GLFWwindow *window, int width, int height);
+        friend void glfw_window_content_scale_callback(GLFWwindow *window, float x_scale, float y_scale);
         /// Handles the GLFW window focus callback callback and updates the associated platform state.
         ///
         /// @param window Window used or affected by the operation.
@@ -620,6 +639,7 @@ namespace SFT::WindowManager::GLFW {
         optional<WindowResize> pending_resize_;
         WindowExtent last_size_ = {};
         WindowExtent last_framebuffer_size_ = {};
+        std::atomic<f32> content_scale_{1.0f};
         f64 last_mouse_x_ = 0.0;
         f64 last_mouse_y_ = 0.0;
         bool has_last_mouse_position_ = false;

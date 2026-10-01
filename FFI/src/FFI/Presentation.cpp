@@ -109,6 +109,11 @@ namespace {
         out->transparent_composition = settings.transparent_composition ? STURDY_TRUE : STURDY_FALSE;
         out->swapchain_image_count = settings.swapchain_image_count;
         out->allow_present_from_compute = settings.allow_present_from_compute ? STURDY_TRUE : STURDY_FALSE;
+        out->frame_rate_limit_mode = static_cast<SturdyFrameRateLimitMode>(settings.frame_rate_limit_mode);
+        out->frame_rate_limit_fps = settings.frame_rate_limit_fps;
+        out->variable_refresh_margin_fps = settings.variable_refresh_margin_fps;
+        out->unfocused_frame_rate_limit_fps = settings.unfocused_frame_rate_limit_fps;
+        out->snap_frame_rate_limit_to_refresh = settings.snap_frame_rate_limit_to_refresh ? STURDY_TRUE : STURDY_FALSE;
     }
 
     void copy_presentation_resolution(const SFT::RHI::PresentationResolution &resolution,
@@ -196,10 +201,18 @@ SturdyResult STURDY_ABI_CALL sturdy_surface_set_presentation_settings(
                               &engine_settings.hdr_color_space)) {
             return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized HDR color-space mode");
         }
+        if (!translate_ranged(settings->frame_rate_limit_mode, SFT::Core::FrameRateLimitMode::MatchDisplayRefresh,
+                              &engine_settings.frame_rate_limit_mode)) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized frame-rate limit mode");
+        }
         engine_settings.hdr_enabled = settings->hdr_enabled != STURDY_FALSE;
         engine_settings.transparent_composition = settings->transparent_composition != STURDY_FALSE;
         engine_settings.swapchain_image_count = settings->swapchain_image_count;
         engine_settings.allow_present_from_compute = settings->allow_present_from_compute != STURDY_FALSE;
+        engine_settings.frame_rate_limit_fps = settings->frame_rate_limit_fps;
+        engine_settings.variable_refresh_margin_fps = settings->variable_refresh_margin_fps;
+        engine_settings.unfocused_frame_rate_limit_fps = settings->unfocused_frame_rate_limit_fps;
+        engine_settings.snap_frame_rate_limit_to_refresh = settings->snap_frame_rate_limit_to_refresh != STURDY_FALSE;
 
         SFT::Engine::Engine *resolved_engine = nullptr;
         if (const SturdyResult resolved = resolve_engine(engine, &resolved_engine); resolved != STURDY_OK) {

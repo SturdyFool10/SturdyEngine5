@@ -8,6 +8,7 @@
 #include "volk.h"
 #include <cstddef>
 #include <expected>
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <span>
@@ -491,6 +492,14 @@ namespace SFT::Core::Vulkan {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] rhi::RhiExpected<rhi::PresentOutcome> present(const rhi::PresentDesc &desc, f64 *queue_lock_wait_ms = nullptr) override;
 
+        // Presentation-engine timing (VK_KHR_present_id(2), VK_KHR_present_wait(2), VK_EXT_present_timing); see
+        // VulkanRhiBridgePresentTiming.cpp and plans/frame-pacing.md.
+        [[nodiscard]] rhi::PresentTimingCapabilities present_timing_capabilities(rhi::SwapchainHandle swapchain) const noexcept override;
+        [[nodiscard]] rhi::RhiExpected<rhi::SwapchainTiming> swapchain_timing(rhi::SwapchainHandle swapchain) override;
+        [[nodiscard]] rhi::RhiExpected<bool> wait_for_present(rhi::SwapchainHandle swapchain, u64 present_id, u64 timeout_ns) override;
+        [[nodiscard]] rhi::RhiResult drain_past_presentation_timings(rhi::SwapchainHandle swapchain,
+                                                                     vector<rhi::PastPresentTiming> &out) override;
+
         /// Creates a semaphore from the supplied parameters.
         ///
         /// @param desc Description of the resource or operation to perform.
@@ -733,12 +742,50 @@ namespace SFT::Core::Vulkan {
 
             bool full_screen_exclusive_active = false;
 
+            /// Presentation-engine timing negotiated for this swapchain at creation.
+            struct PresentTiming {
+                rhi::PresentTimingCapabilities capabilities{};
+                /// 1 = VkPresentIdKHR, 2 = VkPresentId2KHR, 0 = present ids are not sent.
+                u32 present_id_version = 0;
+                /// 1 = vkWaitForPresentKHR, 2 = vkWaitForPresent2KHR, 0 = no present wait.
+                u32 present_wait_version = 0;
+                /// VK_EXT_present_timing is active on this swapchain.
+                bool timing = false;
+                /// The single present stage whose time is requested and reported (first pixel visible/out).
+                VkPresentStageFlagsEXT stage = 0;
+                VkTimeDomainKHR time_domain = VK_TIME_DOMAIN_PRESENT_STAGE_LOCAL_EXT;
+                u64 time_domain_id = 0;
+                /// Capacity handed to vkSetSwapchainPresentTimingQueueSizeEXT.
+                u32 queue_size = 0;
+                /// State touched from the presenting thread and the draining thread at once (the record itself
+                /// is moved into the pool, so it lives behind a pointer).
+                struct Shared {
+                    /// Added to a presentation-engine time to get std::chrono::steady_clock nanoseconds.
+                    std::atomic<i64> offset_ns{0};
+                    std::atomic<bool> calibrated{false};
+                    /// Presents that requested timing and have not been drained yet; keeps the timing queue
+                    /// from overflowing (VK_ERROR_PRESENT_TIMING_QUEUE_FULL_EXT) if draining ever lags.
+                    std::atomic<u32> outstanding{0};
+                };
+                std::unique_ptr<Shared> shared;
+            };
+            PresentTiming present_timing{};
+
             /// Reports whether composition present holds for this `SwapchainRecord`.
             ///
             /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
             /// @note This function does not throw exceptions.
             [[nodiscard]] bool is_composition_present() const noexcept;
         };
+
+        /// Negotiates presentation-engine timing for a swapchain about to be created on `surface`: queries the
+        /// surface's present-id2/present-wait2/present-timing capabilities and adds the matching create flags.
+        [[nodiscard]] SwapchainRecord::PresentTiming negotiate_present_timing(VkSurfaceKHR surface,
+                                                                             VkSwapchainCreateFlagsKHR &flags) const;
+        /// Finishes timing setup once the swapchain exists (timing queue size, time domain, clock calibration).
+        void finish_present_timing_setup(SwapchainRecord &record) const;
+        /// Re-measures the offset from the presentation engine's clock to std::chrono::steady_clock.
+        [[nodiscard]] bool calibrate_present_timing(const SwapchainRecord &record) const;
 
         /// Converts the supplied engine/RHI value to its Vulkan representation.
         ///
@@ -852,6 +899,9 @@ namespace SFT::Core::Vulkan {
 
 
         VulkanPipelineCache pipeline_cache_{};
+        /// `stable_device_id()` at construction, so the destructor can save `pipeline_cache_` back to the same
+        /// on-disk slot it was loaded from without re-querying a physical device that may already be gone.
+        std::string pipeline_cache_device_id_;
 
 
         Async::Mutex<u8> pipeline_cache_mutex_{0};

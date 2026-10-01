@@ -370,6 +370,8 @@ namespace SFT::UI {
           custom_storage_(std::move(other.custom_storage_)),
           outline_cache_(std::move(other.outline_cache_)),
           layout_extent_(other.layout_extent_),
+          layout_size_(other.layout_size_),
+          pixel_scale_(other.pixel_scale_),
           pointer_position_(other.pointer_position_),
           pointer_press_position_(other.pointer_press_position_),
           pointer_down_(other.pointer_down_),
@@ -412,6 +414,8 @@ namespace SFT::UI {
             custom_storage_ = std::move(other.custom_storage_);
             outline_cache_ = std::move(other.outline_cache_);
             layout_extent_ = other.layout_extent_;
+            layout_size_ = other.layout_size_;
+            pixel_scale_ = other.pixel_scale_;
             pointer_position_ = other.pointer_position_;
             pointer_press_position_ = other.pointer_press_position_;
             pointer_down_ = other.pointer_down_;
@@ -524,6 +528,8 @@ namespace SFT::UI {
             return static_cast<u32>(std::clamp(std::round(value), 1.0f, max_exact_pixel_dimension));
         };
         layout_extent_ = Core::Extent2D{layout_dimension(viewport_size.x), layout_dimension(viewport_size.y)};
+        layout_size_ = glm::max(glm::vec2{layout_extent_} / pixel_scale_, glm::vec2{1.0f});
+        const f32 to_logical = 1.0f / pixel_scale_;
 
         set_current();
         text_bridge_.begin_frame();
@@ -539,21 +545,21 @@ namespace SFT::UI {
 
         z_stack_.assign(1, 0);
         Clay_SetLayoutDimensions(Clay_Dimensions{
-            .width = static_cast<f32>(layout_extent_.x),
-            .height = static_cast<f32>(layout_extent_.y),
+            .width = layout_size_.x,
+            .height = layout_size_.y,
         });
 
 
         const bool was_down = pointer_down_;
-        pointer_position_ = pointer.position;
+        pointer_position_ = pointer.position * to_logical;
         pointer_pressed_this_frame_ = pointer.pressed || (pointer.down && !was_down);
         if (pointer_pressed_this_frame_) {
-            pointer_press_position_ = pointer.press_position.value_or(pointer.position);
+            pointer_press_position_ = pointer.press_position.value_or(pointer.position) * to_logical;
         }
         pointer_released_this_frame_ = pointer.released || (!pointer.down && was_down);
         pointer_cancelled_this_frame_ = pointer.cancelled;
         pointer_down_ = pointer.down;
-        Clay_SetPointerState(Clay_Vector2{.x = pointer.position.x, .y = pointer.position.y}, pointer.down);
+        Clay_SetPointerState(Clay_Vector2{.x = pointer_position_.x, .y = pointer_position_.y}, pointer.down);
 
 
         pending_scroll_delta_ += pointer.scroll_delta * scroll_settings_.wheel_multiplier;
@@ -1202,13 +1208,14 @@ namespace SFT::UI {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] RHI::Rect2D intersect_rect(const RHI::Rect2D &parent, const Clay_BoundingBox &box) noexcept {
+        [[nodiscard]] RHI::Rect2D intersect_rect(const RHI::Rect2D &parent, const Clay_BoundingBox &box, f32 pixel_scale) noexcept {
+            // `parent` is already in framebuffer pixels; `box` is in logical layout units.
             const i32 parent_x1 = parent.x + static_cast<i32>(parent.width);
             const i32 parent_y1 = parent.y + static_cast<i32>(parent.height);
-            i32 x0 = std::max(parent.x, static_cast<i32>(std::floor(box.x)));
-            i32 y0 = std::max(parent.y, static_cast<i32>(std::floor(box.y)));
-            i32 x1 = std::min(parent_x1, static_cast<i32>(std::ceil(box.x + box.width)));
-            i32 y1 = std::min(parent_y1, static_cast<i32>(std::ceil(box.y + box.height)));
+            i32 x0 = std::max(parent.x, static_cast<i32>(std::floor(box.x * pixel_scale)));
+            i32 y0 = std::max(parent.y, static_cast<i32>(std::floor(box.y * pixel_scale)));
+            i32 x1 = std::min(parent_x1, static_cast<i32>(std::ceil((box.x + box.width) * pixel_scale)));
+            i32 y1 = std::min(parent_y1, static_cast<i32>(std::ceil((box.y + box.height) * pixel_scale)));
             x1 = std::max(x0, x1);
             y1 = std::max(y0, y1);
             return RHI::Rect2D{.x = x0, .y = y0, .width = static_cast<u32>(x1 - x0), .height = static_cast<u32>(y1 - y0)};
@@ -1473,7 +1480,7 @@ namespace SFT::UI {
                     const auto ambient = ambient_scissor_by_clip_id.find(command.id);
                     const RHI::Rect2D base_scissor = ambient != ambient_scissor_by_clip_id.end() ? ambient->second : active_scissor;
                     ambient_scissor_by_clip_id.emplace(command.id, active_scissor);
-                    scissor_stack.push_back(intersect_rect(base_scissor, command.boundingBox));
+                    scissor_stack.push_back(intersect_rect(base_scissor, command.boundingBox, pixel_scale_));
                     break;
                 }
                 case CLAY_RENDER_COMMAND_TYPE_SCISSOR_END: {
@@ -1575,6 +1582,10 @@ namespace SFT::UI {
             }
         }
 
+        if (pixel_scale_ != 1.0f) {
+            scale_snapshot_to_pixels(snapshot);
+        }
+
         snapshot.image_storage_ = std::move(image_storage_);
         image_storage_.clear();
         snapshot.custom_storage_ = std::move(custom_storage_);
@@ -1594,6 +1605,81 @@ namespace SFT::UI {
             pointer_capture_id_.clear();
         }
         return snapshot;
+    }
+
+    /// Sets the logical-unit-to-pixel scale used from the next `begin_layout()`.
+    ///
+    /// @param scale Pixels per logical unit.
+    ///
+    /// @note This function does not throw exceptions.
+    void Context::set_pixel_scale(f32 scale) noexcept {
+        pixel_scale_ = std::isfinite(scale) && scale > 0.0f ? scale : 1.0f;
+    }
+
+    /// Converts every logical-unit coordinate, extent and pixel-denominated style value in `snapshot`
+    /// to framebuffer pixels. Scissors are already built in pixels (see `intersect_rect`).
+    ///
+    /// @param snapshot Snapshot produced by the resolve loop in `finish_frame()`.
+    ///
+    /// @note This function does not throw exceptions.
+    void Context::scale_snapshot_to_pixels(FrameSnapshot &snapshot) const noexcept {
+        const f32 s = pixel_scale_;
+        for (QuadDraw &quad : snapshot.quads_) {
+            quad.instance.position *= s;
+            quad.instance.size *= s;
+            quad.instance.corner_radius *= s;
+            quad.instance.border_width *= s;
+        }
+        for (StrokeDraw &stroke : snapshot.strokes_) {
+            for (StrokePath &path : stroke.paths) {
+                for (glm::vec2 &point : path.points) {
+                    point *= s;
+                }
+                path.style.width *= s;
+                path.style.feather_px *= s;
+                path.style.dash_length *= s;
+                path.style.dash_gap *= s;
+            }
+        }
+        for (FillQuadDraw &fill : snapshot.fills_) {
+            for (FillQuad &quad : fill.quads) {
+                quad.position *= s;
+                quad.size *= s;
+                quad.corner_radius.top_left *= s;
+                quad.corner_radius.top_right *= s;
+                quad.corner_radius.bottom_left *= s;
+                quad.corner_radius.bottom_right *= s;
+            }
+        }
+        for (SectorDraw &draw : snapshot.sectors_) {
+            for (Sector &sector : draw.sectors) {
+                sector.center *= s;
+                sector.inner_radius *= s;
+                sector.outer_radius *= s;
+                sector.style.feather_px *= s;
+            }
+        }
+        for (CustomStrokeDraw &stroke : snapshot.custom_strokes_) {
+            for (glm::vec2 &point : stroke.points) {
+                point *= s;
+            }
+            stroke.half_width *= s;
+            stroke.feather_px *= s;
+        }
+        for (CustomDraw &draw : snapshot.custom_draws_) {
+            draw.position *= s;
+            draw.size *= s;
+        }
+        // Shaping is unhinted (advances are em-relative), so scaling the placed glyphs is exact; the
+        // raster size is scaled too so the atlas renders them at full resolution.
+        for (Renderer::GlyphPlacement &glyph : snapshot.glyphs_) {
+            glyph.position *= s;
+            glyph.size *= s;
+            glyph.pixel_size *= s;
+            if (glyph.format != Text::RasterFormat::Color) {
+                glyph.format = Text::select_raster_format(glyph.pixel_size);
+            }
+        }
     }
 
     /// Destroys or releases the `UI` resource represented by the supplied parameters.

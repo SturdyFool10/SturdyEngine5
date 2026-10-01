@@ -123,7 +123,7 @@ void gtaoMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
 
     // View-space size of one pixel at this depth, used to convert the world-space effect radius
     // into a screen-space search radius.
-    float pixelViewSizeAtCenterZ = viewZ * abs(gtao.ndcToViewMulAdd.x) * viewportPixelSize.x;
+    float pixelViewSizeAtCenterZ = viewZ * abs(gtao.ndcToViewMulAdd.x) * viewportPixelSize.x / (1.0 + gtao.lens.x);
     float screenspaceRadius = effectRadius / max(pixelViewSizeAtCenterZ, SFT_EPSILON);
 
     float visibility = 0.0;

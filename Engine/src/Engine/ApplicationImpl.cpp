@@ -233,6 +233,14 @@ namespace SFT::Engine {
             if (auto native = window.native_window_handle()) {
                 managed->window_snapshot.native_handle = *native;
             }
+            // config.extent is physical pixels; the window-coordinate size differs on scaled platforms.
+            if (auto size = window.size()) {
+                managed->window_snapshot.size = *size;
+            }
+            if (auto framebuffer = window.framebuffer_size()) {
+                managed->window_snapshot.framebuffer_size = *framebuffer;
+            }
+            managed->window_snapshot.content_scale = window.content_scale();
             return true;
         });
         managed->live_resize = make_shared<LiveResizeState>();
@@ -562,6 +570,70 @@ namespace SFT::Engine {
             managed.pending_resize_extent.store(packed_extent, std::memory_order_release);
         }
 
+        // Frame-rate limiter: resolves every PresentationSettings dial (Custom, MatchDisplayRefresh, the
+        // variable-refresh auto-cap, the unfocused throttle) into one target and caps dispatch to it,
+        // composing with (not fighting) whatever the swapchain's own pacing already does -- a no-op both
+        // when unlimited and when the previous dispatch already took at least the target period on its own
+        // (e.g. a vsync-blocking present mode already paced it; see FramePacer's own "already over budget"
+        // case).
+        {
+            const Core::PresentationSettings presentation = engine_->presentation_settings(*managed.surface);
+            // The presentation engine's own report (refresh cycle, fixed/variable refresh, effective present
+            // mode) beats anything the window system can say; the window's display mode is the fallback.
+            const Core::PresentTimingFeedback feedback = engine_->present_timing_feedback(*managed.surface);
+            const bool needs_display_refresh =
+                presentation.frame_rate_limit_mode == Core::FrameRateLimitMode::MatchDisplayRefresh ||
+                presentation.variable_refresh != Core::VariableRefreshMode::Disabled;
+            Core::FramePacingInputs inputs{
+                .focused = managed.focused,
+                .refresh_duration_seconds = feedback.refresh_duration_seconds,
+                .variable_refresh_active = feedback.variable_refresh_active,
+                .effective_present_mode = feedback.effective_present_mode,
+            };
+            if (needs_display_refresh && !feedback.refresh_duration_seconds) {
+                // Queried fresh every frame rather than cached: a window can move between displays with
+                // different refresh rates (dragging it to another monitor), and this is one cheap platform
+                // call, not worth adding staleness for.
+                window_manager_.with_window(managed.window_id, [&inputs](Window &window) {
+                    if (auto rate = window.refresh_rate_hz()) {
+                        inputs.display_refresh_hz = *rate;
+                    }
+                    return true;
+                });
+                if (!inputs.display_refresh_hz) {
+                    SFT_LOG_WARN_THROTTLED(
+                        60000,
+                        "Could not query this window's display refresh rate (no platform support, or the "
+                        "query failed); MatchDisplayRefresh and the variable-refresh auto-cap both fall "
+                        "back to no cap until it succeeds. Set an explicit Custom frame-rate limit instead "
+                        "if this persists.");
+                }
+            }
+            const Core::FramePacingPlan plan = Core::resolve_frame_pacing(presentation, inputs);
+            (void)managed.frame_pacer.pace(plan.clock == Core::FramePacingClock::CpuTimer ? plan.cpu_target_fps : 0.0);
+
+            // Just-in-time start (LatencyMode::Ultra): hold the frame back so that it finishes just before a
+            // display slot instead of sitting in the present queue for most of a refresh. The slot grid is
+            // anchored on the newest reported display time; the cost estimate comes from measured
+            // start-to-display times, so a missed slot lengthens it and the next frame starts earlier.
+            if (plan.just_in_time_start && !plan.variable_refresh && plan.expected_frame_interval > 0.0 &&
+                feedback.last_display_time_ns != 0 && feedback.frame_to_display_estimate > 0.0 &&
+                feedback.frame_to_display_estimate < plan.expected_frame_interval * 4.0) {
+                using steady = std::chrono::steady_clock;
+                const f64 interval = plan.expected_frame_interval;
+                const f64 last_display = static_cast<f64>(feedback.last_display_time_ns) * 1.0e-9;
+                const f64 now_s = std::chrono::duration<f64>(steady::now().time_since_epoch()).count();
+                const f64 cost = feedback.frame_to_display_estimate;
+                // First slot on the grid the frame can still make if it started right now.
+                const f64 slots_ahead = std::ceil((now_s + cost - last_display) / interval);
+                const f64 start_at = last_display + slots_ahead * interval - cost;
+                if (start_at > now_s && start_at - now_s < interval) {
+                    (void)managed.frame_pacer.wait_until(
+                        steady::time_point{std::chrono::duration_cast<steady::duration>(std::chrono::duration<f64>(start_at))});
+                }
+            }
+        }
+
         constexpr f64 hitch_log_threshold_seconds = 0.1;
         const auto now = high_resolution_clock::now();
         const f64 delta_seconds = duration<f64>(now - managed.last_frame_time).count();
@@ -670,6 +742,9 @@ namespace SFT::Engine {
                         break;
                     case WindowEventKind::MouseUnlocked:
                         snapshot.mouse_locked = false;
+                        break;
+                    case WindowEventKind::ContentScaleChanged:
+                        snapshot.content_scale = event.content_scale;
                         break;
                     default:
                         break;

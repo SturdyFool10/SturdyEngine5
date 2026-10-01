@@ -163,6 +163,29 @@ namespace SFT::Core::Vulkan {
         /// @note This function does not throw exceptions.
         [[nodiscard]] bool hdr_metadata_enabled() const noexcept;
 
+        /// Which presentation-engine timing extensions the device offers (queried before device creation).
+        struct PresentTimingSupport {
+            bool present_id2 = false;
+            bool present_wait2 = false;
+            bool present_id = false;
+            bool present_wait = false;
+            bool present_at_absolute_time = false;
+            bool present_at_relative_time = false;
+        };
+        /// Which of them the device was actually created with. The v1 and v2 families are never mixed.
+        struct PresentTimingEnabled {
+            /// 0 = no present ids, 1 = VK_KHR_present_id, 2 = VK_KHR_present_id2.
+            u32 present_id_version = 0;
+            /// 0 = no present wait, 1 = VK_KHR_present_wait, 2 = VK_KHR_present_wait2.
+            u32 present_wait_version = 0;
+            /// VK_EXT_present_timing enabled (implies present_id_version == 2).
+            bool present_timing = false;
+            bool present_at_absolute_time = false;
+            bool present_at_relative_time = false;
+        };
+        [[nodiscard]] const PresentTimingEnabled &present_timing_enabled() const noexcept { return present_timing_enabled_; }
+        [[nodiscard]] bool surface_capabilities2_enabled() const noexcept { return surface_capabilities2_enabled_; }
+
       private:
         friend class ::SFT::Core::EngineBackend;
         /// Constructs a `VulkanBackend` from the supplied initialization values.
@@ -244,6 +267,8 @@ namespace SFT::Core::Vulkan {
 
         bool surface_capabilities2_enabled_ = false;
         bool surface_maintenance1_enabled_ = false;
+        PresentTimingSupport present_timing_support_{};
+        PresentTimingEnabled present_timing_enabled_{};
         std::unique_ptr<RHI::RhiDevice> rhiDevice;
     };
 

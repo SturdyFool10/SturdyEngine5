@@ -241,6 +241,7 @@ namespace SFT::Engine {
 
     void Engine::reset_camera_history(Core::RenderSurfaceHandle surface) {
         camera_history_.lock()->erase(static_cast<usize>(surface.window_id));
+        jitter_history_.lock()->erase(static_cast<usize>(surface.window_id));
     }
 
 } // namespace SFT::Engine

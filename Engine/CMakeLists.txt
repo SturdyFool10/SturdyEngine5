@@ -6,6 +6,7 @@ sturdy_add_package(Engine
         Sturdy::Reflection
         Sturdy::Async
         Sturdy::Ecs
+        Sturdy::Animation
         Sturdy::Core
         Sturdy::Renderer
         Sturdy::WindowManager
@@ -13,6 +14,7 @@ sturdy_add_package(Engine
     PRIVATE_DEPS
         Sturdy::StbImage
         Sturdy::cgltf
+        Sturdy::ufbx
         Sturdy::miniaudio
         Sturdy::bc7enc
         Sturdy::WebP

@@ -7,6 +7,21 @@
 
 namespace SFT::Core::WebGpu {
 
+    namespace {
+
+        /// Whether two `rhi::BindGroupEntry` describe the same binding: every field that affects what
+        /// `create_bind_group` would build, compared by RHI handle value (stable and never reused by a pool,
+        /// so this can never alias a destroyed-and-recreated resource onto a stale cache hit the way comparing
+        /// resolved native pointers could).
+        [[nodiscard]] bool bind_group_entries_equal(const rhi::BindGroupEntry &a, const rhi::BindGroupEntry &b) noexcept {
+            return a.binding == b.binding && a.array_element == b.array_element && a.buffer.value == b.buffer.value &&
+                   a.offset == b.offset && a.size == b.size && a.structure_stride == b.structure_stride &&
+                   a.texture_view.value == b.texture_view.value && a.sampler.value == b.sampler.value &&
+                   a.acceleration_structure.value == b.acceleration_structure.value;
+        }
+
+    } // namespace
+
     /// Creates a bind group layout.
     ///
     /// @param desc `desc` value used by the operation.
@@ -174,6 +189,27 @@ namespace SFT::Core::WebGpu {
             return std::unexpected(webgpu_error("create_bind_group", "unknown bind group layout handle"));
         }
 
+        const bool cacheable = desc.lifetime == rhi::BindGroupLifetime::FrameTransient;
+        if (cacheable) {
+            auto cache = transient_bind_group_cache_.lock();
+            for (BindGroupCacheEntry &candidate : *cache) {
+                if (candidate.layout.value != desc.layout.value || candidate.entries.size() != desc.entries.size()) {
+                    continue;
+                }
+                bool same = true;
+                for (usize i = 0; i < desc.entries.size(); ++i) {
+                    if (!bind_group_entries_equal(candidate.entries[i], desc.entries[i])) {
+                        same = false;
+                        break;
+                    }
+                }
+                if (same) {
+                    ++candidate.ref_count;
+                    return candidate.handle;
+                }
+            }
+        }
+
         std::vector<WGPUBindGroupEntry> entries;
         entries.reserve(desc.entries.size());
         for (const rhi::BindGroupEntry &entry : desc.entries) {
@@ -254,7 +290,17 @@ namespace SFT::Core::WebGpu {
         if (group == nullptr) {
             return std::unexpected(webgpu_error("create_bind_group"));
         }
-        return bind_groups_.insert(std::move(group));
+        const rhi::BindGroupHandle handle = bind_groups_.insert(std::move(group));
+        if (cacheable) {
+            auto cache = transient_bind_group_cache_.lock();
+            cache->push_back(BindGroupCacheEntry{
+                .layout = desc.layout,
+                .entries = std::vector<rhi::BindGroupEntry>(desc.entries.begin(), desc.entries.end()),
+                .handle = handle,
+                .ref_count = 1,
+            });
+        }
+        return handle;
     }
 
     /// Destroys a bind group.
@@ -263,6 +309,21 @@ namespace SFT::Core::WebGpu {
     ///
     /// @note This function does not throw exceptions.
     void WebGpuDevice::destroy_bind_group(rhi::BindGroupHandle handle) noexcept {
+        {
+            auto cache = transient_bind_group_cache_.lock();
+            for (usize i = 0; i < cache->size(); ++i) {
+                if ((*cache)[i].handle.value != handle.value) {
+                    continue;
+                }
+                if (--(*cache)[i].ref_count > 0) {
+                    // Another `create_bind_group` call that deduplicated onto this same handle is still
+                    // outstanding; the underlying WGPUBindGroup stays alive until it is also destroyed.
+                    return;
+                }
+                cache->erase(cache->begin() + static_cast<isize>(i));
+                break;
+            }
+        }
         bind_groups_.erase(handle, [](WGPUBindGroup &g) { wgpuBindGroupRelease(g); });
     }
 

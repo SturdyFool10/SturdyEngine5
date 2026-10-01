@@ -15,6 +15,8 @@
 // (location), not by struct name.
 
 import sturdy_common;
+import sturdy_space;
+import sturdy_lens;
 
 struct VertexInput {
     float3 position : POSITION;
@@ -90,15 +92,16 @@ VertexOutput vertexMainInstanced(VertexInput input, uint instanceId : SV_Instanc
     float4x4 model = object.model;
 
     VertexOutput output;
-    float4 worldPosition = mul(float4(input.position, 1.0), model);
-    output.position = mul(worldPosition, instancedDraw.viewProjection);
-    output.worldNormal = normalize(mul(input.normal, (float3x3)model));
+    float3 worldPosition = sturdySpaceModelToWorld(input.position, model);
+    float lensStrength = sturdySpaceLensStrength(model);
+    output.position = sturdySpaceCameraWorldToClip(worldPosition, instancedDraw.viewProjection, lensStrength);
+    output.worldNormal = sturdySpaceTransformDirection(input.normal, model);
     output.uv = input.uv;
     output.color = input.color;
-    output.worldTangent = float4(normalize(mul(input.tangent.xyz, (float3x3)model)), input.tangent.w);
+    output.worldTangent = float4(sturdySpaceTransformDirection(input.tangent.xyz, model), input.tangent.w);
 
     output.currentClip = output.position;
-    float4 previousWorldPosition = mul(float4(input.position, 1.0), object.previousModel);
-    output.previousClip = mul(previousWorldPosition, instancedDraw.previousViewProjection);
+    float4 previousWorldPosition = float4(mul(float4(input.position, 1.0), object.previousModel).xyz, 1.0);
+    output.previousClip = sturdyLensWarpClip(mul(previousWorldPosition, instancedDraw.previousViewProjection), lensStrength);
     return output;
 }

@@ -12,6 +12,7 @@
 #include <glm/geometric.hpp>
 #pragma endregion
 
+#include <Renderer/LensTessellation.hpp>
 #include <Renderer/RendererModule.hpp>
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
@@ -111,14 +112,60 @@ namespace SFT::Renderer {
         }
 
 
+        {
+            auto skinning = skinning_.lock();
+            if (const auto it = skinning->skins.find(handle.value); it != skinning->skins.end()) {
+                if (RHI::RhiDevice *device = rhi_device()) {
+                    wait_idle();
+                    if (it->second.bind_buffer) device->destroy_buffer(it->second.bind_buffer);
+                    if (it->second.influence_buffer) device->destroy_buffer(it->second.influence_buffer);
+                    if (it->second.morph_offset_buffer) device->destroy_buffer(it->second.morph_offset_buffer);
+                    if (it->second.morph_entry_buffer) device->destroy_buffer(it->second.morph_entry_buffer);
+                }
+                skinning->skins.erase(it);
+            }
+        }
+
         vector<GeometryVertex>{}.swap(resource->vertices);
         vector<u32>{}.swap(resource->indices);
         resource->vertex_offset = 0;
         resource->index_offset = 0;
         resource->vertex_count = 0;
         resource->index_count = 0;
+        resource->has_lens_variant = false;
+        resource->lens_index_count = 0;
         resource->gpu_resident = false;
         resource->alive = false;
+    }
+
+    Core::RendererResult Renderer::update_mesh_vertices(MeshHandle handle, span<const GeometryVertex> vertices) {
+        ZoneScopedN("Renderer::update_mesh_vertices");
+        MeshResource *resource = mesh(handle);
+        if (resource == nullptr || !resource->gpu_resident || vertices.size() != resource->vertices.size()) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "update_mesh_vertices needs a resident mesh and an unchanged vertex count.");
+        }
+        RHI::RhiDevice *device = rhi_device();
+        if (device == nullptr || !vertex_arena_.buffer) {
+            return {};
+        }
+        auto write = device->write_buffer(vertex_arena_.buffer,
+                                          static_cast<u64>(resource->vertex_offset) * sizeof(GeometryVertex),
+                                          std::as_bytes(vertices));
+        if (!write) {
+            return unexpected(graphics_error_from_rhi(write.error(), "update mesh vertices"));
+        }
+        std::copy(vertices.begin(), vertices.end(), resource->vertices.begin());
+        resource->has_lens_variant = false;
+        glm::vec3 bounds_min{std::numeric_limits<f32>::max()};
+        glm::vec3 bounds_max{std::numeric_limits<f32>::lowest()};
+        for (const GeometryVertex &vertex : vertices) {
+            bounds_min = glm::min(bounds_min, vertex.position);
+            bounds_max = glm::max(bounds_max, vertex.position);
+        }
+        resource->bounds_center = (bounds_min + bounds_max) * 0.5f;
+        resource->bounds_radius = glm::length(bounds_max - resource->bounds_center);
+        return {};
     }
 
     /// Performs the mesh operation for `Renderer` using the supplied arguments.
@@ -318,10 +365,13 @@ namespace SFT::Renderer {
         destroy_spectral_path_tracing_resources();
         destroy_custom_post_process_resources();
         destroy_custom_compute_effect_resources();
+        destroy_skinning_gpu_resources();
         destroy_compute_kernels();
         destroy_atmosphere_lut_resources();
         destroy_hiz_build_resources();
         destroy_restir_gi_resources();
+        auto_exposure_history_.release(rhi_device());
+        history_textures_.release(rhi_device());
         destroy_svgf_resources();
         destroy_gtao_resources();
     }
@@ -509,6 +559,50 @@ namespace SFT::Renderer {
         }
         mesh.bounds_center = (bounds_min + bounds_max) * 0.5f;
         mesh.bounds_radius = glm::length(bounds_max - mesh.bounds_center);
+
+        // Camera-lens variant: the same mesh with over-long edges split, for the vertex-warp fisheye (which only
+        // moves vertices, so long triangles would bend wrongly). Best effort: a failure just means the lens draws
+        // the original mesh.
+        mesh.has_lens_variant = false;
+        if (!mesh.indices.empty()) {
+            // Edges are cut relative to the mesh's own size: local units say nothing about world scale (Sponza's
+            // are not metres), and the error the split bounds is proportional to how much of the screen an edge spans.
+            const f32 lens_edge = std::max(mesh.bounds_radius / kLensEdgesPerMeshRadius, 1.0e-4f);
+            const usize lens_triangle_budget = std::max<usize>(mesh.indices.size() / 3 * 6, 50'000);
+            const LensTessellatedMesh lens = lens_tessellate(mesh.vertices, mesh.indices, lens_edge, lens_triangle_budget);
+            if (lens.subdivided) {
+                const u64 lens_vertex_bytes = static_cast<u64>(lens.vertices.size() * sizeof(GeometryVertex));
+                const u64 lens_index_bytes = static_cast<u64>(lens.indices.size() * sizeof(u32));
+                bool ok = true;
+                if (vertex_arena_.used_bytes + lens_vertex_bytes > vertex_arena_.capacity_bytes) {
+                    ok = grow_geometry_arena(vertex_arena_, vertex_arena_.used_bytes + lens_vertex_bytes,
+                                             "renderer vertex arena").has_value();
+                }
+                if (ok && index_arena_.used_bytes + lens_index_bytes > index_arena_.capacity_bytes) {
+                    ok = grow_geometry_arena(index_arena_, index_arena_.used_bytes + lens_index_bytes,
+                                             "renderer index arena").has_value();
+                }
+                if (ok) {
+                    ok = device->write_buffer(vertex_arena_.buffer, vertex_arena_.used_bytes,
+                                              std::as_bytes(span<const GeometryVertex>{lens.vertices.data(), lens.vertices.size()}))
+                             .has_value();
+                }
+                if (ok) {
+                    mesh.lens_vertex_offset = static_cast<u32>(vertex_arena_.used_bytes / sizeof(GeometryVertex));
+                    vertex_arena_.used_bytes += lens_vertex_bytes;
+                    ok = device->write_buffer(index_arena_.buffer, index_arena_.used_bytes,
+                                              std::as_bytes(span<const u32>{lens.indices.data(), lens.indices.size()}))
+                             .has_value();
+                    if (ok) {
+                        mesh.lens_index_offset = static_cast<u32>(index_arena_.used_bytes / sizeof(u32));
+                        index_arena_.used_bytes += lens_index_bytes;
+                        mesh.lens_index_count = static_cast<u32>(lens.indices.size());
+                        mesh.has_lens_variant = true;
+                        Foundation::log_info("Camera-lens variant of mesh '{}': {} -> {} triangles.", mesh.label.c_str(), mesh.indices.size() / 3, lens.indices.size() / 3);
+                    }
+                }
+            }
+        }
 
         mesh.gpu_resident = true;
         return {};

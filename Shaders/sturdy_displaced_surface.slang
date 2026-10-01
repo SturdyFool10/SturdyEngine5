@@ -13,6 +13,7 @@
 //                                 to keep early-Z. Only valid for depth-map materials (reference height 1).
 
 import sturdy_common;
+import sturdy_space;
 import sturdy_heightfield;
 
 #ifndef SFT_HF_ALGORITHM
@@ -152,15 +153,15 @@ float displaced_height_offset(float h) { return (h - displacement_reference_heig
 VertexOutput displaced_build_vertex(DisplacedVertexAttributes a, float4x4 model, float4x4 viewProjection,
                                     float displacement) {
     VertexOutput output;
-    float3 worldNormal = normalize(mul(a.normal, (float3x3)model));
-    float4 worldPosition = mul(float4(a.position, 1.0), model);
-    worldPosition.xyz += worldNormal * displacement;
-    output.position = mul(worldPosition, viewProjection);
-    output.worldPosition = worldPosition.xyz;
+    float3 worldNormal = sturdySpaceTransformDirection(a.normal, model);
+    float3 worldPosition = sturdySpaceModelToWorld(a.position, model);
+    worldPosition += worldNormal * displacement;
+    output.position = sturdySpaceWorldToClip(worldPosition, viewProjection);
+    output.worldPosition = worldPosition;
     output.worldNormal = worldNormal;
     output.uv = a.uv;
     output.color = a.color;
-    output.worldTangent = float4(normalize(mul(a.tangent.xyz, (float3x3)model)), a.tangent.w);
+    output.worldTangent = float4(sturdySpaceTransformDirection(a.tangent.xyz, model), a.tangent.w);
     output.currentClip = output.position;
     output.previousClip = output.position; // no per-object history on these paths
 #ifdef SFT_DISPLACEMENT_WRITE_DEPTH

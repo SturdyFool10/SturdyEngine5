@@ -169,6 +169,30 @@ namespace SFT::WindowManager::SDL3 {
             return extent.x > 0 && extent.y > 0 && extent.x <= static_cast<u32>(numeric_limits<i32>::max()) && extent.y <= static_cast<u32>(numeric_limits<i32>::max());
         }
 
+        /// Converts a physical-pixel extent into SDL window coordinates. SDL sizes windows in points on
+        /// macOS/scaled Wayland/Web and in pixels elsewhere; SDL_GetWindowPixelDensity() is the ratio.
+        ///
+        /// @param window Live SDL window whose current density is used.
+        /// @param extent Extent in physical pixels.
+        ///
+        /// @return The extent in SDL window coordinates.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] WindowExtent sdl_window_extent_from_physical(SDL_Window *window, WindowExtent extent) noexcept {
+            const f32 density = SDL_GetWindowPixelDensity(window);
+            return physical_to_window_extent(extent, glm::vec2{density});
+        }
+
+        /// Reads the window's content scale, falling back to 1.0 when SDL cannot report one yet.
+        ///
+        /// @param window Live SDL window.
+        ///
+        /// @return The content scale.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] f32 sdl_content_scale(SDL_Window *window) noexcept {
+            const f32 scale = SDL_GetWindowDisplayScale(window);
+            return scale > 0.0f ? scale : 1.0f;
+        }
+
         /// Performs the window flags operation for `SDL3` using the supplied arguments.
         ///
         /// @param config Configuration values controlling the operation.
@@ -390,6 +414,7 @@ namespace SFT::WindowManager::SDL3 {
                 last_framebuffer_size_ = last_size_;
             }
             last_live_resize_extent_ = last_framebuffer_size_;
+            content_scale_.store(sdl_content_scale(window_), std::memory_order_relaxed);
         }
     }
 
@@ -689,13 +714,16 @@ namespace SFT::WindowManager::SDL3 {
     /// @note This function does not throw exceptions.
     expected<void, WindowError> SDL3Window::set_text_input_area(TextInputArea area) noexcept {
         ZoneScopedN("SDL3Window::set_text_input_area");
+        // TextInputArea is in physical pixels; SDL wants window coordinates.
+        const f32 density = window_ != nullptr ? SDL_GetWindowPixelDensity(window_) : 1.0f;
+        const f32 to_window = density > 0.0f ? 1.0f / density : 1.0f;
         const SDL_Rect rect{
-            .x = static_cast<int>(area.x),
-            .y = static_cast<int>(area.y),
-            .w = static_cast<int>(area.width),
-            .h = static_cast<int>(area.height),
+            .x = static_cast<int>(area.x * to_window),
+            .y = static_cast<int>(area.y * to_window),
+            .w = static_cast<int>(area.width * to_window),
+            .h = static_cast<int>(area.height * to_window),
         };
-        if (!SDL_SetTextInputArea(window_, &rect, static_cast<int>(area.cursor_offset_x))) [[unlikely]] {
+        if (!SDL_SetTextInputArea(window_, &rect, static_cast<int>(area.cursor_offset_x * to_window))) [[unlikely]] {
             return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL_SetTextInputArea failed."));
         }
         return {};
@@ -792,6 +820,14 @@ namespace SFT::WindowManager::SDL3 {
                     error.message);
                 SDL_DestroyWindow(window);
                 return unexpected(error);
+            }
+        }
+
+
+        if (config.mode == WindowMode::Windowed) {
+            const WindowExtent window_extent = sdl_window_extent_from_physical(window, config.extent);
+            if (window_extent != config.extent && !SDL_SetWindowSize(window, static_cast<i32>(window_extent.x), static_cast<i32>(window_extent.y))) [[unlikely]] {
+                Foundation::log_warn("SDL3 could not resize window to its physical-pixel extent {}x{}: {}", config.extent.x, config.extent.y, SDL_GetError());
             }
         }
 
@@ -1021,6 +1057,16 @@ namespace SFT::WindowManager::SDL3 {
                     };
                     target->pending_resize_ = window_event.resize;
                     target->events_.push_back(window_event);
+                    ++queued_event_count;
+                }
+            } else if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
+                if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
+                    const f32 scale = sdl_content_scale(found->second->window_);
+                    found->second->content_scale_.store(scale, std::memory_order_relaxed);
+                    WindowEvent window_event{WindowEventKind::ContentScaleChanged};
+                    window_event.timestamp_ns = event_timestamp_ns;
+                    window_event.content_scale = scale;
+                    found->second->events_.push_back(window_event);
                     ++queued_event_count;
                 }
             } else if (event.type == SDL_EVENT_WINDOW_MOVED) {
@@ -1489,8 +1535,9 @@ namespace SFT::WindowManager::SDL3 {
         }
 
         Foundation::log_debug("SDL3 set size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+        const WindowExtent window_extent = sdl_window_extent_from_physical(window_, extent);
         return sdl_bool_result(
-            SDL_SetWindowSize(window_, static_cast<i32>(extent.x), static_cast<i32>(extent.y)),
+            SDL_SetWindowSize(window_, static_cast<i32>(window_extent.x), static_cast<i32>(window_extent.y)),
             WindowErrorCode::OperationFailed,
             "SDL3 set window size failed.");
     }
@@ -1520,6 +1567,49 @@ namespace SFT::WindowManager::SDL3 {
         return WindowExtent{static_cast<u32>(width), static_cast<u32>(height)};
     }
 
+    /// Returns the cached content scale.
+    ///
+    /// @return The window's content scale.
+    /// @note This function does not throw exceptions.
+    f32 SDL3Window::content_scale() const noexcept { return content_scale_.load(std::memory_order_relaxed); }
+
+    /// Returns the current refresh rate, in Hz, of whichever display this window is presently on.
+    ///
+    /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
+    /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
+    /// @note This function does not throw exceptions.
+    expected<f32, WindowError> SDL3Window::refresh_rate_hz() const noexcept {
+        ZoneScopedN("SDL3Window::refresh_rate_hz");
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "refresh_rate_hz"); !live) [[unlikely]] {
+            return unexpected(live.error());
+        }
+
+        const SDL_DisplayID display = SDL_GetDisplayForWindow(window_);
+        if (display == 0) {
+            const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get display for window failed.");
+            Foundation::log_error("SDL3 get display for window failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
+            return unexpected(error);
+        }
+
+        const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(display);
+        if (mode == nullptr) {
+            const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 get current display mode failed.");
+            Foundation::log_error("SDL3 get current display mode failed: wrapper={} native_ptr={} id={} message='{}'", static_cast<const void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), error.message);
+            return unexpected(error);
+        }
+        // The numerator/denominator pair is the precise rate (e.g. 60000/1001 for "59.94Hz"); prefer it
+        // over the rounded float field whenever the display actually reports one.
+        const f32 refresh_rate = mode->refresh_rate_denominator > 0
+            ? static_cast<f32>(mode->refresh_rate_numerator) / static_cast<f32>(mode->refresh_rate_denominator)
+            : mode->refresh_rate;
+        if (!(refresh_rate > 0.0f)) {
+            return unexpected(WindowError{WindowErrorCode::OperationFailed,
+                                          "SDL3 reported no usable refresh rate for this display."});
+        }
+        return refresh_rate;
+    }
+
     /// Sets the minimum size for this `SDL3`.
     ///
     /// @param extent `extent` value used by the operation.
@@ -1540,8 +1630,9 @@ namespace SFT::WindowManager::SDL3 {
         }
 
         Foundation::log_debug("SDL3 set minimum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+        const WindowExtent window_extent = sdl_window_extent_from_physical(window_, extent);
         return sdl_bool_result(
-            SDL_SetWindowMinimumSize(window_, static_cast<i32>(extent.x), static_cast<i32>(extent.y)),
+            SDL_SetWindowMinimumSize(window_, static_cast<i32>(window_extent.x), static_cast<i32>(window_extent.y)),
             WindowErrorCode::OperationFailed,
             "SDL3 set minimum size failed.");
     }
@@ -1566,8 +1657,9 @@ namespace SFT::WindowManager::SDL3 {
         }
 
         Foundation::log_debug("SDL3 set maximum size: wrapper={} native_ptr={} id={} width={} height={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), extent.x, extent.y);
+        const WindowExtent window_extent = sdl_window_extent_from_physical(window_, extent);
         return sdl_bool_result(
-            SDL_SetWindowMaximumSize(window_, static_cast<i32>(extent.x), static_cast<i32>(extent.y)),
+            SDL_SetWindowMaximumSize(window_, static_cast<i32>(window_extent.x), static_cast<i32>(window_extent.y)),
             WindowErrorCode::OperationFailed,
             "SDL3 set maximum size failed.");
     }

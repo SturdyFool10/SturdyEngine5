@@ -935,6 +935,26 @@ namespace SFT::D3D12 {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] rhi::RhiResult upload_via_staging(ID3D12Resource *destination, u64 offset, span<const std::byte> data);
 
+        /// A reusable, persistently-mapped `D3D12_HEAP_TYPE_UPLOAD` buffer for `upload_via_staging`'s
+        /// synchronous copy path. `upload_via_staging` always waits for the GPU to finish reading one of these
+        /// (via `execute_and_wait`) before it is returned to the pool, so reusing one for the next call is exactly
+        /// as safe as the previous behaviour of destroying it and creating a fresh one -- only the allocation
+        /// and per-call `Map`/`Unmap` are saved, not any synchronization.
+        struct UploadStagingBuffer {
+            ComPtr<ID3D12Resource> resource;
+            void *mapped = nullptr;
+            u64 capacity = 0;
+        };
+        /// Checks out a staging buffer of at least `size` bytes: a free one from the pool if one is large
+        /// enough, else a freshly created one (capacity rounded up so nearby-sized requests can reuse it).
+        [[nodiscard]] rhi::RhiExpected<UploadStagingBuffer> acquire_upload_staging_buffer(u64 size);
+        /// Returns a staging buffer to the pool for reuse. Only call once the GPU is known to be done reading
+        /// it. The pool is capped (`kMaxPooledUploadStagingBuffers`); a buffer that would exceed the cap is
+        /// released instead of pooled.
+        void release_upload_staging_buffer(UploadStagingBuffer &&buffer) noexcept;
+        static constexpr usize kMaxPooledUploadStagingBuffers = 16;
+        Async::Mutex<vector<UploadStagingBuffer>> upload_staging_pool_;
+
 
         /// Writes via GPU upload heap to the associated destination.
         ///

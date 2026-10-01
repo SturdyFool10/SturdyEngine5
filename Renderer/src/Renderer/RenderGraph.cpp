@@ -524,6 +524,11 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             };
         }
 
+[[nodiscard]] RHI::Extent3D RenderGraph::texture_extent(RenderGraphTextureHandle handle) const noexcept {
+            const TextureRecord *record = texture_record(handle);
+            return record != nullptr ? record->extent : RHI::Extent3D{};
+        }
+
 /// Performs the buffer access operation for `Renderer` using the supplied arguments.
 ///
 /// @param handle Handle identifying the target object or resource.

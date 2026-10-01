@@ -33,6 +33,9 @@ namespace SFT::WindowManager {
         MouseWheel,
         MouseLocked,
         MouseUnlocked,
+        /// The window's content scale (see `Window::content_scale()`) changed, e.g. it moved to a
+        /// monitor with a different UI scale. The new value is in `WindowEvent::content_scale`.
+        ContentScaleChanged,
     };
 
     struct WindowKeyboardEvent {
@@ -153,6 +156,7 @@ namespace SFT::WindowManager {
         WindowMouseMoveEvent mouse_move = {};
         WindowMouseButtonEvent mouse_button = {};
         WindowMouseWheelEvent mouse_wheel = {};
+        f32 content_scale = 1.0F;
     };
 
 } // namespace SFT::WindowManager

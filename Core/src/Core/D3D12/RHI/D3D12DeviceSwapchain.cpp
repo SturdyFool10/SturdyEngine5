@@ -87,6 +87,15 @@ namespace SFT::D3D12 {
         [[nodiscard]] ResolvedPresent resolve_present(rhi::PresentStrategy strategy, bool tearing_available) noexcept {
             ResolvedPresent resolved{};
             switch (strategy) {
+                case rhi::PresentStrategy::VariableRefresh:
+                    // The Windows mechanism for G-Sync/FreeSync in windowed or borderless mode *is*
+                    // DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING + Present(0, DXGI_PRESENT_ALLOW_TEARING) on a
+                    // flip-discard chain -- the same shape as Unsynchronized below. The display's adaptive
+                    // sync hardware does the pacing as long as the swapchain itself isn't also forcing a
+                    // fixed cadence; the app self-paces to a target below the display's max refresh instead
+                    // (see the frame-rate-limit settings). Without ALLOW_TEARING (older hardware/driver),
+                    // Mailbox is the closest fallback -- not true VRR, but not the fixed-cadence stall plain
+                    // Fifo would be either.
                 case rhi::PresentStrategy::Unsynchronized:
                     if (tearing_available) {
 
@@ -97,7 +106,6 @@ namespace SFT::D3D12 {
                     }
                     break;
                 case rhi::PresentStrategy::TearFreeOrdered:
-                case rhi::PresentStrategy::VariableRefresh:
 
 
                     resolved = {rhi::PresentMode::Fifo, 1, false, false, default_flip_buffer_count};

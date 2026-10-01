@@ -131,7 +131,15 @@ namespace SFT::RHI {
             case PresentStrategy::TearFreeLatestReady:
                 return {PresentMode::FifoLatestReady, PresentMode::Mailbox, PresentMode::FifoLatestReady, PresentMode::Fifo};
             case PresentStrategy::VariableRefresh:
-                return {PresentMode::Fifo, PresentMode::Fifo, PresentMode::Fifo, PresentMode::Fifo};
+                // A G-Sync/FreeSync display paces itself: it stretches its own vblank to match whenever the
+                // next frame becomes ready, which only happens if presentation isn't *also* forcing a fixed
+                // cadence. Fifo (this case, before the fix below) blocks on the display's fixed refresh and
+                // defeats the display's own variable one entirely -- indistinguishable from plain vsync-on.
+                // The correct present mode is the same one Unsynchronized wants (tearing-capable, not
+                // forcibly paced by the swapchain): the *app* self-paces to a target below the display's max
+                // refresh (see the frame-rate-limit settings), and the display's own adaptive-sync hardware
+                // does the rest. No tearing actually occurs while frame delivery stays inside the VRR window.
+                return {PresentMode::Immediate, PresentMode::FifoRelaxed, PresentMode::Mailbox, PresentMode::Fifo};
         }
         return {PresentMode::Fifo, PresentMode::Fifo, PresentMode::Fifo, PresentMode::Fifo};
     }
@@ -279,7 +287,54 @@ namespace SFT::RHI {
 
 
         FenceHandle completion_fence{};
+
+        /// Identifies this present to the presentation engine, for `RhiDevice::wait_for_present` and
+        /// `RhiDevice::drain_past_presentation_timings`. `0` = none. Must strictly increase per swapchain. Ignored
+        /// unless `present_timing_capabilities(swapchain).present_id`.
+        u64 present_id = 0;
+        /// Ask for this present to reach the display no earlier than this `std::chrono::steady_clock` time, in
+        /// nanoseconds since that clock's epoch. `0` = as soon as possible. Honoured only when
+        /// `present_timing_capabilities(swapchain).target_display_time`.
+        u64 target_display_time_ns = 0;
+        /// Ask for the *previous* image to stay on screen at least this long before this one replaces it, in
+        /// nanoseconds (e.g. `n * refresh` to show every frame for exactly `n` refreshes). `0` = no request.
+        /// Honoured only when `present_timing_capabilities(swapchain).minimum_display_duration`.
+        u64 minimum_display_duration_ns = 0;
         const char *label = nullptr;
+    };
+
+    /// What presentation-engine timing a swapchain supports (`VK_EXT_present_timing` / present ids / present wait
+    /// on Vulkan, DXGI frame statistics on D3D12). Everything defaults to unsupported.
+    struct PresentTimingCapabilities {
+        /// `PresentDesc::present_id` reaches the presentation engine.
+        bool present_id = false;
+        /// `RhiDevice::wait_for_present` works.
+        bool present_wait = false;
+        /// `RhiDevice::drain_past_presentation_timings` reports when frames actually reached the display.
+        bool display_timing_feedback = false;
+        /// `PresentDesc::target_display_time_ns` is honoured.
+        bool target_display_time = false;
+        /// `PresentDesc::minimum_display_duration_ns` is honoured.
+        bool minimum_display_duration = false;
+    };
+
+    /// The presentation engine's view of the display a swapchain presents to.
+    struct SwapchainTiming {
+        /// Refresh cycle in nanoseconds; the *minimum* cycle when `variable_refresh`. `0` = not known (yet — some
+        /// platforms only learn it after the first present).
+        u64 refresh_duration_ns = 0;
+        /// The presentation engine reports variable-refresh (VRR) operation.
+        bool variable_refresh = false;
+        /// False when the presentation engine could not tell fixed from variable refresh.
+        bool variable_refresh_known = false;
+    };
+
+    /// When one earlier present actually reached the display.
+    struct PastPresentTiming {
+        u64 present_id = 0;
+        /// `std::chrono::steady_clock` time, in nanoseconds since that clock's epoch, at which the image's first
+        /// pixel went out to the display. `0` = the presentation engine could not report it.
+        u64 display_time_ns = 0;
     };
 
 

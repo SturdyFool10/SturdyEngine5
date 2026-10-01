@@ -481,9 +481,18 @@ namespace SFT::D3D12 {
         }
 
         if (list7_ != nullptr) {
-            std::vector<D3D12_GLOBAL_BARRIER> globals;
-            std::vector<D3D12_BUFFER_BARRIER> buffers;
-            std::vector<D3D12_TEXTURE_BARRIER> textures;
+            // Reused across every barrier() call (one recording thread per encoder, so thread_local is safe and
+            // needs no synchronization): clear() keeps the allocated capacity, so a frame with many barrier()
+            // calls settles into zero heap traffic here after its first few calls instead of allocating four
+            // vectors every time.
+            thread_local std::vector<D3D12_GLOBAL_BARRIER> globals;
+            thread_local std::vector<D3D12_BUFFER_BARRIER> buffers;
+            thread_local std::vector<D3D12_TEXTURE_BARRIER> textures;
+            thread_local std::vector<D3D12_BARRIER_GROUP> groups;
+            globals.clear();
+            buffers.clear();
+            textures.clear();
+            groups.clear();
             globals.reserve(global_barriers.size());
             buffers.reserve(buffer_barriers.size());
             textures.reserve(texture_barriers.size());
@@ -556,7 +565,6 @@ namespace SFT::D3D12 {
                     discarding ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE});
             }
 
-            std::vector<D3D12_BARRIER_GROUP> groups;
             if (!globals.empty()) {
                 groups.push_back(CD3DX12_BARRIER_GROUP(static_cast<UINT32>(globals.size()), globals.data()));
             }
@@ -573,7 +581,8 @@ namespace SFT::D3D12 {
         }
 
 
-        std::vector<D3D12_RESOURCE_BARRIER> barriers;
+        thread_local std::vector<D3D12_RESOURCE_BARRIER> barriers;
+        barriers.clear();
 
         for (const rhi::GlobalBarrier &source : global_barriers) {
 
@@ -1285,7 +1294,12 @@ namespace SFT::D3D12 {
             return unsupported("begin_render_pass: D3D12 multiview rendering is not implemented.");
         }
 
-        std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> render_targets;
+        // Only read synchronously by OMSetRenderTargets/ClearRenderTargetView below, so a reused thread_local
+        // scratch vector is safe and avoids a heap allocation on every render pass (several per frame).
+        // `color_resolves` is moved into the returned encoder's own storage below, so it gets no benefit from
+        // being thread_local (its backing allocation leaves with the move every call) and stays a plain local.
+        thread_local std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> render_targets;
+        render_targets.clear();
         std::vector<D3D12RenderPassEncoder::ColorResolve> color_resolves;
         render_targets.reserve(desc.color_attachments.size());
         color_resolves.reserve(desc.color_attachments.size());
@@ -1620,7 +1634,8 @@ namespace SFT::D3D12 {
             parent_->fail("set_sample_locations: ended pass or SetSamplePositions unavailable on this command list.");
             return;
         }
-        std::vector<D3D12_SAMPLE_POSITION> positions;
+        thread_local std::vector<D3D12_SAMPLE_POSITION> positions;
+        positions.clear();
         positions.reserve(locations.size());
         for (const rhi::SampleLocation &location : locations) {
             positions.push_back(to_d3d12(location));

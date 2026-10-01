@@ -170,7 +170,14 @@ RenderingInfo &RenderingInfo::resume() noexcept {
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderingInfo &RenderingInfo::add_color(ColorAttachment att) {
             ZoneScopedN("RenderingInfo::add_color");
-            color_attachments_vk_.push_back(att.to_vk());
+            if (color_attachment_count_ >= kMaxColorAttachments) {
+                Foundation::log_error(
+                    "Vulkan: a render pass was asked for more than {} colour attachments, which no known Vulkan "
+                    "implementation supports; the extra attachment was dropped.",
+                    kMaxColorAttachments);
+                return *this;
+            }
+            color_attachments_vk_[color_attachment_count_++] = att.to_vk();
             return *this;
         }
 
@@ -183,8 +190,18 @@ RenderingInfo &RenderingInfo::add_color(ColorAttachment att) {
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderingInfo &RenderingInfo::set_color(u32 location, ColorAttachment att) {
             ZoneScopedN("RenderingInfo::set_color");
-            if (color_attachments_vk_.size() <= location) {
-                color_attachments_vk_.resize(static_cast<usize>(location) + 1, unused_rendering_attachment());
+            if (location >= kMaxColorAttachments) {
+                Foundation::log_error(
+                    "Vulkan: a render pass addressed colour attachment slot {}, which no known Vulkan "
+                    "implementation supports (max {}); the write was dropped.",
+                    location, kMaxColorAttachments);
+                return *this;
+            }
+            if (color_attachment_count_ <= location) {
+                for (u32 fill = color_attachment_count_; fill < location; ++fill) {
+                    color_attachments_vk_[fill] = unused_rendering_attachment();
+                }
+                color_attachment_count_ = location + 1;
             }
             color_attachments_vk_[location] = att.to_vk();
             return *this;
@@ -198,8 +215,18 @@ RenderingInfo &RenderingInfo::set_color(u32 location, ColorAttachment att) {
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderingInfo &RenderingInfo::set_unused_color(u32 location) {
             ZoneScopedN("RenderingInfo::set_unused_color");
-            if (color_attachments_vk_.size() <= location) {
-                color_attachments_vk_.resize(static_cast<usize>(location) + 1, unused_rendering_attachment());
+            if (location >= kMaxColorAttachments) {
+                Foundation::log_error(
+                    "Vulkan: a render pass addressed colour attachment slot {}, which no known Vulkan "
+                    "implementation supports (max {}); the write was dropped.",
+                    location, kMaxColorAttachments);
+                return *this;
+            }
+            if (color_attachment_count_ <= location) {
+                for (u32 fill = color_attachment_count_; fill < location; ++fill) {
+                    color_attachments_vk_[fill] = unused_rendering_attachment();
+                }
+                color_attachment_count_ = location + 1;
             }
             color_attachments_vk_[location] = unused_rendering_attachment();
             return *this;
@@ -213,11 +240,18 @@ RenderingInfo &RenderingInfo::set_unused_color(u32 location) {
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 RenderingInfo &RenderingInfo::set_colors(span<const ColorAttachment> attachments) {
             ZoneScopedN("RenderingInfo::set_colors");
-            color_attachments_vk_.clear();
-            color_attachments_vk_.reserve(attachments.size());
-            for (const ColorAttachment &attachment : attachments) {
-                color_attachments_vk_.push_back(attachment.to_vk());
+            usize count = attachments.size();
+            if (count > kMaxColorAttachments) {
+                Foundation::log_error(
+                    "Vulkan: a render pass was asked for {} colour attachments, which no known Vulkan "
+                    "implementation supports (max {}); the extra attachments were dropped.",
+                    count, kMaxColorAttachments);
+                count = kMaxColorAttachments;
             }
+            for (usize i = 0; i < count; ++i) {
+                color_attachments_vk_[i] = attachments[i].to_vk();
+            }
+            color_attachment_count_ = static_cast<u32>(count);
             return *this;
         }
 
@@ -260,9 +294,8 @@ RenderingInfo &RenderingInfo::set_stencil(StencilAttachment att) noexcept {
                 .renderArea = render_area_,
                 .layerCount = layer_count_,
                 .viewMask = view_mask_,
-                .colorAttachmentCount = static_cast<u32>(color_attachments_vk_.size()),
-                .pColorAttachments = color_attachments_vk_.empty() ? nullptr
-                                                                   : color_attachments_vk_.data(),
+                .colorAttachmentCount = color_attachment_count_,
+                .pColorAttachments = color_attachment_count_ == 0 ? nullptr : color_attachments_vk_.data(),
                 .pDepthAttachment = has_depth_ ? &depth_vk_ : nullptr,
                 .pStencilAttachment = has_stencil_ ? &stencil_vk_ : nullptr,
             };

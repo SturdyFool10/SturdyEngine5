@@ -458,7 +458,46 @@ namespace {
 ///
 /// @return Returns the process/application exit status; zero conventionally indicates successful completion.
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+namespace {
+
+    // A 2x pixel scale lays out in logical units (half the pixel viewport), maps the pixel-space
+    // pointer into those units, and emits pixel geometry in the snapshot.
+    void pixel_scale_lays_out_logically_and_emits_pixels() {
+        Context context = make_context();
+        context.set_pixel_scale(2.0f);
+        const ElementDecl decl{
+            .sizing = {SizingAxis::fixed(50.0f), SizingAxis::fixed(20.0f)},
+            .background_color = Color{1.0, 0.0, 0.0, 1.0},
+            .id = UString{"scaled-box"},
+        };
+
+        context.begin_layout({400.0f, 200.0f});
+        assert(context.viewport_size() == glm::vec2(200.0f, 100.0f));
+        { auto box = context.element(decl); }
+        SFT::UI::FrameSnapshot snapshot = context.finish_frame();
+        assert(snapshot.viewport_extent().x == 400 && snapshot.viewport_extent().y == 200);
+        const auto bounds = context.element_bounds(decl.id);
+        assert(bounds.has_value() && bounds->size == glm::vec2(50.0f, 20.0f));
+        bool found_pixel_quad = false;
+        for (const SFT::UI::QuadDraw &quad : snapshot.quads()) {
+            if (quad.instance.size == glm::vec2(100.0f, 40.0f)) {
+                found_pixel_quad = true;
+            }
+        }
+        assert(found_pixel_quad);
+
+        // (60, 30) px is (30, 15) logical: inside the 50x20 box.
+        context.begin_layout({400.0f, 200.0f}, PointerState{.position = {60.0f, 30.0f}});
+        { auto box = context.element(decl); }
+        (void)context.finish_frame();
+        assert(context.pointer_position() == glm::vec2(30.0f, 15.0f));
+        assert(context.hovered(decl.id));
+    }
+
+} // namespace
+
 int main() {
+    pixel_scale_lays_out_logically_and_emits_pixels();
     visual_patches_compose_in_documented_order();
     legacy_overloads_remain_callable();
     slider_parts_have_stable_ids_hooks_and_builders();

@@ -157,7 +157,11 @@ namespace SFT::D3D12 {
         }
 
 
-        std::vector<HANDLE> events;
+        // wait_fences can run concurrently on more than one thread (frame-pacing waits on several windows'
+        // render threads), so this scratch vector is thread_local rather than shared; only read synchronously
+        // by WaitForMultipleObjects below.
+        thread_local std::vector<HANDLE> events;
+        events.clear();
         events.reserve(fences.size());
         bool any_already_signaled = false;
 
@@ -258,7 +262,11 @@ namespace SFT::D3D12 {
             }
         }
 
-        std::vector<ID3D12CommandList *> lists;
+        // submit() can run concurrently on several threads (one per window's render thread, plus async compute),
+        // so this scratch vector is thread_local rather than shared: only read synchronously by
+        // ExecuteCommandLists below.
+        thread_local std::vector<ID3D12CommandList *> lists;
+        lists.clear();
         lists.reserve(desc.command_buffers.size());
         for (rhi::CommandBufferHandle handle : desc.command_buffers) {
             CommandBufferRecord *record = command_buffers_.find(handle);

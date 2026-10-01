@@ -109,6 +109,17 @@ if(WIN32 AND STURDY_OS STREQUAL "Windows")
     target_link_libraries(Core PRIVATE dxgi dcomp d3d11 dwmapi)
 endif()
 
+if(STURDY_ENABLE_WEBGPU AND NOT STURDY_OS STREQUAL "Web")
+    # WebGpuAdapter.cpp derives from dawn::platform::Platform/CachingInterface to wire up Dawn's own
+    # shader/pipeline disk cache. Dawn's own library is built with RTTI disabled (its own translation units
+    # define these classes' vtables without emitting typeinfo for them), so a derived class compiled with
+    # RTTI on -- the engine's default -- fails to link: its own emitted typeinfo needs to chain to the
+    # (never emitted) base class typeinfo. This file does not use dynamic_cast/typeid itself, so matching
+    # Dawn's -fno-rtti here has no effect beyond making the link succeed.
+    set_source_files_properties(src/Core/WebGPU/RHI/WebGpuAdapter.cpp PROPERTIES
+        COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-fno-rtti>$<$<CXX_COMPILER_ID:MSVC>:/GR->")
+endif()
+
 sturdy_add_tests(Core EXCLUDE WebGpuResourceTest)
 if(STURDY_ENABLE_WEBGPU)
     sturdy_add_test(Core tests/WebGpuResourceTest.cpp TIMEOUT 60)

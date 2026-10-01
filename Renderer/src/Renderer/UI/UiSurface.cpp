@@ -43,6 +43,7 @@ namespace SFT::UI {
     }
 
     Context &UiSurface::begin_frame(glm::vec2 extent, f32 delta_seconds) {
+        context_.set_pixel_scale(pixel_scale());
         context_.begin_layout(extent, input_.pointer(), delta_seconds);
         input_.set_pointer_consumed(context_.pointer_over_any() || context_.pointer_captured());
         input_.end_frame();

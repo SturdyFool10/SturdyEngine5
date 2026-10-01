@@ -207,6 +207,9 @@ namespace SFT::Engine {
             u64 frame_index = 0;
             std::chrono::high_resolution_clock::time_point last_frame_time{};
             f64 last_delta_seconds = 0.0;
+            // Applies this window's PresentationSettings::frame_rate_limit_* every dispatch; see
+            // render_managed_window() for how it composes with the resolved present mode.
+            Foundation::FramePacer frame_pacer;
         };
 
 

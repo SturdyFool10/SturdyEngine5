@@ -16,6 +16,7 @@
 #include <RHI/RHI.hpp>
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/RendererModule.hpp>
+#include <Renderer/RestirGi.hpp>
 #include <Renderer/SvgfDenoiser.hpp>
 
 #include <tracy/Tracy.hpp>
@@ -250,7 +251,7 @@ namespace SFT::Renderer {
             ((created ? (void)(device->destroy_texture_view(created->second), device->destroy_texture(created->first)) : (void)0), ...);
         };
 
-        auto moments_a = create_texture(RHI::Format::RG32Float, "SVGF moments history A");
+        auto moments_a = create_texture(RHI::Format::RGBA32Float, "SVGF moments + geometry history A");
         if (!moments_a) {
             device->destroy_texture_view(color_a->second);
             device->destroy_texture(color_a->first);
@@ -258,7 +259,7 @@ namespace SFT::Renderer {
             device->destroy_texture(color_b->first);
             return unexpected(moments_a.error());
         }
-        auto moments_b = create_texture(RHI::Format::RG32Float, "SVGF moments history B");
+        auto moments_b = create_texture(RHI::Format::RGBA32Float, "SVGF moments + geometry history B");
         if (!moments_b) {
             device->destroy_texture_view(color_a->second);
             device->destroy_texture(color_a->first);
@@ -535,9 +536,9 @@ namespace SFT::Renderer {
             has_history = guard->has_history;
         }
 
-        const glm::mat4 view_projection = submission.camera.projection * submission.camera.view;
+        const glm::mat4 view_projection = submission.view_projection;
         SvgfFrameConstants constants{
-            .inverse_view_projection = glm::inverse(view_projection),
+            .inverse_view_projection = submission.inverse_view_projection,
             .previous_view_projection = view_projection, // unused by SVGF today; motion vectors drive reprojection
             .extent_history_valid_frame_index = glm::vec4{
                 static_cast<f32>(render_extent.x), static_cast<f32>(render_extent.y),
@@ -546,6 +547,8 @@ namespace SFT::Renderer {
             .temporal_phi_params = glm::vec4{
                 settings.svgf_temporal_alpha, settings.svgf_phi_normal, settings.svgf_phi_depth, settings.svgf_phi_luminance,
             },
+            .camera_position = glm::vec4{submission.camera.world_position,
+                                         std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f)},
         };
 
         auto constant_buffer = device->create_buffer(RHI::BufferDesc{
@@ -592,7 +595,7 @@ namespace SFT::Renderer {
                     submission.transient_bind_groups);
             });
 
-        const u32 iterations = std::max(settings.svgf_atrous_iterations, 1u);
+        const u32 iterations = std::clamp(settings.svgf_atrous_iterations, 1u, restir_gi_max_atrous_iterations(settings.quality));
         RenderGraphTextureHandle ping = accumulated;
         RenderGraphTextureHandle final_output = accumulated;
         for (u32 iteration = 0; iteration < iterations; ++iteration) {

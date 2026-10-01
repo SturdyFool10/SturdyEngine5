@@ -69,6 +69,12 @@ set(STURDY_STB_TAG "31c1ad37456438565541f4919958214b6e762fb4" CACHE STRING "stb 
 # cgltf (github.com/jkuhlmann/cgltf, MIT) — single-header glTF 2.0 (.gltf/.glb) parser used by the
 # glTF import path (plans/gltf-import.md). Thin parser only; engine code owns GPU upload.
 set(STURDY_CGLTF_TAG "v1.15" CACHE STRING "cgltf git tag to fetch.")
+# nlohmann/json (MIT) — the JSON parser behind the Bedrock/Blockbench importers and animation graph
+# documents. It accepts // and /* */ comments when asked to (Bedrock files carry them).
+set(STURDY_NLOHMANN_JSON_TAG "v3.12.0" CACHE STRING "nlohmann/json git tag to fetch.")
+# ufbx (github.com/ufbx/ufbx, MIT/public domain) — single-source FBX/OBJ/glTF-less scene loader behind the
+# FBX import path (Maya, 3ds Max, Blender, Mixamo, marketplace assets).
+set(STURDY_UFBX_TAG "v0.23.1" CACHE STRING "ufbx git tag to fetch.")
 # richgel999/bc7enc (MIT/public-domain, ships no releases/tags — pinning a known-good commit like
 # stb above) — BC7 texture-compression encoder used by Engine::AssetManager::create_texture's
 # lossy VRAM-savings pipeline. Only bc7enc.c/.h are vendored (the actual BC7 encoder); the repo's
@@ -381,6 +387,8 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_lunasvg()
         sturdy_fetch_stb_image()
         sturdy_fetch_cgltf()
+        sturdy_fetch_nlohmann_json()
+        sturdy_fetch_ufbx()
         sturdy_fetch_bc7enc()
         sturdy_fetch_webp()
         sturdy_fetch_libavif()
@@ -429,6 +437,8 @@ function(sturdy_configure_dependencies)
         find_package(lunasvg CONFIG REQUIRED)
         sturdy_find_stb_image()
         sturdy_find_cgltf()
+        sturdy_find_nlohmann_json()
+        sturdy_find_ufbx()
         sturdy_find_bc7enc()
         sturdy_find_webp()
         sturdy_find_libavif()
@@ -1565,6 +1575,52 @@ function(sturdy_find_cgltf)
     endif()
 endfunction()
 
+function(sturdy_fetch_nlohmann_json)
+    set(JSON_BuildTests OFF CACHE INTERNAL "")
+    set(JSON_Install OFF CACHE INTERNAL "")
+    sturdy_fetchcontent_declare(nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG ${STURDY_NLOHMANN_JSON_TAG}
+        FIND_PACKAGE_ARGS CONFIG QUIET
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+    sturdy_mark_dependency_targets_exclude_from_all(nlohmann_json)
+    sturdy_register_license(nlohmann_json "${nlohmann_json_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_find_nlohmann_json)
+    find_package(nlohmann_json CONFIG REQUIRED)
+endfunction()
+
+function(sturdy_fetch_ufbx)
+    # ufbx is ufbx.c + ufbx.h with no CMakeLists.txt of its own: build the one source file by hand.
+    sturdy_fetchcontent_declare(ufbx
+        GIT_REPOSITORY https://github.com/ufbx/ufbx.git
+        GIT_TAG ${STURDY_UFBX_TAG}
+    )
+    FetchContent_MakeAvailable(ufbx)
+    if(NOT TARGET ufbx)
+        add_library(ufbx STATIC "${ufbx_SOURCE_DIR}/ufbx.c")
+        target_include_directories(ufbx PUBLIC "${ufbx_SOURCE_DIR}")
+        set_target_properties(ufbx PROPERTIES POSITION_INDEPENDENT_CODE ON C_STANDARD 99)
+    endif()
+    sturdy_mark_dependency_targets_exclude_from_all(ufbx)
+    sturdy_register_license(ufbx "${ufbx_SOURCE_DIR}")
+endfunction()
+
+function(sturdy_find_ufbx)
+    find_path(STURDY_UFBX_INCLUDE_DIR NAMES ufbx.h)
+    find_file(STURDY_UFBX_SOURCE NAMES ufbx.c HINTS "${STURDY_UFBX_INCLUDE_DIR}")
+    if(NOT STURDY_UFBX_INCLUDE_DIR OR NOT STURDY_UFBX_SOURCE)
+        message(FATAL_ERROR "Could not find ufbx.h/ufbx.c. Install ufbx or enable STURDY_FETCH_DEPENDENCIES.")
+    endif()
+    if(NOT TARGET ufbx)
+        add_library(ufbx STATIC "${STURDY_UFBX_SOURCE}")
+        target_include_directories(ufbx PUBLIC "${STURDY_UFBX_INCLUDE_DIR}")
+        set_target_properties(ufbx PROPERTIES POSITION_INDEPENDENT_CODE ON C_STANDARD 99)
+    endif()
+endfunction()
+
 function(sturdy_fetch_bc7enc)
     # bc7enc.c/.h is the actual BC7 encoder; everything else in the upstream repo (rgbcx.h/
     # rgbcx_table4.h for BC1/3/4/5, bc7decomp.cpp for decoding, lodepng.cpp/test.cpp for its own
@@ -2323,6 +2379,14 @@ function(sturdy_normalize_dependency_targets)
 
     sturdy_alias_existing_target(Sturdy::cgltf
         cgltf
+    )
+
+    sturdy_alias_existing_target(Sturdy::Json
+        nlohmann_json::nlohmann_json
+    )
+
+    sturdy_alias_existing_target(Sturdy::ufbx
+        ufbx
     )
 
     sturdy_alias_existing_target(Sturdy::bc7enc

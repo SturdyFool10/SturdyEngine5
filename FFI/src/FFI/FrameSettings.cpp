@@ -739,4 +739,165 @@ SturdyResult STURDY_ABI_CALL sturdy_frame_set_motion_blur_settings(SturdyFrame f
     });
 }
 
+// ─── Auto exposure ──────────────────────────────────────────────────────────
+
+SturdyResult STURDY_ABI_CALL sturdy_auto_exposure_settings_init(SturdyAutoExposureSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::Engine::AutoExposureSettings defaults{};
+        *settings = SturdyAutoExposureSettings{};
+        settings->struct_size = static_cast<uint32_t>(sizeof(SturdyAutoExposureSettings));
+        settings->enabled = defaults.enabled ? STURDY_TRUE : STURDY_FALSE;
+        settings->min_log2_luminance = defaults.min_log2_luminance;
+        settings->max_log2_luminance = defaults.max_log2_luminance;
+        settings->low_percent = defaults.low_percent;
+        settings->high_percent = defaults.high_percent;
+        settings->key_value = defaults.key_value;
+        settings->compensation_ev = defaults.compensation_ev;
+        settings->min_exposure = defaults.min_exposure;
+        settings->max_exposure = defaults.max_exposure;
+        settings->adapt_up_speed = defaults.adapt_up_speed;
+        settings->adapt_down_speed = defaults.adapt_down_speed;
+        settings->center_weight = defaults.center_weight;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_frame_set_auto_exposure_settings(SturdyFrame frame,
+                                                                      const SturdyAutoExposureSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "settings must not be null");
+        }
+        if (!all_finite({settings->min_log2_luminance, settings->max_log2_luminance, settings->low_percent, settings->high_percent, settings->key_value, settings->compensation_ev, settings->min_exposure, settings->max_exposure, settings->adapt_up_speed, settings->adapt_down_speed, settings->center_weight})) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "auto exposure settings must be finite");
+        }
+        SFT::Engine::RenderFrameParameters *parameters = nullptr;
+        const SturdyResult resolved = resolve_frame(frame, &parameters);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        SFT::Engine::AutoExposureSettings &auto_exposure = parameters->render_graph.auto_exposure();
+        auto_exposure.enabled = settings->enabled != STURDY_FALSE;
+        auto_exposure.min_log2_luminance = settings->min_log2_luminance;
+        auto_exposure.max_log2_luminance = settings->max_log2_luminance;
+        auto_exposure.low_percent = settings->low_percent;
+        auto_exposure.high_percent = settings->high_percent;
+        auto_exposure.key_value = settings->key_value;
+        auto_exposure.compensation_ev = settings->compensation_ev;
+        auto_exposure.min_exposure = settings->min_exposure;
+        auto_exposure.max_exposure = settings->max_exposure;
+        auto_exposure.adapt_up_speed = settings->adapt_up_speed;
+        auto_exposure.adapt_down_speed = settings->adapt_down_speed;
+        auto_exposure.center_weight = settings->center_weight;
+        return STURDY_OK;
+    });
+}
+
+// ─── Camera emulation ───────────────────────────────────────────────────────
+
+SturdyResult STURDY_ABI_CALL sturdy_camera_emulation_settings_init(SturdyCameraEmulationSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::Engine::CameraEmulationSettings defaults{};
+        *settings = SturdyCameraEmulationSettings{};
+        settings->struct_size = static_cast<uint32_t>(sizeof(SturdyCameraEmulationSettings));
+        settings->enabled = defaults.enabled ? STURDY_TRUE : STURDY_FALSE;
+        settings->fisheye_strength = defaults.fisheye_strength;
+        settings->chromatic_aberration = defaults.chromatic_aberration;
+        settings->vignette_strength = defaults.vignette_strength;
+        settings->sensor_noise = defaults.sensor_noise;
+        settings->sharpen = defaults.sharpen;
+        settings->saturation = defaults.saturation;
+        settings->contrast = defaults.contrast;
+        settings->housing = defaults.housing;
+        settings->tint_r = defaults.tint.r;
+        settings->tint_g = defaults.tint.g;
+        settings->tint_b = defaults.tint.b;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_frame_set_camera_emulation_settings(
+    SturdyFrame frame, const SturdyCameraEmulationSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "settings must not be null");
+        }
+        if (!all_finite({settings->fisheye_strength, settings->chromatic_aberration, settings->vignette_strength, settings->sensor_noise, settings->sharpen, settings->saturation, settings->contrast, settings->housing, settings->tint_r, settings->tint_g, settings->tint_b})) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "camera emulation settings must be finite");
+        }
+        SFT::Engine::RenderFrameParameters *parameters = nullptr;
+        const SturdyResult resolved = resolve_frame(frame, &parameters);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        SFT::Engine::CameraEmulationSettings &camera = parameters->render_graph.camera_emulation();
+        camera.enabled = settings->enabled != STURDY_FALSE;
+        camera.fisheye_strength = settings->fisheye_strength;
+        camera.chromatic_aberration = settings->chromatic_aberration;
+        camera.vignette_strength = settings->vignette_strength;
+        camera.sensor_noise = settings->sensor_noise;
+        camera.sharpen = settings->sharpen;
+        camera.saturation = settings->saturation;
+        camera.contrast = settings->contrast;
+        camera.housing = settings->housing;
+        camera.tint = glm::vec3{settings->tint_r, settings->tint_g, settings->tint_b};
+        return STURDY_OK;
+    });
+}
+
+// ─── Screen-space GI ────────────────────────────────────────────────────────
+
+SturdyResult STURDY_ABI_CALL sturdy_screen_space_gi_settings_init(SturdyScreenSpaceGiSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::Engine::ScreenSpaceGiSettings defaults{};
+        *settings = SturdyScreenSpaceGiSettings{};
+        settings->struct_size = static_cast<uint32_t>(sizeof(SturdyScreenSpaceGiSettings));
+        settings->enabled = defaults.enabled ? STURDY_TRUE : STURDY_FALSE;
+        settings->intensity = defaults.intensity;
+        settings->radius = defaults.radius;
+        settings->thickness = defaults.thickness;
+        settings->temporal_alpha = defaults.temporal_alpha;
+        settings->max_radiance = defaults.max_radiance;
+        settings->slice_count = defaults.slice_count;
+        settings->step_count = defaults.step_count;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_frame_set_screen_space_gi_settings(SturdyFrame frame,
+                                                                        const SturdyScreenSpaceGiSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "settings must not be null");
+        }
+        if (!all_finite({settings->intensity, settings->radius, settings->thickness, settings->temporal_alpha, settings->max_radiance})) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "screen-space GI settings must be finite");
+        }
+        SFT::Engine::RenderFrameParameters *parameters = nullptr;
+        const SturdyResult resolved = resolve_frame(frame, &parameters);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        SFT::Engine::ScreenSpaceGiSettings &gi = parameters->render_graph.screen_space_gi();
+        gi.enabled = settings->enabled != STURDY_FALSE;
+        gi.intensity = settings->intensity;
+        gi.radius = settings->radius;
+        gi.thickness = settings->thickness;
+        gi.temporal_alpha = settings->temporal_alpha;
+        gi.max_radiance = settings->max_radiance;
+        gi.slice_count = settings->slice_count;
+        gi.step_count = settings->step_count;
+        return STURDY_OK;
+    });
+}
+
 } // extern "C"

@@ -38,16 +38,18 @@ namespace SFT::Engine {
         }
         const UI::ElementBounds &field = focus->field_bounds;
         const UI::ElementBounds &caret = focus->caret_bounds;
+        // TextInputArea is framebuffer pixels; the UI bounds are logical units.
+        const f32 scale = focus->pixel_scale > 0.0f ? focus->pixel_scale : 1.0f;
         requests.set_text_input_area(
             window,
             WindowManager::TextInputArea{
-                .x = field.position.x,
-                .y = field.position.y,
+                .x = field.position.x * scale,
+                .y = field.position.y * scale,
 
 
-                .width = std::max(field.size.x, 1.0f),
-                .height = std::max(field.size.y, 1.0f),
-                .cursor_offset_x = std::max(caret.position.x - field.position.x, 0.0f),
+                .width = std::max(field.size.x * scale, 1.0f),
+                .height = std::max(field.size.y * scale, 1.0f),
+                .cursor_offset_x = std::max(caret.position.x - field.position.x, 0.0f) * scale,
             });
         requests.set_text_input_active(window, true);
     }

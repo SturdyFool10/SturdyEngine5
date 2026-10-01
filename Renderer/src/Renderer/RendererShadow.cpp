@@ -35,6 +35,7 @@
 #include <RHI/RHI.hpp>
 #include <Renderer/ReflectionBinding.hpp>
 #include <Renderer/RendererModule.hpp>
+#include <Renderer/ScreenSpaceGi.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -901,8 +902,8 @@ namespace SFT::Renderer {
 
         prepared = {};
         ShadowLightingGpuData &gpu = prepared.gpu;
-        const glm::mat4 view_projection = submission.camera.projection * submission.camera.view;
-        gpu.inverse_view_projection = glm::inverse(view_projection);
+        const glm::mat4 view_projection = submission.view_projection;
+        gpu.inverse_view_projection = submission.inverse_view_projection;
         gpu.view_projection = view_projection;
         gpu.view = submission.camera.view;
         gpu.camera_position_near = glm::vec4{submission.camera.world_position,
@@ -919,8 +920,12 @@ namespace SFT::Renderer {
         gpu.spectral_params.x = static_cast<f32>(submission.render_graph.spectral_path_tracing.mode);
         // .y/.z are repurposed here for ReSTIR GI enable/intensity rather than adding a new packed
         // vec4 field — spectral_params previously only used .x, leaving these lanes reserved.
-        gpu.spectral_params.y = submission.render_graph.restir_gi.enabled ? 1.0f : 0.0f;
-        gpu.spectral_params.z = std::max(finite_or(submission.render_graph.restir_gi.intensity, 1.0f), 0.0f);
+        // The indirect term comes from ReSTIR GI or, without it, the screen-space GI (see ScreenSpaceGi.hpp).
+        const bool screen_space_gi = screen_space_gi_active(submission.render_graph, submission.camera);
+        gpu.spectral_params.y = submission.render_graph.restir_gi.enabled || screen_space_gi ? 1.0f : 0.0f;
+        gpu.spectral_params.z = std::max(
+            finite_or(screen_space_gi ? submission.render_graph.screen_space_gi.intensity
+                                      : submission.render_graph.restir_gi.intensity, 1.0f), 0.0f);
         gpu.viewport_params = glm::vec4{
             1.0f / static_cast<f32>(std::max(render_extent.x, 1u)),
             1.0f / static_cast<f32>(std::max(render_extent.y, 1u)),
@@ -961,11 +966,29 @@ namespace SFT::Renderer {
         gpu.contact_shadow_params_extra = glm::vec4{
             std::clamp(finite_or(submission.render_graph.contact_shadow_intensity, 0.85f), 0.0f, 1.0f),
             std::max(finite_or(submission.render_graph.contact_shadow_fade_distance, 40.0f), 0.01f),
-            0.0f,
+            std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f),
             0.0f,
         };
 
         AtlasAllocator allocator;
+        const std::shared_ptr<const SpaceModel> space_model_snapshot = *space_model_.lock();
+        // The space model may replace a fitted shadow matrix; returns true when it did.
+        const auto custom_shadow_matrix = [&](ShadowViewKind kind, u32 index, u32 face, glm::mat4 &matrix,
+                                              const glm::vec3 &position, const glm::vec3 &direction, f32 near_plane,
+                                              f32 far_plane) {
+            if (!space_model_snapshot->shadow_view_matrix) {
+                return false;
+            }
+            const std::optional<glm::mat4> replaced = space_model_snapshot->shadow_view_matrix(ShadowViewRequest{
+                .kind = kind, .index = index, .face = face, .default_view_projection = matrix,
+                .light_position = position, .light_direction = direction, .near_plane = near_plane,
+                .far_plane = far_plane, .camera = submission.camera});
+            if (!replaced) {
+                return false;
+            }
+            matrix = *replaced;
+            return true;
+        };
         const auto has_shadow_caster_in_sphere = [&](glm::vec3 position, f32 range) noexcept {
             const f32 safe_range = std::max(range, kMinimumLightRange);
             for (const RenderItem &item : submission.draws) {
@@ -1131,7 +1154,12 @@ namespace SFT::Renderer {
                     glm::lookAtRH(eye, eye + basis.forward, basis.reference_up);
                 const glm::mat4 light_projection = glm::orthoRH_ZO(
                     -half_extent, half_extent, -half_extent, half_extent, 0.0f, depth_span);
-                const glm::mat4 light_view_projection = light_projection * light_view;
+                glm::mat4 light_view_projection = light_projection * light_view;
+                if (custom_shadow_matrix(ShadowViewKind::DirectionalCascade, cascade, 0, light_view_projection,
+                                         eye, basis.forward, 0.0f, depth_span)) {
+                    view.caster_indices.clear();
+                    view.has_caster_list = false;
+                }
 
                 const usize index = prepared.directional_views.size();
                 view.view_projection = light_view_projection;
@@ -1223,7 +1251,9 @@ namespace SFT::Renderer {
             const f32 shadow_near = std::max(0.02f, range * 0.001f);
             glm::mat4 projection = glm::perspectiveRH_ZO(std::max(outer_angle * 2.0f, 0.02f), 1.0f, shadow_near, range);
             const glm::mat4 view = glm::lookAtRH(light.position, light.position + direction, light_up(direction));
-            const glm::mat4 matrix = projection * view;
+            glm::mat4 matrix = projection * view;
+            custom_shadow_matrix(ShadowViewKind::Spot, output_index, 0, matrix, light.position, direction,
+                                 shadow_near, range);
             const f32 radius_uv_world = std::max(light.source_radius, 0.0f) /
                                         std::max(2.0f * std::tan(outer_angle), 0.001f);
             const i32 view_index = append_shadow_view(
@@ -1309,7 +1339,10 @@ namespace SFT::Renderer {
                                         std::max(face_span_at_unit_depth, 0.001f);
             for (usize face = 0; face < face_directions.size(); ++face) {
                 const glm::mat4 view = glm::lookAtRH(light.position, light.position + face_directions[face], face_ups[face]);
-                (void)append_shadow_view(projection * view, tiles[face], shadow_near, range,
+                glm::mat4 face_matrix = projection * view;
+                custom_shadow_matrix(ShadowViewKind::PointFace, output_index, static_cast<u32>(face), face_matrix,
+                                     light.position, face_directions[face], shadow_near, range);
+                (void)append_shadow_view(face_matrix, tiles[face], shadow_near, range,
                                          true, radius_uv_world, face_span_at_unit_depth, 0.10f, 0.075f);
             }
             output.shadow_params.x = static_cast<f32>(first_view);

@@ -14,6 +14,8 @@
 // (location), not by struct name. See that file for the currentClip/previousClip fields' meaning.
 
 import sturdy_common;
+import sturdy_space;
+import sturdy_lens;
 
 struct VertexInput {
     float3 position : POSITION;
@@ -51,6 +53,9 @@ struct SceneViewGpuData {
 
 struct ObjectHistoryDrawConstants {
     uint objectIndex;
+    // 1 for a GPU-skinned mesh: previous-frame positions come from previousPositions (indexed by the absolute
+    // arena vertex index, which is what SV_VertexID reports for indexed draws with a base vertex).
+    uint skinned;
 };
 
 // register(b0, space1): D3D12's equivalent of the [[vk::binding(_, 1)]] annotations below.
@@ -99,22 +104,28 @@ StructuredBuffer<SceneObjectGpuData> sceneObjects : register(t0, space1);
 // (RendererScene.cpp) was widened to BufferUsage::Storage to match.
 [[vk::binding(1, 1)]]
 StructuredBuffer<SceneViewGpuData> sceneView : register(t1, space1);
+// Previous-frame (model space) positions of GPU-skinned vertices, parallel to the vertex arena and written by
+// mesh_skinning.slang. Read only when objectDraw.skinned is set.
+[[vk::binding(2, 1)]]
+StructuredBuffer<float4> previousPositions : register(t2, space1);
 
 [shader("vertex")]
-VertexOutput vertexMainWithHistory(VertexInput input) {
+VertexOutput vertexMainWithHistory(VertexInput input, uint vertexId : SV_VertexID) {
     SceneObjectGpuData object = sceneObjects[objectDraw.objectIndex];
     SceneViewGpuData view = sceneView[0];
 
     VertexOutput output;
-    float4 worldPosition = mul(float4(input.position, 1.0), object.model);
-    output.position = mul(worldPosition, view.viewProjection);
-    output.worldNormal = normalize(mul(input.normal, (float3x3)object.model));
+    float3 worldPosition = sturdySpaceModelToWorld(input.position, object.model);
+    float lensStrength = sturdySpaceLensStrength(object.model);
+    output.position = sturdySpaceCameraWorldToClip(worldPosition, view.viewProjection, lensStrength);
+    output.worldNormal = sturdySpaceTransformDirection(input.normal, object.model);
     output.uv = input.uv;
     output.color = input.color;
-    output.worldTangent = float4(normalize(mul(input.tangent.xyz, (float3x3)object.model)), input.tangent.w);
+    output.worldTangent = float4(sturdySpaceTransformDirection(input.tangent.xyz, object.model), input.tangent.w);
 
     output.currentClip = output.position;
-    float4 previousWorldPosition = mul(float4(input.position, 1.0), object.previousModel);
-    output.previousClip = mul(previousWorldPosition, view.previousViewProjection);
+    float3 previousLocal = objectDraw.skinned != 0u ? previousPositions[vertexId].xyz : input.position;
+    float4 previousWorldPosition = float4(mul(float4(previousLocal, 1.0), object.previousModel).xyz, 1.0);
+    output.previousClip = sturdyLensWarpClip(mul(previousWorldPosition, view.previousViewProjection), lensStrength);
     return output;
 }

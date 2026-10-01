@@ -133,7 +133,9 @@ namespace SFT::Engine {
         /// @note This function does not throw exceptions.
         [[nodiscard]] bool mouse_just_released(WindowManager::MouseButton button) const noexcept;
 
-        /// Returns the current or globally available mouse x value.
+        /// Returns the current or globally available mouse x value, in window coordinates. Multiply by
+        /// `WindowSnapshot::pixel_density()` (or use `window_to_framebuffer`) before comparing against
+        /// framebuffer pixels, e.g. for `Camera::screen_ray`.
         ///
         /// @return Returns the current mouse x value.
         /// @note This function does not throw exceptions.

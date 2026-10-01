@@ -13,6 +13,9 @@
 #include <vector>
 #pragma endregion
 
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+
 #include <Core/Core.hpp>
 #include <Engine/EngineModule.hpp>
 #include <WindowManager/WindowManager.hpp>
@@ -115,6 +118,7 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(mouse_button_events_);
         ecs_world_.bind_resource(mouse_wheel_events_);
         ecs_world_.bind_resource(window_state_events_);
+        ecs_world_.bind_resource(animation_events_);
         ecs_world_.bind_resource(window_state_);
         ecs_world_.bind_resource(input_state_);
         ecs_world_.bind_resource(window_requests_);
@@ -152,6 +156,37 @@ namespace SFT::Engine {
                const WorldTransform &transform,
                const PointLightRenderer &light,
                Ecs::WriteResource<LightFrameRequests> lights) noexcept { lights->submit(entity, transform, light); });
+
+        update_schedule_.add_system(
+            [this](Ecs::Entity, SkeletonAnimator &animator, Ecs::ReadResource<FrameTime> time) noexcept {
+                tick_skeleton_animator(assets_, animator, static_cast<f32>(time->delta_seconds()));
+            });
+
+        update_schedule_.add_system(
+            [this](Ecs::Entity entity, AnimationGraphPlayer &player, WorldTransform &transform,
+                   Ecs::ReadResource<FrameTime> time, Ecs::EventWriter<AnimationEvent> events) noexcept {
+                const Animation::RootMotionDelta root =
+                    tick_graph_player(assets_, player, static_cast<f32>(time->delta_seconds()));
+                if (player.apply_root_motion) {
+                    transform.value = transform.value * glm::translate(glm::mat4{1.0f}, root.translation) *
+                                      glm::mat4_cast(root.rotation);
+                }
+                for (const Animation::FiredEvent &fired : player.events) {
+                    events.send(AnimationEvent{.entity = entity, .name = fired.name, .clip_time = fired.clip_time});
+                }
+            });
+
+        update_schedule_.add_system(
+            [](Ecs::Entity, HierarchyJoint &joint, WorldTransform &transform, Ecs::ReadResource<FrameTime> time) noexcept {
+                if (!joint.rig) {
+                    return;
+                }
+                joint.rig->evaluate(time->tick_index(), static_cast<f32>(time->delta_seconds()));
+                std::lock_guard lock{joint.rig->mutex};
+                if (joint.joint < joint.rig->model.size()) {
+                    transform.value = joint.rig->base * joint.rig->model[joint.joint];
+                }
+            });
 
         window_events_.reserve(256);
         mouse_move_events_.reserve(256);
@@ -467,6 +502,10 @@ namespace SFT::Engine {
         return renderer_.presentation_settings(surface);
     }
 
+    Core::PresentTimingFeedback Engine::present_timing_feedback(Core::RenderSurfaceHandle surface) const noexcept {
+        return renderer_.present_timing_feedback(surface);
+    }
+
     /// Queries HDR capabilities from the active backend or runtime state.
     ///
     /// @param surface Surface used or affected by the operation.
@@ -659,6 +698,43 @@ namespace SFT::Engine {
                                   graph_validation.error().message);
         }
         Camera camera = parameters.camera;
+        // Temporal upscaler: a sub-pixel projection jitter that cycles through a Halton(2, 3) sequence, longer when
+        // upscaling so every output pixel is covered. Applied before the camera history is recorded, so the motion
+        // vectors are computed with the jittered matrices on both ends (the upscaler removes the jitter delta).
+        glm::vec2 jitter_uv{0.0f};
+        const bool temporal_upscaler = parameters.render_graph.description().temporal_upscaler.enabled &&
+                                       camera.projection_mode() == CameraProjectionMode::Perspective &&
+                                       frame.framebuffer_width > 0 && frame.framebuffer_height > 0;
+        if (temporal_upscaler) {
+            const f32 scale = std::clamp(parameters.render_graph.description().resolution_scale * camera.render_scale(), 0.1f, 2.0f);
+            const glm::vec2 render_size{std::max(static_cast<f32>(frame.framebuffer_width) * scale, 1.0f),
+                                        std::max(static_cast<f32>(frame.framebuffer_height) * scale, 1.0f)};
+            const u32 phases = static_cast<u32>(std::clamp(std::ceil(8.0f / (scale * scale)), 8.0f, 64.0f));
+            const u32 index = static_cast<u32>(frame.frame_index % phases) + 1u;
+            const auto halton = [](u32 i, u32 base) {
+                f32 f = 1.0f, r = 0.0f;
+                while (i > 0) {
+                    f /= static_cast<f32>(base);
+                    r += f * static_cast<f32>(i % base);
+                    i /= base;
+                }
+                return r;
+            };
+            const glm::vec2 offset_pixels{halton(index, 2) - 0.5f, halton(index, 3) - 0.5f};
+            camera.set_jitter_pixels(offset_pixels, render_size);
+            // The projection offset moves the image by -jitter_ndc; as a UV shift (Y down) that is (-x, +y) / 2.
+            const glm::vec2 jitter_ndc = camera.jitter_ndc();
+            jitter_uv = glm::vec2{-jitter_ndc.x * 0.5f, jitter_ndc.y * 0.5f};
+        }
+        glm::vec2 previous_jitter_uv = jitter_uv;
+        {
+            auto jitters = jitter_history_.lock();
+            const usize surface_key = static_cast<usize>(surface.window_id);
+            if (const auto found = jitters->find(surface_key); found != jitters->end()) {
+                previous_jitter_uv = found->second;
+            }
+            (*jitters)[surface_key] = jitter_uv;
+        }
         if (parameters.engine_managed_camera_history) {
             const usize surface_key = static_cast<usize>(surface.window_id);
             auto history = camera_history_.lock();
@@ -680,10 +756,46 @@ namespace SFT::Engine {
             graph_settings.scene.background_color = camera.clear_color();
         }
 
+        // Fisheye without stretching: render wider and bigger (see CameraEmulationSettings::fisheye_strength).
+        // The factor is limited by what the 2x render-scale ceiling still allows on top of the requested scale.
+        f32 overscan = 1.0f;
+        f32 projection_widening = 1.0f;
+        f32 lens_strength = 0.0f;
+        CameraEmulationSettings &emulation = graph_settings.camera_emulation;
+        if (emulation.enabled && std::isfinite(emulation.fisheye_strength) && emulation.fisheye_strength > 0.0f) {
+            if (emulation.fisheye_mode == FisheyeMode::VertexWarp) {
+                // The camera passes warp their vertices: the frame keeps the output resolution, only the
+                // projection is widened to give the warp something to compress. Limited below 1 so the curve
+                // stays monotonic (see sturdy_space.slang).
+                lens_strength = std::clamp(emulation.fisheye_strength, 0.0f, 0.9f);
+                projection_widening = 1.0f + lens_strength;
+            } else {
+                const f32 base_scale = std::max(graph_settings.resolution_scale, 0.1f);
+                overscan = std::clamp(1.0f + std::min(emulation.fisheye_strength, 1.0f), 1.0f, std::max(2.0f / base_scale, 1.0f));
+                graph_settings.resolution_scale = std::clamp(base_scale * overscan, 0.1f, 2.0f);
+                projection_widening = overscan;
+            }
+        }
+        emulation.overscan = overscan;
+        emulation.lens_strength = lens_strength;
+        // The widened projection also scales the jitter's screen shift.
+        graph_settings.temporal_upscaler.enabled = temporal_upscaler;
+        graph_settings.temporal_upscaler.jitter_uv = jitter_uv / projection_widening;
+        graph_settings.temporal_upscaler.previous_jitter_uv = previous_jitter_uv / projection_widening;
+        SFT::Renderer::CameraView camera_view = camera.renderer_view();
+        if (projection_widening > 1.0f) {
+            // Scale the projection about the view axis: same position and orientation, `overscan` times the
+            // tangent range, so the extra pixels show the extra field of view.
+            const glm::mat4 widen = glm::scale(glm::mat4{1.0f}, glm::vec3{1.0f / projection_widening, 1.0f / projection_widening, 1.0f});
+            camera_view.projection = widen * camera_view.projection;
+            camera_view.previous_view_projection = widen * camera_view.previous_view_projection;
+            camera_view.vertical_fov_radians = 2.0f * std::atan(std::tan(camera_view.vertical_fov_radians * 0.5f) * projection_widening);
+        }
+
         return PreparedRenderFrame{
             .surface = surface,
             .frame = frame,
-            .camera = camera.renderer_view(),
+            .camera = camera_view,
             .lighting = SFT::Renderer::SceneLighting{
                 .ambient_radiance = parameters.lighting.ambient_radiance,
                 .exposure = parameters.lighting.exposure * camera.exposure_multiplier(),
@@ -908,6 +1020,52 @@ namespace SFT::Engine {
                 .max_blur_radius_px = graph.motion_blur.max_blur_radius_px,
                 .background_foreground_weight_bias = graph.motion_blur.background_foreground_weight_bias,
                 .camera_motion_only = graph.motion_blur.camera_motion_only,
+            },
+            .camera_emulation = RendererApi::CameraEmulationSettings{
+                .enabled = graph.camera_emulation.enabled,
+                .fisheye_strength = graph.camera_emulation.fisheye_strength,
+                .chromatic_aberration = graph.camera_emulation.chromatic_aberration,
+                .vignette_strength = graph.camera_emulation.vignette_strength,
+                .sensor_noise = graph.camera_emulation.sensor_noise,
+                .sharpen = graph.camera_emulation.sharpen,
+                .saturation = graph.camera_emulation.saturation,
+                .contrast = graph.camera_emulation.contrast,
+                .tint = graph.camera_emulation.tint,
+                .housing = graph.camera_emulation.housing,
+                .fisheye_mode = static_cast<RendererApi::FisheyeMode>(graph.camera_emulation.fisheye_mode),
+                .overscan = graph.camera_emulation.overscan,
+                .lens_strength = graph.camera_emulation.lens_strength,
+            },
+            .temporal_upscaler = RendererApi::TemporalUpscalerSettings{
+                .enabled = has_scene && graph.temporal_upscaler.enabled,
+                .current_frame_weight = graph.temporal_upscaler.current_frame_weight,
+                .sharpness = graph.temporal_upscaler.sharpness,
+                .jitter_uv = graph.temporal_upscaler.jitter_uv,
+                .previous_jitter_uv = graph.temporal_upscaler.previous_jitter_uv,
+            },
+            .screen_space_gi = RendererApi::ScreenSpaceGiSettings{
+                .enabled = has_scene && graph.screen_space_gi.enabled,
+                .intensity = graph.screen_space_gi.intensity,
+                .radius = graph.screen_space_gi.radius,
+                .thickness = graph.screen_space_gi.thickness,
+                .slice_count = graph.screen_space_gi.slice_count,
+                .step_count = graph.screen_space_gi.step_count,
+                .temporal_alpha = graph.screen_space_gi.temporal_alpha,
+                .max_radiance = graph.screen_space_gi.max_radiance,
+            },
+            .auto_exposure = RendererApi::AutoExposureSettings{
+                .enabled = graph.auto_exposure.enabled,
+                .min_log2_luminance = graph.auto_exposure.min_log2_luminance,
+                .max_log2_luminance = graph.auto_exposure.max_log2_luminance,
+                .low_percent = graph.auto_exposure.low_percent,
+                .high_percent = graph.auto_exposure.high_percent,
+                .key_value = graph.auto_exposure.key_value,
+                .compensation_ev = graph.auto_exposure.compensation_ev,
+                .min_exposure = graph.auto_exposure.min_exposure,
+                .max_exposure = graph.auto_exposure.max_exposure,
+                .adapt_up_speed = graph.auto_exposure.adapt_up_speed,
+                .adapt_down_speed = graph.auto_exposure.adapt_down_speed,
+                .center_weight = graph.auto_exposure.center_weight,
             },
             .shadows = has_scene && graph.shadows.enabled,
             .ambient_occlusion = has_scene && graph.ambient_occlusion.enabled,

@@ -80,12 +80,15 @@ namespace SFT::Core::WebGpu {
       private:
         WebGpuDevice &device_;
         WGPURenderPassEncoder pass_ = nullptr;
+        void flush_push_constants() noexcept;
         // Push constants have no WebGPU form; they are emulated as a dynamic-offset uniform buffer
         // bound at a reserved group (see WebGpuDevicePushConstants.cpp). Because a caller may set
         // only part of the block and expect the rest to persist -- which is exactly what a push
         // constant does on the other backends -- the whole block is mirrored here and uploaded in
         // full on each set.
         std::array<std::byte, push_constant_shadow_size> push_constants_{};
+        // True when push_constants_ has been written since the last flush_push_constants() call.
+        bool push_constants_dirty_ = false;
     };
 
     /// Records draw calls into a reusable WebGPU render bundle.
@@ -131,12 +134,15 @@ namespace SFT::Core::WebGpu {
       private:
         WebGpuDevice &device_;
         WGPURenderBundleEncoder encoder_ = nullptr;
+        void flush_push_constants() noexcept;
         // Push constants have no WebGPU form; they are emulated as a dynamic-offset uniform buffer
         // bound at a reserved group (see WebGpuDevicePushConstants.cpp). Because a caller may set
         // only part of the block and expect the rest to persist -- which is exactly what a push
         // constant does on the other backends -- the whole block is mirrored here and uploaded in
         // full on each set.
         std::array<std::byte, push_constant_shadow_size> push_constants_{};
+        // True when push_constants_ has been written since the last flush_push_constants() call.
+        bool push_constants_dirty_ = false;
     };
 
     /// Records dispatches into a WebGPU compute pass.
@@ -165,12 +171,15 @@ namespace SFT::Core::WebGpu {
       private:
         WebGpuDevice &device_;
         WGPUComputePassEncoder pass_ = nullptr;
+        void flush_push_constants() noexcept;
         // Push constants have no WebGPU form; they are emulated as a dynamic-offset uniform buffer
         // bound at a reserved group (see WebGpuDevicePushConstants.cpp). Because a caller may set
         // only part of the block and expect the rest to persist -- which is exactly what a push
         // constant does on the other backends -- the whole block is mirrored here and uploaded in
         // full on each set.
         std::array<std::byte, push_constant_shadow_size> push_constants_{};
+        // True when push_constants_ has been written since the last flush_push_constants() call.
+        bool push_constants_dirty_ = false;
     };
 
     /// Records copies, passes, and queries into a WebGPU command encoder.

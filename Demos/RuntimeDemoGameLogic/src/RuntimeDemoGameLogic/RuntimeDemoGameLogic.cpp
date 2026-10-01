@@ -1,6 +1,7 @@
 #include <RuntimeDemoGameLogic/RuntimeDemoGameLogic.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <array>
 #include <filesystem>
 #include <format>
@@ -150,6 +151,35 @@ namespace SFT::Runtime {
         }
         gltf_instances_ = std::move(gltf->instances);
         gltf_lights_ = std::move(gltf->lights);
+
+        // Animation showcase: a skinned character, blend shapes and an animated node hierarchy, all spawned
+        // through the same helper regardless of how the file animates.
+        const auto add_showcase = [&](const char *folder, const char *file, glm::vec3 position, f32 scale) {
+            auto imported = Engine::import_gltf(
+                assets, std::filesystem::path{STURDY_GLTF_SAMPLE_ASSETS_DIR} / "Models" / folder / "glTF" / file,
+                gltf_shader_);
+            if (imported) {
+                showcase_models_.push_back(ShowcaseModel{
+                    .imported = std::move(*imported),
+                    .transform = glm::translate(glm::mat4{1.0f}, position) * glm::scale(glm::mat4{1.0f}, glm::vec3{scale}),
+                });
+            }
+        };
+        add_showcase("Fox", "Fox.gltf", glm::vec3{0.0f, 0.0f, 0.0f}, 0.025f);
+        add_showcase("AnimatedMorphCube", "AnimatedMorphCube.gltf", glm::vec3{-3.0f, 1.0f, 0.0f}, 1.0f);
+        add_showcase("BoxAnimated", "BoxAnimated.gltf", glm::vec3{3.0f, 1.0f, 0.0f}, 1.0f);
+
+        // Any model file the user names (glTF/GLB/FBX/OBJ), through the same import front door the engine exposes.
+        if (const char *extra = std::getenv("STURDY_DEMO_MODEL"); extra != nullptr && *extra != '\0') {
+            if (auto imported = Engine::import_model(assets, extra, gltf_shader_)) {
+                showcase_models_.push_back(ShowcaseModel{
+                    .imported = std::move(*imported),
+                    .transform = glm::translate(glm::mat4{1.0f}, glm::vec3{0.0f, 0.0f, -2.0f}),
+                });
+            } else {
+                Foundation::log_warn("STURDY_DEMO_MODEL '{}' failed to import: {}", extra, imported.error().message.cpp_string());
+            }
+        }
 #endif
 
         return {};
@@ -400,6 +430,10 @@ namespace SFT::Runtime {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void RuntimeDemoGameLogic::spawn_demo_entities(Engine::Engine &engine) {
 #ifdef STURDY_GLTF_SAMPLE_ASSETS_DIR
+        for (const ShowcaseModel &model : showcase_models_) {
+            (void)Engine::spawn_imported(engine.ecs_world(), engine.assets(), model.imported,
+                                         Engine::SpawnImportedOptions{.transform = model.transform});
+        }
         for (const Engine::GltfNodeInstance &instance : gltf_instances_) {
             if (instance.model) {
                 (void)engine.ecs_world().spawn(
@@ -554,6 +588,8 @@ namespace SFT::Runtime {
 
     namespace {
         constexpr UI::FontId kTweakPanelFontId = 1;
+        /// Gap between the screen edge and the overlay panels, on every side.
+        constexpr f32 kScreenIndent = 16.0f;
         constexpr UI::Color kTweakPanelBackground{0.06, 0.07, 0.09, 0.88};
         constexpr UI::Color kTweakPanelOutline{0.16, 0.18, 0.24, 1.0};
         constexpr UI::Color kTweakPanelTextPrimary{0.93, 0.95, 1.0, 1.0};
@@ -617,6 +653,33 @@ namespace SFT::Runtime {
         /// Draws a "name: value" label above a slider so each control is identifiable on its own.
         void draw_slider_label(UI::Context &ctx, const char *name, f64 value) {
             draw_panel_text(ctx, std::format("{}: {:.2f}", name, value), kTweakPanelTextPrimary, 12);
+        }
+
+        /// A labelled slider bound to a float setting; `id` must be unique within the panel.
+        void tweak_slider(UI::Context &ctx, const char *label, std::string_view id, UI::SliderState &state, f32 &value,
+                          f64 min, f64 max, f64 step) {
+            draw_slider_label(ctx, label, static_cast<f64>(value));
+            const UI::SliderResult result = UI::slider(
+                ctx,
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::fixed(24.0f)},
+                    .id = UString{id},
+                },
+                UI::SliderConfig{.min = min, .max = max, .step = step}, tweak_panel_slider_style(), state,
+                static_cast<f64>(value));
+            value = static_cast<f32>(result.value);
+        }
+
+        /// An on/off switch bound to a bool setting.
+        void tweak_toggle(UI::Context &ctx, std::string_view id, UI::ToggleState &state, f32 delta_seconds, bool &value) {
+            const UI::ToggleResult result = UI::switch_toggle(
+                ctx,
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::fixed(42.0f), UI::SizingAxis::fixed(23.0f)},
+                    .id = UString{id},
+                },
+                tweak_panel_toggle_style(), state, delta_seconds, value);
+            if (result.clicked) value = !value;
         }
     } // namespace
 
@@ -719,7 +782,7 @@ namespace SFT::Runtime {
         {
             auto root = ctx.element(UI::ElementDecl{
                 .sizing = {UI::SizingAxis::fixed(viewport.x), UI::SizingAxis::fixed(viewport.y)},
-                .padding = UI::Padding::all(16),
+                .padding = UI::Padding::all(kScreenIndent),
                 .child_alignment = {UI::AlignX::Right, UI::AlignY::Top},
             });
             {
@@ -742,7 +805,8 @@ namespace SFT::Runtime {
             // The tweak panel below is skipped while hidden (U); the statistics stay.
             if (panel_visible) {
             auto panel = ctx.element(UI::ElementDecl{
-                .sizing = {UI::SizingAxis::fixed(300.0f), UI::SizingAxis::fit()},
+                // Full screen height minus the indent above and below; the controls scroll inside it.
+                .sizing = {UI::SizingAxis::fixed(300.0f), UI::SizingAxis::fixed(std::max(viewport.y - 2.0f * kScreenIndent, 0.0f))},
                 .padding = UI::Padding::all(14),
                 .child_gap = 12,
                 .direction = UI::LayoutDirection::TopToBottom,
@@ -753,10 +817,22 @@ namespace SFT::Runtime {
 
             draw_panel_text(ctx, "Render Tweaks (U to hide)", kTweakPanelTextPrimary, 14);
 
+            (void)UI::scroll_area(
+                ctx, UString{"runtime-tweak-panel-scroll"_ustr},
+                UI::ElementDecl{
+                    .sizing = {UI::SizingAxis::grow(), UI::SizingAxis::grow()},
+                    .child_gap = 12,
+                    .direction = UI::LayoutDirection::TopToBottom,
+                    .clip = {.vertical = true},
+                },
+                UI::ScrollbarStyle{}, tweak_panel_scroll_state_, static_cast<f32>(frame.delta_seconds),
+                [&](UI::Context &ctx) {
             {
-                draw_panel_text(ctx, "ReSTIR GI (G)", kTweakPanelTextSecondary, 12);
+                draw_panel_text(ctx, "Global Illumination (G)", kTweakPanelTextSecondary, 12);
                 if (gi) {
-                    const bool enabled = raytracing_available && gi->enabled;
+                    const bool enabled = gi->enabled;
+                    // Ray-traced ReSTIR GI where the device can ray trace, screen-space GI everywhere else.
+                    const bool ray_traced = raytracing_available && !gi->screen_space;
                     const UI::ToggleResult toggle_result = UI::switch_toggle(
                         ctx,
                         UI::ElementDecl{
@@ -764,10 +840,14 @@ namespace SFT::Runtime {
                             .id = UString{"runtime-tweak-restir-gi-toggle"_ustr},
                         },
                         tweak_panel_toggle_style(), restir_gi_toggle_state_, static_cast<f32>(frame.delta_seconds),
-                        enabled, raytracing_available);
+                        enabled);
                     if (toggle_result.clicked) gi->enabled = !gi->enabled;
                     if (!raytracing_available) {
-                        draw_panel_text(ctx, "unavailable: no ray tracing support", kTweakPanelTextSecondary, 10);
+                        draw_panel_text(ctx, "no ray tracing: using screen-space GI", kTweakPanelTextSecondary, 10);
+                    } else {
+                        draw_panel_text(ctx, "Screen space instead of ray traced", kTweakPanelTextPrimary, 12);
+                        tweak_toggle(ctx, "runtime-tweak-gi-screen-space", screen_space_gi_toggle_state_,
+                                     static_cast<f32>(frame.delta_seconds), gi->screen_space);
                     }
 
                     draw_slider_label(ctx, "Intensity", static_cast<f64>(gi->intensity));
@@ -779,9 +859,15 @@ namespace SFT::Runtime {
                             .id = UString{"runtime-tweak-restir-gi-intensity"_ustr},
                         },
                         UI::SliderConfig{.min = 0.0, .max = 4.0, .step = 0.05},
-                        tweak_panel_slider_style(), restir_gi_intensity_slider_state_, intensity, UI::SliderInput{},
-                        raytracing_available);
+                        tweak_panel_slider_style(), restir_gi_intensity_slider_state_, intensity);
                     gi->intensity = static_cast<f32>(intensity_result.value);
+
+                    if (!ray_traced) {
+                        tweak_slider(ctx, "Radius", "runtime-tweak-ssgi-radius", screen_space_gi_sliders_[0],
+                                     gi->screen_space_radius, 0.25, 8.0, 0.05);
+                        tweak_slider(ctx, "Thickness", "runtime-tweak-ssgi-thickness", screen_space_gi_sliders_[1],
+                                     gi->screen_space_thickness, 0.02, 2.0, 0.01);
+                    }
 
                     draw_panel_text(ctx, "Quality", kTweakPanelTextPrimary, 12);
                     std::array<UI::DropdownOption, 3> quality_options{
@@ -799,7 +885,7 @@ namespace SFT::Runtime {
                         tweak_panel_dropdown_style(), restir_gi_quality_dropdown_state_,
                         static_cast<f32>(frame.delta_seconds), quality_index,
                         span<const UI::DropdownOption>{quality_options.data(), quality_options.size()},
-                        raytracing_available);
+                        ray_traced);
                     gi->quality = static_cast<u32>(quality_result.selected_index);
 
                     draw_panel_text(ctx, "Denoiser", kTweakPanelTextPrimary, 12);
@@ -820,7 +906,7 @@ namespace SFT::Runtime {
                         tweak_panel_dropdown_style(), restir_gi_denoiser_dropdown_state_,
                         static_cast<f32>(frame.delta_seconds), denoiser_index,
                         span<const UI::DropdownOption>{denoiser_options.data(), denoiser_options.size()},
-                        raytracing_available);
+                        ray_traced);
                     gi->denoiser = static_cast<u32>(denoiser_result.selected_index);
                 }
             }
@@ -862,6 +948,70 @@ namespace SFT::Runtime {
                         tweak_panel_slider_style(), motion_blur_shutter_slider_state_, shutter);
                     blur->shutter_angle_degrees = static_cast<f32>(shutter_result.value);
                 }
+            }
+
+            {
+                draw_panel_text(ctx, "Temporal AA / Upscaling", kTweakPanelTextSecondary, 12);
+                const f32 dt = static_cast<f32>(frame.delta_seconds);
+                tweak_toggle(ctx, "runtime-tweak-taa-toggle", temporal_upscaler_toggle_state_, dt, temporal_upscaler_.enabled);
+                tweak_slider(ctx, "Render Scale", "runtime-tweak-taa-scale", temporal_upscaler_sliders_[0], render_scale_,
+                             0.5, 1.0, 0.05);
+                tweak_slider(ctx, "Sharpness", "runtime-tweak-taa-sharpness", temporal_upscaler_sliders_[1],
+                             temporal_upscaler_.sharpness, 0.0, 1.0, 0.05);
+            }
+
+            {
+                draw_panel_text(ctx, "Auto Exposure", kTweakPanelTextSecondary, 12);
+                const f32 dt = static_cast<f32>(frame.delta_seconds);
+                Engine::AutoExposureSettings &ae = auto_exposure_;
+                tweak_toggle(ctx, "runtime-tweak-auto-exposure-toggle", auto_exposure_toggle_state_, dt, ae.enabled);
+                tweak_slider(ctx, "Compensation (EV)", "runtime-tweak-auto-exposure-ev", auto_exposure_sliders_[0],
+                             ae.compensation_ev, -4.0, 4.0, 0.1);
+                tweak_slider(ctx, "Key Value", "runtime-tweak-auto-exposure-key", auto_exposure_sliders_[1], ae.key_value,
+                             0.05, 0.5, 0.01);
+                tweak_slider(ctx, "Adapt Up (1/s)", "runtime-tweak-auto-exposure-up", auto_exposure_sliders_[2],
+                             ae.adapt_up_speed, 0.1, 10.0, 0.1);
+                tweak_slider(ctx, "Adapt Down (1/s)", "runtime-tweak-auto-exposure-down", auto_exposure_sliders_[3],
+                             ae.adapt_down_speed, 0.1, 10.0, 0.1);
+                tweak_slider(ctx, "Center Weight", "runtime-tweak-auto-exposure-center", auto_exposure_sliders_[4],
+                             ae.center_weight, 0.0, 1.0, 0.05);
+                tweak_slider(ctx, "Ignore Darkest", "runtime-tweak-auto-exposure-low", auto_exposure_sliders_[5],
+                             ae.low_percent, 0.0, 0.9, 0.05);
+                tweak_slider(ctx, "Keep Up To", "runtime-tweak-auto-exposure-high", auto_exposure_sliders_[6],
+                             ae.high_percent, 0.1, 1.0, 0.05);
+            }
+
+            {
+                draw_panel_text(ctx, "Camera Emulation", kTweakPanelTextSecondary, 12);
+                const f32 dt = static_cast<f32>(frame.delta_seconds);
+                Engine::CameraEmulationSettings &cam = camera_emulation_;
+                tweak_toggle(ctx, "runtime-tweak-camera-toggle", camera_emulation_toggle_state_, dt, cam.enabled);
+                tweak_slider(ctx, "Fisheye", "runtime-tweak-camera-fisheye", camera_emulation_sliders_[0],
+                             cam.fisheye_strength, 0.0, 0.9, 0.01);
+                draw_panel_text(ctx, "Fisheye via vertex warp (no overscan)", kTweakPanelTextPrimary, 12);
+                bool vertex_warp = cam.fisheye_mode == Engine::FisheyeMode::VertexWarp;
+                tweak_toggle(ctx, "runtime-tweak-camera-fisheye-vertex", camera_fisheye_vertex_toggle_state_, dt, vertex_warp);
+                cam.fisheye_mode = vertex_warp ? Engine::FisheyeMode::VertexWarp : Engine::FisheyeMode::PostProcess;
+                tweak_slider(ctx, "Chromatic Aberration", "runtime-tweak-camera-ca", camera_emulation_sliders_[1],
+                             cam.chromatic_aberration, 0.0, 0.03, 0.0005);
+                tweak_slider(ctx, "Vignette", "runtime-tweak-camera-vignette", camera_emulation_sliders_[2],
+                             cam.vignette_strength, 0.0, 1.0, 0.01);
+                tweak_slider(ctx, "Sensor Noise", "runtime-tweak-camera-noise", camera_emulation_sliders_[3],
+                             cam.sensor_noise, 0.0, 0.2, 0.005);
+                tweak_slider(ctx, "Sharpen", "runtime-tweak-camera-sharpen", camera_emulation_sliders_[4], cam.sharpen,
+                             0.0, 2.0, 0.05);
+                tweak_slider(ctx, "Saturation", "runtime-tweak-camera-saturation", camera_emulation_sliders_[5],
+                             cam.saturation, 0.0, 2.0, 0.01);
+                tweak_slider(ctx, "Contrast", "runtime-tweak-camera-contrast", camera_emulation_sliders_[6],
+                             cam.contrast, 0.5, 2.0, 0.01);
+                tweak_slider(ctx, "Tint R", "runtime-tweak-camera-tint-r", camera_emulation_sliders_[7], cam.tint.r,
+                             0.5, 1.5, 0.01);
+                tweak_slider(ctx, "Tint G", "runtime-tweak-camera-tint-g", camera_emulation_sliders_[8], cam.tint.g,
+                             0.5, 1.5, 0.01);
+                tweak_slider(ctx, "Tint B", "runtime-tweak-camera-tint-b", camera_emulation_sliders_[9], cam.tint.b,
+                             0.5, 1.5, 0.01);
+                tweak_slider(ctx, "Housing", "runtime-tweak-camera-housing", camera_emulation_sliders_[10], cam.housing,
+                             0.0, 1.0, 0.01);
             }
 
             {
@@ -1145,6 +1295,7 @@ namespace SFT::Runtime {
                 render_graph_.shadows().debug_view = kShadowDebugViews[std::min<usize>(
                     shadow_debug_result.selected_index, kShadowDebugViews.size() - 1)];
             }
+                });
             } // panel_visible
         }
 
@@ -1195,10 +1346,12 @@ namespace SFT::Runtime {
 
         if (auto gi = engine.ecs_world().get_component<RestirGiTuningState>(tweak_panel_entity_)) {
             const bool raytracing_available = static_cast<bool>(engine.capabilities().raytracing);
-            if (gi->enabled && !raytracing_available) {
-                Foundation::log_warn("ReSTIR GI is unavailable because this device did not negotiate ray tracing.");
-            }
-            render_graph_.restir_gi().enabled = gi->enabled && raytracing_available;
+            const bool ray_traced = raytracing_available && !gi->screen_space;
+            render_graph_.restir_gi().enabled = gi->enabled && ray_traced;
+            render_graph_.screen_space_gi().enabled = gi->enabled && !ray_traced;
+            render_graph_.screen_space_gi().intensity = gi->intensity;
+            render_graph_.screen_space_gi().radius = gi->screen_space_radius;
+            render_graph_.screen_space_gi().thickness = gi->screen_space_thickness;
             render_graph_.restir_gi().intensity = gi->intensity;
             render_graph_.restir_gi().quality = static_cast<Engine::RestirGiQuality>(gi->quality);
             render_graph_.restir_gi().denoiser = static_cast<Engine::RestirGiDenoiser>(gi->denoiser);
@@ -1208,6 +1361,11 @@ namespace SFT::Runtime {
             render_graph_.motion_blur().intensity = blur->intensity;
             render_graph_.motion_blur().shutter_angle_degrees = blur->shutter_angle_degrees;
         }
+
+        render_graph_.temporal_upscaler() = temporal_upscaler_;
+        render_graph_.set_resolution_scale(render_scale_);
+        render_graph_.auto_exposure() = auto_exposure_;
+        render_graph_.camera_emulation() = camera_emulation_;
 
         Engine::RenderGraph frame_graph = render_graph_;
         if (threshold_view) {

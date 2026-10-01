@@ -261,6 +261,67 @@ namespace SFT::D3D12 {
         return {};
     }
 
+    /// Checks out a pooled upload-staging buffer of at least `size` bytes, or creates one.
+    ///
+    /// @return Returns the buffer, or an error if a fresh one had to be created and creation failed.
+    rhi::RhiExpected<D3D12Device::UploadStagingBuffer> D3D12Device::acquire_upload_staging_buffer(u64 size) {
+        ZoneScopedN("D3D12Device::acquire_upload_staging_buffer");
+        {
+            auto pool = upload_staging_pool_.lock();
+            // First-fit: the pool is small (kMaxPooledUploadStagingBuffers) and buffer sizes here are
+            // constant-buffer/vertex-data-sized, so a linear scan costs nothing next to the allocation it
+            // replaces.
+            for (usize i = 0; i < pool->size(); ++i) {
+                if ((*pool)[i].capacity >= size) {
+                    UploadStagingBuffer found = std::move((*pool)[i]);
+                    pool->erase(pool->begin() + static_cast<isize>(i));
+                    return found;
+                }
+            }
+        }
+
+        // Round the capacity up so a slightly larger future request can still reuse this allocation, the same
+        // way the constant-buffer path already rounds to D3D12's placement alignment.
+        constexpr u64 minimum_capacity = 64 * 1024;
+        const u64 capacity = std::max(align_up(size, minimum_capacity), minimum_capacity);
+
+        const CD3DX12_HEAP_PROPERTIES upload_heap(D3D12_HEAP_TYPE_UPLOAD);
+        const CD3DX12_RESOURCE_DESC staging_desc = CD3DX12_RESOURCE_DESC::Buffer(capacity);
+        UploadStagingBuffer buffer;
+        if (const HRESULT hr = device_->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &staging_desc,
+                                                                 D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                                 IID_PPV_ARGS(&buffer.resource));
+            FAILED(hr)) {
+            return hresult_error(hr, "acquire_upload_staging_buffer (CreateCommittedResource)");
+        }
+        set_debug_name(buffer.resource.Get(), "Sturdy pooled staging upload");
+
+        // Mapped once and kept mapped for the life of the pooled buffer (an upload heap has no reason to be
+        // unmapped between writes); avoids a Map/Unmap pair on every reuse.
+        const CD3DX12_RANGE no_read(0, 0);
+        if (const HRESULT hr = buffer.resource->Map(0, &no_read, &buffer.mapped); FAILED(hr)) {
+            return hresult_error(hr, "acquire_upload_staging_buffer (Map)");
+        }
+        buffer.capacity = capacity;
+        return buffer;
+    }
+
+    /// Returns a staging buffer to the pool for reuse (see `UploadStagingBuffer`'s comment for the safety
+    /// argument: only called once the GPU is known to have finished reading it).
+    void D3D12Device::release_upload_staging_buffer(UploadStagingBuffer &&buffer) noexcept {
+        ZoneScopedN("D3D12Device::release_upload_staging_buffer");
+        if (!buffer.resource) {
+            return;
+        }
+        auto pool = upload_staging_pool_.lock();
+        if (pool->size() >= kMaxPooledUploadStagingBuffers) {
+            // Over the cap: let it go rather than grow the pool without bound. `buffer` still leaves this
+            // function's scope mapped; ID3D12Resource does not require Unmap before release.
+            return;
+        }
+        pool->push_back(std::move(buffer));
+    }
+
     /// Uploads via staging using the supplied arguments and current state.
     ///
     /// @param destination Destination value or resource.
@@ -275,41 +336,32 @@ namespace SFT::D3D12 {
             return operation_failed("upload_via_staging: device resources are not ready.");
         }
 
-        const CD3DX12_HEAP_PROPERTIES upload_heap(D3D12_HEAP_TYPE_UPLOAD);
-        const CD3DX12_RESOURCE_DESC staging_desc = CD3DX12_RESOURCE_DESC::Buffer(data.size());
-        ComPtr<ID3D12Resource> staging;
-        if (const HRESULT hr = device_->CreateCommittedResource(&upload_heap, D3D12_HEAP_FLAG_NONE, &staging_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&staging));
-            FAILED(hr)) {
-            return hresult_error(hr, "upload_via_staging (CreateCommittedResource)");
+        auto staging = acquire_upload_staging_buffer(data.size());
+        if (!staging) {
+            return std::unexpected(staging.error());
         }
-        set_debug_name(staging.Get(), "Sturdy staging upload");
-
-        void *mapped = nullptr;
-        const CD3DX12_RANGE no_read(0, 0);
-        if (const HRESULT hr = staging->Map(0, &no_read, &mapped); FAILED(hr)) {
-            return hresult_error(hr, "upload_via_staging (Map)");
-        }
-        std::memcpy(mapped, data.data(), data.size());
-        staging->Unmap(0, nullptr);
-
+        std::memcpy(staging->mapped, data.data(), data.size());
 
         const rhi::QueueClass queue_class = copy_queue_ != nullptr ? rhi::QueueClass::Transfer
                                                                    : rhi::QueueClass::Graphics;
         auto command = acquire_command_buffer(rhi::QueueLane{queue_class, 0});
         if (!command) {
+            release_upload_staging_buffer(std::move(*staging));
             return std::unexpected(command.error());
         }
 
-        command->list->CopyBufferRegion(destination, offset, staging.Get(), 0, data.size());
+        command->list->CopyBufferRegion(destination, offset, staging->resource.Get(), 0, data.size());
         if (const HRESULT hr = command->list->Close(); FAILED(hr)) {
             return_command_buffer(std::move(*command));
+            release_upload_staging_buffer(std::move(*staging));
             return hresult_error(hr, "upload_via_staging (Close)");
         }
 
         rhi::RhiResult executed = execute_and_wait(command->list.Get(), queue_class);
 
-
         return_command_buffer(std::move(*command));
+        // Safe to pool now: execute_and_wait above blocked until the GPU finished reading this buffer.
+        release_upload_staging_buffer(std::move(*staging));
         return executed;
     }
 

@@ -14,14 +14,10 @@
 // the neighbor's viewpoint vs. this pixel's) for not having to re-derive each candidate's original
 // sampling geometry.
 import sturdy_common;
+import sturdy_space;
+import sturdy_lens;
 import sturdy_spectral_common;
-
-struct ReservoirGpuData {
-    float4 samplePositionPdf;
-    float4 sampleRadianceNormalX;
-    float4 normalYValid;
-    float4 weightM;
-};
+import restir_gi_common;
 
 struct RestirGiPackedLight {
     float4 positionRange;
@@ -32,6 +28,7 @@ struct RestirGiFrameConstants {
     float4x4 inverseViewProjection;
     float4x4 previousViewProjection;
     float4 cameraPositionFrameIndex;
+    // xy = GI grid extent, z = GI grid downscale relative to the G-buffer, w = max ray distance.
     float4 extentMaxRayDistance;
     float4 sunDirectionAngularRadius;
     float4 sunRadiance;
@@ -46,84 +43,93 @@ Texture2D<float> gbufferDepth;
 StructuredBuffer<ReservoirGpuData> reservoirCurrent;
 RWStructuredBuffer<ReservoirGpuData> reservoirSpatial;
 
-static const float3 SFT_LUMINANCE_WEIGHTS = float3(0.2126, 0.7152, 0.0722);
+struct ReservoirAccumulator {
+    float3 radiance;
+    float weightSum;
+};
 
-float targetFunction(ReservoirGpuData reservoir) {
-    return max(dot(reservoir.sampleRadianceNormalX.xyz, SFT_LUMINANCE_WEIGHTS), 0.0);
-}
-
-void updateReservoir(inout ReservoirGpuData state, ReservoirGpuData candidateSample, float wi, inout uint rng) {
-    float wsum = state.weightM.x + wi;
+void updateReservoir(inout ReservoirAccumulator state, float3 candidateRadiance, float wi, inout uint rng) {
+    float wsum = state.weightSum + wi;
     if (wsum > 0.0 && spectralRandom(rng) < wi / wsum) {
-        state.samplePositionPdf = candidateSample.samplePositionPdf;
-        state.sampleRadianceNormalX = candidateSample.sampleRadianceNormalX;
-        state.normalYValid = candidateSample.normalYValid;
+        state.radiance = candidateRadiance;
     }
-    state.weightM.x = wsum;
+    state.weightSum = wsum;
 }
 
 float3 reconstructWorldPosition(uint2 pixel, uint2 extent, float depth) {
     float2 uv = (float2(pixel) + 0.5) / float2(extent);
     float4 clip = float4(uvToNdc(uv), depth, 1.0);
-    float4 world = mul(clip, frame.inverseViewProjection);
-    return world.xyz / max(world.w, 1.0e-6);
+    return sturdySpaceCameraClipToWorld(clip, frame.inverseViewProjection, frame.lightCountParams.w);
 }
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void spatialReuseMain(uint3 dispatchThreadId : SV_DispatchThreadID) {
-    uint2 extent = (uint2)frame.extentMaxRayDistance.xy;
-    if (any(dispatchThreadId.xy >= extent)) return;
-    uint pixelIndex = dispatchThreadId.y * extent.x + dispatchThreadId.x;
+    uint2 giExtent = (uint2)frame.extentMaxRayDistance.xy;
+    if (any(dispatchThreadId.xy >= giExtent)) return;
+    uint pixelIndex = dispatchThreadId.y * giExtent.x + dispatchThreadId.x;
 
     ReservoirGpuData center = reservoirCurrent[pixelIndex];
-    if (center.normalYValid.y < 0.5) {
-        reservoirSpatial[pixelIndex] = (ReservoirGpuData)0;
+    if (!restirIsValid(center)) {
+        reservoirSpatial[pixelIndex] = restirEmptyReservoir();
         return;
     }
 
-    float centerDepth = gbufferDepth.Load(int3(dispatchThreadId.xy, 0));
-    float3 centerPosition = reconstructWorldPosition(dispatchThreadId.xy, extent, centerDepth);
-    float3 centerNormal = decodeOctahedralNormal(gbufferNormal.Load(int3(dispatchThreadId.xy, 0)));
+    uint fullWidth, fullHeight;
+    gbufferDepth.GetDimensions(fullWidth, fullHeight);
+    uint2 fullExtent = uint2(fullWidth, fullHeight);
+    uint gridScale = (uint)frame.extentMaxRayDistance.z;
+    uint frameIndex = (uint)frame.cameraPositionFrameIndex.w;
 
-    uint rng = spectralHash(pixelIndex ^ ((uint)frame.cameraPositionFrameIndex.w * 668265263u) ^ 0x9e3779b9u);
+    uint2 centerPixel = restirRepresentativePixel(dispatchThreadId.xy, gridScale, fullExtent, frameIndex);
+    float centerDepth = gbufferDepth.Load(int3(centerPixel, 0));
+    float3 centerPosition = reconstructWorldPosition(centerPixel, fullExtent, centerDepth);
+    float3 centerNormal = decodeOctahedralNormal(gbufferNormal.Load(int3(centerPixel, 0)));
+    float sceneScale = max(length(centerPosition - frame.cameraPositionFrameIndex.xyz), 1.0);
 
-    ReservoirGpuData combined = (ReservoirGpuData)0;
-    float centerWeight = targetFunction(center) * max(center.weightM.y, 0.0) * max(center.weightM.z, 1.0);
-    updateReservoir(combined, center, centerWeight, rng);
-    float combinedM = center.weightM.z;
+    uint rng = spectralHash(pixelIndex ^ (frameIndex * 668265263u) ^ 0x9e3779b9u);
+
+    float3 centerRadiance = restirRadiance(center);
+    float centerM = restirSampleCount(center);
+    ReservoirAccumulator combined = (ReservoirAccumulator)0;
+    float centerWeight = restirTargetFunction(centerRadiance) * max(restirContributionWeight(center), 0.0)
+                       * max(centerM, 1.0);
+    updateReservoir(combined, centerRadiance, centerWeight, rng);
+    float combinedM = centerM;
 
     uint sampleCount = (uint)max(frame.temporalSpatialParams.y, 0.0);
-    float radiusPx = max(frame.temporalSpatialParams.z, 1.0);
+    // The radius is authored in G-buffer pixels; the reservoirs live on the coarser GI grid.
+    float radiusCells = max(frame.temporalSpatialParams.z / (float)max(gridScale, 1u), 1.0);
     for (uint i = 0; i < sampleCount; ++i) {
         float angle = spectralRandom(rng) * (SFT_PI * 2.0);
-        float radius = sqrt(spectralRandom(rng)) * radiusPx;
+        float radius = sqrt(spectralRandom(rng)) * radiusCells;
         int2 offset = int2(round(float2(cos(angle), sin(angle)) * radius));
-        int2 neighborPixel = int2(dispatchThreadId.xy) + offset;
-        if (any(neighborPixel < int2(0, 0)) || any(neighborPixel >= int2(extent))) continue;
+        int2 neighborCell = int2(dispatchThreadId.xy) + offset;
+        if (any(neighborCell < int2(0, 0)) || any(neighborCell >= int2(giExtent))) continue;
 
+        // Read the (cheap, 8-byte) neighbour reservoir first: empty cells skip all G-buffer traffic.
+        uint neighborIndex = (uint)neighborCell.y * giExtent.x + (uint)neighborCell.x;
+        ReservoirGpuData neighbor = reservoirCurrent[neighborIndex];
+        if (!restirIsValid(neighbor)) continue;
+
+        uint2 neighborPixel = restirRepresentativePixel(uint2(neighborCell), gridScale, fullExtent, frameIndex);
         float neighborDepth = gbufferDepth.Load(int3(neighborPixel, 0));
         if (neighborDepth >= 0.999999) continue;
         float3 neighborNormal = decodeOctahedralNormal(gbufferNormal.Load(int3(neighborPixel, 0)));
         if (dot(neighborNormal, centerNormal) < 0.9) continue;
-        float3 neighborPosition = reconstructWorldPosition(uint2(neighborPixel), extent, neighborDepth);
+        float3 neighborPosition = reconstructWorldPosition(neighborPixel, fullExtent, neighborDepth);
         float planeDistance = abs(dot(neighborPosition - centerPosition, centerNormal));
-        float sceneScale = max(length(centerPosition - frame.cameraPositionFrameIndex.xyz), 1.0);
         if (planeDistance > 0.05 * sceneScale) continue;
 
-        uint neighborIndex = (uint)neighborPixel.y * extent.x + (uint)neighborPixel.x;
-        ReservoirGpuData neighbor = reservoirCurrent[neighborIndex];
-        if (neighbor.normalYValid.y < 0.5) continue;
-
-        float neighborM = max(neighbor.weightM.z, 1.0);
-        float neighborWeight = targetFunction(neighbor) * max(neighbor.weightM.y, 0.0) * neighborM;
-        updateReservoir(combined, neighbor, neighborWeight, rng);
+        float3 neighborRadiance = restirRadiance(neighbor);
+        float neighborM = max(restirSampleCount(neighbor), 1.0);
+        float neighborWeight = restirTargetFunction(neighborRadiance) * max(restirContributionWeight(neighbor), 0.0)
+                             * neighborM;
+        updateReservoir(combined, neighborRadiance, neighborWeight, rng);
         combinedM += neighborM;
     }
 
-    combined.weightM.z = combinedM;
-    float pHatFinal = targetFunction(combined);
-    combined.weightM.y = pHatFinal > 1.0e-6 ? combined.weightM.x / (combinedM * pHatFinal) : 0.0;
-    combined.normalYValid.y = 1.0;
-    reservoirSpatial[pixelIndex] = combined;
+    float pHatFinal = restirTargetFunction(combined.radiance);
+    float contributionWeight = pHatFinal > 1.0e-6 ? combined.weightSum / (combinedM * pHatFinal) : 0.0;
+    reservoirSpatial[pixelIndex] = restirMakeReservoir(combined.radiance, contributionWeight, combinedM);
 }

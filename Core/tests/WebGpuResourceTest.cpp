@@ -318,6 +318,103 @@ namespace {
         return ok;
     }
 
+    /// `BindGroupLifetime::FrameTransient` bind groups with identical (layout, entries) content must
+    /// deduplicate onto one underlying `WGPUBindGroup`, refcounted so it survives until every logical
+    /// creator has destroyed its copy, and only then. Checked entirely through the public RHI: since
+    /// `WebGpuResourcePool::insert` hands out monotonically increasing handle values that are never
+    /// reused, "the cache entry is still alive" and "the cache entry was actually evicted" are both
+    /// directly observable as whether a later create_bind_group call returns the same handle value again
+    /// or a new one.
+    ///
+    /// @param device Device under test.
+    /// @param watch Validation-error collector.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    bool test_transient_bind_group_dedup(rhi::RhiDevice &device, ValidationErrorWatch &watch) {
+        const rhi::BindGroupLayoutEntry layout_entry{
+            .binding = 0,
+            .type = rhi::BindingType::UniformBuffer,
+            .visibility = rhi::ShaderStage::Compute,
+        };
+        auto layout = device.create_bind_group_layout(rhi::BindGroupLayoutDesc{
+            .entries = std::span<const rhi::BindGroupLayoutEntry>{&layout_entry, 1},
+            .label = "test dedup layout",
+        });
+        if (!check(layout.has_value(), "the bind group layout should be creatable")) {
+            return false;
+        }
+
+        auto make_buffer = [&](const char *label) {
+            return device.create_buffer(rhi::BufferDesc{
+                .size = 256,
+                .usage = rhi::BufferUsage::Uniform,
+                .memory = rhi::MemoryLocation::DeviceLocal,
+                .label = label,
+            });
+        };
+        auto buffer_a = make_buffer("test dedup buffer a");
+        auto buffer_b = make_buffer("test dedup buffer b");
+        bool ok = check(buffer_a.has_value() && buffer_b.has_value(), "the dedup test buffers should be creatable");
+        if (!ok) {
+            return false;
+        }
+
+        const auto make_group = [&](rhi::BufferHandle buffer) {
+            const rhi::BindGroupEntry entry{.binding = 0, .buffer = buffer, .offset = 0, .size = 256};
+            return device.create_bind_group(rhi::BindGroupDesc{
+                .layout = *layout,
+                .entries = std::span<const rhi::BindGroupEntry>{&entry, 1},
+                .lifetime = rhi::BindGroupLifetime::FrameTransient,
+                .label = "test dedup bind group",
+            });
+        };
+
+        auto first = make_group(*buffer_a);
+        auto second = make_group(*buffer_a); // Same content as `first`: must dedup onto the same handle.
+        auto different = make_group(*buffer_b); // Different content: must be a distinct bind group.
+        ok = check(first.has_value() && second.has_value() && different.has_value(),
+                   "every create_bind_group call above should succeed") &&
+             ok;
+        if (!ok) {
+            return false;
+        }
+        ok = check(first->value == second->value,
+                   "two FrameTransient bind groups with identical content dedup onto the same handle") &&
+             ok;
+        ok = check(first->value != different->value,
+                   "a FrameTransient bind group with different content is not deduplicated with an unrelated one") &&
+             ok;
+
+        // Drop one of the two duplicate owners; the shared bind group must still be alive for `second`'s
+        // owner. A further create with the same content should find it in the cache and hand back the same
+        // handle again, not build a fresh one.
+        device.destroy_bind_group(*first);
+        auto third = make_group(*buffer_a);
+        ok = check(third.has_value() && third->value == second->value,
+                   "the shared bind group survives destroying only one of its two owners") &&
+             ok;
+
+        // Drop every remaining owner (`second` and `third`, which share one handle value -- two logical
+        // owners, one physical destroy each). The cache entry must now be fully evicted: a fresh create
+        // with the same content builds a new WGPUBindGroup, observable as a new handle value.
+        device.destroy_bind_group(*second);
+        device.destroy_bind_group(*third);
+        auto fourth = make_group(*buffer_a);
+        ok = check(fourth.has_value() && fourth->value != second->value,
+                   "once every owner has destroyed its copy, the next identical create builds a fresh bind group") &&
+             ok;
+
+        device.destroy_bind_group(*fourth);
+        device.destroy_bind_group(*different);
+        device.wait_idle();
+        ok = watch.quiet("creating/destroying deduplicated FrameTransient bind groups") && ok;
+        device.destroy_buffer(*buffer_a);
+        device.destroy_buffer(*buffer_b);
+        device.destroy_bind_group_layout(*layout);
+        return ok;
+    }
+
 } // namespace
 
 /// Entry point.
@@ -360,6 +457,7 @@ int main() {
     ok = test_queue_written_staging_buffer(**device, watch) && ok;
     ok = test_buffer_to_texture_copy(**device, watch) && ok;
     ok = test_storage_usage_on_unsupported_format(**device, watch) && ok;
+    ok = test_transient_bind_group_dedup(**device, watch) && ok;
 
     if (ok) {
         std::cout << "WebGpuResourceTest passed\n";

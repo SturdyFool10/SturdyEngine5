@@ -58,12 +58,15 @@ namespace SFT::WindowManager {
 
     struct WindowConfig {
         const char *title = "Sturdy Engine";
+        /// Initial client-area size in physical pixels, on every platform and provider.
         WindowExtent extent = {1280, 720};
         WindowPosition position = {0, 0};
         bool use_default_position = true;
         bool visible = true;
         bool resizable = true;
         bool decorated = true;
+        /// Requests a full-resolution framebuffer on platforms that scale windows (macOS, Wayland,
+        /// Web). When false those platforms render at window-coordinate resolution and upscale.
         bool high_dpi = true;
                                                                                            
                                                                                                       

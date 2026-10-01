@@ -238,7 +238,18 @@ namespace SFT::Renderer {
         return *snapshot;
     }
 
-    /// Performs the window surface operation for `Renderer` using the supplied arguments.
+    /// Display-clock feedback for `surface`; all-unknown until the presentation engine has reported.
+    Core::PresentTimingFeedback Renderer::present_timing_feedback(Core::RenderSurfaceHandle surface) const noexcept {
+        ZoneScopedN("Renderer::present_timing_feedback");
+        const WindowSurfaceRecord *record = window_surface(surface);
+        if (record == nullptr || !record->present_feedback) {
+            return {};
+        }
+        auto state = record->present_feedback->lock();
+        return state->feedback;
+    }
+
+    /// Performs the window surface operation for `Renderer` using the supplied arguments.    /// Performs the window surface operation for `Renderer` using the supplied arguments.
     ///
     /// @param surface Surface used or affected by the operation.
     ///

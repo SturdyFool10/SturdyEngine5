@@ -34,8 +34,16 @@ namespace SFT::Renderer {
         u32 vertex_count = 0;
         u32 index_count = 0;
         bool gpu_resident = false;
+        /// Camera-lens variant (see LensTessellation.hpp): the same mesh with over-long edges split, uploaded next
+        /// to the original. Only present when the mesh had edges to split.
+        bool has_lens_variant = false;
+        u32 lens_vertex_offset = 0;
+        u32 lens_index_offset = 0;
+        u32 lens_index_count = 0;
         RHI::AccelerationStructureHandle bottom_level_acceleration_structure{};
         bool alive = false;
+        /// Posed on the GPU by the skinning pass (see `Renderer::attach_skin`); motion vectors then use its previous positions.
+        bool skinned = false;
                                                                                                       
                                                                                                        
                                                                         

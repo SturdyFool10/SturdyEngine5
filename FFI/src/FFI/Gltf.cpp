@@ -23,6 +23,7 @@
 #include <mutex>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
@@ -127,8 +128,8 @@ SturdyResult STURDY_ABI_CALL sturdy_gltf_import(SturdyEngine engine,
             return resolved;
         }
 
-        auto imported = SFT::Engine::import_gltf(resolved_engine->assets(), std::string{source},
-                                                 to_engine_asset(shader));
+        auto imported = SFT::Engine::import_model(resolved_engine->assets(), std::string{source},
+                                                  to_engine_asset(shader));
         if (!imported) {
             return set_error(STURDY_ERROR_NOT_AVAILABLE, imported.error().message.cpp_string_view());
         }
@@ -331,65 +332,179 @@ SturdyResult STURDY_ABI_CALL sturdy_gltf_light_name(SturdyGltfScene scene,
     });
 }
 
+} // extern "C"
+
+namespace {
+
+    /// Spawns a scene's models (animation wired up) and lights.
+    ///
+    /// @param options Placement and playback; the defaults when null.
+    /// @param entities Receives every created entity.
+    void spawn_scene(SFT::Engine::Engine &engine, const SFT::Engine::GltfImportResult &result,
+                     const SturdySpawnOptions *options, std::vector<SFT::Ecs::Entity> &entities) {
+        SFT::Ecs::World &world = engine.ecs_world();
+
+        SFT::Engine::SpawnImportedOptions spawn_options;
+        std::string initial_clip;
+        glm::mat4 transform{1.0f};
+        if (options != nullptr) {
+            std::memcpy(&transform, options->transform, sizeof(float) * 16);
+            spawn_options.auto_play = options->auto_play != 0;
+            spawn_options.loop = options->loop != 0;
+            spawn_options.speed = options->speed;
+            if (options->initial_clip != nullptr) {
+                initial_clip = options->initial_clip;
+                spawn_options.initial_clip = initial_clip;
+            }
+        }
+        spawn_options.transform = transform;
+
+        SFT::Engine::SpawnedModel spawned = SFT::Engine::spawn_imported(world, engine.assets(), result, spawn_options);
+        entities.insert(entities.end(), spawned.entities.begin(), spawned.entities.end());
+
+        for (const SFT::Engine::GltfLightInstance &light : result.lights) {
+            const SFT::Engine::WorldTransform light_transform{.value = transform * light.world_transform};
+            // Cone cosines are passed straight through rather than round-tripped through degrees,
+            // so a spot light spawned here is bit-identical to what the importer produced.
+            switch (light.kind) {
+            case SFT::Engine::GltfLightKind::Directional:
+                entities.push_back(world.spawn(light_transform,
+                                               SFT::Engine::DirectionalLightRenderer{.radiance = light.radiance}));
+                break;
+            case SFT::Engine::GltfLightKind::Spot:
+                entities.push_back(world.spawn(light_transform, SFT::Engine::SpotLightRenderer{
+                                                                    .radiance = light.radiance,
+                                                                    .range = light.range,
+                                                                    .inner_cone_cos = light.inner_cone_cos,
+                                                                    .outer_cone_cos = light.outer_cone_cos,
+                                                                }));
+                break;
+            case SFT::Engine::GltfLightKind::Point:
+            default:
+                entities.push_back(world.spawn(light_transform, SFT::Engine::PointLightRenderer{
+                                                                    .radiance = light.radiance,
+                                                                    .range = light.range}));
+                break;
+            }
+        }
+    }
+
+} // namespace
+
+extern "C" {
+
 SturdyResult STURDY_ABI_CALL sturdy_gltf_spawn_all(SturdyEngine engine,
                                                    SturdyGltfScene scene,
                                                    uint32_t *out_spawned) {
+    return sturdy_scene_spawn(engine, scene, nullptr, nullptr, 0, out_spawned);
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_model_import(SturdyEngine engine,
+                                                 const char *source,
+                                                 SturdyAsset shader,
+                                                 SturdyGltfScene *out_scene) {
+    return sturdy_gltf_import(engine, source, shader, out_scene);
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_scene_clip_count(SturdyGltfScene scene, uint32_t *out_count) {
+    return guarded([&]() -> SturdyResult {
+        if (out_count == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        SFT::Engine::GltfImportResult *result = nullptr;
+        const SturdyResult resolved = resolve_scene(scene, &result);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        *out_count = static_cast<uint32_t>(result->scene_clips.size());
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_scene_clip_name(SturdyGltfScene scene,
+                                                    uint32_t index,
+                                                    char *buffer,
+                                                    size_t capacity,
+                                                    size_t *out_length) {
+    return guarded([&]() -> SturdyResult {
+        SFT::Engine::GltfImportResult *result = nullptr;
+        const SturdyResult resolved = resolve_scene(scene, &result);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        if (index >= result->scene_clips.size()) {
+            return set_error(STURDY_ERROR_OUT_OF_RANGE, "clip index is out of range");
+        }
+        return copy_string_out(result->scene_clips[index]->name, buffer, capacity, out_length);
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_scene_clip_duration(SturdyGltfScene scene, uint32_t index, float *out_seconds) {
+    return guarded([&]() -> SturdyResult {
+        if (out_seconds == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        SFT::Engine::GltfImportResult *result = nullptr;
+        const SturdyResult resolved = resolve_scene(scene, &result);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        if (index >= result->scene_clips.size()) {
+            return set_error(STURDY_ERROR_OUT_OF_RANGE, "clip index is out of range");
+        }
+        *out_seconds = result->scene_clips[index]->duration;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_spawn_options_init(SturdySpawnOptions *options) {
+    return guarded([&]() -> SturdyResult {
+        if (options == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "options pointer must not be null");
+        }
+        *options = SturdySpawnOptions{};
+        options->struct_size = static_cast<uint32_t>(sizeof(SturdySpawnOptions));
+        options->auto_play = STURDY_TRUE;
+        options->loop = STURDY_TRUE;
+        options->speed = 1.0f;
+        const glm::mat4 identity{1.0f};
+        std::memcpy(options->transform, &identity, sizeof(float) * 16);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_scene_spawn(SturdyEngine engine,
+                                                SturdyGltfScene scene,
+                                                const SturdySpawnOptions *options,
+                                                SturdyEntity *out_entities,
+                                                uint32_t capacity,
+                                                uint32_t *out_count) {
     return guarded([&]() -> SturdyResult {
         SFT::Engine::Engine *resolved_engine = nullptr;
         const SturdyResult resolved = resolve_engine(engine, &resolved_engine);
         if (resolved != STURDY_OK) {
             return resolved;
         }
-
         SFT::Engine::GltfImportResult *result = nullptr;
         const SturdyResult scene_resolved = resolve_scene(scene, &result);
         if (scene_resolved != STURDY_OK) {
             return scene_resolved;
         }
-
-        SFT::Ecs::World &world = resolved_engine->ecs_world();
-        uint32_t spawned = 0;
-
-        for (const SFT::Engine::GltfNodeInstance &instance : result->instances) {
-            // A glTF node without a mesh still exists in the hierarchy; spawning it would create an
-            // entity that neither draws nor lights anything.
-            if (!instance.model) {
-                continue;
-            }
-            (void)world.spawn(SFT::Engine::WorldTransform{.value = instance.world_transform},
-                              SFT::Engine::ModelRenderer{.model = instance.model});
-            ++spawned;
+        if (options != nullptr && options->struct_size < sizeof(SturdySpawnOptions)) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "options.struct_size is too small; use sturdy_spawn_options_init");
         }
 
-        for (const SFT::Engine::GltfLightInstance &light : result->lights) {
-            const SFT::Engine::WorldTransform transform{.value = light.world_transform};
-            // Cone cosines are passed straight through rather than round-tripped through degrees,
-            // so a spot light spawned here is bit-identical to what the importer produced.
-            switch (light.kind) {
-            case SFT::Engine::GltfLightKind::Directional:
-                (void)world.spawn(transform,
-                                  SFT::Engine::DirectionalLightRenderer{.radiance = light.radiance});
-                break;
-            case SFT::Engine::GltfLightKind::Spot:
-                (void)world.spawn(transform, SFT::Engine::SpotLightRenderer{
-                                                 .radiance = light.radiance,
-                                                 .range = light.range,
-                                                 .inner_cone_cos = light.inner_cone_cos,
-                                                 .outer_cone_cos = light.outer_cone_cos,
-                                             });
-                break;
-            case SFT::Engine::GltfLightKind::Point:
-            default:
-                (void)world.spawn(SFT::Engine::WorldTransform{transform},
-                                  SFT::Engine::PointLightRenderer{.radiance = light.radiance,
-                                                                  .range = light.range});
-                break;
-            }
-            ++spawned;
-        }
+        std::vector<SFT::Ecs::Entity> entities;
+        spawn_scene(*resolved_engine, *result, options, entities);
 
-        if (out_spawned != nullptr) {
-            *out_spawned = spawned;
+        if (out_entities != nullptr) {
+            for (uint32_t i = 0; i < capacity && i < entities.size(); ++i) {
+                out_entities[i].index = entities[i].index;
+                out_entities[i].generation = entities[i].generation;
+            }
+        }
+        if (out_count != nullptr) {
+            *out_count = static_cast<uint32_t>(entities.size());
         }
         return STURDY_OK;
     });

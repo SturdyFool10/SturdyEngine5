@@ -2,6 +2,8 @@
 // that replaces primary raster visibility; its first hit writes the canonical deferred G-buffer ABI.
 
 import sturdy_common;
+import sturdy_space;
+import sturdy_lens;
 import sturdy_pbr;
 import sturdy_spectral_common;
 import sturdy_path_transport;
@@ -27,7 +29,7 @@ struct SpectralFrameConstants {
     float wavelengthMinNm;
     float wavelengthMaxNm;
     float environmentIntensity;
-    // x gather radius, y photon voxel size, zw reserved.
+    // x gather radius, y photon voxel size, z camera lens strength (vertex-warp fisheye), w reserved.
     float4 causticGatherParameters;
     // x hash capacity, y chain traversal limit, z enabled, w photon capacity.
     uint4 causticGatherControl;
@@ -66,17 +68,15 @@ RWTexture2D<float4> accumulationOutput;
 float3 reconstructWorldPosition(uint2 pixel, float depth) {
     float2 uv = (float2(pixel) + 0.5) / float2(frame.extent);
     float4 clip = float4(uvToNdc(uv), depth, 1.0);
-    float4 world = mul(clip, frame.inverseViewProjection);
-    return world.xyz / max(world.w, 1.0e-6);
+    return sturdySpaceCameraClipToWorld(clip, frame.inverseViewProjection, frame.causticGatherParameters.z);
 }
 
 void primaryRay(uint2 pixel, inout uint rng, out float3 origin, out float3 direction) {
     float2 jitter = float2(spectralRandom(rng), spectralRandom(rng)) - 0.5;
     float2 uv = (float2(pixel) + 0.5 + jitter) / float2(frame.extent);
     float4 farClip = float4(uvToNdc(uv), 1.0, 1.0);
-    float4 farWorld = mul(farClip, frame.inverseViewProjection);
     origin = frame.cameraPosition.xyz;
-    direction = normalize(farWorld.xyz / max(farWorld.w, 1.0e-6) - origin);
+    direction = normalize(sturdySpaceCameraClipToWorld(farClip, frame.inverseViewProjection, frame.causticGatherParameters.z) - origin);
 }
 
 // Must match sky_view_lut.slang's LUT_SIZE exactly — same mirrored-constant convention

@@ -67,7 +67,7 @@ namespace SFT::Renderer {
     ///
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
-    Core::RendererResult Renderer::ensure_restir_gi_resources(glm::uvec2 render_extent) {
+    Core::RendererResult Renderer::ensure_restir_gi_resources(glm::uvec2 render_extent, u32 grid_scale) {
         ZoneScopedN("Renderer::ensure_restir_gi_resources");
         render_extent.x = std::max(render_extent.x, 1u);
         render_extent.y = std::max(render_extent.y, 1u);
@@ -239,7 +239,12 @@ namespace SFT::Renderer {
             guard->ready = true;
         }
 
-        if (guard->reservoir_extent_x == render_extent.x && guard->reservoir_extent_y == render_extent.y) {
+        grid_scale = std::max(grid_scale, 1u);
+        const glm::uvec2 grid_extent{(render_extent.x + grid_scale - 1u) / grid_scale,
+                                     (render_extent.y + grid_scale - 1u) / grid_scale};
+        const glm::uvec2 history_extent{(render_extent.x + 1u) / 2u, (render_extent.y + 1u) / 2u};
+        if (guard->render_extent_x == render_extent.x && guard->render_extent_y == render_extent.y &&
+            guard->grid_scale == grid_scale) {
             return {};
         }
 
@@ -258,7 +263,7 @@ namespace SFT::Renderer {
         guard->previous_scene_color_view = {};
         guard->previous_scene_color_texture = {};
 
-        const u64 pixel_count = static_cast<u64>(render_extent.x) * static_cast<u64>(render_extent.y);
+        const u64 pixel_count = static_cast<u64>(grid_extent.x) * static_cast<u64>(grid_extent.y);
         const u64 reservoir_buffer_size = pixel_count * sizeof(ReservoirGpuData);
 
         const auto create_reservoir_buffer = [&](const char *label) -> Core::RendererExpected<RHI::BufferHandle> {
@@ -316,7 +321,7 @@ namespace SFT::Renderer {
         auto history_texture = device->create_texture(RHI::TextureDesc{
             .dimension = RHI::TextureDimension::Dim2D,
             .format = RHI::Format::RGBA16Float,
-            .extent = RHI::Extent3D{.width = render_extent.x, .height = render_extent.y, .depth_or_layers = 1},
+            .extent = RHI::Extent3D{.width = history_extent.x, .height = history_extent.y, .depth_or_layers = 1},
             .mip_levels = 1,
             .samples = RHI::SampleCount::X1,
             .usage = RHI::TextureUsage::Storage | RHI::TextureUsage::Sampled,
@@ -426,8 +431,13 @@ namespace SFT::Renderer {
         guard->guide_buffer_b = *guide_b;
         guard->previous_scene_color_texture = *history_texture;
         guard->previous_scene_color_view = *history_view;
-        guard->reservoir_extent_x = render_extent.x;
-        guard->reservoir_extent_y = render_extent.y;
+        guard->reservoir_extent_x = grid_extent.x;
+        guard->reservoir_extent_y = grid_extent.y;
+        guard->grid_scale = grid_scale;
+        guard->history_extent_x = history_extent.x;
+        guard->history_extent_y = history_extent.y;
+        guard->render_extent_x = render_extent.x;
+        guard->render_extent_y = render_extent.y;
         guard->previous_is_a = false;
         // History is meaningless immediately after a (re)allocation — every reservoir slot and the
         // history texture were just cleared to zero, so the first frame after this must not read them.
@@ -491,7 +501,9 @@ namespace SFT::Renderer {
         glm::uvec2 render_extent,
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
         ZoneScopedN("Renderer::record_restir_gi_initial_sample");
-        if (Core::RendererResult ready = ensure_restir_gi_resources(render_extent); !ready.has_value()) {
+        if (Core::RendererResult ready = ensure_restir_gi_resources(
+                render_extent, restir_gi_grid_scale(settings.restir_gi.quality));
+            !ready.has_value()) {
             return ready;
         }
         RHI::RhiDevice *device = rhi_device();
@@ -602,8 +614,14 @@ namespace SFT::Renderer {
 
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, *bind_group);
-        pass.dispatch((render_extent.x + 7u) / 8u, (render_extent.y + 7u) / 8u, 1);
-        (void)settings;
+        u32 grid_x = 0;
+        u32 grid_y = 0;
+        {
+            auto guard = restir_gi_.lock();
+            grid_x = guard->reservoir_extent_x;
+            grid_y = guard->reservoir_extent_y;
+        }
+        pass.dispatch((grid_x + 7u) / 8u, (grid_y + 7u) / 8u, 1);
         return {};
     }
 
@@ -628,6 +646,8 @@ namespace SFT::Renderer {
         vector<ReflectedResource> resources;
         RHI::BufferHandle current_buffer{};
         RHI::BufferHandle previous_buffer{};
+        RHI::BufferHandle guide_previous_buffer{};
+        RHI::BufferHandle guide_current_buffer{};
         {
             auto guard = restir_gi_.lock();
             layout = guard->temporal_reuse.bind_group_layout;
@@ -635,6 +655,9 @@ namespace SFT::Renderer {
             resources = guard->temporal_reuse.resources;
             current_buffer = guard->previous_is_a ? guard->reservoir_buffer_b : guard->reservoir_buffer_a;
             previous_buffer = guard->previous_is_a ? guard->reservoir_buffer_a : guard->reservoir_buffer_b;
+            // Same ping-pong as the initial-sample pass' guide buffers.
+            guide_previous_buffer = guard->previous_is_a ? guard->guide_buffer_a : guard->guide_buffer_b;
+            guide_current_buffer = guard->previous_is_a ? guard->guide_buffer_b : guard->guide_buffer_a;
         }
 
         vector<RHI::BindGroupEntry> entries;
@@ -654,6 +677,8 @@ namespace SFT::Renderer {
         if (auto r = bind_texture("gbufferMotion", gbuffer_motion_view); !r.has_value()) return r;
         if (auto r = bind_buffer("reservoirPrevious", previous_buffer); !r.has_value()) return r;
         if (auto r = bind_buffer("reservoirCurrent", current_buffer); !r.has_value()) return r;
+        if (auto r = bind_buffer("guideGeometryPrevious", guide_previous_buffer); !r.has_value()) return r;
+        if (auto r = bind_buffer("guideGeometryCurrent", guide_current_buffer); !r.has_value()) return r;
 
         auto bind_group = device->create_bind_group(RHI::BindGroupDesc{
             .layout = layout,
@@ -760,8 +785,6 @@ namespace SFT::Renderer {
         RHI::ComputePassEncoder &pass,
         RHI::TextureViewHandle gbuffer_normal_view,
         RHI::TextureViewHandle gbuffer_depth_view,
-        RHI::TextureViewHandle gbuffer_albedo_view,
-        RHI::TextureViewHandle gbuffer_material_view,
         RHI::TextureViewHandle output_view,
         RHI::BufferHandle constants_buffer,
         const RenderGraphSettings &settings,
@@ -802,8 +825,6 @@ namespace SFT::Renderer {
         if (auto r = bind_buffer("frame", constants_buffer); !r.has_value()) return r;
         if (auto r = bind_texture("gbufferNormal", gbuffer_normal_view); !r.has_value()) return r;
         if (auto r = bind_texture("gbufferDepth", gbuffer_depth_view); !r.has_value()) return r;
-        if (auto r = bind_texture("gbufferAlbedo", gbuffer_albedo_view); !r.has_value()) return r;
-        if (auto r = bind_texture("gbufferMaterial", gbuffer_material_view); !r.has_value()) return r;
         if (auto r = bind_buffer("reservoirSpatial", spatial_buffer); !r.has_value()) return r;
         if (auto r = bind_texture("irradianceOut", output_view); !r.has_value()) return r;
 
@@ -889,8 +910,8 @@ namespace SFT::Renderer {
             pipeline = guard->history_copy.pipeline;
             resources = guard->history_copy.resources;
             history_view = guard->previous_scene_color_view;
-            extent_x = guard->reservoir_extent_x;
-            extent_y = guard->reservoir_extent_y;
+            extent_x = guard->history_extent_x;
+            extent_y = guard->history_extent_y;
             // Every reservoir/history buffer now holds at least one full frame of real data.
             guard->has_history = true;
             guard->previous_is_a = !guard->previous_is_a;

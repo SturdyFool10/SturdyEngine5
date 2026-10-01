@@ -189,13 +189,28 @@ namespace SFT::Core::WebGpu {
         config.height = desc.height;
         // The RHI describes presentation as a strategy rather than a mode; WebGPU only has modes,
         // so the strategy is mapped onto the closest one it offers.
+        rhi::PresentMode resolved_mode = rhi::PresentMode::Fifo;
         switch (desc.present_strategy) {
-            case rhi::PresentStrategy::Unsynchronized: config.presentMode = WGPUPresentMode_Immediate; break;
-            case rhi::PresentStrategy::TearFreeLatest: config.presentMode = WGPUPresentMode_Mailbox; break;
+            case rhi::PresentStrategy::VariableRefresh:
+                // No adaptive-sync-specific mode exists in WebGPU either; Immediate is the same
+                // tearing-capable, not-forcibly-paced choice Unsynchronized uses, which is what actually
+                // lets a VRR display's own pacing take over (see the RHI's present_mode_preference doc).
+            case rhi::PresentStrategy::Unsynchronized:
+                config.presentMode = WGPUPresentMode_Immediate;
+                resolved_mode = rhi::PresentMode::Immediate;
+                break;
+            case rhi::PresentStrategy::TearFreeLatest:
+            case rhi::PresentStrategy::TearFreeLatestReady:
+                config.presentMode = WGPUPresentMode_Mailbox;
+                resolved_mode = rhi::PresentMode::Mailbox;
+                break;
             case rhi::PresentStrategy::AdaptiveTearing:
                 // WebGPU has no adaptive/late-tearing mode; FIFO is the tear-free fallback.
             case rhi::PresentStrategy::TearFreeOrdered:
-            default: config.presentMode = WGPUPresentMode_Fifo; break;
+            default:
+                config.presentMode = WGPUPresentMode_Fifo;
+                resolved_mode = rhi::PresentMode::Fifo;
+                break;
         }
         config.alphaMode = WGPUCompositeAlphaMode_Auto;
         // WebGPU does not let a caller pick an image count: the implementation chooses how deep to
@@ -206,6 +221,18 @@ namespace SFT::Core::WebGpu {
         entry->width = desc.width;
         entry->height = desc.height;
         entry->configured = true;
+        entry->resolution = rhi::PresentationResolution{
+            .strategy = desc.present_strategy,
+            .effective_mode = resolved_mode,
+            // Every strategy above got exactly the mode it asked for on this backend (no fallback path
+            // exists here the way a real driver's supported-mode list forces one on Vulkan/D3D12), except
+            // AdaptiveTearing, which WebGPU has no equivalent of at all.
+            .degraded = desc.present_strategy == rhi::PresentStrategy::AdaptiveTearing,
+            .present_queue_is_compute = false,
+            .effective_composite_alpha = rhi::CompositeAlphaMode::Opaque,
+            .composite_alpha_degraded = false,
+            .via_composition_present = false,
+        };
 
         const rhi::SwapchainHandle swapchain = swapchains_.insert(rhi::SurfaceHandle{desc.surface});
         // This configuration now belongs to the new swapchain, so destroying whichever one held it
@@ -242,19 +269,17 @@ namespace SFT::Core::WebGpu {
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
     rhi::PresentationResolution WebGpuDevice::presentation_resolution(rhi::SwapchainHandle handle) const noexcept {
-        (void)handle;
-        // WebGPU does not report back what the implementation chose, so this describes what the
-        // API guarantees rather than what a driver picked: tear-free ordered presentation, never
-        // through a compute queue (there is only one queue), and opaque composition.
-        return rhi::PresentationResolution{
-            .strategy = rhi::PresentStrategy::TearFreeOrdered,
-            .effective_mode = rhi::PresentMode::Fifo,
-            .degraded = false,
-            .present_queue_is_compute = false,
-            .effective_composite_alpha = rhi::CompositeAlphaMode::Opaque,
-            .composite_alpha_degraded = false,
-            .via_composition_present = false,
-        };
+        // WebGPU never reports back "the implementation picked a different mode than you asked for" the way
+        // a Vulkan/D3D12 driver's supported-mode list can force -- every strategy this backend maps at all
+        // gets exactly the WGPUPresentMode configure_swapchain chose for it (recorded there; see
+        // SurfaceEntry::resolution) -- but a frame pacer still needs to know *which* mode that was, not a
+        // hardcoded guess, to decide whether this swapchain already paces itself.
+        const rhi::SurfaceHandle *surface_handle = swapchains_.find(handle);
+        if (surface_handle == nullptr) {
+            return rhi::PresentationResolution{};
+        }
+        const SurfaceEntry *entry = surfaces_.find(*surface_handle);
+        return entry != nullptr ? entry->resolution : rhi::PresentationResolution{};
     }
 
     /// Queries a surface's HDR capabilities.

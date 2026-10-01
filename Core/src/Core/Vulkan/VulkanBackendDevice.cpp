@@ -232,9 +232,26 @@ namespace SFT::Core::Vulkan {
         (void)init;
 
 
+        // Presentation-engine timing (frame pacing feedback; see plans/frame-pacing.md). The "2" variants are
+        // what VK_EXT_present_timing builds on; the v1 extensions are the fallback for present ids/waits alone.
+        VkPhysicalDevicePresentTimingFeaturesEXT supportedPresentTimingFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_TIMING_FEATURES_EXT,
+            .pNext = nullptr};
+        VkPhysicalDevicePresentWait2FeaturesKHR supportedPresentWait2Features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_2_FEATURES_KHR,
+            .pNext = &supportedPresentTimingFeatures};
+        VkPhysicalDevicePresentId2FeaturesKHR supportedPresentId2Features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_2_FEATURES_KHR,
+            .pNext = &supportedPresentWait2Features};
+        VkPhysicalDevicePresentWaitFeaturesKHR supportedPresentWaitFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR,
+            .pNext = &supportedPresentId2Features};
+        VkPhysicalDevicePresentIdFeaturesKHR supportedPresentIdFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR,
+            .pNext = &supportedPresentWaitFeatures};
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR supportedPresentModeFifoLatestReadyFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR,
-            .pNext = nullptr};
+            .pNext = &supportedPresentIdFeatures};
 
 
         // Shader Execution Reordering. Note this only ever gates whether shader code may use the
@@ -307,6 +324,13 @@ namespace SFT::Core::Vulkan {
         if (supportedFeatures.features.depthBounds) {
             supported_rhi_features.set(RHI::Feature::DepthBoundsTest);
         }
+        // Core Vulkan: timestampComputeAndGraphics guarantees timestamp writes on every graphics and compute queue,
+        // which is all the renderer's GPU pass timings (FrameTimings) need. Without it the feature stays off and the
+        // renderer skips GPU timing, exactly as on WebGPU.
+        if (this->physicalDevice.properties().limits.timestampComputeAndGraphics &&
+            this->physicalDevice.properties().limits.timestampPeriod > 0.0f) {
+            supported_rhi_features.set(RHI::Feature::TimestampQueries);
+        }
         if (supportedFragmentShadingRateFeatures.pipelineFragmentShadingRate) {
             supported_rhi_features.set(RHI::Feature::VariableRateShading);
             supported_rhi_features.set(RHI::Feature::PipelineFragmentShadingRate);
@@ -366,6 +390,34 @@ namespace SFT::Core::Vulkan {
         if (this->physicalDevice.supports_extension(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME) &&
             supportedPresentModeFifoLatestReadyFeatures.presentModeFifoLatestReady) {
             supported_rhi_features.set(RHI::Feature::PresentModeFifoLatestReady);
+        }
+        {
+            const bool id2 = this->physicalDevice.supports_extension(VK_KHR_PRESENT_ID_2_EXTENSION_NAME) &&
+                             supportedPresentId2Features.presentId2 && surface_capabilities2_enabled_;
+            const bool wait2 = id2 && this->physicalDevice.supports_extension(VK_KHR_PRESENT_WAIT_2_EXTENSION_NAME) &&
+                               supportedPresentWait2Features.presentWait2;
+            const bool id1 = this->physicalDevice.supports_extension(VK_KHR_PRESENT_ID_EXTENSION_NAME) &&
+                             supportedPresentIdFeatures.presentId;
+            const bool wait1 = id1 && this->physicalDevice.supports_extension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME) &&
+                               supportedPresentWaitFeatures.presentWait;
+            if (id2 || id1) {
+                supported_rhi_features.set(RHI::Feature::PresentId);
+            }
+            if (wait2 || wait1) {
+                supported_rhi_features.set(RHI::Feature::PresentWait);
+            }
+            if (id2 && this->physicalDevice.supports_extension(VK_EXT_PRESENT_TIMING_EXTENSION_NAME) &&
+                supportedPresentTimingFeatures.presentTiming) {
+                supported_rhi_features.set(RHI::Feature::PresentTiming);
+            }
+            present_timing_support_ = PresentTimingSupport{
+                .present_id2 = id2,
+                .present_wait2 = wait2,
+                .present_id = id1,
+                .present_wait = wait1,
+                .present_at_absolute_time = supportedPresentTimingFeatures.presentAtAbsoluteTime == VK_TRUE,
+                .present_at_relative_time = supportedPresentTimingFeatures.presentAtRelativeTime == VK_TRUE,
+            };
         }
         if (surface_maintenance1_enabled_ &&
             this->physicalDevice.supports_extension(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) &&
@@ -535,6 +587,9 @@ namespace SFT::Core::Vulkan {
 
 
         optional_rhi_features.set(RHI::Feature::PresentModeFifoLatestReady);
+        optional_rhi_features.set(RHI::Feature::PresentId);
+        optional_rhi_features.set(RHI::Feature::PresentWait);
+        optional_rhi_features.set(RHI::Feature::PresentTiming);
 
 
         optional_rhi_features.set(RHI::Feature::RenderBundles);
@@ -547,6 +602,7 @@ namespace SFT::Core::Vulkan {
 
 
         optional_rhi_features.set(RHI::Feature::DepthBoundsTest);
+        optional_rhi_features.set(RHI::Feature::TimestampQueries);
 
 
         optional_rhi_features.set(RHI::Feature::ConservativeRasterization);
@@ -654,6 +710,27 @@ namespace SFT::Core::Vulkan {
 #endif
 
 
+        // Present ids/waits/timing: prefer the "2" family (required by VK_EXT_present_timing), fall back to v1.
+        const bool want_present_id = enabled_rhi_features.has(RHI::Feature::PresentId);
+        const bool want_present_wait = enabled_rhi_features.has(RHI::Feature::PresentWait);
+        const bool enable_present_timing = enabled_rhi_features.has(RHI::Feature::PresentTiming);
+        // One family or the other, never mixed: present_wait (v1) requires present_id (v1), and present_timing
+        // requires present_id2. With the "2" family available it is used for everything; otherwise v1.
+        const bool use_family2 = (want_present_id || want_present_wait || enable_present_timing) &&
+                                 present_timing_support_.present_id2;
+        const bool enable_present_id2 = use_family2;
+        const bool enable_present_wait2 = use_family2 && want_present_wait && present_timing_support_.present_wait2;
+        const bool enable_present_id1 = !use_family2 && (want_present_id || want_present_wait) &&
+                                        present_timing_support_.present_id;
+        const bool enable_present_wait1 = enable_present_id1 && want_present_wait && present_timing_support_.present_wait;
+        present_timing_enabled_ = PresentTimingEnabled{
+            .present_id_version = enable_present_id2 ? 2u : (enable_present_id1 ? 1u : 0u),
+            .present_wait_version = enable_present_wait2 ? 2u : (enable_present_wait1 ? 1u : 0u),
+            .present_timing = enable_present_timing && enable_present_id2,
+            .present_at_absolute_time = enable_present_timing && present_timing_support_.present_at_absolute_time,
+            .present_at_relative_time = enable_present_timing && present_timing_support_.present_at_relative_time,
+        };
+
         VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR presentModeFifoLatestReadyFeatures{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_MODE_FIFO_LATEST_READY_FEATURES_KHR,
             .pNext = nullptr,
@@ -662,6 +739,51 @@ namespace SFT::Core::Vulkan {
         void *feature_chain_tail = enable_present_mode_fifo_latest_ready
                                        ? static_cast<void *>(&presentModeFifoLatestReadyFeatures)
                                        : nullptr;
+        VkPhysicalDevicePresentIdFeaturesKHR presentIdFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR,
+            .pNext = feature_chain_tail,
+            .presentId = VK_TRUE,
+        };
+        if (present_timing_enabled_.present_id_version == 1) {
+            feature_chain_tail = &presentIdFeatures;
+        }
+        VkPhysicalDevicePresentWaitFeaturesKHR presentWaitFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR,
+            .pNext = feature_chain_tail,
+            .presentWait = VK_TRUE,
+        };
+        if (present_timing_enabled_.present_wait_version == 1) {
+            feature_chain_tail = &presentWaitFeatures;
+        }
+        VkPhysicalDevicePresentId2FeaturesKHR presentId2Features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_2_FEATURES_KHR,
+            .pNext = feature_chain_tail,
+            .presentId2 = VK_TRUE,
+        };
+        if (present_timing_enabled_.present_id_version == 2) {
+            feature_chain_tail = &presentId2Features;
+        }
+        VkPhysicalDevicePresentWait2FeaturesKHR presentWait2Features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_2_FEATURES_KHR,
+            .pNext = feature_chain_tail,
+            .presentWait2 = VK_TRUE,
+        };
+        if (present_timing_enabled_.present_wait_version == 2) {
+            feature_chain_tail = &presentWait2Features;
+        }
+        VkPhysicalDevicePresentTimingFeaturesEXT presentTimingFeatures{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_TIMING_FEATURES_EXT,
+            .pNext = feature_chain_tail,
+            .presentTiming = VK_TRUE,
+            .presentAtAbsoluteTime = present_timing_enabled_.present_at_absolute_time ? VK_TRUE : VK_FALSE,
+            .presentAtRelativeTime = present_timing_enabled_.present_at_relative_time ? VK_TRUE : VK_FALSE,
+        };
+        if (present_timing_enabled_.present_timing) {
+            feature_chain_tail = &presentTimingFeatures;
+        }
+        const bool enable_any_present_timing_feature = present_timing_enabled_.present_id_version != 0 ||
+                                                       present_timing_enabled_.present_wait_version != 0 ||
+                                                       present_timing_enabled_.present_timing;
         VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR swapchainMaintenance1Features{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
             .pNext = feature_chain_tail,
@@ -724,7 +846,8 @@ namespace SFT::Core::Vulkan {
             .pNext = (enable_mesh_shader || enable_acceleration_structures || enable_ray_tracing_pipeline ||
                       enable_ray_query || enable_swapchain_maintenance1 ||
                       enable_present_mode_fifo_latest_ready || enable_fragment_shading_rate ||
-                      enable_opacity_micromap || enable_ray_tracing_invocation_reorder)
+                      enable_opacity_micromap || enable_ray_tracing_invocation_reorder ||
+                      enable_any_present_timing_feature)
                          ? &opacityMicromapFeatures
                          : nullptr,
         };
@@ -814,6 +937,19 @@ namespace SFT::Core::Vulkan {
         }
         if (enable_present_mode_fifo_latest_ready) {
             extensions.push_back(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);
+        }
+        if (present_timing_enabled_.present_id_version == 2) {
+            extensions.push_back(VK_KHR_PRESENT_ID_2_EXTENSION_NAME);
+        } else if (present_timing_enabled_.present_id_version == 1) {
+            extensions.push_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
+        }
+        if (present_timing_enabled_.present_wait_version == 2) {
+            extensions.push_back(VK_KHR_PRESENT_WAIT_2_EXTENSION_NAME);
+        } else if (present_timing_enabled_.present_wait_version == 1) {
+            extensions.push_back(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+        }
+        if (present_timing_enabled_.present_timing) {
+            extensions.push_back(VK_EXT_PRESENT_TIMING_EXTENSION_NAME);
         }
         if (enable_swapchain_maintenance1) {
 

@@ -77,6 +77,10 @@ namespace SFT::Runtime {
         f32 intensity = 1.0f;
         u32 quality = 1;
         u32 denoiser = 1; // 0=Off, 1=SVGF
+        /// Use the screen-space GI even when ray tracing is available (it is always used when it is not).
+        bool screen_space = false;
+        f32 screen_space_radius = 2.0f;
+        f32 screen_space_thickness = 0.25f;
     };
 
     struct MotionBlurTuningState {
@@ -185,6 +189,11 @@ namespace SFT::Runtime {
         Engine::Asset reference_floor_model_{};
         std::vector<Engine::GltfNodeInstance> gltf_instances_{};
         std::vector<Engine::GltfLightInstance> gltf_lights_{};
+        struct ShowcaseModel {
+            Engine::GltfImportResult imported;
+            glm::mat4 transform{1.0f};
+        };
+        std::vector<ShowcaseModel> showcase_models_{};
         Engine::Camera camera_{};
         Engine::RenderGraph render_graph_{};
         Ecs::Entity bloom_controls_entity_{};
@@ -200,7 +209,23 @@ namespace SFT::Runtime {
         Ecs::EventModule<RuntimeRenderingSettingsChanged> runtime_rendering_events_{};
         Ecs::EventModule<SpectralPathTracingSettingsChanged> spectral_path_tracing_events_{};
 
+        UI::ScrollAreaState tweak_panel_scroll_state_{};
+        /// Auto-exposure and camera-emulation settings the tweak panel edits; copied into the render graph each frame.
+        Engine::AutoExposureSettings auto_exposure_{};
+        Engine::CameraEmulationSettings camera_emulation_{};
+        UI::ToggleState auto_exposure_toggle_state_{};
+        UI::ToggleState camera_emulation_toggle_state_{};
+        /// Temporal upscaler settings and the render scale it upscales from.
+        Engine::TemporalUpscalerSettings temporal_upscaler_{};
+        f32 render_scale_ = 1.0f;
+        UI::ToggleState temporal_upscaler_toggle_state_{};
+        std::array<UI::SliderState, 2> temporal_upscaler_sliders_{};
+        UI::ToggleState camera_fisheye_vertex_toggle_state_{};
+        std::array<UI::SliderState, 7> auto_exposure_sliders_{};
+        std::array<UI::SliderState, 11> camera_emulation_sliders_{};
         UI::ToggleState restir_gi_toggle_state_{};
+        UI::ToggleState screen_space_gi_toggle_state_{};
+        std::array<UI::SliderState, 2> screen_space_gi_sliders_{};
         UI::SliderState restir_gi_intensity_slider_state_{};
         UI::DropdownState restir_gi_quality_dropdown_state_{};
         UI::DropdownState restir_gi_denoiser_dropdown_state_{};

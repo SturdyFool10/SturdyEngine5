@@ -330,10 +330,11 @@ namespace SFT::UI {
                            std::span<const Text::Font *const> fallbacks = {});
 
 
-        /// Performs the begin layout operation for `Context` using the supplied arguments.
+        /// Starts a layout frame.
         ///
-        /// @param viewport_size Requested or available size for the operation.
-        /// @param pointer Pointer to the object or storage used by the operation.
+        /// @param viewport_size Target size in framebuffer pixels. Layout runs in
+        ///        `viewport_size / pixel_scale()` logical units.
+        /// @param pointer Pointer state in framebuffer pixels; converted to logical units here.
         /// @param delta_seconds `delta_seconds` value used by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
@@ -343,9 +344,24 @@ namespace SFT::UI {
         /// Returns the current layout viewport in logical UI pixels.
         ///
         /// Widgets use this to constrain floating content such as menus to the visible context.
-        [[nodiscard]] glm::vec2 viewport_size() const noexcept {
-            return glm::vec2{static_cast<f32>(layout_extent_.x), static_cast<f32>(layout_extent_.y)};
-        }
+        [[nodiscard]] glm::vec2 viewport_size() const noexcept { return layout_size_; }
+
+
+        /// Sets how many framebuffer pixels one logical layout unit covers (the display's content
+        /// scale for on-screen UI; 1 for raw-pixel UI). Widget sizes, font sizes, element bounds and
+        /// `pointer_position()` are all in logical units; `finish_frame()` emits pixel geometry and
+        /// rasterizes text at the scaled size so it stays sharp. Takes effect at the next `begin_layout()`.
+        ///
+        /// @param scale Pixels per logical unit; non-finite or non-positive values are treated as 1.
+        ///
+        /// @note This function does not throw exceptions.
+        void set_pixel_scale(f32 scale) noexcept;
+
+        /// Returns the pixel scale set with `set_pixel_scale()`.
+        ///
+        /// @return Framebuffer pixels per logical unit.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] f32 pixel_scale() const noexcept { return pixel_scale_; }
 
 
         /// Sets the scroll settings for this `Context`.
@@ -712,6 +728,13 @@ namespace SFT::UI {
         /// @note This function does not throw exceptions.
         void update_desired_cursor(const ElementDecl &decl) noexcept;
 
+        /// Converts a resolved snapshot's logical-unit geometry to framebuffer pixels.
+        ///
+        /// @param snapshot Snapshot to convert in place.
+        ///
+        /// @note This function does not throw exceptions.
+        void scale_snapshot_to_pixels(FrameSnapshot &snapshot) const noexcept;
+
         Clay_Context *context_ = nullptr;
         vector<std::byte> arena_memory_;
         TextBridge text_bridge_;
@@ -727,7 +750,11 @@ namespace SFT::UI {
 
 
         unordered_map<OutlineCacheKey, Text::GlyphOutline, OutlineCacheKeyHash> outline_cache_;
+        /// Framebuffer-pixel extent of the current frame.
         Core::Extent2D layout_extent_{1, 1};
+        /// Logical-unit size Clay lays out in: `layout_extent_ / pixel_scale_`.
+        glm::vec2 layout_size_{1.0f};
+        f32 pixel_scale_ = 1.0f;
 
 
         glm::vec2 pointer_position_{0.0f};

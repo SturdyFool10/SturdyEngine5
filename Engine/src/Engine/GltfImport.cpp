@@ -17,11 +17,14 @@
 
 #include <Engine/AssetManager.hpp>
 #include <Engine/ImageDecode.hpp>
+#include <Engine/ImportCommon.hpp>
 #include <Engine/TextureCompression.hpp>
 
 #include <Renderer/Mesh.hpp>
 
+#include <algorithm>
 #include <array>
+#include <memory>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -32,6 +35,7 @@
 #include <vector>
 
 #include <glm/geometric.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 namespace SFT::Engine {
@@ -269,6 +273,215 @@ namespace SFT::Engine {
         }
 
 
+        [[nodiscard]] Animation::JointTransform node_local_transform(const cgltf_node &node) {
+            Animation::JointTransform t;
+            if (node.has_matrix) {
+                return Detail::decompose_transform(glm::make_mat4(node.matrix));
+            }
+            if (node.has_translation) {
+                t.translation = {node.translation[0], node.translation[1], node.translation[2]};
+            }
+            if (node.has_rotation) {
+                t.rotation = glm::normalize(glm::quat(node.rotation[3], node.rotation[0], node.rotation[1], node.rotation[2]));
+            }
+            if (node.has_scale) {
+                t.scale = {node.scale[0], node.scale[1], node.scale[2]};
+            }
+            return t;
+        }
+
+        struct BuiltSkin {
+            GltfSkin skin;
+            std::vector<const cgltf_node *> nodes;       // skeleton joint index -> node
+            std::vector<u32> skin_joint_to_skeleton;     // skin.joints[i] -> skeleton joint index
+        };
+
+        [[nodiscard]] Animation::Interpolation lower_interpolation(cgltf_interpolation_type type) noexcept {
+            switch (type) {
+                case cgltf_interpolation_type_step: return Animation::Interpolation::Step;
+                case cgltf_interpolation_type_cubic_spline: return Animation::Interpolation::CubicSpline;
+                default: return Animation::Interpolation::Linear;
+            }
+        }
+
+        /// One glTF animation addressed to `nodes` (joint i of the result animates nodes[i]). Weight channels
+        /// become morph tracks keyed by node name. Null when no channel touches `nodes`.
+        [[nodiscard]] std::shared_ptr<Animation::Clip> build_clip(const cgltf_animation &animation,
+                                                                  const std::vector<const cgltf_node *> &nodes,
+                                                                  const std::vector<const cgltf_node *> &morph_nodes = {}) {
+            auto clip = std::make_shared<Animation::Clip>();
+            clip->name = animation.name != nullptr ? animation.name : "animation";
+            clip->channels.resize(nodes.size());
+            for (const cgltf_node *node : nodes) {
+                clip->joint_names.emplace_back(node->name != nullptr ? node->name : "joint");
+            }
+            bool any = false;
+            for (cgltf_size c = 0; c < animation.channels_count; ++c) {
+                const cgltf_animation_channel &channel = animation.channels[c];
+                if (channel.target_node == nullptr || channel.sampler == nullptr) {
+                    continue;
+                }
+                auto it = std::find(nodes.begin(), nodes.end(), channel.target_node);
+                const bool in_nodes = it != nodes.end();
+                if (!in_nodes && !(channel.target_path == cgltf_animation_path_type_weights &&
+                                   std::find(morph_nodes.begin(), morph_nodes.end(), channel.target_node) != morph_nodes.end())) {
+                    continue;
+                }
+                const cgltf_animation_sampler &sampler = *channel.sampler;
+                const Animation::Interpolation interpolation = lower_interpolation(sampler.interpolation);
+                std::vector<f32> times(sampler.input->count);
+                cgltf_accessor_unpack_floats(sampler.input, times.data(), times.size());
+                std::vector<f32> values(sampler.output->count * cgltf_num_components(sampler.output->type));
+                cgltf_accessor_unpack_floats(sampler.output, values.data(), values.size());
+                const usize tuples = interpolation == Animation::Interpolation::CubicSpline ? 3 : 1;
+
+                if (channel.target_path == cgltf_animation_path_type_weights) {
+                    if (times.empty() || values.size() % (times.size() * tuples) != 0) {
+                        continue;
+                    }
+                    Animation::MorphTrack morph;
+                    morph.target = channel.target_node->name != nullptr ? channel.target_node->name : "node";
+                    morph.weight_count = static_cast<u32>(values.size() / (times.size() * tuples));
+                    morph.track = Animation::Track{interpolation, std::move(times), std::move(values)};
+                    clip->morph_tracks.push_back(std::move(morph));
+                    any = true;
+                    continue;
+                }
+
+                if (!in_nodes) {
+                    continue;
+                }
+                Animation::JointChannels &joint = clip->channels[static_cast<usize>(it - nodes.begin())];
+                Animation::Track *track = nullptr;
+                usize components = 3;
+                switch (channel.target_path) {
+                    case cgltf_animation_path_type_translation: track = &joint.translation; break;
+                    case cgltf_animation_path_type_rotation: track = &joint.rotation; components = 4; break;
+                    case cgltf_animation_path_type_scale: track = &joint.scale; break;
+                    default: break;
+                }
+                if (track == nullptr || values.size() != times.size() * components * tuples) {
+                    continue; // unsupported path or malformed sampler
+                }
+                *track = Animation::Track{interpolation, std::move(times), std::move(values)};
+                any = true;
+            }
+            if (!any) {
+                return nullptr;
+            }
+            clip->recompute_duration();
+            return clip;
+        }
+
+        [[nodiscard]] BuiltSkin build_skin(const cgltf_data &data, const cgltf_skin &skin) {
+            BuiltSkin built;
+            // Joints plus every ancestor, so the hierarchy is connected; ordered by depth so parents come first.
+            std::vector<const cgltf_node *> included;
+            const auto add = [&included](const cgltf_node *node) {
+                if (std::find(included.begin(), included.end(), node) == included.end()) {
+                    included.push_back(node);
+                }
+            };
+            for (cgltf_size j = 0; j < skin.joints_count; ++j) {
+                for (const cgltf_node *n = skin.joints[j]; n != nullptr; n = n->parent) {
+                    add(n);
+                }
+            }
+            const auto depth = [](const cgltf_node *n) {
+                usize d = 0;
+                for (; n->parent != nullptr; n = n->parent) {
+                    ++d;
+                }
+                return d;
+            };
+            std::stable_sort(included.begin(), included.end(),
+                             [&depth](const cgltf_node *a, const cgltf_node *b) { return depth(a) < depth(b); });
+            built.nodes = included;
+
+            auto skeleton = std::make_shared<Animation::Skeleton>();
+            const auto index_of = [&included](const cgltf_node *n) -> u32 {
+                const auto it = std::find(included.begin(), included.end(), n);
+                return static_cast<u32>(it - included.begin());
+            };
+            for (const cgltf_node *node : included) {
+                skeleton->names.emplace_back(node->name != nullptr ? node->name : "joint");
+                skeleton->parents.push_back(node->parent != nullptr ? index_of(node->parent) : Animation::no_joint);
+                skeleton->rest_pose.push_back(node_local_transform(*node));
+                skeleton->inverse_bind.emplace_back(1.0f);
+            }
+            built.skin_joint_to_skeleton.resize(skin.joints_count);
+            for (cgltf_size j = 0; j < skin.joints_count; ++j) {
+                const u32 index = index_of(skin.joints[j]);
+                built.skin_joint_to_skeleton[j] = index;
+                if (skin.inverse_bind_matrices != nullptr) {
+                    glm::mat4 ibm{1.0f};
+                    cgltf_accessor_read_float(skin.inverse_bind_matrices, j, glm::value_ptr(ibm), 16);
+                    skeleton->inverse_bind[index] = ibm;
+                }
+            }
+
+            std::vector<const cgltf_node *> mesh_nodes;
+            for (cgltf_size n = 0; n < data.nodes_count; ++n) {
+                if (data.nodes[n].skin == &skin && data.nodes[n].mesh != nullptr) {
+                    mesh_nodes.push_back(&data.nodes[n]);
+                }
+            }
+            for (cgltf_size a = 0; a < data.animations_count; ++a) {
+                if (auto clip = build_clip(data.animations[a], included, mesh_nodes)) {
+                    built.skin.clips.push_back(std::move(clip));
+                }
+            }
+            built.skin.name = label_from_name(skin.name, "gltf_skin");
+            built.skin.skeleton = std::move(skeleton);
+            return built;
+        }
+
+        struct SceneRig {
+            std::shared_ptr<const Animation::Skeleton> skeleton;
+            std::vector<u32> node_to_joint; // glTF node index -> joint
+            std::vector<std::shared_ptr<const Animation::Clip>> clips;
+        };
+
+        [[nodiscard]] SceneRig build_scene_rig(const cgltf_data &data) {
+            SceneRig rig;
+            if (data.nodes_count == 0) {
+                return rig;
+            }
+            std::vector<const cgltf_node *> ordered(data.nodes_count);
+            for (cgltf_size i = 0; i < data.nodes_count; ++i) {
+                ordered[i] = &data.nodes[i];
+            }
+            const auto depth = [](const cgltf_node *n) {
+                usize d = 0;
+                for (; n->parent != nullptr; n = n->parent) {
+                    ++d;
+                }
+                return d;
+            };
+            std::stable_sort(ordered.begin(), ordered.end(),
+                             [&depth](const cgltf_node *a, const cgltf_node *b) { return depth(a) < depth(b); });
+            auto skeleton = std::make_shared<Animation::Skeleton>();
+            rig.node_to_joint.assign(data.nodes_count, Animation::no_joint);
+            for (usize j = 0; j < ordered.size(); ++j) {
+                rig.node_to_joint[static_cast<usize>(ordered[j] - data.nodes)] = static_cast<u32>(j);
+            }
+            for (const cgltf_node *node : ordered) {
+                skeleton->names.emplace_back(node->name != nullptr ? node->name : "node");
+                skeleton->parents.push_back(node->parent != nullptr
+                                                ? rig.node_to_joint[static_cast<usize>(node->parent - data.nodes)]
+                                                : Animation::no_joint);
+                skeleton->rest_pose.push_back(node_local_transform(*node));
+                skeleton->inverse_bind.emplace_back(1.0f);
+            }
+            for (cgltf_size a = 0; a < data.animations_count; ++a) {
+                if (auto clip = build_clip(data.animations[a], ordered)) {
+                    rig.clips.push_back(std::move(clip));
+                }
+            }
+            rig.skeleton = std::move(skeleton);
+            return rig;
+        }
+
         constexpr f32 kPhotometricToRadiometric = 1.0f / 683.0f;
 
         /// Collects node instances using the supplied arguments and current state.
@@ -284,16 +497,24 @@ namespace SFT::Engine {
             const cgltf_data &data,
             const cgltf_node &node,
             const std::vector<Asset> &models,
+            const std::vector<u32> &node_to_joint,
             std::vector<GltfNodeInstance> &instances,
             std::vector<GltfLightInstance> &lights) {
-            if (node.mesh != nullptr) {
+            if (node.mesh != nullptr && static_cast<usize>(node.mesh - data.meshes) < models.size()) {
                 const auto mesh_index = static_cast<usize>(node.mesh - data.meshes);
                 glm::mat4 world{1.0f};
-                cgltf_node_transform_world(&node, glm::value_ptr(world));
+                const bool skinned = node.skin != nullptr;
+                if (!skinned) {
+                    cgltf_node_transform_world(&node, glm::value_ptr(world));
+                }
                 instances.push_back(GltfNodeInstance{
                     .name = label_from_name(node.name, "gltf_node"),
                     .model = models[mesh_index],
                     .world_transform = world,
+                    .skin = skinned ? static_cast<i32>(node.skin - data.skins) : -1,
+                    .scene_joint = node_to_joint.empty() || node_to_joint[static_cast<usize>(&node - data.nodes)] == Animation::no_joint
+                                       ? -1
+                                       : static_cast<i32>(node_to_joint[static_cast<usize>(&node - data.nodes)]),
                 });
             }
             if (node.light != nullptr) {
@@ -322,35 +543,12 @@ namespace SFT::Engine {
                 lights.push_back(instance);
             }
             for (cgltf_size i = 0; i < node.children_count; ++i) {
-                collect_node_instances(data, *node.children[i], models, instances, lights);
+                collect_node_instances(data, *node.children[i], models, node_to_joint, instances, lights);
             }
         }
 
 
-        struct PendingMaterial {
-            glm::vec4 base_color_factor{1.0f, 1.0f, 1.0f, 1.0f};
-            f32 metallic_factor = 1.0f;
-            f32 roughness_factor = 1.0f;
-            f32 specular_factor = 1.0f;
-            f32 ior = 1.5f;
-
-
-            f32 transmission_factor = 0.0f;
-            f32 dispersion_cauchy_b = 0.0042f;
-            f32 absorption_coefficient = 0.0f;
-
-
-            f32 alpha_cutoff = 0.0f;
-
-
-            f32 occlusion_strength = 1.0f;
-            glm::vec4 emissive_factor{0.0f, 0.0f, 0.0f, 0.0f};
-
-            f32 emissive_strength = 1.0f;
-
-
-            f32 metallic_roughness_channels_rg = 0.0f;
-        };
+        using PendingMaterial = Detail::ImportMaterialValues;
 
     } // namespace
 
@@ -364,7 +562,7 @@ namespace SFT::Engine {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::NotFound`, `AssetErrorCode::DecodeFailure`, `AssetErrorCode::IoFailure`, `AssetErrorCode::Unsupported`, `AssetErrorCode::InvalidDescription`.
     AssetExpected<GltfImportResult> import_gltf(AssetManager &assets, const std::filesystem::path &source,
-                                                Asset shader) {
+                                                Asset shader, bool animations_only) {
         const Foundation::Stopwatch stopwatch;
         const std::string source_path = source.string();
         Foundation::log_info("GltfImport: loading '{}'...", source_path);
@@ -435,7 +633,25 @@ namespace SFT::Engine {
             out.models.clear();
         };
 
-        for (cgltf_size mesh_index = 0; mesh_index < data.meshes_count; ++mesh_index) {
+        std::vector<u32> scene_node_to_joint;
+        std::vector<BuiltSkin> built_skins;
+        built_skins.reserve(data.skins_count);
+        for (cgltf_size i = 0; i < data.skins_count; ++i) {
+            built_skins.push_back(build_skin(data, data.skins[i]));
+        }
+        // Weights address joints of the skin of the first node that instances the mesh.
+        std::vector<i32> mesh_skin(data.meshes_count, -1);
+        for (cgltf_size i = 0; i < data.nodes_count; ++i) {
+            const cgltf_node &n = data.nodes[i];
+            if (n.mesh != nullptr && n.skin != nullptr) {
+                i32 &slot = mesh_skin[static_cast<usize>(n.mesh - data.meshes)];
+                if (slot < 0) {
+                    slot = static_cast<i32>(n.skin - data.skins);
+                }
+            }
+        }
+
+        for (cgltf_size mesh_index = 0; mesh_index < (animations_only ? 0 : data.meshes_count); ++mesh_index) {
             const cgltf_mesh &mesh = data.meshes[mesh_index];
             ModelAssetDesc desc{.label = label_from_name(mesh.name, "gltf_mesh")};
             desc.primitives.reserve(mesh.primitives_count);
@@ -463,6 +679,8 @@ namespace SFT::Engine {
                 const cgltf_accessor *uv_accessor = nullptr;
                 const cgltf_accessor *color_accessor = nullptr;
                 const cgltf_accessor *tangent_accessor = nullptr;
+                const cgltf_accessor *joints_accessor = nullptr;
+                const cgltf_accessor *weights_accessor = nullptr;
                 for (cgltf_size attr_index = 0; attr_index < primitive.attributes_count; ++attr_index) {
                     const cgltf_attribute &attribute = primitive.attributes[attr_index];
                     switch (attribute.type) {
@@ -479,6 +697,16 @@ namespace SFT::Engine {
                             }
                             break;
                         case cgltf_attribute_type_tangent: tangent_accessor = attribute.data; break;
+                        case cgltf_attribute_type_joints:
+                            if (attribute.index == 0) {
+                                joints_accessor = attribute.data;
+                            }
+                            break;
+                        case cgltf_attribute_type_weights:
+                            if (attribute.index == 0) {
+                                weights_accessor = attribute.data;
+                            }
+                            break;
                         default: break;
                     }
                 }
@@ -559,60 +787,12 @@ namespace SFT::Engine {
 
 
                 if (normal_accessor == nullptr) {
-                    std::vector<glm::vec3> accumulated(vertex_count, glm::vec3{0.0f});
-                    for (usize i = 0; i + 2 < indices.size(); i += 3) {
-                        const u32 a = indices[i];
-                        const u32 b = indices[i + 1];
-                        const u32 c = indices[i + 2];
-                        const glm::vec3 face_normal = glm::cross(
-                            vertices[b].position - vertices[a].position,
-                            vertices[c].position - vertices[a].position);
-                        accumulated[a] += face_normal;
-                        accumulated[b] += face_normal;
-                        accumulated[c] += face_normal;
-                    }
-                    for (usize v = 0; v < vertex_count; ++v) {
-                        const f32 length = glm::length(accumulated[v]);
-                        vertices[v].normal = length > 1e-8f ? accumulated[v] / length : glm::vec3{0.0f, 1.0f, 0.0f};
-                    }
+                    Detail::generate_normals(vertices, indices);
                 }
 
 
                 if (tangent_accessor == nullptr && !uvs.empty()) {
-                    std::vector<glm::vec3> tan_accum(vertex_count, glm::vec3{0.0f});
-                    std::vector<glm::vec3> bitan_accum(vertex_count, glm::vec3{0.0f});
-                    for (usize i = 0; i + 2 < indices.size(); i += 3) {
-                        const u32 a = indices[i];
-                        const u32 b = indices[i + 1];
-                        const u32 c = indices[i + 2];
-                        const glm::vec3 edge1 = vertices[b].position - vertices[a].position;
-                        const glm::vec3 edge2 = vertices[c].position - vertices[a].position;
-                        const glm::vec2 delta_uv1 = vertices[b].uv - vertices[a].uv;
-                        const glm::vec2 delta_uv2 = vertices[c].uv - vertices[a].uv;
-                        const f32 determinant = delta_uv1.x * delta_uv2.y - delta_uv2.x * delta_uv1.y;
-                        if (std::abs(determinant) < 1e-12f) {
-                            continue;
-                        }
-                        const f32 inv_determinant = 1.0f / determinant;
-                        const glm::vec3 tangent = inv_determinant * (delta_uv2.y * edge1 - delta_uv1.y * edge2);
-                        const glm::vec3 bitangent = inv_determinant * (delta_uv1.x * edge2 - delta_uv2.x * edge1);
-                        tan_accum[a] += tangent; tan_accum[b] += tangent; tan_accum[c] += tangent;
-                        bitan_accum[a] += bitangent; bitan_accum[b] += bitangent; bitan_accum[c] += bitangent;
-                    }
-                    for (usize v = 0; v < vertex_count; ++v) {
-                        const glm::vec3 &normal = vertices[v].normal;
-                        glm::vec3 tangent = tan_accum[v] - normal * glm::dot(normal, tan_accum[v]);
-                        const f32 length = glm::length(tangent);
-                        if (length > 1e-8f) {
-                            tangent /= length;
-                        } else {
-                            const glm::vec3 reference = std::abs(normal.x) < 0.9f ? glm::vec3{1.0f, 0.0f, 0.0f}
-                                                                                 : glm::vec3{0.0f, 1.0f, 0.0f};
-                            tangent = glm::normalize(glm::cross(reference, normal));
-                        }
-                        const f32 handedness = glm::dot(glm::cross(normal, tangent), bitan_accum[v]) < 0.0f ? -1.0f : 1.0f;
-                        vertices[v].tangent = glm::vec4{tangent, handedness};
-                    }
+                    Detail::generate_tangents(vertices, indices);
                 }
 
                 const std::string primitive_label =
@@ -622,6 +802,56 @@ namespace SFT::Engine {
                     .shader = shader,
                     .double_sided = primitive.material != nullptr && primitive.material->double_sided,
                 };
+                if (joints_accessor != nullptr && weights_accessor != nullptr && mesh_skin[mesh_index] >= 0 &&
+                    joints_accessor->count == vertex_count && weights_accessor->count == vertex_count) {
+                    const auto &joint_map = built_skins[static_cast<usize>(mesh_skin[mesh_index])].skin_joint_to_skeleton;
+                    auto skin_weights = std::make_shared<Animation::SkinWeights>();
+                    skin_weights->joints.resize(vertex_count);
+                    skin_weights->weights.resize(vertex_count);
+                    for (usize v = 0; v < vertex_count; ++v) {
+                        cgltf_uint joint_values[4]{};
+                        f32 weight_values[4]{};
+                        cgltf_accessor_read_uint(joints_accessor, v, joint_values, 4);
+                        cgltf_accessor_read_float(weights_accessor, v, weight_values, 4);
+                        for (int k = 0; k < 4; ++k) {
+                            skin_weights->joints[v][k] =
+                                joint_values[k] < joint_map.size() ? joint_map[joint_values[k]] : 0u;
+                            skin_weights->weights[v][k] = weight_values[k];
+                        }
+                    }
+                    primitive_desc.skin = std::move(skin_weights);
+                }
+                if (primitive.targets_count > 0) {
+                    Animation::MorphBuilder morph_builder(vertex_count);
+                    for (cgltf_size t = 0; t < primitive.targets_count; ++t) {
+                        const cgltf_accessor *position_target = nullptr;
+                        const cgltf_accessor *normal_target = nullptr;
+                        for (cgltf_size ai = 0; ai < primitive.targets[t].attributes_count; ++ai) {
+                            const cgltf_attribute &attribute = primitive.targets[t].attributes[ai];
+                            if (attribute.type == cgltf_attribute_type_position) position_target = attribute.data;
+                            if (attribute.type == cgltf_attribute_type_normal) normal_target = attribute.data;
+                        }
+                        const auto unpack_vec3 = [vertex_count](const cgltf_accessor *accessor) {
+                            std::vector<glm::vec3> out(vertex_count, glm::vec3{0.0f});
+                            if (accessor != nullptr && accessor->count == vertex_count) {
+                                std::vector<f32> flat(vertex_count * 3);
+                                cgltf_accessor_unpack_floats(accessor, flat.data(), flat.size());
+                                for (usize v = 0; v < vertex_count; ++v) {
+                                    out[v] = {flat[v * 3], flat[v * 3 + 1], flat[v * 3 + 2]};
+                                }
+                            }
+                            return out;
+                        };
+                        const std::string name = t < mesh.target_names_count && mesh.target_names[t] != nullptr
+                                                     ? mesh.target_names[t]
+                                                     : "target_" + std::to_string(t);
+                        morph_builder.add_target(name, unpack_vec3(position_target),
+                                                 normal_target != nullptr ? unpack_vec3(normal_target)
+                                                                          : std::vector<glm::vec3>{},
+                                                 t < mesh.weights_count ? mesh.weights[t] : 0.0f);
+                    }
+                    primitive_desc.morph = std::make_shared<const Animation::MorphTargetSet>(morph_builder.build());
+                }
 
                 PendingMaterial material_values{};
                 if (const cgltf_material *material = primitive.material; material != nullptr) {
@@ -858,52 +1088,7 @@ namespace SFT::Engine {
             }
 
             for (usize primitive_index = 0; primitive_index < pending.size(); ++primitive_index) {
-                const PendingMaterial &values = pending[primitive_index];
-                AssetResult set = assets.set_model_vec4(*model, primitive_index, "base_color_factor",
-                                                        values.base_color_factor);
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "metallic_factor", values.metallic_factor);
-                }
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "roughness_factor", values.roughness_factor);
-                }
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "specular_factor", values.specular_factor);
-                }
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "ior", values.ior);
-                }
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "transmission_factor",
-                                                 values.transmission_factor);
-                }
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "dispersion_cauchy_b",
-                                                 values.dispersion_cauchy_b);
-                }
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "absorption_coefficient",
-                                                 values.absorption_coefficient);
-                }
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "alpha_cutoff", values.alpha_cutoff);
-                }
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "occlusion_strength",
-                                                 values.occlusion_strength);
-                }
-                if (set) {
-                    set = assets.set_model_vec4(*model, primitive_index, "emissive_factor", values.emissive_factor);
-                }
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "emissive_strength",
-                                                 values.emissive_strength);
-                }
-                if (set) {
-                    set = assets.set_model_float(*model, primitive_index, "metallic_roughness_channels_rg",
-                                                 values.metallic_roughness_channels_rg);
-                }
-                if (!set) {
+                if (AssetResult set = Detail::apply_material_values(assets, *model, primitive_index, pending[primitive_index]); !set) {
                     (void)assets.unload(*model);
                     rollback_models();
                     return std::unexpected(set.error());
@@ -913,16 +1098,27 @@ namespace SFT::Engine {
             out.models.push_back(*model);
         }
 
+        {
+            SceneRig rig = build_scene_rig(data);
+            out.scene_skeleton = std::move(rig.skeleton);
+            out.scene_clips = std::move(rig.clips);
+            scene_node_to_joint = std::move(rig.node_to_joint);
+        }
+        out.skins.reserve(built_skins.size());
+        for (BuiltSkin &built : built_skins) {
+            out.skins.push_back(std::move(built.skin));
+        }
+
         const cgltf_scene *scene =
             data.scene != nullptr ? data.scene : (data.scenes_count > 0 ? &data.scenes[0] : nullptr);
         if (scene != nullptr) {
             for (cgltf_size i = 0; i < scene->nodes_count; ++i) {
-                collect_node_instances(data, *scene->nodes[i], out.models, out.instances, out.lights);
+                collect_node_instances(data, *scene->nodes[i], out.models, scene_node_to_joint, out.instances, out.lights);
             }
         } else {
             for (cgltf_size i = 0; i < data.nodes_count; ++i) {
                 if (data.nodes[i].parent == nullptr) {
-                    collect_node_instances(data, data.nodes[i], out.models, out.instances, out.lights);
+                    collect_node_instances(data, data.nodes[i], out.models, scene_node_to_joint, out.instances, out.lights);
                 }
             }
         }

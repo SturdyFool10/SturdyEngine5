@@ -284,6 +284,7 @@ namespace {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note This function does not throw exceptions.
         [[nodiscard]] expected<WindowExtent, WindowError> framebuffer_size() const noexcept override { return WindowExtent{640, 480}; }
+        [[nodiscard]] expected<f32, WindowError> refresh_rate_hz() const noexcept override { return 60.0f; }
         /// Sets the minimum size for this `SyntheticDeviceWindow`.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.

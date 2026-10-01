@@ -86,10 +86,19 @@ StructuredBuffer<SpectralMaterial> sceneMaterials;
 // keeps Slang's auto-assigned fixed resources below this frame-local combined image/sampler heap.
 [[vk::binding(31, 0)]] Sampler2D spectralMaterialTextures[];
 
-float4 sampleSpectralMaterialTexture(uint textureIndex, float2 uv, float4 fallback) {
+float4 sampleSpectralMaterialTextureLod(uint textureIndex, float2 uv, float4 fallback, float lod) {
     if (textureIndex == SFT_INVALID_MATERIAL_TEXTURE) return fallback;
-    return spectralMaterialTextures[NonUniformResourceIndex(textureIndex)].SampleLevel(uv, 0.0);
+    return spectralMaterialTextures[NonUniformResourceIndex(textureIndex)].SampleLevel(uv, lod);
 }
+
+float4 sampleSpectralMaterialTexture(uint textureIndex, float2 uv, float4 fallback) {
+    return sampleSpectralMaterialTextureLod(textureIndex, uv, fallback, 0.0);
+}
+
+// Mip used for low-detail (diffuse GI) hit shading. Incoherent secondary rays touch a different texel
+// per lane, so mip 0 makes every sample a cache miss and the result is averaged away by the reservoir
+// resampling anyway; a coarse mip reads a handful of cache lines instead (missing mips clamp to the tail).
+static const float SFT_SPECTRAL_LOW_DETAIL_LOD = 3.0;
 
 // Lightweight sibling of loadSpectralSurface for the two call sites that only need a pass/fail alpha
 // decision (the CANDIDATE_NON_OPAQUE_TRIANGLE Proceed() loop below, and the transmittance walk's own
@@ -240,7 +249,11 @@ TransmittanceSurfaceSample loadSpectralSurfaceForTransmittance(
     return surface;
 }
 
-SurfaceSample loadSpectralSurface(SpectralRayHit hit, float3 rayOrigin, float3 rayDirection) {
+// `lowDetail` (a compile-time constant at every call site) is for diffuse-only secondary hits such as
+// ReSTIR GI bounces: base colour and emissive come from a coarse mip, and the metallic-roughness,
+// occlusion, normal-map and tangent-frame work is skipped (the geometric-interpolated normal is used,
+// metallic/roughness fall back to the material factors).
+SurfaceSample loadSpectralSurfaceDetail(SpectralRayHit hit, float3 rayOrigin, float3 rayDirection, bool lowDetail) {
     SurfaceSample surface = (SurfaceSample)0;
     surface.position = rayOrigin + rayDirection * hit.distance;
     surface.frontFace = hit.frontFace;
@@ -298,10 +311,21 @@ SurfaceSample loadSpectralSurface(SpectralRayHit hit, float3 rayOrigin, float3 r
 
     SpectralMaterial material = sceneMaterials[instance.materialIndex];
     float4 vertexColor = v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z;
-    float4 baseColorTexel = sampleSpectralMaterialTexture(
-        material.textureIndices0.x, surface.uv, float4(1.0));
+    float4 baseColorTexel = sampleSpectralMaterialTextureLod(
+        material.textureIndices0.x, surface.uv, float4(1.0), lowDetail ? SFT_SPECTRAL_LOW_DETAIL_LOD : 0.0);
     material.baseColor *= vertexColor * baseColorTexel;
     if (material.baseColor.a < material.alphaAndNormal.x) return surface;
+
+    if (lowDetail) {
+        material.emissiveAndStrength.rgb *= sampleSpectralMaterialTextureLod(
+            material.textureIndices1.x, surface.uv, float4(1.0), SFT_SPECTRAL_LOW_DETAIL_LOD).rgb;
+        surface.outwardGeometricNormal = geometricNormal;
+        surface.outwardShadingNormal = interpolatedNormal;
+        surface.shadingNormal = hit.frontFace ? interpolatedNormal : -interpolatedNormal;
+        surface.material = material;
+        surface.valid = true;
+        return surface;
+    }
 
     float4 metallicRoughness = sampleSpectralMaterialTexture(
         material.textureIndices0.y, surface.uv, float4(1.0));
@@ -342,12 +366,17 @@ SurfaceSample loadSpectralSurface(SpectralRayHit hit, float3 rayOrigin, float3 r
     return surface;
 }
 
-bool traceSpectralClosestSurface(
+SurfaceSample loadSpectralSurface(SpectralRayHit hit, float3 rayOrigin, float3 rayDirection) {
+    return loadSpectralSurfaceDetail(hit, rayOrigin, rayDirection, false);
+}
+
+bool traceSpectralClosestSurfaceDetail(
     float3 origin,
     float3 direction,
     float tMin,
     float tMax,
     uint instanceMask,
+    bool lowDetail,
     out SpectralRayHit hit,
     out SurfaceSample surface)
 {
@@ -384,8 +413,20 @@ bool traceSpectralClosestSurface(
     hit.primitiveId = hit.hit ? query.CommittedPrimitiveIndex() : 0u;
     hit.barycentrics = hit.hit ? query.CommittedTriangleBarycentrics() : float2(0.0);
     hit.frontFace = hit.hit ? query.CommittedTriangleFrontFace() : true;
-    surface = hit.hit ? loadSpectralSurface(hit, origin, direction) : (SurfaceSample)0;
+    surface = hit.hit ? loadSpectralSurfaceDetail(hit, origin, direction, lowDetail) : (SurfaceSample)0;
     return hit.hit && surface.valid;
+}
+
+bool traceSpectralClosestSurface(
+    float3 origin,
+    float3 direction,
+    float tMin,
+    float tMax,
+    uint instanceMask,
+    out SpectralRayHit hit,
+    out SurfaceSample surface)
+{
+    return traceSpectralClosestSurfaceDetail(origin, direction, tMin, tMax, instanceMask, false, hit, surface);
 }
 
 // Owns its own RayQuery (rather than delegating to traceSpectralClosestSurface) so it can request

@@ -7,6 +7,19 @@
 #include <memory>
 #include <vector>
 
+#ifndef STURDY_PLATFORM_WEB
+#include <dawn/native/DawnNative.h>
+#include <dawn/platform/DawnPlatform.h>
+
+#include <Foundation/CacheDirectory.hpp>
+
+#include <atomic>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <system_error>
+#endif
+
 namespace SFT::Core::WebGpu {
 
     namespace rhi = ::SFT::RHI;
@@ -362,6 +375,18 @@ namespace SFT::Core::WebGpu {
             /// @note This function does not throw exceptions.
             explicit WebGpuInstance(WGPUInstance instance) noexcept : instance_(instance) {}
 
+#ifndef STURDY_PLATFORM_WEB
+            /// Constructs an instance around a Dawn instance handle, keeping the `Platform` it was created
+            /// with alive alongside it -- see `WebGpuDiskCachePlatform`. Dawn's own comment on
+            /// `GetCachingInterface` requires the platform to outlive the device(s) that use it, so this
+            /// object keeps it alive at least that long. Native only: there is no custom `Platform` to attach
+            /// on Web (see `create_webgpu_instance`).
+            ///
+            /// @note This function does not throw exceptions.
+            WebGpuInstance(WGPUInstance instance, std::unique_ptr<dawn::platform::Platform> cache_platform) noexcept
+                : instance_(instance), cache_platform_(std::move(cache_platform)) {}
+#endif
+
             /// Destroys the instance.
             ///
             /// @note This function does not throw exceptions.
@@ -369,6 +394,8 @@ namespace SFT::Core::WebGpu {
                 if (instance_ != nullptr) {
                     wgpuInstanceRelease(instance_);
                 }
+                // cache_platform_ (native only) is destroyed here, after the native instance has released
+                // everything that could still query it.
             }
 
             [[nodiscard]] rhi::BackendType backend_type() const noexcept override {
@@ -469,7 +496,112 @@ namespace SFT::Core::WebGpu {
 
           private:
             WGPUInstance instance_ = nullptr;
+#ifndef STURDY_PLATFORM_WEB
+            std::unique_ptr<dawn::platform::Platform> cache_platform_;
+#endif
         };
+
+#ifndef STURDY_PLATFORM_WEB
+        /// Dawn's own cache keys are not short hashes: they are the whole serialized compile request (shader
+        /// source, entry points, pipeline layout, ...), which for a real shader/pipeline runs from hundreds of
+        /// bytes to tens of kilobytes -- far past any filesystem's filename length limit. Reduced to a filename
+        /// with the same FNV-1a 64-bit hash `Core/Slang/ShaderCache.cpp` already uses for exactly this purpose
+        /// (mapping an arbitrary-length cache key to a short, safe file name). A 64-bit hash's collision risk is
+        /// already negligible at any realistic number of cached shaders/pipelines, and Dawn's own
+        /// `BlobCacheHashValidation` (on by default) stores and checks a hash of the payload itself on load, so
+        /// a collision here would be caught and rejected rather than silently served, not just made unlikely.
+        [[nodiscard]] u64 fnv1a_64(std::span<const std::byte> data) noexcept {
+            u64 value = 0xcbf29ce484222325ull;
+            for (std::byte b : data) {
+                value = (value ^ static_cast<u64>(b)) * 0x100000001b3ull;
+            }
+            return value;
+        }
+
+        [[nodiscard]] std::string hex_encode_u64(u64 value) {
+            static constexpr char digits[] = "0123456789abcdef";
+            std::string out(16, '0');
+            for (int i = 15; i >= 0; --i) {
+                out[static_cast<usize>(i)] = digits[value & 0xF];
+                value >>= 4;
+            }
+            return out;
+        }
+
+        /// Persists Dawn's own internal shader-translation and pipeline caches to disk (the same idea as the
+        /// Vulkan backend's `VkPipelineCache` persistence, but Dawn keeps this per-entry rather than as one
+        /// blob): without it, Dawn recompiles every shader module and pipeline it has ever built from scratch
+        /// on every process launch, even on the same GPU/driver as last run. Queried by Dawn itself, possibly
+        /// from more than one worker thread (pipeline creation can run asynchronously), so every method here
+        /// must be safe to call concurrently for different keys; it holds no mutable state of its own, only
+        /// reads/writes distinct files named by each call's own key.
+        class WebGpuDiskCachingInterface final : public dawn::platform::CachingInterface {
+          public:
+            size_t FindKey(std::span<const std::byte> key) override {
+                std::error_code ec;
+                const auto size = std::filesystem::file_size(path_for(key), ec);
+                return ec ? 0 : static_cast<size_t>(size);
+            }
+
+            size_t LoadData(std::span<const std::byte> key, std::span<std::byte> dest) override {
+                std::ifstream file(path_for(key), std::ios::binary);
+                if (!file) {
+                    return 0;
+                }
+                file.read(reinterpret_cast<char *>(dest.data()), static_cast<std::streamsize>(dest.size()));
+                const std::streamsize read = file.gcount();
+                return read > 0 ? static_cast<size_t>(read) : 0;
+            }
+
+            void StoreData(std::span<const std::byte> key, std::span<const std::byte> src) override {
+                if (src.empty()) {
+                    return;
+                }
+                const std::filesystem::path path = path_for(key);
+                std::error_code ec;
+                std::filesystem::create_directories(path.parent_path(), ec);
+                // Suffixed with a call-unique counter, not just ".tmp": two threads storing the same key at
+                // once (a plausible race with Dawn's async pipeline creation) must not write the same temp
+                // file, or one write could corrupt the other's.
+                static std::atomic<u64> temp_counter{0};
+                const std::filesystem::path temp_path =
+                    path.string() + "." + std::to_string(temp_counter.fetch_add(1, std::memory_order_relaxed)) + ".tmp";
+                {
+                    std::ofstream file(temp_path, std::ios::binary | std::ios::trunc);
+                    if (!file) {
+                        return;
+                    }
+                    file.write(reinterpret_cast<const char *>(src.data()), static_cast<std::streamsize>(src.size()));
+                    if (!file) {
+                        return;
+                    }
+                }
+                std::filesystem::rename(temp_path, path, ec);
+                if (ec) {
+                    std::filesystem::remove(temp_path, ec);
+                }
+            }
+
+          private:
+            [[nodiscard]] static std::filesystem::path directory() {
+                return Foundation::cache_subdirectory("webgpu", std::filesystem::path{".cache/webgpu"});
+            }
+            [[nodiscard]] static std::filesystem::path path_for(std::span<const std::byte> key) {
+                return directory() / hex_encode_u64(fnv1a_64(key));
+            }
+        };
+
+        /// A `dawn::platform::Platform` whose only customization is the disk-backed caching interface above;
+        /// every other hook (tracing, histograms, worker pools, feature flags) keeps Dawn's own default
+        /// behaviour, which the base class already provides.
+        class WebGpuDiskCachePlatform final : public dawn::platform::Platform {
+          public:
+            dawn::platform::CachingInterface *GetCachingInterface() override { return &caching_interface_; }
+
+          private:
+            WebGpuDiskCachingInterface caching_interface_;
+        };
+#endif
 
         /// Creates the WebGPU instance the backend registry hands out.
         ///
@@ -505,14 +637,29 @@ namespace SFT::Core::WebGpu {
                 toggles.disabledToggleCount = 1;
                 toggles.disabledToggles = disabled_toggles;
             }
-            instance_desc.nextInChain = &toggles.chain;
+
+            // Chains a custom dawn::platform::Platform in, whose only job is answering
+            // GetCachingInterface() with a disk-backed one (WebGpuDiskCachePlatform above), so Dawn's own
+            // shader-translation and pipeline caches survive across process launches the same way the Vulkan
+            // backend's VkPipelineCache now does. dawn::native::DawnInstanceDescriptor is a C++ type but is
+            // layout-compatible with WGPUChainedStruct (Dawn's own webgpu_cpp.h static_asserts this), so it
+            // chains onto the plain-C WGPUInstanceDescriptor exactly like WGPUDawnTogglesDescriptor above.
+            auto cache_platform = std::make_unique<WebGpuDiskCachePlatform>();
+            dawn::native::DawnInstanceDescriptor cache_desc;
+            cache_desc.platform = cache_platform.get();
+            cache_desc.nextInChain = reinterpret_cast<const wgpu::ChainedStruct *>(&toggles.chain);
+            instance_desc.nextInChain = reinterpret_cast<WGPUChainedStruct *>(&cache_desc);
 #endif
 
             WGPUInstance instance = wgpuCreateInstance(&instance_desc);
             if (instance == nullptr) {
                 return std::unexpected(webgpu_error("wgpuCreateInstance"));
             }
+#ifndef STURDY_PLATFORM_WEB
+            return std::make_unique<WebGpuInstance>(instance, std::move(cache_platform));
+#else
             return std::make_unique<WebGpuInstance>(instance);
+#endif
         }
 
     } // namespace
