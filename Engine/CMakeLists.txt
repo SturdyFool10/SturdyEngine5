@@ -1,3 +1,33 @@
+# Optional image codecs (cmake/SturdyCodecs.cmake): each one contributes its library and a 0/1 switch that
+# ImageDecode.cpp compiles its decoder out with.
+set(_sturdy_image_codec_deps)
+set(_sturdy_image_codec_defines)
+foreach(_codec IN LISTS STURDY_IMAGE_CODEC_LIST)
+    if(STURDY_IMAGE_${_codec})
+        list(APPEND _sturdy_image_codec_defines STURDY_IMAGE_${_codec}=1)
+    else()
+        list(APPEND _sturdy_image_codec_defines STURDY_IMAGE_${_codec}=0)
+    endif()
+endforeach()
+if(STURDY_IMAGE_WEBP)
+    list(APPEND _sturdy_image_codec_deps Sturdy::WebP Sturdy::WebPDemux)
+endif()
+if(STURDY_IMAGE_AVIF)
+    list(APPEND _sturdy_image_codec_deps Sturdy::libavif)
+endif()
+if(STURDY_IMAGE_JXL)
+    list(APPEND _sturdy_image_codec_deps Sturdy::libjxl)
+endif()
+if(STURDY_IMAGE_JP2)
+    list(APPEND _sturdy_image_codec_deps Sturdy::openjpeg)
+endif()
+if(STURDY_IMAGE_TIFF)
+    list(APPEND _sturdy_image_codec_deps Sturdy::libtiff)
+endif()
+if(STURDY_IMAGE_EXR)
+    list(APPEND _sturdy_image_codec_deps Sturdy::OpenEXR)
+endif()
+
 sturdy_add_package(Engine
     ENGINE_OPTIMIZED
 
@@ -7,6 +37,9 @@ sturdy_add_package(Engine
         Sturdy::Async
         Sturdy::Ecs
         Sturdy::Animation
+        Sturdy::Physics
+        Sturdy::Audio
+        Sturdy::AudioGpu
         Sturdy::Core
         Sturdy::Renderer
         Sturdy::WindowManager
@@ -15,16 +48,12 @@ sturdy_add_package(Engine
         Sturdy::StbImage
         Sturdy::cgltf
         Sturdy::ufbx
-        Sturdy::miniaudio
         Sturdy::bc7enc
-        Sturdy::WebP
-        Sturdy::WebPDemux
-        Sturdy::libavif
-        Sturdy::libjxl
-        Sturdy::openjpeg
-        Sturdy::libtiff
-        Sturdy::OpenEXR
+        ${_sturdy_image_codec_deps}
         Sturdy::Tracy
+
+    PRIVATE_DEFINES
+        ${_sturdy_image_codec_defines}
 )
 
 # Every one of these states its expectations with assert(), which Release and Dist compile to nothing

@@ -1,4 +1,5 @@
 #include <Renderer/UI/Docking/DockWorkspace.hpp>
+#include <Foundation/Iter.hpp>
 
 
 namespace SFT::UI::Docking {
@@ -502,11 +503,12 @@ namespace SFT::UI::Docking {
         if (n == nullptr) {
             return;
         }
-        const auto it = std::find(n->tabs.begin(), n->tabs.end(), active.panel);
-        if (it == n->tabs.end()) {
+        const auto index = Foundation::iter(n->tabs).position(
+            [&active](DockPanelId tab) { return tab == active.panel; });
+        if (!index) {
             return;
         }
-        const usize from_index = static_cast<usize>(it - n->tabs.begin());
+        const usize from_index = *index;
         const usize to_index = tab_index_under_pointer(ctx, active.source_leaf).value_or(from_index);
         if (to_index != from_index) {
             tree_.reorder_tab(active.source_leaf, from_index, to_index);

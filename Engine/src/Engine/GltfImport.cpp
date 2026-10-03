@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <Foundation/FileIo.hpp>
 #include <fstream>
 #include <optional>
 #include <string>
@@ -179,28 +180,11 @@ namespace SFT::Engine {
             const cgltf_size decoded_length = cgltf_decode_uri(decoded_uri.data());
             decoded_uri.resize(decoded_length);
             const std::filesystem::path file_path = base_dir / decoded_uri;
-            std::ifstream file(file_path, std::ios::binary | std::ios::ate);
-            if (!file) {
-                return std::unexpected(gltf_error(AssetErrorCode::IoFailure,
-                                                   "Could not open glTF image file '" + file_path.string() + "'.",
-                                                   file_path));
+            auto bytes = Foundation::Io::read_file(file_path, Foundation::Io::AccessHint::OneShot);
+            if (!bytes) {
+                return std::unexpected(gltf_error(AssetErrorCode::IoFailure, bytes.error(), file_path));
             }
-            const std::streamoff size = file.tellg();
-            if (size < 0) {
-                return std::unexpected(gltf_error(AssetErrorCode::IoFailure,
-                                                   "Could not determine the size of glTF image file '" +
-                                                       file_path.string() + "'.",
-                                                   file_path));
-            }
-            file.seekg(0, std::ios::beg);
-            std::vector<std::byte> bytes(static_cast<usize>(size));
-            if (!bytes.empty() && !file.read(reinterpret_cast<char *>(bytes.data()),
-                                              static_cast<std::streamsize>(bytes.size()))) {
-                return std::unexpected(gltf_error(AssetErrorCode::IoFailure,
-                                                   "Could not read glTF image file '" + file_path.string() + "'.",
-                                                   file_path));
-            }
-            return bytes;
+            return std::move(*bytes);
         }
 
 

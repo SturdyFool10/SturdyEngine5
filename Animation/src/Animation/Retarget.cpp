@@ -9,15 +9,16 @@
 
 namespace SFT::Animation {
 
-    std::string_view humanoid_bone_name(HumanoidBone bone) noexcept {
-        static constexpr std::string_view names[] = {
+    const UString &humanoid_bone_name(HumanoidBone bone) noexcept {
+        static const UString names[] = {
             "Hips", "Spine", "Chest", "UpperChest", "Neck", "Head",
             "LeftShoulder", "LeftUpperArm", "LeftLowerArm", "LeftHand",
             "RightShoulder", "RightUpperArm", "RightLowerArm", "RightHand",
             "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "LeftToes",
             "RightUpperLeg", "RightLowerLeg", "RightFoot", "RightToes"};
+        static const UString none;
         const usize i = static_cast<usize>(bone);
-        return i < std::size(names) ? names[i] : std::string_view{};
+        return i < std::size(names) ? names[i] : none;
     }
 
     bool HumanoidMap::usable() const noexcept {
@@ -35,34 +36,33 @@ namespace SFT::Animation {
 
     namespace {
 
-        [[nodiscard]] std::string lower(std::string_view s) {
-            std::string out(s);
-            for (char &c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        [[nodiscard]] UString lower(const UString &s) {
+            UString out;
+            for (char32_t c : s) out.push_back(c < 128 ? static_cast<char32_t>(std::tolower(static_cast<int>(c))) : c);
             return out;
         }
 
         // Splits "UpperArm_L", "upper_arm.L", "LeftUpArm", "Bip01 L Forearm" into lower-case tokens.
-        [[nodiscard]] std::vector<std::string> tokenize(std::string_view name) {
-            if (const usize colon = name.rfind(':'); colon != std::string_view::npos) name = name.substr(colon + 1);
-            std::vector<std::string> tokens;
-            std::string current;
+        [[nodiscard]] std::vector<UString> tokenize(const UString &full_name) {
+            const usize colon = full_name.rfind(":"_ustr);
+            const UString name = colon != UString::npos ? full_name.substr(colon + 1) : full_name;
+            std::vector<UString> tokens;
+            UString current;
             const auto flush = [&] {
                 if (!current.empty()) tokens.push_back(lower(current));
                 current.clear();
             };
-            for (usize i = 0; i < name.size(); ++i) {
-                const unsigned char c = static_cast<unsigned char>(name[i]);
-                if (!std::isalnum(c)) {
+            const auto ascii_class = [](char32_t c, int (*test)(int)) { return c < 128 && test(static_cast<int>(c)) != 0; };
+            for (char32_t c : name) {
+                if (!ascii_class(c, std::isalnum)) {
                     flush();
                     continue;
                 }
-                const bool boundary = !current.empty() && std::isupper(c) &&
-                                      (std::islower(static_cast<unsigned char>(current.back())) ||
-                                       std::isdigit(static_cast<unsigned char>(current.back())));
-                const bool digit_edge = !current.empty() && std::isdigit(c) != std::isdigit(static_cast<unsigned char>(current.back())) &&
-                                        std::isdigit(c);
+                const bool boundary = !current.empty() && ascii_class(c, std::isupper) &&
+                                      (ascii_class(current.back(), std::islower) || ascii_class(current.back(), std::isdigit));
+                const bool digit_edge = !current.empty() && ascii_class(c, std::isdigit) && !ascii_class(current.back(), std::isdigit);
                 if (boundary || digit_edge) flush();
-                current.push_back(static_cast<char>(c));
+                current.push_back(c);
             }
             flush();
             return tokens;
@@ -70,41 +70,41 @@ namespace SFT::Animation {
 
         struct ParsedName {
             int side = 0;         // -1 left, +1 right, 0 none
-            std::string base;     // joined remaining tokens, e.g. "upperarm"
+            UString base;         // joined remaining tokens, e.g. "upperarm"
         };
 
-        [[nodiscard]] ParsedName parse_name(std::string_view name) {
+        [[nodiscard]] ParsedName parse_name(const UString &name) {
             ParsedName parsed;
-            std::vector<std::string> tokens = tokenize(name);
-            std::vector<std::string> kept;
-            for (const std::string &t : tokens) {
-                if (t == "left" || t == "l") parsed.side = -1;
-                else if (t == "right" || t == "r") parsed.side = +1;
-                else if (t == "mixamorig" || t == "bip" || t == "bip01" || t == "bip001" || t == "jbip" || t == "c" ||
-                         t == "j" || t == "def" || t == "deform" || t == "armature" || t == "skeleton" || t == "01" ||
-                         t == "001" || t == "root")
+            std::vector<UString> tokens = tokenize(name);
+            std::vector<UString> kept;
+            for (const UString &t : tokens) {
+                if (t == "left"_ustr || t == "l"_ustr) parsed.side = -1;
+                else if (t == "right"_ustr || t == "r"_ustr) parsed.side = +1;
+                else if (t == "mixamorig"_ustr || t == "bip"_ustr || t == "bip01"_ustr || t == "bip001"_ustr || t == "jbip"_ustr || t == "c"_ustr ||
+                         t == "j"_ustr || t == "def"_ustr || t == "deform"_ustr || t == "armature"_ustr || t == "skeleton"_ustr || t == "01"_ustr ||
+                         t == "001"_ustr || t == "root"_ustr)
                     continue;
                 else kept.push_back(t);
             }
             // "leftupperarm" (single token) -> side + remainder
             if (parsed.side == 0 && kept.size() == 1) {
-                for (const auto &[prefix, side] : {std::pair<std::string_view, int>{"left", -1}, {"right", +1}}) {
-                    if (kept[0].rfind(prefix, 0) == 0 && kept[0].size() > prefix.size()) {
+                for (const auto &[prefix, side] : {std::pair<UString, int>{"left", -1}, {"right", +1}}) {
+                    if (kept[0].starts_with(prefix) && kept[0].scalar_size() > prefix.scalar_size()) {
                         parsed.side = side;
-                        kept[0] = kept[0].substr(prefix.size());
+                        kept[0] = kept[0].substr(prefix.scalar_size());
                     }
                 }
             }
-            for (const std::string &t : kept) parsed.base += t;
+            for (const UString &t : kept) parsed.base += t;
             return parsed;
         }
 
     } // namespace
 
-    std::string normalize_joint_name(std::string_view name) {
-        std::string out;
-        for (const std::string &t : tokenize(name)) {
-            if (t == "mixamorig" || t == "armature") continue;
+    UString normalize_joint_name(const ustr &name) {
+        UString out;
+        for (const UString &t : tokenize(UString{name})) {
+            if (t == "mixamorig"_ustr || t == "armature"_ustr) continue;
             out += t;
         }
         return out;
@@ -114,7 +114,7 @@ namespace SFT::Animation {
         HumanoidMap map;
         struct Candidate {
             u32 joint;
-            std::string base;
+            UString base;
         };
         std::vector<Candidate> spine_chain;
         std::vector<u32> plain_leg_left, plain_leg_right;
@@ -129,43 +129,43 @@ namespace SFT::Animation {
 
         // Joints are parent-first, so the first match along a limb is the upper segment.
         for (u32 j = 0; j < skeleton.joint_count(); ++j) {
-            const ParsedName n = parse_name(skeleton.names.empty() ? std::string_view{} : std::string_view{skeleton.names[j]});
-            const std::string &b = n.base;
+            const ParsedName n = parse_name(skeleton.names.empty() ? UString{} : skeleton.names[j]);
+            const UString &b = n.base;
             const bool left = n.side < 0, right = n.side > 0;
-            if (b == "hips" || b == "pelvis" || b == "hip") {
+            if (b == "hips"_ustr || b == "pelvis"_ustr || b == "hip"_ustr) {
                 if (n.side == 0) set_if_empty(HumanoidBone::Hips, j);
-            } else if (n.side == 0 && (b == "spine" || b == "spine1" || b == "spine2" || b == "spine3" || b == "chest" ||
-                                        b == "upperchest" || b == "spine01" || b == "spine02" || b == "spine03" || b == "abdomen" || b == "torso")) {
+            } else if (n.side == 0 && (b == "spine"_ustr || b == "spine1"_ustr || b == "spine2"_ustr || b == "spine3"_ustr || b == "chest"_ustr ||
+                                        b == "upperchest"_ustr || b == "spine01"_ustr || b == "spine02"_ustr || b == "spine03"_ustr || b == "abdomen"_ustr || b == "torso"_ustr)) {
                 spine_chain.push_back({j, b});
-            } else if (n.side == 0 && b == "neck") {
+            } else if (n.side == 0 && b == "neck"_ustr) {
                 set_if_empty(HumanoidBone::Neck, j);
-            } else if (n.side == 0 && b == "head") {
+            } else if (n.side == 0 && b == "head"_ustr) {
                 set_if_empty(HumanoidBone::Head, j);
-            } else if (b == "shoulder" || b == "clavicle" || b == "collar") {
+            } else if (b == "shoulder"_ustr || b == "clavicle"_ustr || b == "collar"_ustr) {
                 if (left) set_if_empty(HumanoidBone::LeftShoulder, j);
                 if (right) set_if_empty(HumanoidBone::RightShoulder, j);
-            } else if (b == "upperarm" || b == "arm" || b == "uparm" || b == "armupper") {
+            } else if (b == "upperarm"_ustr || b == "arm"_ustr || b == "uparm"_ustr || b == "armupper"_ustr) {
                 if (left) set_if_empty(HumanoidBone::LeftUpperArm, j);
                 if (right) set_if_empty(HumanoidBone::RightUpperArm, j);
-            } else if (b == "lowerarm" || b == "forearm" || b == "armlower" || b == "elbow") {
+            } else if (b == "lowerarm"_ustr || b == "forearm"_ustr || b == "armlower"_ustr || b == "elbow"_ustr) {
                 if (left) set_if_empty(HumanoidBone::LeftLowerArm, j);
                 if (right) set_if_empty(HumanoidBone::RightLowerArm, j);
-            } else if (b == "hand" || b == "wrist") {
+            } else if (b == "hand"_ustr || b == "wrist"_ustr) {
                 if (left) set_if_empty(HumanoidBone::LeftHand, j);
                 if (right) set_if_empty(HumanoidBone::RightHand, j);
-            } else if (b == "leg" || b == "leg1" || b == "leg2") {
+            } else if (b == "leg"_ustr || b == "leg1"_ustr || b == "leg2"_ustr) {
                 // Ambiguous: Mixamo's "Leg" is the shin next to "UpLeg", other rigs use "Leg"/"Leg2" for thigh/shin.
                 (left ? plain_leg_left : plain_leg_right).push_back(j);
-            } else if (b == "upperleg" || b == "thigh" || b == "upleg" || b == "legupper") {
+            } else if (b == "upperleg"_ustr || b == "thigh"_ustr || b == "upleg"_ustr || b == "legupper"_ustr) {
                 if (left) set_if_empty(HumanoidBone::LeftUpperLeg, j);
                 if (right) set_if_empty(HumanoidBone::RightUpperLeg, j);
-            } else if (b == "lowerleg" || b == "calf" || b == "shin" || b == "leglower" || b == "knee") {
+            } else if (b == "lowerleg"_ustr || b == "calf"_ustr || b == "shin"_ustr || b == "leglower"_ustr || b == "knee"_ustr) {
                 if (left) set_if_empty(HumanoidBone::LeftLowerLeg, j);
                 if (right) set_if_empty(HumanoidBone::RightLowerLeg, j);
-            } else if (b == "foot" || b == "ankle") {
+            } else if (b == "foot"_ustr || b == "ankle"_ustr) {
                 if (left) set_if_empty(HumanoidBone::LeftFoot, j);
                 if (right) set_if_empty(HumanoidBone::RightFoot, j);
-            } else if (b == "toes" || b == "toe" || b == "toebase" || b == "ball") {
+            } else if (b == "toes"_ustr || b == "toe"_ustr || b == "toebase"_ustr || b == "ball"_ustr) {
                 if (left) set_if_empty(HumanoidBone::LeftToes, j);
                 if (right) set_if_empty(HumanoidBone::RightToes, j);
             }
@@ -250,7 +250,7 @@ namespace SFT::Animation {
             }
         }
         if (options.copy_matching_bones) {
-            std::unordered_map<std::string, u32> source_by_name;
+            std::unordered_map<UString, u32> source_by_name;
             for (u32 j = 0; j < source.joint_count(); ++j) {
                 if (!source.names.empty()) source_by_name.emplace(normalize_joint_name(source.names[j]), j);
             }
@@ -324,10 +324,10 @@ namespace SFT::Animation {
         Clip named = clip;
         if (named.joint_names.empty()) named.joint_names = source.names;
 
-        std::unordered_map<std::string, bool> source_names;
-        for (const std::string &n : source.names) source_names.emplace(normalize_joint_name(n), true);
+        std::unordered_map<UString, bool> source_names;
+        for (const UString &n : source.names) source_names.emplace(normalize_joint_name(n), true);
         usize matches = 0;
-        for (const std::string &n : target.names) matches += source_names.count(normalize_joint_name(n));
+        for (const UString &n : target.names) matches += source_names.count(normalize_joint_name(n));
         const f32 coverage = target.joint_count() > 0 ? static_cast<f32>(matches) / static_cast<f32>(target.joint_count()) : 0.0f;
         if (coverage >= 0.7f) {
             return remap_clip_by_name(named, target);
@@ -348,7 +348,7 @@ namespace SFT::Animation {
         out.morph_tracks = clip.morph_tracks;
         out.channels.resize(target.joint_count());
         out.joint_names = target.names;
-        std::unordered_map<std::string, usize> by_name;
+        std::unordered_map<UString, usize> by_name;
         for (usize i = 0; i < clip.joint_names.size(); ++i) {
             by_name.emplace(clip.joint_names[i], i);
             by_name.emplace(normalize_joint_name(clip.joint_names[i]), i);

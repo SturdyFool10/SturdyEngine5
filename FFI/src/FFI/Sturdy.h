@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 30u
+#define STURDY_ABI_VERSION_MINOR 31u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -2096,6 +2096,162 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gltf_light_name(SturdyGltfScene s
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gltf_spawn_all(SturdyEngine engine,
                                                               SturdyGltfScene scene,
                                                               uint32_t *out_spawned);
+
+// ---------------------------------------------------------------------------------------------
+// Audio
+// ---------------------------------------------------------------------------------------------
+//
+// Mixing, spatialisation (2D, 3D, any speaker layout up to 32 channels), streamed sources (voice chat, video soundtracks),
+// microphones, custom sinks and effects. Sounds, voices, streams, sinks and captures are owned handles: they outlive the
+// callback that made them and live until their `_release`/`_stop` call. Release every audio handle before the engine shuts
+// down. Handles of voices that finished are inert, not invalid.
+
+typedef struct SturdySound { uint64_t token; } SturdySound;
+typedef struct SturdyVoice { uint64_t token; } SturdyVoice;
+typedef struct SturdyAudioStream { uint64_t token; } SturdyAudioStream;
+typedef struct SturdyAudioSink { uint64_t token; } SturdyAudioSink;
+typedef struct SturdyAudioCapture { uint64_t token; } SturdyAudioCapture;
+
+typedef enum SturdyAudioLayout {
+    STURDY_AUDIO_LAYOUT_STEREO = 0,
+    STURDY_AUDIO_LAYOUT_MONO = 1,
+    STURDY_AUDIO_LAYOUT_QUAD = 2,
+    STURDY_AUDIO_LAYOUT_5_1 = 3,
+    STURDY_AUDIO_LAYOUT_7_1 = 4,
+    STURDY_AUDIO_LAYOUT_7_1_4 = 5,
+    STURDY_AUDIO_LAYOUT_9_1_6 = 6,
+    STURDY_AUDIO_LAYOUT_22_2 = 7,
+    /// Whatever the conventional layout is for `channel_count` speakers (3, 5, 7, 9, 11 ... any count up to 32).
+    STURDY_AUDIO_LAYOUT_CHANNEL_COUNT = 8,
+    STURDY_AUDIO_LAYOUT_FORCE_32_BIT = 0x7fffffff
+} SturdyAudioLayout;
+
+typedef struct SturdyAudioConfig {
+    /// Set to `sizeof(SturdyAudioConfig)`.
+    uint32_t struct_size;
+    /// 0 selects 48000.
+    uint32_t sample_rate;
+    SturdyAudioLayout layout;
+    /// Used with `STURDY_AUDIO_LAYOUT_CHANNEL_COUNT`.
+    uint32_t channel_count;
+    /// 0 selects the defaults (8192 voices, 4096 audible at once, helper threads chosen by the engine).
+    uint32_t max_voices;
+    uint32_t max_physical_voices;
+    uint32_t mix_threads;
+    /// Open the default playback device. False mixes silently (headless tools, tests, or when a custom sink takes the output).
+    SturdyBool open_device;
+} SturdyAudioConfig;
+
+/// Turns audio on (replacing any previous setup). Returns `STURDY_ERROR_NOT_AVAILABLE` when the playback device would not open;
+/// the mixer is then running silently anyway, so sinks, streams and offline use keep working.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_enable(SturdyEngine engine, const SturdyAudioConfig *config);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_disable(SturdyEngine engine);
+
+/// Makes `entity` the listener (the highest `priority` wins when several exist). The entity needs a world transform.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_listener_attach(SturdyEngine engine, SturdyEntity entity, float priority);
+
+typedef struct SturdyAudioStats {
+    uint32_t voices;
+    uint32_t audible;
+    uint32_t virtualised;
+    float master_peak;
+} SturdyAudioStats;
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_stats(SturdyEngine engine, SturdyAudioStats *out_stats);
+
+/// Decodes a file (any supported codec; cached by path) without playing it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_sound_load(SturdyEngine engine, const char *path, SturdySound *out_sound);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_sound_release(SturdySound sound);
+
+typedef struct SturdyPlayOptions {
+    /// Set to `sizeof(SturdyPlayOptions)`.
+    uint32_t struct_size;
+    /// 0 is treated as 1.
+    float volume;
+    /// 0 is treated as 1; 2 is an octave up.
+    float pitch;
+    /// False plays un-positioned (UI, music).
+    SturdyBool spatial;
+    SturdyBool loop;
+    /// World position when `spatial`.
+    float position[3];
+    /// Seconds to wait before starting.
+    float delay_seconds;
+    float fade_in_seconds;
+} SturdyPlayOptions;
+
+/// Plays a loaded sound. `out_voice` may be null for fire-and-forget; a returned voice must still be released.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_sound_play(SturdyEngine engine, SturdySound sound, const SturdyPlayOptions *options, SturdyVoice *out_voice);
+/// Streams a long file (music, ambience) from a decode thread instead of loading it whole.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_stream_file(SturdyEngine engine, const char *path, const SturdyPlayOptions *options, SturdyVoice *out_voice);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_voice_release(SturdyVoice voice);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_voice_set_volume(SturdyVoice voice, float volume);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_voice_fade_volume(SturdyVoice voice, float target, float seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_voice_set_pitch(SturdyVoice voice, float pitch);
+/// Moves a spatial voice; `velocity` (may be null) feeds Doppler shift.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_voice_set_position(SturdyVoice voice, const float position[3], const float *velocity);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_voice_stop(SturdyVoice voice, float fade_seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_voice_pause(SturdyVoice voice);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_voice_resume(SturdyVoice voice);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_voice_seek(SturdyVoice voice, double seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_voice_state(SturdyVoice voice, SturdyBool *out_playing, SturdyBool *out_finished, double *out_position_seconds);
+
+/// How a sound attached to an entity is anchored.
+typedef enum SturdyAudioAttachment {
+    /// Fixed at `offset`, read as a world position.
+    STURDY_AUDIO_ATTACH_WORLD = 0,
+    /// Follows the entity's transform plus `offset` in its local space (parenting to a moving object).
+    STURDY_AUDIO_ATTACH_ENTITY = 1,
+    /// Stays at `offset` from the listener's head.
+    STURDY_AUDIO_ATTACH_LISTENER = 2,
+    STURDY_AUDIO_ATTACH_FORCE_32_BIT = 0x7fffffff
+} SturdyAudioAttachment;
+
+/// Gives an entity a sound source that follows it (the engine's audio systems keep it positioned).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_source_attach(SturdyEngine engine, SturdyEntity entity, SturdySound sound,
+                                                                   SturdyAudioAttachment attachment, const float offset[3],
+                                                                   const SturdyPlayOptions *options);
+
+/// A source you feed yourself: voice chat, a video soundtrack, procedural audio. Interleaved float frames in, any channel count
+/// up to 256; sample-rate differences and clock drift are corrected on playback.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_stream_create(SturdyEngine engine, uint32_t channels, uint32_t sample_rate,
+                                                                   float buffer_seconds, SturdyAudioStream *out_stream);
+/// Appends frames; `out_accepted` (may be null) receives how many fit.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_stream_push(SturdyAudioStream stream, const float *interleaved, uint32_t frames, uint32_t *out_accepted);
+/// Marks the end of the stream; the voice finishes when it has drained.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_stream_close(SturdyAudioStream stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_stream_buffered_seconds(SturdyAudioStream stream, double *out_seconds);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_stream_play(SturdyEngine engine, SturdyAudioStream stream, const SturdyPlayOptions *options, SturdyVoice *out_voice);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_stream_release(SturdyAudioStream stream);
+
+/// Opens a microphone or audio interface at any channel count it offers. `device_name` null or empty selects the default input.
+/// The capture is playable and readable through the stream it exposes.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_capture_start(const char *device_name, uint32_t sample_rate, uint32_t channels,
+                                                                   SturdyAudioCapture *out_capture);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_capture_info(SturdyAudioCapture capture, uint32_t *out_channels, uint32_t *out_sample_rate);
+/// Highest absolute sample of a channel since the last call (for level meters).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_capture_peak(SturdyAudioCapture capture, uint32_t channel, float *out_peak);
+/// Plays the capture through the engine (voice chat monitoring, effects chains).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_capture_play(SturdyEngine engine, SturdyAudioCapture capture, const SturdyPlayOptions *options, SturdyVoice *out_voice);
+/// Closes the device. Voices playing the capture end.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_capture_stop(SturdyAudioCapture capture);
+
+/// Receives mixed audio from a custom sink. Runs on a thread of the engine's, never the audio thread; `interleaved` holds
+/// `frames * channels` floats and is only valid during the call.
+typedef void(STURDY_ABI_CALL *SturdyAudioSinkCallback)(void *user_data, const float *interleaved, uint32_t frames, uint32_t channels, uint32_t sample_rate);
+
+/// Sends one engine output to `callback`. Output 0 is the primary output: the sink then drives the mix itself (real-time, or as
+/// fast as possible when `realtime` is false), so combine it with `open_device = false`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_sink_start(SturdyEngine engine, uint32_t output, SturdyAudioSinkCallback callback, void *user_data,
+                                                                uint32_t block_frames, SturdyBool realtime, SturdyAudioSink *out_sink);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_sink_stop(SturdyAudioSink sink);
+
+/// Appends an effect to the master bus by catalogue name ("filter", "equalizer", "noise_reduction", "compressor", "limiter", ...;
+/// see `sturdy_audio_effect_name`) with named parameters (`count` pairs of `names[i]`/`values[i]`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_master_effect_add(SturdyEngine engine, const char *kind, const char *const *names, const float *values, uint32_t count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_effect_count(uint32_t *out_count);
+/// Reads the catalogue name of effect `index`. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_audio_effect_name(uint32_t index, char *buffer, size_t capacity, size_t *out_length);
 
 // ---------------------------------------------------------------------------------------------
 // Model import, animation and animation graphs

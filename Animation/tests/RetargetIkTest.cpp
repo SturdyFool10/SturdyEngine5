@@ -37,7 +37,7 @@ namespace {
         return glm::vec3(m[j][3]);
     }
 
-    Skeleton make_humanoid(const std::vector<std::string> &names) {
+    Skeleton make_humanoid(const std::vector<UString> &names) {
         Skeleton s;
         s.names = names;
         s.parents.assign(names.size(), no_joint);

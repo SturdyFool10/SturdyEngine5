@@ -1,4 +1,5 @@
 #include <RHI/Inventory.hpp>
+#include <Foundation/Iter.hpp>
 
 #include <algorithm>
 
@@ -59,11 +60,10 @@ namespace SFT::RHI {
                 if (!same_device) {
                     continue;
                 }
-                const bool backend_already_listed =
-                    std::any_of(gpu.api_support.begin(), gpu.api_support.end(),
-                                [&adapter](const GpuApiSupport &support) {
-                                    return support.adapter.backend == adapter.backend;
-                                });
+                const bool backend_already_listed = Foundation::iter(gpu.api_support).any(
+                    [&adapter](const GpuApiSupport &support) {
+                        return support.adapter.backend == adapter.backend;
+                    });
                 if (!backend_already_listed) {
                     return &gpu;
                 }

@@ -6,7 +6,6 @@
 #include <array>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace SFT::Animation {
@@ -24,7 +23,7 @@ namespace SFT::Animation {
     };
     inline constexpr usize humanoid_bone_count = static_cast<usize>(HumanoidBone::Count);
 
-    [[nodiscard]] std::string_view humanoid_bone_name(HumanoidBone bone) noexcept;
+    [[nodiscard]] const UString &humanoid_bone_name(HumanoidBone bone) noexcept;
 
     /// Which joint of a skeleton plays each humanoid slot (`no_joint` when the rig has none).
     struct HumanoidMap {
@@ -72,6 +71,6 @@ namespace SFT::Animation {
                                   const RetargetOptions &options = {});
 
     /// Lower-cases and strips namespace/prefix noise: "mixamorig:LeftArm" -> "leftarm".
-    [[nodiscard]] std::string normalize_joint_name(std::string_view name);
+    [[nodiscard]] UString normalize_joint_name(const ustr &name);
 
 } // namespace SFT::Animation

@@ -433,7 +433,7 @@ namespace SFT::Engine {
             if (!bake) continue;
 
             auto clip = std::make_shared<Animation::Clip>();
-            clip->name = stack->name.length > 0 ? to_std(stack->name) : "animation";
+            clip->name = UString{stack->name.length > 0 ? to_std(stack->name) : std::string{"animation"}};
             clip->channels.resize(skeleton->joint_count());
             clip->joint_names = skeleton->names;
             const double origin = stack->time_begin;
@@ -472,7 +472,7 @@ namespace SFT::Engine {
                 std::sort(times.begin(), times.end());
                 times.erase(std::unique(times.begin(), times.end(), [](f32 a, f32 b) { return std::fabs(a - b) < 1e-6f; }), times.end());
                 Animation::MorphTrack track;
-                track.target = info.node_name;
+                track.target = UString{info.node_name};
                 track.weight_count = static_cast<u32>(info.channels.size());
                 track.track.interpolation = Animation::Interpolation::Linear;
                 track.track.times = times;

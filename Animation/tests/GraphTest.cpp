@@ -91,10 +91,10 @@ int main() {
         GraphInstance g(def, skeleton);
         Pose pose;
         g.update(0.1f, pose);
-        check(g.current_state_name() == "Idle" && !g.in_transition(), "starts in the entry state");
+        check(g.current_state_name() == "Idle"_ustr && !g.in_transition(), "starts in the entry state");
         g.set_trigger("go");
         g.update(0.25f, pose);
-        check(g.in_transition() && g.current_state_name() == "Run", "trigger starts a transition");
+        check(g.in_transition() && g.current_state_name() == "Run"_ustr, "trigger starts a transition");
         check(g.get_param("go") == 0.0f, "trigger is consumed");
         // Half way through the fade: smoothstep(0.5) = 0.5, run has advanced 0.25 -> x = 1.5; idle 0.
         check(near(pose[0].translation.x, 0.5f * 1.5f), "mid-fade pose blends both states");
@@ -116,10 +116,10 @@ int main() {
         GraphInstance g(std::make_shared<GraphDef>(b.build()), skeleton);
         Pose pose;
         g.update(0.5f, pose);
-        check(g.current_state_name() == "A", "exit time not reached yet");
+        check(g.current_state_name() == "A"_ustr, "exit time not reached yet");
         g.update(0.4f, pose);
         g.update(0.0f, pose);
-        check(g.current_state_name() == "B", "exit time reached, instant transition");
+        check(g.current_state_name() == "B"_ustr, "exit time reached, instant transition");
     }
 
     // ---- events ------------------------------------------------------------------------------
@@ -131,11 +131,11 @@ int main() {
         GraphInstance g(std::make_shared<GraphDef>(b.build()), skeleton);
         Pose pose;
         g.update(0.5f, pose);
-        check(g.events().size() == 1 && g.events()[0].name == "left_foot", "event fires when crossed");
+        check(g.events().size() == 1 && g.events()[0].name == "left_foot"_ustr, "event fires when crossed");
         g.update(0.4f, pose);
-        check(g.events().size() == 1 && g.events()[0].name == "right_foot", "second event");
+        check(g.events().size() == 1 && g.events()[0].name == "right_foot"_ustr, "second event");
         g.update(0.4f, pose); // 0.9 -> 1.3 (wraps to 0.3): crosses the end and 0.25
-        check(g.events().size() == 1 && g.events()[0].name == "left_foot", "event across the loop wrap");
+        check(g.events().size() == 1 && g.events()[0].name == "left_foot"_ustr, "event across the loop wrap");
         g.update(0.0f, pose);
         check(g.events().empty(), "no events without time passing");
     }
@@ -163,7 +163,7 @@ int main() {
         const NodeId base = b.clip_node(b.add_clip(walk));
         const NodeId upper = b.clip_node(b.add_clip(wave));
         b.add_layer(Layer{.root = base});
-        const std::vector<std::string> names{"Arm"};
+        const std::vector<UString> names{"Arm"};
         b.add_layer(Layer{.root = upper, .mask = make_joint_mask(*skeleton, names)});
         GraphInstance g(std::make_shared<GraphDef>(b.build()), skeleton);
         Pose pose;
@@ -209,18 +209,18 @@ int main() {
             Pose pose;
             g.set_float("speed", 1.0f);
             g.update(0.5f, pose);
-            check(g.current_state_name() == "Loco", "loaded graph runs");
+            check(g.current_state_name() == "Loco"_ustr, "loaded graph runs");
             g.set_trigger("go");
             g.update(0.01f, pose);
-            check(g.current_state_name() == "Run", "loaded transition fires from any state");
+            check(g.current_state_name() == "Run"_ustr, "loaded transition fires from any state");
         }
         check(!load_graph_json("{ not json", library, *skeleton).has_value(), "syntax error is reported");
         auto missing = load_graph_json(R"({"nodes":[{"id":"x","type":"clip","clip":"Nope"}]})", library, *skeleton);
-        check(!missing && missing.error().find("Nope") != std::string::npos, "unknown clip named in the error");
+        check(!missing && missing.error().contains("Nope"_ustr), "unknown clip named in the error");
         auto cyclic = load_graph_json(
             R"({"nodes":[{"id":"a","type":"mix","a":"b","b":"b"},{"id":"b","type":"mix","a":"a","b":"a"}],"layers":[{"node":"a"}]})",
             library, *skeleton);
-        check(!cyclic && cyclic.error().find("cycle") != std::string::npos, "cycles are rejected");
+        check(!cyclic && cyclic.error().contains("cycle"_ustr), "cycles are rejected");
     }
 
     return failures == 0 ? 0 : 1;

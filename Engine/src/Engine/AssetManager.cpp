@@ -9,10 +9,12 @@
 #include <Renderer/Renderer.hpp>
 #include <RHI/RHI.hpp>
 
-#include <miniaudio.h>
+#include <Audio/Decoder.hpp>
+
 
 #include <algorithm>
 #include <atomic>
+#include <Foundation/FileIo.hpp>
 #include <fstream>
 #include <limits>
 #include <mutex>
@@ -167,38 +169,12 @@ namespace SFT::Engine {
         /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::IoFailure`, `AssetErrorCode::NotFound`.
         [[nodiscard]] AssetExpected<std::vector<std::byte>> read_binary_file(
             const std::filesystem::path &source) {
-            std::ifstream file(source, std::ios::binary | std::ios::ate);
-            if (!file.is_open()) {
-                const AssetErrorCode code = std::filesystem::exists(source)
-                                                ? AssetErrorCode::IoFailure
-                                                : AssetErrorCode::NotFound;
-                return std::unexpected(error(code, "Could not open asset file '" + source.string() + "'.", source));
+            auto bytes = Foundation::Io::read_file(source, Foundation::Io::AccessHint::OneShot);
+            if (!bytes) {
+                const AssetErrorCode code = std::filesystem::exists(source) ? AssetErrorCode::IoFailure : AssetErrorCode::NotFound;
+                return std::unexpected(error(code, bytes.error(), source));
             }
-
-            const std::streamoff end = file.tellg();
-            if (end < 0) {
-                return std::unexpected(error(
-                    AssetErrorCode::IoFailure,
-                    "Could not determine the size of asset file '" + source.string() + "'.",
-                    source));
-            }
-            if (static_cast<u64>(end) > std::numeric_limits<usize>::max()) {
-                return std::unexpected(error(
-                    AssetErrorCode::IoFailure,
-                    "Asset file is too large to address in this process: '" + source.string() + "'.",
-                    source));
-            }
-
-            std::vector<std::byte> bytes(static_cast<usize>(end));
-            file.seekg(0, std::ios::beg);
-            if (!bytes.empty() &&
-                !file.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()))) {
-                return std::unexpected(error(
-                    AssetErrorCode::IoFailure,
-                    "Could not read the complete asset file '" + source.string() + "'.",
-                    source));
-            }
-            return bytes;
+            return std::move(*bytes);
         }
 
         /// Performs the combine stable ID operation for `Engine` using the supplied arguments.
@@ -228,7 +204,8 @@ namespace SFT::Engine {
         };
 
         struct SoundData {
-            std::shared_ptr<std::vector<f32>> samples;
+            /// Decoded audio with the cue points and loop region the file carried, shared with the mixer (never copied).
+            std::shared_ptr<const Audio::SampleBuffer> buffer;
             SoundAssetInfo info{};
         };
 
@@ -833,48 +810,16 @@ namespace SFT::Engine {
         }
 
         const Foundation::Stopwatch stopwatch;
-        auto encoded = read_binary_file(source);
-        if (!encoded) {
-            return std::unexpected(encoded.error());
+        // Every codec the audio decoder registry knows (WAV, FLAC, MP3, Ogg Vorbis, AIFF, Opus, and AAC/M4A/WMA where the OS provides them).
+        auto decoded = Audio::load_sound_file(source);
+        if (!decoded) {
+            return std::unexpected(error(AssetErrorCode::DecodeFailure,
+                                         "Could not decode sound '" + source.string() + "': " + decoded.error().cpp_string(), source));
         }
-
-        ma_decoder decoder{};
-        const ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0);
-        const ma_result initialized = ma_decoder_init_memory(
-            encoded->data(), encoded->size(), &config, &decoder);
-        if (initialized != MA_SUCCESS) {
-            return std::unexpected(error(
-                AssetErrorCode::DecodeFailure,
-                "Could not decode sound '" + source.string() + "': " + ma_result_description(initialized),
-                source));
-        }
-
-        ma_uint64 frame_count = 0;
-        const ma_result length_result = ma_decoder_get_length_in_pcm_frames(&decoder, &frame_count);
-        if (length_result != MA_SUCCESS || decoder.outputChannels == 0 || decoder.outputSampleRate == 0 ||
-            frame_count > std::numeric_limits<usize>::max() / decoder.outputChannels) {
-            ma_decoder_uninit(&decoder);
-            return std::unexpected(error(
-                AssetErrorCode::DecodeFailure,
-                "Could not determine decoded sound dimensions for '" + source.string() + "'.",
-                source));
-        }
-
-        auto samples = std::make_shared<std::vector<f32>>(
-            static_cast<usize>(frame_count * decoder.outputChannels));
-        ma_uint64 frames_read = 0;
-        const ma_result read_result = ma_decoder_read_pcm_frames(
-            &decoder, samples->data(), frame_count, &frames_read);
-        const u32 channels = decoder.outputChannels;
-        const u32 sample_rate = decoder.outputSampleRate;
-        ma_decoder_uninit(&decoder);
-        if (read_result != MA_SUCCESS && read_result != MA_AT_END) {
-            return std::unexpected(error(
-                AssetErrorCode::DecodeFailure,
-                "Could not read decoded samples for '" + source.string() + "': " + ma_result_description(read_result),
-                source));
-        }
-        samples->resize(static_cast<usize>(frames_read * channels));
+        std::shared_ptr<const Audio::SampleBuffer> buffer = *decoded;
+        const u32 channels = buffer->channels;
+        const u32 sample_rate = buffer->sample_rate;
+        const u64 frames_read = buffer->frames();
 
         if (label.empty()) {
             label = path_label(source, "sound");
@@ -890,9 +835,9 @@ namespace SFT::Engine {
             .type = AssetType::Sound,
             .label = std::move(label),
             .source = source,
-            .memory_bytes = samples->size() * sizeof(f32),
+            .memory_bytes = buffer->samples->size() * sizeof(f32),
             .data = Impl::SoundData{
-                .samples = std::move(samples),
+                .buffer = std::move(buffer),
                 .info = SoundAssetInfo{
                     .channels = channels,
                     .sample_rate = sample_rate,
@@ -1495,6 +1440,17 @@ namespace SFT::Engine {
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`.
+    AssetExpected<std::shared_ptr<const Audio::SampleBuffer>> AssetManager::sound_buffer(Asset asset) const {
+        std::shared_lock lock{impl_->mutex};
+        const Impl::Record *record = impl_->find(asset);
+        const auto *data = record ? std::get_if<Impl::SoundData>(&record->data) : nullptr;
+        if (data == nullptr) {
+            return std::unexpected(error(record ? AssetErrorCode::WrongType : AssetErrorCode::InvalidAsset,
+                                         "sound_buffer requires a live sound asset."));
+        }
+        return data->buffer;
+    }
+
     AssetExpected<std::shared_ptr<const std::vector<f32>>> AssetManager::sound_samples(Asset asset) const {
         std::shared_lock lock{impl_->mutex};
         const Impl::Record *record = impl_->find(asset);
@@ -1503,7 +1459,7 @@ namespace SFT::Engine {
             return std::unexpected(error(record ? AssetErrorCode::WrongType : AssetErrorCode::InvalidAsset,
                                          "sound_samples requires a live sound asset."));
         }
-        return std::shared_ptr<const std::vector<f32>>{data->samples};
+        return std::shared_ptr<const std::vector<f32>>{data->buffer->samples};
     }
 
     /// Performs the unload operation for `Engine` using the supplied arguments.

@@ -1,4 +1,5 @@
 #include <Ecs/World.hpp>
+#include <Foundation/Iter.hpp>
 
 
 namespace SFT::Ecs {
@@ -160,10 +161,10 @@ namespace SFT::Ecs {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     u32 World::archetype_index_for(const Signature &signature) {
         ZoneScopedN("World::archetype_index_for");
-        for (usize i = 0; i < archetypes_.size(); ++i) {
-            if (archetypes_[i].signature() == signature) {
-                return static_cast<u32>(i);
-            }
+        const auto existing = Foundation::iter(archetypes_).position(
+            [&signature](const Archetype &archetype) { return archetype.signature() == signature; });
+        if (existing) {
+            return static_cast<u32>(*existing);
         }
         archetypes_.emplace_back(signature, *registry_);
         return static_cast<u32>(archetypes_.size() - 1);

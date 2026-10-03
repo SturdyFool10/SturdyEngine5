@@ -1,4 +1,5 @@
 #include <Ecs/System.hpp>
+#include <Foundation/Iter.hpp>
 
 #include <algorithm>
 #include <limits>
@@ -283,23 +284,21 @@ namespace SFT::Ecs {
         if (!handle) {
             return nullptr;
         }
-        for (SystemEntry &entry : systems_) {
-            if (entry.id == handle.id) {
-                return &entry;
-            }
-        }
-        return nullptr;
+        const auto index = Foundation::iter(systems_).position(
+            [handle](const SystemEntry &entry) { return entry.id == handle.id; });
+        return index ? &systems_[*index] : nullptr;
     }
 
     bool Schedule::remove_system(SystemHandle handle) {
         if (running_) {
             Detail::contract_violation("ECS Schedule: systems cannot be removed while the schedule is running.");
         }
-        const auto found = std::find_if(systems_.begin(), systems_.end(), [&](const SystemEntry &entry) { return handle && entry.id == handle.id; });
-        if (found == systems_.end()) {
+        const auto index = Foundation::iter(systems_).position(
+            [handle](const SystemEntry &entry) { return handle && entry.id == handle.id; });
+        if (!index) {
             return false;
         }
-        systems_.erase(found);
+        systems_.erase(systems_.begin() + static_cast<std::ptrdiff_t>(*index));
         // Dangling ordering edges to the removed system are simply satisfied.
         for (SystemEntry &entry : systems_) {
             std::erase(entry.after, handle.id);
@@ -324,12 +323,9 @@ namespace SFT::Ecs {
         if (!handle) {
             return false;
         }
-        for (const SystemEntry &entry : systems_) {
-            if (entry.id == handle.id) {
-                return entry.enabled;
-            }
-        }
-        return false;
+        const auto index = Foundation::iter(systems_).position(
+            [handle](const SystemEntry &entry) { return entry.id == handle.id; });
+        return index && systems_[*index].enabled;
     }
 
     bool Schedule::order_after(SystemHandle system, SystemHandle dependency) {

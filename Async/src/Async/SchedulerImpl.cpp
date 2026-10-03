@@ -107,6 +107,16 @@ namespace SFT::Async {
         };
 
         struct Pool {
+            ~Pool() {
+                running.store(false, std::memory_order_release);
+                wake_cv.notify_all();
+                for (thread &worker : threads) {
+                    if (worker.joinable()) {
+                        worker.join();
+                    }
+                }
+            }
+
             vector<thread> threads;
             vector<unique_ptr<WorkerDeque>> deques;
             WorkerDeque injector{"Scheduler Injector"};
@@ -397,10 +407,7 @@ namespace SFT::Async {
             const vector<usize> &members = core_map.core_indices_of_type(type_index);
             const Foundation::Cpu::CoreCapabilities &rep = core_map.core(members.front());
 
-            usize extension_count = 0;
-            for (const bool bit : rep.extensions) {
-                extension_count += bit ? 1 : 0;
-            }
+            const usize extension_count = Foundation::iter(rep.extensions).filter([](bool enabled) { return enabled; }).count();
 
             Foundation::log_info(
                 "  topology type[{}]: {} core(s), core_type={}, {} extension(s), "

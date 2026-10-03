@@ -1,4 +1,5 @@
 #include <Ecs/Archetype.hpp>
+#include <Foundation/Iter.hpp>
 
 #include <cstring>
 #include <new>
@@ -53,12 +54,8 @@ Archetype::~Archetype() {
 /// @note This function does not throw exceptions.
 [[nodiscard]] u32 Archetype::column_index_of(ComponentId id) const noexcept {
     ZoneScopedN("Archetype::column_index_of");
-    for (usize i = 0; i < columns_.size(); ++i) {
-        if (columns_[i].id == id) {
-            return static_cast<u32>(i);
-        }
-    }
-    return ~0u;
+    const auto index = Foundation::iter(columns_).position([id](const Column &column) { return column.id == id; });
+    return index ? static_cast<u32>(*index) : ~0u;
 }
 
 /// Performs the row pointer operation for `Ecs` using the supplied arguments.

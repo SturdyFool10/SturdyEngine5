@@ -1,5 +1,6 @@
 #include <Renderer/Displacement/HeightfieldHierarchy.hpp>
 
+#include <Async/ParIter.hpp>
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -8,6 +9,8 @@
 namespace SFT::Renderer::Displacement {
 
     namespace {
+
+        constexpr usize kParallelNodeThreshold = 4096;
 
         [[nodiscard]] u32 ceil_div(u32 a, u32 b) noexcept { return (a + b - 1u) / b; }
 
@@ -101,15 +104,31 @@ namespace SFT::Renderer::Displacement {
             ++level;
         }
 
-        for (u32 y = 0; y < h.levels_[0].height; ++y) {
-            for (u32 x = 0; x < h.levels_[0].width; ++x) {
-                h.compute_leaf(heightfield, x, y);
+        const Level &leaf = h.levels_[0];
+        const usize leaf_count = static_cast<usize>(leaf.width) * leaf.height;
+        if (leaf_count >= kParallelNodeThreshold) {
+            Async::par_iter(std::views::iota(usize{0}, leaf_count)).for_each([&](usize i) {
+                h.compute_leaf(heightfield, static_cast<u32>(i % leaf.width), static_cast<u32>(i / leaf.width));
+            });
+        } else {
+            for (u32 y = 0; y < leaf.height; ++y) {
+                for (u32 x = 0; x < leaf.width; ++x) {
+                    h.compute_leaf(heightfield, x, y);
+                }
             }
         }
         for (u32 lv = 1; lv < h.level_count(); ++lv) {
-            for (u32 y = 0; y < h.levels_[lv].height; ++y) {
-                for (u32 x = 0; x < h.levels_[lv].width; ++x) {
-                    h.compute_parent(lv, x, y);
+            const Level &level_data = h.levels_[lv];
+            const usize node_count = static_cast<usize>(level_data.width) * level_data.height;
+            if (node_count >= kParallelNodeThreshold) {
+                Async::par_iter(std::views::iota(usize{0}, node_count)).for_each([&](usize i) {
+                    h.compute_parent(lv, static_cast<u32>(i % level_data.width), static_cast<u32>(i / level_data.width));
+                });
+            } else {
+                for (u32 y = 0; y < level_data.height; ++y) {
+                    for (u32 x = 0; x < level_data.width; ++x) {
+                        h.compute_parent(lv, x, y);
+                    }
                 }
             }
         }
@@ -179,25 +198,31 @@ namespace SFT::Renderer::Displacement {
             const HierarchyDirtyRange &r = ranges[level];
 
             // A range that spans the whole level would revisit nodes under wrap; cap it.
-            const i32 span_x = std::min(r.hi_x - r.lo_x + 1, w);
-            const i32 span_y = std::min(r.hi_y - r.lo_y + 1, h);
-            for (i32 dy = 0; dy < span_y; ++dy) {
-                for (i32 dx = 0; dx < span_x; ++dx) {
-                    i32 x = r.lo_x + dx;
-                    i32 y = r.lo_y + dy;
-                    if (wrap_) {
-                        x = wrap_index(x, w);
-                        y = wrap_index(y, h);
-                    } else {
-                        if (x < 0 || x >= w || y < 0 || y >= h) {
-                            continue;
-                        }
-                    }
-                    if (level == 0) {
-                        compute_leaf(heightfield, static_cast<u32>(x), static_cast<u32>(y));
-                    } else {
-                        compute_parent(level, static_cast<u32>(x), static_cast<u32>(y));
-                    }
+            const i32 span_x = std::max(0, std::min(r.hi_x - r.lo_x + 1, w));
+            const i32 span_y = std::max(0, std::min(r.hi_y - r.lo_y + 1, h));
+            const usize dirty_count = static_cast<usize>(span_x) * static_cast<usize>(span_y);
+            const auto update_node = [&](usize i) {
+                const i32 dx = static_cast<i32>(i % static_cast<usize>(span_x));
+                const i32 dy = static_cast<i32>(i / static_cast<usize>(span_x));
+                i32 x = r.lo_x + dx;
+                i32 y = r.lo_y + dy;
+                if (wrap_) {
+                    x = wrap_index(x, w);
+                    y = wrap_index(y, h);
+                } else if (x < 0 || x >= w || y < 0 || y >= h) {
+                    return;
+                }
+                if (level == 0) {
+                    compute_leaf(heightfield, static_cast<u32>(x), static_cast<u32>(y));
+                } else {
+                    compute_parent(level, static_cast<u32>(x), static_cast<u32>(y));
+                }
+            };
+            if (span_x > 0 && span_y > 0 && dirty_count >= kParallelNodeThreshold) {
+                Async::par_iter(std::views::iota(usize{0}, dirty_count)).for_each(update_node);
+            } else {
+                for (usize i = 0; i < dirty_count; ++i) {
+                    update_node(i);
                 }
             }
         }
@@ -232,29 +257,37 @@ namespace SFT::Renderer::Displacement {
             const Level &level = levels_[mip + 1];
             const u32 mip_w = std::max(1u, out.width >> mip);
             u8 *base = out.data.data() + out.mip_offsets[mip];
-            for (u32 y = 0; y < level.height; ++y) {
-                for (u32 x = 0; x < level.width; ++x) {
-                    const HierarchyNode &n = level.nodes[static_cast<usize>(y) * level.width + x];
-                    u8 *texel = base + (static_cast<usize>(y) * mip_w + x) * out.channels * out.bytes_per_channel;
+            const usize node_count = static_cast<usize>(level.width) * level.height;
+            const auto pack_node = [&](usize i) {
+                const u32 x = static_cast<u32>(i % level.width);
+                const u32 y = static_cast<u32>(i / level.width);
+                const HierarchyNode &n = level.nodes[i];
+                u8 *texel = base + (static_cast<usize>(y) * mip_w + x) * out.channels * out.bytes_per_channel;
 
-                    // Channel order is (min, max) so a single-channel hierarchy is just "max" in R.
-                    auto store = [&](u32 channel, f32 value, bool round_up) {
-                        u8 *dst = texel + channel * out.bytes_per_channel;
-                        if (precision == HierarchyPrecision::Float32) {
-                            std::memcpy(dst, &value, sizeof(f32));
-                        } else {
-                            const f32 scaled = std::clamp(value, 0.0f, 1.0f) * 65535.0f;
-                            const f32 rounded = round_up ? std::ceil(scaled) : std::floor(scaled);
-                            const auto q = static_cast<u16>(std::clamp(rounded, 0.0f, 65535.0f));
-                            std::memcpy(dst, &q, sizeof(u16));
-                        }
-                    };
-                    if (channels == HierarchyChannels::MinMax) {
-                        store(0, n.min_height, false);
-                        store(1, n.max_height, true);
+                // Channel order is (min, max) so a single-channel hierarchy is just "max" in R.
+                const auto store = [&](u32 channel, f32 value, bool round_up) {
+                    u8 *dst = texel + channel * out.bytes_per_channel;
+                    if (precision == HierarchyPrecision::Float32) {
+                        std::memcpy(dst, &value, sizeof(f32));
                     } else {
-                        store(0, n.max_height, true);
+                        const f32 scaled = std::clamp(value, 0.0f, 1.0f) * 65535.0f;
+                        const f32 rounded = round_up ? std::ceil(scaled) : std::floor(scaled);
+                        const auto q = static_cast<u16>(std::clamp(rounded, 0.0f, 65535.0f));
+                        std::memcpy(dst, &q, sizeof(u16));
                     }
+                };
+                if (channels == HierarchyChannels::MinMax) {
+                    store(0, n.min_height, false);
+                    store(1, n.max_height, true);
+                } else {
+                    store(0, n.max_height, true);
+                }
+            };
+            if (node_count >= kParallelNodeThreshold) {
+                Async::par_iter(std::views::iota(usize{0}, node_count)).for_each(pack_node);
+            } else {
+                for (usize i = 0; i < node_count; ++i) {
+                    pack_node(i);
                 }
             }
         }

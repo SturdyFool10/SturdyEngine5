@@ -14,4 +14,8 @@ namespace SFT::Core {
     [[nodiscard]] std::optional<std::vector<std::byte>> read_file_accelerated(
         const std::filesystem::path &path);
 
+    /// Registers `read_file_accelerated` with `Foundation::Io` so every whole-file load in the engine (audio, images, models)
+    /// uses io_uring / DirectStorage for big files. Idempotent; called once at engine start.
+    void install_file_accelerator();
+
 } // namespace SFT::Core

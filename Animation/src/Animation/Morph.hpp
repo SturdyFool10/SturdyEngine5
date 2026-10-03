@@ -23,7 +23,7 @@ namespace SFT::Animation {
     /// `entries[vertex_offsets[v] .. vertex_offsets[v + 1])`. Only vertices a target actually moves are stored, so
     /// facial rigs with dozens of local shapes stay small. This is also the layout the GPU skinning pass reads.
     struct MorphTargetSet {
-        std::vector<std::string> target_names;
+        std::vector<UString> target_names;
         std::vector<f32> default_weights;
         std::vector<u32> vertex_offsets;
         std::vector<MorphEntry> entries;
@@ -41,7 +41,7 @@ namespace SFT::Animation {
         explicit MorphBuilder(usize vertex_count) : vertex_count_(vertex_count) {}
 
         /// `normal_deltas` may be empty. Deltas below `epsilon` in every component are dropped.
-        void add_target(std::string name, std::span<const glm::vec3> position_deltas,
+        void add_target(UString name, std::span<const glm::vec3> position_deltas,
                         std::span<const glm::vec3> normal_deltas = {}, f32 default_weight = 0.0f,
                         f32 epsilon = 1e-7f);
 
@@ -49,7 +49,7 @@ namespace SFT::Animation {
 
       private:
         struct Target {
-            std::string name;
+            UString name;
             f32 default_weight = 0.0f;
             std::vector<u32> vertices;
             std::vector<glm::vec3> position;

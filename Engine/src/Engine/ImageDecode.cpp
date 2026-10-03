@@ -16,21 +16,58 @@
 
 #include <Engine/ImageDecode.hpp>
 
+// Per-codec switches, normally supplied by the build (STURDY_IMAGE_<CODEC>); everything defaults on so
+// a stray include of this file outside the build system still gets the full decoder.
+#ifndef STURDY_IMAGE_WEBP
+#define STURDY_IMAGE_WEBP 1
+#endif
+#ifndef STURDY_IMAGE_AVIF
+#define STURDY_IMAGE_AVIF 1
+#endif
+#ifndef STURDY_IMAGE_JXL
+#define STURDY_IMAGE_JXL 1
+#endif
+#ifndef STURDY_IMAGE_JP2
+#define STURDY_IMAGE_JP2 1
+#endif
+#ifndef STURDY_IMAGE_TIFF
+#define STURDY_IMAGE_TIFF 1
+#endif
+#ifndef STURDY_IMAGE_EXR
+#define STURDY_IMAGE_EXR 1
+#endif
+
 #include <Engine/HdrTransfer.hpp>
 
+#if STURDY_IMAGE_WEBP
 #include <webp/decode.h>
+#endif
+#if STURDY_IMAGE_WEBP
 #include <webp/demux.h>
+#endif
 
+#if STURDY_IMAGE_AVIF
 #include <avif/avif.h>
+#endif
 
+#if STURDY_IMAGE_JXL
 #include <jxl/decode.h>
+#endif
 
+#if STURDY_IMAGE_JP2
 #include <openjpeg.h>
+#endif
 
+#if STURDY_IMAGE_TIFF
 #include <tiffio.h>
+#endif
 
+#if STURDY_IMAGE_EXR
 #include <ImfIO.h>
+#endif
+#if STURDY_IMAGE_EXR
 #include <ImfRgbaFile.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -53,6 +90,18 @@ namespace SFT::Engine::Detail {
             std::byte{0x89}, std::byte{'P'}, std::byte{'N'}, std::byte{'G'},
             std::byte{'\r'}, std::byte{'\n'}, std::byte{0x1A}, std::byte{'\n'},
         };
+
+        /// The error for a file whose format is recognised but whose codec was compiled out
+        /// (`STURDY_IMAGE_<CODEC>=OFF`), so the failure names the cause instead of stb's generic one.
+        [[maybe_unused]] [[nodiscard]] std::unexpected<AssetError> codec_disabled(
+            const char *codec, const std::filesystem::path &source) {
+            return std::unexpected(AssetError{
+                .code = AssetErrorCode::Unsupported,
+                .message = UString{std::string("'") + source.string() + "' is a " + codec +
+                                   " image, but this build was configured without the " + codec + " codec."},
+                .source = source,
+            });
+        }
 
         /// Reports whether `options` asks the decoder to hand back the source's own precision
         /// rather than 8-bit sRGB. Both `Native` and `SceneLinear` do: `SceneLinear` still has to
@@ -237,6 +286,7 @@ namespace SFT::Engine::Detail {
             return image;
         }
 
+#if STURDY_IMAGE_EXR
         /// An `Imf::IStream` over an in-memory buffer — OpenEXR has no built-in memory-stream
         /// class of its own, only the file-based `Imf::StdIFStream`.
         class ExrMemoryStream final : public Imf::IStream {
@@ -261,6 +311,7 @@ namespace SFT::Engine::Detail {
             std::span<const std::byte> data_;
             usize offset_ = 0;
         };
+#endif // STURDY_IMAGE_EXR
 
         /// Converts one linear light value to an 8-bit sRGB-encoded sample, clamping to [0, 1]
         /// first. EXR pixel data is scene-referred linear light (typically far outside [0, 1] for
@@ -321,6 +372,7 @@ namespace SFT::Engine::Detail {
             return encoded.size() >= 4 && std::equal(std::begin(kExrMagic), std::end(kExrMagic), encoded.begin());
         }
 
+#if STURDY_IMAGE_EXR
         /// Decodes an OpenEXR image via the simplified RGBA API, which handles every EXR
         /// compression scheme and channel layout itself. Always reads the first (only, for a
         /// non-deep, non-multi-part image) part; multi-part/deep EXR files are rejected rather
@@ -382,6 +434,7 @@ namespace SFT::Engine::Detail {
                 return fail(e.what());
             }
         }
+#endif // STURDY_IMAGE_EXR
 
         /// Reports whether `encoded` begins with a TIFF byte-order/magic-number header (`II*\0`
         /// little-endian or `MM\0*` big-endian).
@@ -401,6 +454,7 @@ namespace SFT::Engine::Detail {
             return little_endian || big_endian;
         }
 
+#if STURDY_IMAGE_TIFF
         /// Decodes a TIFF image via `TIFFReadRGBAImageOriented`, which handles every TIFF
         /// photometric interpretation (RGB, grayscale, palette, CMYK, YCbCr, ...) itself and always
         /// produces top-to-bottom RGBA8 — the same shape every other format in this file produces,
@@ -583,7 +637,9 @@ namespace SFT::Engine::Detail {
             }
             return result;
         }
+#endif // STURDY_IMAGE_TIFF
 
+#if STURDY_IMAGE_JP2
         /// Reports whether `encoded` is a JPEG 2000 file, and if so which of its two forms: a bare
         /// codestream (`.j2k`/`.jpc`, starting with the SOC marker `0xFF 0x4F`) or a JP2 file (an
         /// ISOBMFF-style container whose fixed 12-byte signature box was modeled directly on
@@ -608,6 +664,7 @@ namespace SFT::Engine::Detail {
             }
             return std::nullopt;
         }
+#endif // STURDY_IMAGE_JP2
 
         /// Reports whether `encoded` begins with an ICO/CUR container's `ICONDIR` signature
         /// (reserved=0, type=1 for icon or 2 for cursor).
@@ -1058,6 +1115,7 @@ namespace SFT::Engine::Detail {
             return matches(0, "RIFF") && matches(8, "WEBP");
         }
 
+#if STURDY_IMAGE_WEBP
         /// Decodes a WebP image.
         ///
         /// The simple decode API (`WebPDecodeRGBA`) handles every still-image case, including the
@@ -1190,7 +1248,9 @@ namespace SFT::Engine::Detail {
             WebPFree(decoded);
             return image;
         }
+#endif // STURDY_IMAGE_WEBP
 
+#if STURDY_IMAGE_AVIF
         /// Frees an `avifRGBImage`'s pixel buffer on scope exit. `avifRGBImage` is a plain stack
         /// struct with a separately allocated pixel buffer, so it fits neither unique_ptr nor any
         /// of libavif's own create/destroy pairs.
@@ -1201,6 +1261,7 @@ namespace SFT::Engine::Detail {
             AvifRgbPixelsGuard(const AvifRgbPixelsGuard &) = delete;
             AvifRgbPixelsGuard &operator=(const AvifRgbPixelsGuard &) = delete;
         };
+#endif // STURDY_IMAGE_AVIF
 
         /// Reports whether `encoded` is an ISOBMFF file whose `ftyp` box names `avif` or `avis`
         /// (a still AVIF image or an AVIF image sequence) as its major brand or among its
@@ -1236,6 +1297,7 @@ namespace SFT::Engine::Detail {
             return false;
         }
 
+#if STURDY_IMAGE_AVIF
         /// Decodes a still AVIF image (the first frame, for an AVIF image sequence).
         ///
         /// @param encoded `encoded` value used by the operation.
@@ -1348,6 +1410,7 @@ namespace SFT::Engine::Detail {
             }
             return image;
         }
+#endif // STURDY_IMAGE_AVIF
 
         /// Reports whether `encoded` is a JPEG XL codestream or container, via libjxl's own
         /// signature check rather than hand-matching magic bytes — JXL has two valid forms (a bare
@@ -1359,11 +1422,19 @@ namespace SFT::Engine::Detail {
         /// @return Returns `true` when the stated condition holds; otherwise returns `false`.
         /// @note This function does not throw exceptions.
         [[nodiscard]] bool looks_like_jxl(std::span<const std::byte> encoded) noexcept {
+#if STURDY_IMAGE_JXL
             const JxlSignature signature =
                 JxlSignatureCheck(reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());
             return signature == JXL_SIG_CODESTREAM || signature == JXL_SIG_CONTAINER;
+#else
+            // Without libjxl the two signatures are matched by hand, so a JXL file still gets the "codec not built" message.
+            static constexpr unsigned char container[12] = {0x00, 0x00, 0x00, 0x0C, 'J', 'X', 'L', ' ', 0x0D, 0x0A, 0x87, 0x0A};
+            return (encoded.size() >= 2 && encoded[0] == std::byte{0xFF} && encoded[1] == std::byte{0x0A}) ||
+                   (encoded.size() >= 12 && std::memcmp(encoded.data(), container, 12) == 0);
+#endif
         }
 
+#if STURDY_IMAGE_JXL
         /// Decodes a JPEG XL image.
         ///
         /// One-shot decode: the whole encoded buffer is handed over up front and
@@ -1556,7 +1627,9 @@ namespace SFT::Engine::Detail {
             }
             return image;
         }
+#endif // STURDY_IMAGE_JXL
 
+#if STURDY_IMAGE_JP2
         /// Reads a component sample at `(x, y)` in *full-resolution* pixel coordinates, upsampling
         /// by nearest-neighbor if this component is subsampled (`comp.dx`/`comp.dy` > 1, as
         /// chroma channels commonly are), and rescaling it to 8 bits (component precision can be
@@ -1811,6 +1884,7 @@ namespace SFT::Engine::Detail {
             opj_image_destroy(image);
             return result;
         }
+#endif // STURDY_IMAGE_JP2
 
         /// Decodes the largest embedded image out of an ICO/CUR container.
         ///
@@ -2601,22 +2675,44 @@ namespace SFT::Engine::Detail {
                 return decode_ico(encoded, options, source);
             }
             if (looks_like_webp(encoded)) {
+#if STURDY_IMAGE_WEBP
                 return decode_webp(encoded, options, source);
+#else
+                return codec_disabled("WebP", source);
+#endif
             }
             if (looks_like_avif(encoded)) {
+#if STURDY_IMAGE_AVIF
                 return decode_avif(encoded, options, source);
+#else
+                return codec_disabled("AVIF", source);
+#endif
             }
             if (looks_like_jxl(encoded)) {
+#if STURDY_IMAGE_JXL
                 return decode_jxl(encoded, options, source);
+#else
+                return codec_disabled("JPEG XL", source);
+#endif
             }
+#if STURDY_IMAGE_JP2
             if (const std::optional<OPJ_CODEC_FORMAT> jp2_format = jp2_codec_format(encoded)) {
                 return decode_jp2(encoded, *jp2_format, options, source);
             }
+#endif
             if (looks_like_tiff(encoded)) {
+#if STURDY_IMAGE_TIFF
                 return decode_tiff(encoded, options, source);
+#else
+                return codec_disabled("TIFF", source);
+#endif
             }
             if (looks_like_exr(encoded)) {
+#if STURDY_IMAGE_EXR
                 return decode_exr(encoded, source);
+#else
+                return codec_disabled("OpenEXR", source);
+#endif
             }
             if (looks_like_sgi(encoded)) {
                 return decode_sgi(encoded, source);

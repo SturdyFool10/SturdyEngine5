@@ -256,20 +256,10 @@ function(sturdy_add_package package_name)
       add_library("${package_name}" STATIC ${_all_sources})
     endif()
 
-    # CXX_SCAN_FOR_MODULES buys nothing on its own merits -- this codebase has had zero C++20
-    # `import`/`module` translation units since the module-to-header refactor completed (see
-    # cmake/ClangdView.cmake's own note on that history) -- but leaving it on is otherwise harmless
-    # everywhere except Web: Ninja's P1689 dependency-scanning pre-pass (`emscan-deps`) invokes the
-    # underlying clang scanner directly rather than going through Emscripten's own em++ Python
-    # wrapper, so it never sees the wrapper's port-resolution step and fails outright on any source
-    # that needs one (`--use-port=emdawnwebgpu`'s <webgpu/webgpu.h>, concretely). Since scanning is
-    # pure overhead with nothing to find on this codebase, it is simply off for Web rather than
-    # worked around per-port.
-    if(STURDY_OS STREQUAL "Web")
-        set(_sturdy_package_scan_for_modules OFF)
-    else()
-        set(_sturdy_package_scan_for_modules ON)
-    endif()
+    # This codebase has no C++ module interface or import translation units (see
+    # cmake/ClangdView.cmake). Disable the P1689 pre-scan for every platform: it cannot discover
+    # module dependencies here, and on Ninja generators it adds avoidable dyndep state to the build.
+    set(_sturdy_package_scan_for_modules OFF)
     set_target_properties("${package_name}" PROPERTIES
             ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
             CXX_SCAN_FOR_MODULES ${_sturdy_package_scan_for_modules}

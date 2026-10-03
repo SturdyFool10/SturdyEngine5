@@ -33,23 +33,6 @@ namespace SFT::Animation {
             }
         }
 
-        // Shortest-arc rotation taking direction `from` to `to` (both need not be normalised).
-        glm::quat from_to(glm::vec3 from, glm::vec3 to) {
-            const f32 lf = glm::length(from), lt = glm::length(to);
-            if (lf < kEps || lt < kEps) return glm::quat(1, 0, 0, 0);
-            from /= lf;
-            to /= lt;
-            const f32 d = glm::dot(from, to);
-            if (d > 1.0f - 1e-7f) return glm::quat(1, 0, 0, 0);
-            if (d < -1.0f + 1e-7f) {
-                glm::vec3 axis = glm::cross(from, glm::vec3(1, 0, 0));
-                if (glm::length(axis) < 1e-3f) axis = glm::cross(from, glm::vec3(0, 1, 0));
-                return glm::angleAxis(glm::pi<f32>(), glm::normalize(axis));
-            }
-            const glm::vec3 axis = glm::cross(from, to);
-            return glm::normalize(glm::quat(1.0f + d, axis.x, axis.y, axis.z));
-        }
-
         bool joint_ok(const Skeleton &skeleton, const Pose &pose, u32 j) {
             return j < skeleton.joint_count() && j < pose.size();
         }
@@ -90,9 +73,9 @@ namespace SFT::Animation {
         const glm::vec3 new_b = a + l1 * (cos_a * u + sin_a * bend);
         const glm::vec3 new_t = a + u * d;
 
-        const glm::quat upper_delta = from_to(b - a, new_b - a);
+        const glm::quat upper_delta = shortest_arc(b - a, new_b - a);
         const glm::vec3 c_after_upper = new_b + upper_delta * (c - b);
-        const glm::quat mid_delta = from_to(c_after_upper - new_b, new_t - new_b);
+        const glm::quat mid_delta = shortest_arc(c_after_upper - new_b, new_t - new_b);
 
         const u32 root_parent = skeleton.parents[ik.root];
         const glm::quat root_parent_rot = root_parent == no_joint ? glm::quat(1, 0, 0, 0) : w.rotation[root_parent];
@@ -116,7 +99,7 @@ namespace SFT::Animation {
         if (glm::length(wanted) < kEps) return;
         wanted = glm::normalize(wanted);
 
-        glm::quat delta = from_to(current, wanted);
+        glm::quat delta = shortest_arc(current, wanted);
         const f32 limit = glm::radians(std::clamp(ik.max_angle_degrees, 0.0f, 180.0f));
         const f32 angle = glm::angle(delta);
         if (angle > limit && angle > kEps) {
@@ -169,7 +152,7 @@ namespace SFT::Animation {
         std::vector<glm::quat> solved_world(n);
         for (usize i = 0; i < n; ++i) solved_world[i] = w.rotation[ik.joints[i]];
         for (usize i = 0; i + 1 < n; ++i) {
-            solved_world[i] = from_to(original[i + 1] - original[i], p[i + 1] - p[i]) * w.rotation[ik.joints[i]];
+            solved_world[i] = shortest_arc(original[i + 1] - original[i], p[i + 1] - p[i]) * w.rotation[ik.joints[i]];
         }
         const f32 weight = std::min(ik.weight, 1.0f);
         glm::quat parent_world = skeleton.parents[ik.joints[0]] == no_joint ? glm::quat(1, 0, 0, 0)

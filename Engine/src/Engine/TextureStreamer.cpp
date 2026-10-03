@@ -9,6 +9,7 @@
 
 
 #include <Core/StreamingIo.hpp>
+#include <Foundation/FileIo.hpp>
 
 #include <array>
 #include <atomic>
@@ -37,29 +38,14 @@ namespace SFT::Engine {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::IoFailure`, `AssetErrorCode::NotFound`.
         [[nodiscard]] AssetExpected<vector<std::byte>> read_binary_file_streamed(const std::filesystem::path &source) {
-
-
-            if (auto bytes = Core::read_file_accelerated(source)) {
-                return std::move(*bytes);
+            // Streaming loads read each file once, front to back; the accelerator (io_uring/DirectStorage) is tried
+            // inside for big files.
+            auto bytes = Foundation::Io::read_file(source, Foundation::Io::AccessHint::OneShot);
+            if (!bytes) {
+                const AssetErrorCode code = std::filesystem::exists(source) ? AssetErrorCode::IoFailure : AssetErrorCode::NotFound;
+                return std::unexpected(AssetError{code, UString{bytes.error()}, source});
             }
-            std::ifstream file(source, std::ios::binary | std::ios::ate);
-            if (!file.is_open()) {
-                const AssetErrorCode code =
-                    std::filesystem::exists(source) ? AssetErrorCode::IoFailure : AssetErrorCode::NotFound;
-                return std::unexpected(AssetError{code, UString{"Could not open asset file '" + source.string() + "'."}, source});
-            }
-            const std::streamoff end = file.tellg();
-            if (end < 0 || static_cast<u64>(end) > std::numeric_limits<usize>::max()) {
-                return std::unexpected(AssetError{AssetErrorCode::IoFailure,
-                                                   UString{"Could not determine the size of asset file '" + source.string() + "'."}, source});
-            }
-            vector<std::byte> bytes(static_cast<usize>(end));
-            file.seekg(0, std::ios::beg);
-            if (!bytes.empty() && !file.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(bytes.size()))) {
-                return std::unexpected(AssetError{AssetErrorCode::IoFailure,
-                                                   UString{"Could not read the complete asset file '" + source.string() + "'."}, source});
-            }
-            return bytes;
+            return std::move(*bytes);
         }
 
     } // namespace

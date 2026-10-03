@@ -1,5 +1,6 @@
 #include <Animation/Skeleton.hpp>
 
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -15,9 +16,9 @@ namespace SFT::Animation {
         return m;
     }
 
-    u32 Skeleton::find_joint(std::string_view name) const noexcept {
-        for (usize i = 0; i < names.size(); ++i) {
-            if (names[i] == name) {
+    u32 Skeleton::find_joint(const ustr &name) const noexcept {
+        for (auto &&[i, joint_name] : Foundation::iter(names).enumerate()) {
+            if (joint_name == name) {
                 return static_cast<u32>(i);
             }
         }
@@ -35,6 +36,28 @@ namespace SFT::Animation {
             }
         }
         return true;
+    }
+
+    glm::quat shortest_arc(glm::vec3 from, glm::vec3 to) {
+        const f32 from_length = glm::length(from), to_length = glm::length(to);
+        if (from_length < 1e-6f || to_length < 1e-6f) {
+            return glm::quat(1, 0, 0, 0);
+        }
+        from /= from_length;
+        to /= to_length;
+        const f32 d = glm::dot(from, to);
+        if (d > 1.0f - 1e-7f) {
+            return glm::quat(1, 0, 0, 0);
+        }
+        if (d < -1.0f + 1e-7f) {
+            glm::vec3 axis = glm::cross(from, glm::vec3(1, 0, 0));
+            if (glm::length(axis) < 1e-3f) {
+                axis = glm::cross(from, glm::vec3(0, 1, 0));
+            }
+            return glm::angleAxis(glm::pi<f32>(), glm::normalize(axis));
+        }
+        const glm::vec3 axis = glm::cross(from, to);
+        return glm::normalize(glm::quat(1.0f + d, axis.x, axis.y, axis.z));
     }
 
     Pose rest_pose_of(const Skeleton &skeleton) {

@@ -1,4 +1,5 @@
 #include <Engine/RenderGraph.hpp>
+#include <Foundation/Iter.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -378,7 +379,7 @@ namespace SFT::Engine {
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
-        if (std::find(outputs_.begin(), outputs_.end(), texture) == outputs_.end()) {
+        if (!Foundation::iter(outputs_).any([texture](RenderGraphTextureHandle output) { return output == texture; })) {
             outputs_.push_back(texture);
         }
     }

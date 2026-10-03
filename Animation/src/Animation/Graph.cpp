@@ -4,23 +4,24 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 
 namespace SFT::Animation {
 
     // ---- GraphDef / GraphBuilder -------------------------------------------------------------
 
-    u32 GraphDef::find_param(std::string_view name) const noexcept {
-        for (usize i = 0; i < params.size(); ++i) {
-            if (params[i].name == name) {
+    u32 GraphDef::find_param(const ustr &name) const noexcept {
+        for (auto &&[i, param] : Foundation::iter(params).enumerate()) {
+            if (param.name == name) {
                 return static_cast<u32>(i);
             }
         }
         return no_param;
     }
 
-    u32 GraphDef::find_state(const StateMachineDef &machine, std::string_view name) const noexcept {
-        for (usize i = 0; i < machine.states.size(); ++i) {
-            if (machine.states[i].name == name) {
+    u32 GraphDef::find_state(const StateMachineDef &machine, const ustr &name) const noexcept {
+        for (auto &&[i, state] : Foundation::iter(machine.states).enumerate()) {
+            if (state.name == name) {
                 return static_cast<u32>(i);
             }
         }
@@ -28,28 +29,28 @@ namespace SFT::Animation {
     }
 
     namespace {
-        u32 add_param(GraphDef &def, std::string name, ParamType type, f32 value) {
+        u32 add_param(GraphDef &def, UString name, ParamType type, f32 value) {
             def.params.push_back(ParamDef{std::move(name), type, value});
             return static_cast<u32>(def.params.size() - 1);
         }
-        NodeId add_node(GraphDef &def, GraphNode node, std::string name) {
+        NodeId add_node(GraphDef &def, GraphNode node, UString name) {
             node.name = std::move(name);
             def.nodes.push_back(std::move(node));
             return static_cast<NodeId>(def.nodes.size() - 1);
         }
     } // namespace
 
-    u32 GraphBuilder::param_float(std::string name, f32 v) { return add_param(def_, std::move(name), ParamType::Float, v); }
-    u32 GraphBuilder::param_bool(std::string name, bool v) { return add_param(def_, std::move(name), ParamType::Bool, v ? 1.0f : 0.0f); }
-    u32 GraphBuilder::param_int(std::string name, i32 v) { return add_param(def_, std::move(name), ParamType::Int, static_cast<f32>(v)); }
-    u32 GraphBuilder::param_trigger(std::string name) { return add_param(def_, std::move(name), ParamType::Trigger, 0.0f); }
+    u32 GraphBuilder::param_float(UString name, f32 v) { return add_param(def_, std::move(name), ParamType::Float, v); }
+    u32 GraphBuilder::param_bool(UString name, bool v) { return add_param(def_, std::move(name), ParamType::Bool, v ? 1.0f : 0.0f); }
+    u32 GraphBuilder::param_int(UString name, i32 v) { return add_param(def_, std::move(name), ParamType::Int, static_cast<f32>(v)); }
+    u32 GraphBuilder::param_trigger(UString name) { return add_param(def_, std::move(name), ParamType::Trigger, 0.0f); }
 
     u32 GraphBuilder::add_clip(std::shared_ptr<const Clip> clip) {
         def_.clips.push_back(std::move(clip));
         return static_cast<u32>(def_.clips.size() - 1);
     }
 
-    NodeId GraphBuilder::clip_node(u32 clip, bool loop, f32 speed, std::string name) {
+    NodeId GraphBuilder::clip_node(u32 clip, bool loop, f32 speed, UString name) {
         GraphNode n;
         n.type = GraphNode::Type::Clip;
         n.clip = clip;
@@ -58,7 +59,7 @@ namespace SFT::Animation {
         return add_node(def_, std::move(n), std::move(name));
     }
 
-    NodeId GraphBuilder::blend_1d(u32 param, std::vector<BlendChild1D> children, std::string name) {
+    NodeId GraphBuilder::blend_1d(u32 param, std::vector<BlendChild1D> children, UString name) {
         GraphNode n;
         n.type = GraphNode::Type::Blend1D;
         n.param_x = param;
@@ -68,7 +69,7 @@ namespace SFT::Animation {
         return add_node(def_, std::move(n), std::move(name));
     }
 
-    NodeId GraphBuilder::blend_2d(u32 px, u32 py, std::vector<BlendChild2D> children, std::string name) {
+    NodeId GraphBuilder::blend_2d(u32 px, u32 py, std::vector<BlendChild2D> children, UString name) {
         GraphNode n;
         n.type = GraphNode::Type::Blend2D;
         n.param_x = px;
@@ -77,7 +78,7 @@ namespace SFT::Animation {
         return add_node(def_, std::move(n), std::move(name));
     }
 
-    NodeId GraphBuilder::additive(NodeId base, NodeId delta, f32 weight, u32 weight_param, std::string name) {
+    NodeId GraphBuilder::additive(NodeId base, NodeId delta, f32 weight, u32 weight_param, UString name) {
         GraphNode n;
         n.type = GraphNode::Type::Additive;
         n.a = base;
@@ -87,7 +88,7 @@ namespace SFT::Animation {
         return add_node(def_, std::move(n), std::move(name));
     }
 
-    NodeId GraphBuilder::mix(NodeId a, NodeId b, f32 weight, u32 weight_param, std::string name) {
+    NodeId GraphBuilder::mix(NodeId a, NodeId b, f32 weight, u32 weight_param, UString name) {
         GraphNode n;
         n.type = GraphNode::Type::Mix;
         n.a = a;
@@ -97,7 +98,7 @@ namespace SFT::Animation {
         return add_node(def_, std::move(n), std::move(name));
     }
 
-    NodeId GraphBuilder::state_machine(StateMachineDef machine, std::string name) {
+    NodeId GraphBuilder::state_machine(StateMachineDef machine, UString name) {
         GraphNode n;
         n.type = GraphNode::Type::StateMachine;
         n.machine = std::move(machine);
@@ -106,16 +107,16 @@ namespace SFT::Animation {
 
     void GraphBuilder::add_layer(Layer layer) { def_.layers.push_back(std::move(layer)); }
 
-    void GraphBuilder::enable_root_motion(std::string joint) {
+    void GraphBuilder::enable_root_motion(UString joint) {
         def_.root_motion = true;
         def_.root_joint = std::move(joint);
     }
 
-    std::vector<f32> make_joint_mask(const Skeleton &skeleton, std::span<const std::string> root_names,
+    std::vector<f32> make_joint_mask(const Skeleton &skeleton, std::span<const UString> root_names,
                                      bool include_children, f32 value) {
         std::vector<f32> mask(skeleton.joint_count(), 0.0f);
-        for (usize j = 0; j < skeleton.joint_count(); ++j) {
-            const bool named = std::find(root_names.begin(), root_names.end(), skeleton.names[j]) != root_names.end();
+        for (auto &&[j, joint_name] : Foundation::iter(skeleton.names).enumerate()) {
+            const bool named = std::find(root_names.begin(), root_names.end(), joint_name) != root_names.end();
             const u32 parent = skeleton.parents[j];
             if (named || (include_children && parent != no_joint && mask[parent] > 0.0f)) {
                 mask[j] = value;
@@ -165,40 +166,40 @@ namespace SFT::Animation {
 
     } // namespace
 
-    std::string validate_graph(const GraphDef &def) {
+    UString validate_graph(const GraphDef &def) {
         const auto bad_param = [&](u32 p) { return p != no_param && p >= def.params.size(); };
         for (usize i = 0; i < def.nodes.size(); ++i) {
             const GraphNode &n = def.nodes[i];
-            const std::string where = "node " + std::to_string(i) + (n.name.empty() ? "" : " '" + n.name + "'");
+            const UString where = std::format("node {}{}", i, n.name.empty() ? UString{} : UString{std::format(" '{}'", n.name)});
             std::vector<NodeId> kids;
             children_of(n, kids);
             for (NodeId k : kids) {
-                if (k >= def.nodes.size()) return where + " references a missing node.";
+                if (k >= def.nodes.size()) return where + " references a missing node."_ustr;
             }
             if (bad_param(n.param_x) || bad_param(n.param_y) || bad_param(n.weight_param) || bad_param(n.speed_param)) {
-                return where + " references a missing parameter.";
+                return where + " references a missing parameter."_ustr;
             }
             switch (n.type) {
                 case GraphNode::Type::Clip:
-                    if (n.clip >= def.clips.size()) return where + " references a missing clip.";
+                    if (n.clip >= def.clips.size()) return where + " references a missing clip."_ustr;
                     break;
                 case GraphNode::Type::Blend1D:
-                    if (n.children_1d.empty()) return where + " has no children.";
+                    if (n.children_1d.empty()) return where + " has no children."_ustr;
                     break;
                 case GraphNode::Type::Blend2D:
-                    if (n.children_2d.empty()) return where + " has no children.";
+                    if (n.children_2d.empty()) return where + " has no children."_ustr;
                     break;
                 case GraphNode::Type::StateMachine: {
                     const auto &m = n.machine;
-                    if (m.states.empty()) return where + " has no states.";
-                    if (m.entry >= m.states.size()) return where + " has an invalid entry state.";
+                    if (m.states.empty()) return where + " has no states."_ustr;
+                    if (m.entry >= m.states.size()) return where + " has an invalid entry state."_ustr;
                     for (const Transition &t : m.transitions) {
                         if ((t.from != any_state && t.from >= m.states.size()) || t.to >= m.states.size()) {
-                            return where + " has a transition naming a missing state.";
+                            return where + " has a transition naming a missing state."_ustr;
                         }
                         for (const Condition &c : t.conditions) {
                             if (c.param == no_param || c.param >= def.params.size()) {
-                                return where + " has a condition naming a missing parameter.";
+                                return where + " has a condition naming a missing parameter."_ustr;
                             }
                         }
                     }
@@ -212,8 +213,8 @@ namespace SFT::Animation {
             if (has_cycle(def, static_cast<NodeId>(i), mark)) return "the graph contains a cycle.";
         }
         for (usize i = 0; i < def.layers.size(); ++i) {
-            if (def.layers[i].root >= def.nodes.size()) return "layer " + std::to_string(i) + " has no valid root node.";
-            if (bad_param(def.layers[i].weight_param)) return "layer " + std::to_string(i) + " references a missing parameter.";
+            if (def.layers[i].root >= def.nodes.size()) return std::format("layer {} has no valid root node.", i);
+            if (bad_param(def.layers[i].weight_param)) return std::format("layer {} references a missing parameter.", i);
         }
         return {};
     }
@@ -277,11 +278,11 @@ namespace SFT::Animation {
     void GraphInstance::set_param(u32 index, f32 value) {
         if (index < params_.size()) params_[index] = value;
     }
-    void GraphInstance::set_float(std::string_view name, f32 value) { set_param(def_->find_param(name), value); }
-    void GraphInstance::set_bool(std::string_view name, bool value) { set_param(def_->find_param(name), value ? 1.0f : 0.0f); }
-    void GraphInstance::set_int(std::string_view name, i32 value) { set_param(def_->find_param(name), static_cast<f32>(value)); }
-    void GraphInstance::set_trigger(std::string_view name) { set_param(def_->find_param(name), 1.0f); }
-    f32 GraphInstance::get_param(std::string_view name) const { return param_value(def_->find_param(name)); }
+    void GraphInstance::set_float(const ustr &name, f32 value) { set_param(def_->find_param(name), value); }
+    void GraphInstance::set_bool(const ustr &name, bool value) { set_param(def_->find_param(name), value ? 1.0f : 0.0f); }
+    void GraphInstance::set_int(const ustr &name, i32 value) { set_param(def_->find_param(name), static_cast<f32>(value)); }
+    void GraphInstance::set_trigger(const ustr &name) { set_param(def_->find_param(name), 1.0f); }
+    f32 GraphInstance::get_param(const ustr &name) const { return param_value(def_->find_param(name)); }
 
     f32 GraphInstance::param_value(u32 index) const { return index < params_.size() ? params_[index] : 0.0f; }
 
@@ -307,16 +308,16 @@ namespace SFT::Animation {
         }
     }
 
-    std::string_view GraphInstance::current_state_name() const {
-        for (usize i = 0; i < def_->nodes.size(); ++i) {
-            const GraphNode &n = def_->nodes[i];
+    const UString &GraphInstance::current_state_name() const {
+        static const UString none;
+        for (auto &&[i, n] : Foundation::iter(def_->nodes).enumerate()) {
             if (n.type == GraphNode::Type::StateMachine) {
                 const NodeState &s = states_[i];
                 const u32 index = s.next != no_node ? s.next : s.current;
-                return index < n.machine.states.size() ? std::string_view{n.machine.states[index].name} : std::string_view{};
+                return index < n.machine.states.size() ? n.machine.states[index].name : none;
             }
         }
-        return {};
+        return none;
     }
 
     bool GraphInstance::in_transition() const {

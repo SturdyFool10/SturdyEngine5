@@ -6,7 +6,7 @@
 
 namespace SFT::Animation {
 
-    void MorphBuilder::add_target(std::string name, std::span<const glm::vec3> position_deltas,
+    void MorphBuilder::add_target(UString name, std::span<const glm::vec3> position_deltas,
                                   std::span<const glm::vec3> normal_deltas, f32 default_weight, f32 epsilon) {
         Target target;
         target.name = std::move(name);

@@ -3,6 +3,7 @@
 #include <Engine/Asset.hpp>
 
 #include <Animation/Morph.hpp>
+#include <Audio/Source.hpp>
 #include <Animation/Skin.hpp>
 #include <Renderer/Handles.hpp>
 #include <Renderer/Mesh.hpp>
@@ -469,6 +470,9 @@ namespace SFT::Engine {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::WrongType`, `AssetErrorCode::InvalidAsset`.
         [[nodiscard]] AssetExpected<std::shared_ptr<const std::vector<f32>>> sound_samples(Asset asset) const;
+        /// The sound as a shareable buffer with its channel count, rate, cue points and loop region; what the audio
+        /// engine plays (see `Engine::sound_buffer`). No copy of the samples is made.
+        [[nodiscard]] AssetExpected<std::shared_ptr<const Audio::SampleBuffer>> sound_buffer(Asset asset) const;
 
         /// Performs the unload operation for `AssetManager` using the supplied arguments.
         ///

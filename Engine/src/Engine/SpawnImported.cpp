@@ -7,7 +7,7 @@ namespace SFT::Engine {
 
     usize find_clip(const std::vector<std::shared_ptr<const Animation::Clip>> &clips, std::string_view name) noexcept {
         for (usize i = 0; i < clips.size(); ++i) {
-            if (clips[i]->name == name) {
+            if (clips[i]->name.cpp_string_view() == name) {
                 return i;
             }
         }

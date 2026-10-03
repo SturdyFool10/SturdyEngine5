@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <format>
 #include <sstream>
 #include <vector>
 
@@ -15,41 +16,47 @@ namespace SFT::Animation {
         enum class Channel : u8 { Xpos, Ypos, Zpos, Xrot, Yrot, Zrot };
 
         struct Tokens {
-            std::vector<std::string> list;
+            std::vector<UString> list;
             usize at = 0;
 
-            explicit Tokens(std::string_view text) {
-                std::string current;
-                for (char c : text) {
-                    if (c == '{' || c == '}') {
-                        if (!current.empty()) list.push_back(std::move(current));
-                        current.clear();
-                        list.emplace_back(1, c);
-                    } else if (std::isspace(static_cast<unsigned char>(c))) {
-                        if (!current.empty()) list.push_back(std::move(current));
-                        current.clear();
+            explicit Tokens(const ustr &text) {
+                UString current;
+                const auto flush = [&] {
+                    if (!current.empty()) list.push_back(std::move(current));
+                    current.clear();
+                };
+                for (char32_t c : text) {
+                    if (c == U'{' || c == U'}') {
+                        flush();
+                        list.emplace_back(c == U'{' ? "{" : "}");
+                    } else if (c < 128 && std::isspace(static_cast<int>(c))) {
+                        flush();
                     } else {
                         current.push_back(c);
                     }
                 }
-                if (!current.empty()) list.push_back(std::move(current));
+                flush();
             }
             [[nodiscard]] bool done() const { return at >= list.size(); }
-            [[nodiscard]] const std::string &peek() const { return list[at]; }
-            std::string next() { return done() ? std::string{} : list[at++]; }
+            [[nodiscard]] const UString &peek() const { return list[at]; }
+            UString next() { return done() ? UString{} : list[at++]; }
         };
 
-        [[nodiscard]] bool equals_nocase(std::string_view a, std::string_view b) {
-            if (a.size() != b.size()) return false;
-            for (usize i = 0; i < a.size(); ++i) {
-                if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i]))) return false;
+        [[nodiscard]] bool equals_nocase(const UString &a, const ustr &b) {
+            if (a.scalar_size() != b.scalar_size()) return false;
+            auto left = a.begin();
+            for (char32_t y : b) {
+                const char32_t x = *left;
+                if (x != y && !(x < 128 && y < 128 && std::tolower(static_cast<int>(x)) == std::tolower(static_cast<int>(y)))) return false;
+                ++left;
             }
             return true;
         }
 
-        [[nodiscard]] bool to_float(const std::string &s, f32 &out) {
-            const char *begin = s.data();
-            const char *end = begin + s.size();
+        [[nodiscard]] bool to_float(const UString &s, f32 &out) {
+            const std::string_view bytes = s.cpp_string_view();
+            const char *begin = bytes.data();
+            const char *end = begin + bytes.size();
             // std::from_chars for float is available with libstdc++ 11+, but accept a leading '+' as BVH writers do.
             if (begin != end && *begin == '+') ++begin;
             const auto [ptr, ec] = std::from_chars(begin, end, out);
@@ -63,7 +70,7 @@ namespace SFT::Animation {
 
     } // namespace
 
-    std::expected<BvhData, std::string> parse_bvh(std::string_view text, const BvhOptions &options) {
+    std::expected<BvhData, UString> parse_bvh(const ustr &text, const BvhOptions &options) {
         Tokens t(text);
         if (t.done() || !equals_nocase(t.next(), "HIERARCHY")) {
             return std::unexpected("BVH: missing HIERARCHY header.");
@@ -73,7 +80,7 @@ namespace SFT::Animation {
         std::vector<JointInfo> joints;
         std::vector<glm::vec3> offsets;
         usize channel_total = 0;
-        std::string error;
+        UString error;
 
         // Recursive descent over ROOT/JOINT blocks.
         const auto parse_vec3 = [&](glm::vec3 &v) {
@@ -82,9 +89,9 @@ namespace SFT::Animation {
             }
             return true;
         };
-        const auto parse_joint = [&](auto &&self, u32 parent, std::string name) -> bool {
-            if (t.next() != "{") {
-                error = "BVH: expected '{' after joint '" + name + "'.";
+        const auto parse_joint = [&](auto &&self, u32 parent, UString name) -> bool {
+            if (t.next() != "{"_ustr) {
+                error = UString{std::format("BVH: expected '{{' after joint '{}'.", name)};
                 return false;
             }
             const u32 index = static_cast<u32>(data.skeleton.parents.size());
@@ -93,22 +100,22 @@ namespace SFT::Animation {
             joints.emplace_back();
             offsets.emplace_back(0.0f);
             while (!t.done()) {
-                const std::string word = t.next();
-                if (word == "}") return true;
+                const UString word = t.next();
+                if (word == "}"_ustr) return true;
                 if (equals_nocase(word, "OFFSET")) {
                     if (!parse_vec3(offsets[index])) {
-                        error = "BVH: bad OFFSET on '" + name + "'.";
+                        error = UString{std::format("BVH: bad OFFSET on '{}'.", name)};
                         return false;
                     }
                 } else if (equals_nocase(word, "CHANNELS")) {
                     f32 count_f = 0;
                     if (!to_float(t.next(), count_f)) {
-                        error = "BVH: bad CHANNELS count on '" + name + "'.";
+                        error = UString{std::format("BVH: bad CHANNELS count on '{}'.", name)};
                         return false;
                     }
                     joints[index].first_channel = channel_total;
                     for (int c = 0; c < static_cast<int>(count_f); ++c) {
-                        const std::string ch = t.next();
+                        const UString ch = t.next();
                         Channel channel;
                         if (equals_nocase(ch, "Xposition")) channel = Channel::Xpos;
                         else if (equals_nocase(ch, "Yposition")) channel = Channel::Ypos;
@@ -117,7 +124,7 @@ namespace SFT::Animation {
                         else if (equals_nocase(ch, "Yrotation")) channel = Channel::Yrot;
                         else if (equals_nocase(ch, "Zrotation")) channel = Channel::Zrot;
                         else {
-                            error = "BVH: unknown channel '" + ch + "'.";
+                            error = UString{std::format("BVH: unknown channel '{}'.", ch)};
                             return false;
                         }
                         joints[index].channels.push_back(channel);
@@ -127,22 +134,22 @@ namespace SFT::Animation {
                     if (!self(self, index, t.next())) return false;
                 } else if (equals_nocase(word, "End")) {
                     (void)t.next(); // "Site"
-                    if (t.next() != "{") {
+                    if (t.next() != "{"_ustr) {
                         error = "BVH: malformed End Site.";
                         return false;
                     }
                     int depth = 1;
                     while (!t.done() && depth > 0) {
-                        const std::string w = t.next();
-                        if (w == "{") ++depth;
-                        else if (w == "}") --depth;
+                        const UString w = t.next();
+                        if (w == "{"_ustr) ++depth;
+                        else if (w == "}"_ustr) --depth;
                     }
                 } else {
-                    error = "BVH: unexpected token '" + word + "'.";
+                    error = UString{std::format("BVH: unexpected token '{}'.", word)};
                     return false;
                 }
             }
-            error = "BVH: unterminated joint '" + name + "'.";
+            error = UString{std::format("BVH: unterminated joint '{}'.", name)};
             return false;
         };
 
@@ -227,7 +234,7 @@ namespace SFT::Animation {
         for (usize f = 0; f < frames; ++f) {
             for (usize i = 0; i < channel_total; ++i) {
                 if (!to_float(t.next(), row[i])) {
-                    return std::unexpected("BVH: non-numeric motion value in frame " + std::to_string(f) + ".");
+                    return std::unexpected(UString{std::format("BVH: non-numeric motion value in frame {}.", f)});
                 }
             }
             const f32 time = frame_time * static_cast<f32>(f);

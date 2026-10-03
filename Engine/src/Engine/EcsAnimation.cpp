@@ -10,7 +10,7 @@ namespace SFT::Engine {
 
         usize clip_by_name(const std::vector<std::shared_ptr<const Animation::Clip>> &clips, std::string_view name) {
             for (usize i = 0; i < clips.size(); ++i) {
-                if (clips[i]->name == name) return i;
+                if (clips[i]->name.cpp_string_view() == name) return i;
             }
             return clips.size();
         }
@@ -77,7 +77,7 @@ namespace SFT::Engine {
     std::vector<std::string> animation_clip_names(Ecs::World &world, Ecs::Entity entity) {
         std::vector<std::string> names;
         const auto collect = [&names](const std::vector<std::shared_ptr<const Animation::Clip>> &clips) {
-            for (const auto &clip : clips) names.push_back(clip->name);
+            for (const auto &clip : clips) names.push_back(clip->name.cpp_string());
         };
         if (auto animator = world.get_component<SkeletonAnimator>(entity)) {
             collect(animator->clips);

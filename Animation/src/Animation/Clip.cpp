@@ -67,7 +67,7 @@ namespace SFT::Animation {
         }
     }
 
-    const MorphTrack *Clip::find_morph_track(std::string_view target) const noexcept {
+    const MorphTrack *Clip::find_morph_track(const ustr &target) const noexcept {
         for (const auto &m : morph_tracks) {
             if (target.empty() || m.target == target) {
                 return &m;

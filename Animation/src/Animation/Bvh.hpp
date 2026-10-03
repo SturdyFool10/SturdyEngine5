@@ -5,7 +5,6 @@
 
 #include <expected>
 #include <string>
-#include <string_view>
 
 namespace SFT::Animation {
 
@@ -26,6 +25,6 @@ namespace SFT::Animation {
     /// Parses a BioVision Hierarchy motion-capture file (the lingua franca of mocap libraries such as CMU,
     /// Mixamo exports, Rokoko, Xsens and Perception Neuron). The skeleton is parent-first with the OFFSET values as
     /// its rest pose; the clip holds one linear key per frame. End Sites are skipped.
-    [[nodiscard]] std::expected<BvhData, std::string> parse_bvh(std::string_view text, const BvhOptions &options = {});
+    [[nodiscard]] std::expected<BvhData, UString> parse_bvh(const ustr &text, const BvhOptions &options = {});
 
 } // namespace SFT::Animation

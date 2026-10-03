@@ -1,4 +1,5 @@
 #include <Renderer/RenderGraph.hpp>
+#include <Foundation/Iter.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -497,7 +498,7 @@ void RenderGraph::add_copy_pass(const RenderGraphCopyDesc &desc) {
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             ZoneScopedN("RenderGraph::mark_output");
-            if (std::find(outputs_.begin(), outputs_.end(), texture) == outputs_.end()) {
+            if (!Foundation::iter(outputs_).any([texture](RenderGraphTextureHandle output) { return output == texture; })) {
                 outputs_.push_back(texture);
             }
         }
@@ -677,8 +678,8 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
                         continue;
                     }
                     const TextureRecord *record = texture_record(read);
-                    const bool same_pass_write =
-                        std::find(usage[i].writes.begin(), usage[i].writes.end(), read) != usage[i].writes.end();
+                    const bool same_pass_write = Foundation::iter(usage[i].writes).any(
+                        [read](RenderGraphTextureHandle write) { return write == read; });
                     if (record != nullptr && record->is_transient && !same_pass_write) {
                         UString message{"Render graph pass reads transient texture '"_ustr};
                         message.append(record->label);
@@ -717,8 +718,9 @@ void RenderGraph::mark_output(RenderGraphTextureHandle texture) {
             vector<bool> live(pass_count, false);
             vector<u32> pending;
             for (usize i = 0; i < pass_count; ++i) {
-                const bool writes_output = std::ranges::any_of(usage[i].writes, [this](RenderGraphTextureHandle write) {
-                    return std::find(outputs_.begin(), outputs_.end(), write) != outputs_.end();
+                const bool writes_output = Foundation::iter(usage[i].writes).any([this](RenderGraphTextureHandle write) {
+                    return Foundation::iter(outputs_).any(
+                        [write](RenderGraphTextureHandle output) { return output == write; });
                 });
                 if ((writes_output || usage[i].always_live) && !live[i]) {
                     live[i] = true;

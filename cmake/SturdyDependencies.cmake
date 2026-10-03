@@ -32,6 +32,13 @@ set(STURDY_LIBUNIBREAK_TAG "libunibreak_7_0" CACHE STRING "libunibreak git tag t
 # outline extraction (hb-draw) stays FreeType-agnostic either way; see sturdy_fetch_freetype().
 set(STURDY_FREETYPE_TAG "VER-2-14-1" CACHE STRING "FreeType git tag to fetch.")
 set(STURDY_MINIAUDIO_TAG "0.11.25" CACHE STRING "miniaudio git tag to fetch.")
+# Xiph + libFLAC (all BSD-style): libogg is the container layer for Vorbis and Opus, libvorbis (with its encoder) writes Ogg
+# Vorbis, libopus does Opus both ways (including the multistream API behind surround and exotic microphone arrays) and libFLAC
+# writes FLAC. Decoding of FLAC/MP3/WAV is miniaudio, Vorbis decode is stb_vorbis; these libraries exist for what they add.
+set(STURDY_LIBOGG_TAG "v1.3.6" CACHE STRING "libogg git tag to fetch.")
+set(STURDY_LIBVORBIS_TAG "v1.3.7" CACHE STRING "libvorbis git tag to fetch.")
+set(STURDY_LIBOPUS_TAG "v1.5.2" CACHE STRING "libopus git tag to fetch.")
+set(STURDY_LIBFLAC_TAG "1.5.0" CACHE STRING "libFLAC git tag to fetch.")
 # Slang is built from source so we get a static library with SPIRV-Tools baked in.
 # The first configure is slow because Slang's CMake fetches and builds spirv-tools.
 # Python3 must be available on the build machine for that step.
@@ -390,13 +397,26 @@ function(sturdy_configure_dependencies)
         sturdy_fetch_nlohmann_json()
         sturdy_fetch_ufbx()
         sturdy_fetch_bc7enc()
-        sturdy_fetch_webp()
-        sturdy_fetch_libavif()
-        sturdy_fetch_libjxl()
-        sturdy_fetch_openjpeg()
-        sturdy_fetch_libtiff()
+        if(STURDY_IMAGE_WEBP)
+            sturdy_fetch_webp()
+        endif()
+        if(STURDY_IMAGE_AVIF)
+            sturdy_fetch_libavif()
+        endif()
+        if(STURDY_IMAGE_JXL)
+            sturdy_fetch_libjxl()
+        endif()
+        if(STURDY_IMAGE_JP2)
+            sturdy_fetch_openjpeg()
+        endif()
+        if(STURDY_IMAGE_TIFF)
+            sturdy_fetch_libtiff()
+        endif()
         sturdy_fetch_gdeflate()
-        sturdy_fetch_openexr()
+        if(STURDY_IMAGE_EXR)
+            sturdy_fetch_openexr()
+        endif()
+        sturdy_fetch_audio_codecs()
         if(STURDY_ENABLE_WEBGPU AND NOT STURDY_OS STREQUAL "Web")
             # Web reaches WebGPU through sturdy_configure_webgpu()'s Emscripten port below instead
             # (STURDY_ENABLE_WEBGPU is forced ON for Web in the root CMakeLists.txt purely to gate
@@ -440,12 +460,25 @@ function(sturdy_configure_dependencies)
         sturdy_find_nlohmann_json()
         sturdy_find_ufbx()
         sturdy_find_bc7enc()
-        sturdy_find_webp()
-        sturdy_find_libavif()
-        sturdy_find_libjxl()
-        sturdy_find_openjpeg()
-        sturdy_find_libtiff()
-        sturdy_find_openexr()
+        if(STURDY_IMAGE_WEBP)
+            sturdy_find_webp()
+        endif()
+        if(STURDY_IMAGE_AVIF)
+            sturdy_find_libavif()
+        endif()
+        if(STURDY_IMAGE_JXL)
+            sturdy_find_libjxl()
+        endif()
+        if(STURDY_IMAGE_JP2)
+            sturdy_find_openjpeg()
+        endif()
+        if(STURDY_IMAGE_TIFF)
+            sturdy_find_libtiff()
+        endif()
+        if(STURDY_IMAGE_EXR)
+            sturdy_find_openexr()
+        endif()
+        sturdy_find_audio_codecs()
         sturdy_find_gdeflate()
         find_package(Tracy 0.13.1 EXACT CONFIG REQUIRED)
 
@@ -1407,6 +1440,17 @@ function(sturdy_fetch_miniaudio)
     # external/ogg, external/vorbis, and external/opus subprojects into the build.
     set(MINIAUDIO_NO_LIBVORBIS ON CACHE BOOL "" FORCE)
     set(MINIAUDIO_NO_LIBOPUS OFF CACHE BOOL "" FORCE)
+    # MP3/FLAC decoding follows STURDY_AUDIO_MP3/STURDY_AUDIO_FLAC (cmake/SturdyCodecs.cmake); WAV is always on.
+    if(STURDY_AUDIO_MP3)
+        set(MINIAUDIO_NO_MP3 OFF CACHE BOOL "" FORCE)
+    else()
+        set(MINIAUDIO_NO_MP3 ON CACHE BOOL "" FORCE)
+    endif()
+    if(STURDY_AUDIO_FLAC)
+        set(MINIAUDIO_NO_FLAC OFF CACHE BOOL "" FORCE)
+    else()
+        set(MINIAUDIO_NO_FLAC ON CACHE BOOL "" FORCE)
+    endif()
     sturdy_fetchcontent_declare(miniaudio
         GIT_REPOSITORY https://github.com/mackron/miniaudio.git
         GIT_TAG ${STURDY_MINIAUDIO_TAG}
@@ -1415,6 +1459,84 @@ function(sturdy_fetch_miniaudio)
     FetchContent_MakeAvailable(miniaudio)
     sturdy_mark_dependency_targets_exclude_from_all(miniaudio miniaudio::miniaudio)
     sturdy_register_license(miniaudio "${miniaudio_SOURCE_DIR}")
+endfunction()
+
+
+function(sturdy_fetch_audio_codecs)
+    # Everything here is built from source and statically linked, only for the codecs STURDY_AUDIO_* left on.
+    # Test/program/doc targets are always off; the install rules are moot (subprojects are EXCLUDE_FROM_ALL).
+    set(BUILD_TESTING OFF) # function-scope shadow only, see sturdy_fetch_libjxl()
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5) # libvorbis still declares cmake_minimum_required(VERSION 3.1)
+    if(STURDY_AUDIO_NEEDS_OGG)
+        set(INSTALL_DOCS OFF CACHE BOOL "" FORCE)
+        set(INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+        set(INSTALL_CMAKE_PACKAGE_MODULE OFF CACHE BOOL "" FORCE)
+        sturdy_fetchcontent_declare(ogg
+            GIT_REPOSITORY https://github.com/xiph/ogg.git
+            GIT_TAG ${STURDY_LIBOGG_TAG}
+        )
+        FetchContent_MakeAvailable(ogg)
+        sturdy_mark_dependency_targets_exclude_from_all(ogg)
+        sturdy_register_license(ogg "${ogg_SOURCE_DIR}")
+    endif()
+    if(STURDY_AUDIO_ENCODERS AND STURDY_AUDIO_VORBIS)
+        # libvorbis insists on find_package(Ogg) through its own FindOgg.cmake, which would not see the target above;
+        # that module only needs these two variables to be set, and leaves an existing Ogg::ogg alone.
+        set(OGG_INCLUDE_DIR "${ogg_SOURCE_DIR}/include" CACHE PATH "" FORCE)
+        set(OGG_LIBRARY ogg CACHE STRING "" FORCE)
+        sturdy_fetchcontent_declare(vorbis
+            GIT_REPOSITORY https://github.com/xiph/vorbis.git
+            GIT_TAG ${STURDY_LIBVORBIS_TAG}
+        )
+        FetchContent_MakeAvailable(vorbis)
+        sturdy_mark_dependency_targets_exclude_from_all(vorbis vorbisenc vorbisfile)
+        sturdy_register_license(vorbis "${vorbis_SOURCE_DIR}")
+    endif()
+    if(STURDY_AUDIO_OPUS)
+        set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+        set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+        set(OPUS_INSTALL_PKG_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+        set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+        sturdy_fetchcontent_declare(opus
+            GIT_REPOSITORY https://github.com/xiph/opus.git
+            GIT_TAG ${STURDY_LIBOPUS_TAG}
+        )
+        FetchContent_MakeAvailable(opus)
+        sturdy_mark_dependency_targets_exclude_from_all(opus)
+        sturdy_register_license(opus "${opus_SOURCE_DIR}")
+    endif()
+    if(STURDY_AUDIO_ENCODERS AND STURDY_AUDIO_FLAC)
+        set(BUILD_CXXLIBS OFF CACHE BOOL "" FORCE)
+        set(BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+        set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(BUILD_DOCS OFF CACHE BOOL "" FORCE)
+        set(INSTALL_MANPAGES OFF CACHE BOOL "" FORCE)
+        set(INSTALL_PKGCONFIG_MODULES OFF CACHE BOOL "" FORCE)
+        set(INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
+        set(WITH_OGG OFF CACHE BOOL "" FORCE) # FLAC-in-Ogg is rare; native .flac is all that is written
+        sturdy_fetchcontent_declare(flac
+            GIT_REPOSITORY https://github.com/xiph/flac.git
+            GIT_TAG ${STURDY_LIBFLAC_TAG}
+        )
+        FetchContent_MakeAvailable(flac)
+        sturdy_mark_dependency_targets_exclude_from_all(FLAC)
+        sturdy_register_license(flac "${flac_SOURCE_DIR}")
+    endif()
+endfunction()
+
+function(sturdy_find_audio_codecs)
+    if(STURDY_AUDIO_NEEDS_OGG)
+        find_package(Ogg CONFIG REQUIRED)
+    endif()
+    if(STURDY_AUDIO_ENCODERS AND STURDY_AUDIO_VORBIS)
+        find_package(Vorbis CONFIG REQUIRED)
+    endif()
+    if(STURDY_AUDIO_OPUS)
+        find_package(Opus CONFIG REQUIRED)
+    endif()
+    if(STURDY_AUDIO_ENCODERS AND STURDY_AUDIO_FLAC)
+        find_package(FLAC CONFIG REQUIRED)
+    endif()
 endfunction()
 
 
@@ -2393,37 +2515,80 @@ function(sturdy_normalize_dependency_targets)
         bc7enc
     )
 
-    sturdy_alias_existing_target(Sturdy::WebP
-        WebP::webp
-        webp
-    )
+    if(STURDY_IMAGE_WEBP)
+        sturdy_alias_existing_target(Sturdy::WebP
+            WebP::webp
+            webp
+        )
+    endif()
 
-    sturdy_alias_existing_target(Sturdy::WebPDemux
-        WebP::webpdemux
-        webpdemux
-    )
+    if(STURDY_IMAGE_WEBP)
+        sturdy_alias_existing_target(Sturdy::WebPDemux
+            WebP::webpdemux
+            webpdemux
+        )
+    endif()
 
-    sturdy_alias_existing_target(Sturdy::libavif
-        avif
-    )
+    if(STURDY_IMAGE_AVIF)
+        sturdy_alias_existing_target(Sturdy::libavif
+            avif
+        )
+    endif()
 
-    sturdy_alias_existing_target(Sturdy::libjxl
-        jxl
-    )
+    if(STURDY_IMAGE_JXL)
+        sturdy_alias_existing_target(Sturdy::libjxl
+            jxl
+        )
+    endif()
 
-    sturdy_alias_existing_target(Sturdy::openjpeg
-        openjp2
-    )
+    if(STURDY_IMAGE_JP2)
+        sturdy_alias_existing_target(Sturdy::openjpeg
+            openjp2
+        )
+    endif()
 
-    sturdy_alias_existing_target(Sturdy::libtiff
-        TIFF::tiff
-        tiff
-    )
+    if(STURDY_IMAGE_TIFF)
+        sturdy_alias_existing_target(Sturdy::libtiff
+            TIFF::tiff
+            tiff
+        )
+    endif()
 
-    sturdy_alias_existing_target(Sturdy::OpenEXR
-        OpenEXR::OpenEXR
-        OpenEXR
-    )
+    if(STURDY_IMAGE_EXR)
+        sturdy_alias_existing_target(Sturdy::OpenEXR
+            OpenEXR::OpenEXR
+            OpenEXR
+        )
+    endif()
+
+    if(STURDY_AUDIO_NEEDS_OGG)
+        sturdy_alias_existing_target(Sturdy::Ogg
+            Ogg::ogg
+            ogg
+        )
+    endif()
+    if(STURDY_AUDIO_ENCODERS AND STURDY_AUDIO_VORBIS)
+        sturdy_alias_existing_target(Sturdy::VorbisEnc
+            Vorbis::vorbisenc
+            vorbisenc
+        )
+        sturdy_alias_existing_target(Sturdy::Vorbis
+            Vorbis::vorbis
+            vorbis
+        )
+    endif()
+    if(STURDY_AUDIO_OPUS)
+        sturdy_alias_existing_target(Sturdy::Opus
+            Opus::opus
+            opus
+        )
+    endif()
+    if(STURDY_AUDIO_ENCODERS AND STURDY_AUDIO_FLAC)
+        sturdy_alias_existing_target(Sturdy::Flac
+            FLAC::FLAC
+            FLAC
+        )
+    endif()
 
     sturdy_alias_existing_target(Sturdy::gdeflate
         gdeflate

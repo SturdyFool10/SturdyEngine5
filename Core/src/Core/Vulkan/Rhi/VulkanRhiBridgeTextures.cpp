@@ -71,7 +71,7 @@ namespace SFT::Core::Vulkan {
         for (const rhi::QueueClass queue_class : desc.concurrent_queue_classes) {
             const u32 family = queue_family_for_lane(rhi::QueueLane{queue_class, 0});
             if (family != VK_QUEUE_FAMILY_IGNORED &&
-                std::find(concurrent_families.begin(), concurrent_families.end(), family) == concurrent_families.end()) {
+                !Foundation::iter(concurrent_families).any([family](u32 existing) { return existing == family; })) {
                 concurrent_families.push_back(family);
             }
         }

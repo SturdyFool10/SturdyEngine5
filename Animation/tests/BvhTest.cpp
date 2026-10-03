@@ -52,7 +52,7 @@ Frame Time: 0.5
     }
     const BvhData &d = *parsed;
     check(d.skeleton.joint_count() == 3 && d.skeleton.valid(), "three joints, parent-first");
-    check(d.skeleton.names[2] == "Head" && d.skeleton.parents[2] == 1, "hierarchy");
+    check(d.skeleton.names[2] == "Head"_ustr && d.skeleton.parents[2] == 1, "hierarchy");
     check(near(d.skeleton.rest_pose[0].translation.y, 1.0f), "centimetres auto-converted to metres");
     check(near(d.clip.duration, 1.0f) && d.clip.channels[0].translation.times.size() == 3, "frames and duration");
 

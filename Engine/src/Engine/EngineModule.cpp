@@ -109,6 +109,7 @@ namespace SFT::Engine {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Engine::update(f64 delta_seconds) {
         frame_time_.advance(delta_seconds, time_scale_.value());
+        fixed_time_.advance(frame_time_.delta_seconds());
         update_schedule_.run(ecs_world_);
     }
 

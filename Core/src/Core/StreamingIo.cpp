@@ -1,5 +1,7 @@
 #include <Core/StreamingIo.hpp>
 
+#include <Foundation/FileIo.hpp>
+
 #include <utility>
 
 #if defined(_WIN32)
@@ -23,6 +25,10 @@ namespace SFT::Core {
         (void)path;
 #endif
         return std::nullopt;
+    }
+
+    void install_file_accelerator() {
+        Foundation::Io::set_file_accelerator([](const std::filesystem::path &path) { return read_file_accelerated(path); });
     }
 
 } // namespace SFT::Core

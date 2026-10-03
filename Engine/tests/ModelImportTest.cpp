@@ -111,12 +111,12 @@ int main() {
             const auto &skin = scene->skins[0];
             check(skin.skeleton && skin.skeleton->joint_count() >= 2 && skin.skeleton->valid(), "skeleton is valid and parent-first");
             check(skin.skeleton->find_joint("Bone") != Animation::no_joint, "joint names kept");
-            check(skin.clips.size() == 1 && skin.clips[0]->name == "Bend", "clip imported under its name");
+            check(skin.clips.size() == 1 && skin.clips[0]->name == "Bend"_ustr, "clip imported under its name");
             if (!skin.clips.empty()) {
                 const Animation::Clip &clip = *skin.clips[0];
                 const u32 bone = skin.skeleton->find_joint("Bone");
                 check(!clip.channels[bone].rotation.empty() && std::fabs(clip.duration - 1.0f) < 1e-4f, "rotation track and duration");
-                check(clip.morph_tracks.size() == 1 && clip.morph_tracks[0].target == "Body" && clip.morph_tracks[0].weight_count == 1,
+                check(clip.morph_tracks.size() == 1 && clip.morph_tracks[0].target == "Body"_ustr && clip.morph_tracks[0].weight_count == 1,
                       "weight channel becomes a morph track keyed by the mesh node");
                 Animation::Pose pose;
                 Animation::sample_clip(*skin.skeleton, clip, 1.0f, false, pose);
@@ -135,7 +135,7 @@ int main() {
                                "JOINT Spine\n{\nOFFSET 0 0.5 0\nCHANNELS 3 Zrotation Xrotation Yrotation\nEnd Site\n{\nOFFSET 0 0.5 0\n}\n}\n}\n"
                                "MOTION\nFrames: 2\nFrame Time: 0.5\n0 0 0 0 0 0 0 0 0\n1 0 0 0 0 0 0 0 0\n";
         auto animations = Engine::import_animations(assets, path);
-        check(animations.has_value() && animations->clips.size() == 1 && animations->clips[0]->name == "walk", "BVH import");
+        check(animations.has_value() && animations->clips.size() == 1 && animations->clips[0]->name == "walk"_ustr, "BVH import");
         if (animations) {
             Animation::Skeleton target;
             target.names = {"mixamorig:Hips", "mixamorig:Spine"};

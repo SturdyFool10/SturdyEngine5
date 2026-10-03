@@ -10,7 +10,6 @@
 #include <memory>
 #include <span>
 #include <string>
-#include <string_view>
 #include <vector>
 
 /// Data-driven animation graphs: parameters feed clip, blend, additive and state-machine nodes; layers stack
@@ -28,7 +27,7 @@ namespace SFT::Animation {
     enum class ParamType : u8 { Float, Bool, Int, Trigger };
 
     struct ParamDef {
-        std::string name;
+        UString name;
         ParamType type = ParamType::Float;
         f32 default_value = 0.0f;
     };
@@ -57,7 +56,7 @@ namespace SFT::Animation {
     };
 
     struct State {
-        std::string name;
+        UString name;
         NodeId node = no_node;
     };
 
@@ -80,7 +79,7 @@ namespace SFT::Animation {
     struct GraphNode {
         enum class Type : u8 { Clip, Blend1D, Blend2D, Additive, Mix, StateMachine };
         Type type = Type::Clip;
-        std::string name;
+        UString name;
 
         // Clip
         u32 clip = 0;
@@ -122,35 +121,35 @@ namespace SFT::Animation {
         /// Root-motion extraction: the root joint's horizontal translation and yaw are removed from the pose and
         /// reported as a per-update delta instead.
         bool root_motion = false;
-        std::string root_joint; // empty = joint 0
+        UString root_joint; // empty = joint 0
 
-        [[nodiscard]] u32 find_param(std::string_view name) const noexcept;
-        [[nodiscard]] u32 find_state(const StateMachineDef &machine, std::string_view name) const noexcept;
+        [[nodiscard]] u32 find_param(const ustr &name) const noexcept;
+        [[nodiscard]] u32 find_state(const StateMachineDef &machine, const ustr &name) const noexcept;
     };
 
     /// Checks node/param/state/clip indices and rejects cycles; empty on success, otherwise a description of the
     /// first problem. `GraphInstance` assumes a valid graph.
-    [[nodiscard]] std::string validate_graph(const GraphDef &def);
+    [[nodiscard]] UString validate_graph(const GraphDef &def);
 
     /// Fluent construction of a `GraphDef`. Every `add_*`/`param_*` returns the new id.
     class GraphBuilder {
       public:
-        u32 param_float(std::string name, f32 default_value = 0.0f);
-        u32 param_bool(std::string name, bool default_value = false);
-        u32 param_int(std::string name, i32 default_value = 0);
-        u32 param_trigger(std::string name);
+        u32 param_float(UString name, f32 default_value = 0.0f);
+        u32 param_bool(UString name, bool default_value = false);
+        u32 param_int(UString name, i32 default_value = 0);
+        u32 param_trigger(UString name);
 
         u32 add_clip(std::shared_ptr<const Clip> clip);
 
-        NodeId clip_node(u32 clip, bool loop = true, f32 speed = 1.0f, std::string name = {});
-        NodeId blend_1d(u32 param, std::vector<BlendChild1D> children, std::string name = {});
-        NodeId blend_2d(u32 param_x, u32 param_y, std::vector<BlendChild2D> children, std::string name = {});
-        NodeId additive(NodeId base, NodeId delta, f32 weight = 1.0f, u32 weight_param = no_param, std::string name = {});
-        NodeId mix(NodeId a, NodeId b, f32 weight = 0.5f, u32 weight_param = no_param, std::string name = {});
-        NodeId state_machine(StateMachineDef machine, std::string name = {});
+        NodeId clip_node(u32 clip, bool loop = true, f32 speed = 1.0f, UString name = {});
+        NodeId blend_1d(u32 param, std::vector<BlendChild1D> children, UString name = {});
+        NodeId blend_2d(u32 param_x, u32 param_y, std::vector<BlendChild2D> children, UString name = {});
+        NodeId additive(NodeId base, NodeId delta, f32 weight = 1.0f, u32 weight_param = no_param, UString name = {});
+        NodeId mix(NodeId a, NodeId b, f32 weight = 0.5f, u32 weight_param = no_param, UString name = {});
+        NodeId state_machine(StateMachineDef machine, UString name = {});
 
         void add_layer(Layer layer);
-        void enable_root_motion(std::string joint = {});
+        void enable_root_motion(UString joint = {});
 
         [[nodiscard]] GraphDef build() const { return def_; }
         [[nodiscard]] GraphDef &def() noexcept { return def_; }
@@ -160,7 +159,7 @@ namespace SFT::Animation {
     };
 
     struct FiredEvent {
-        std::string name;
+        UString name;
         /// Time within the clip that fired it.
         f32 clip_time = 0.0f;
     };
@@ -173,7 +172,7 @@ namespace SFT::Animation {
 
     /// Per-joint weights for a layer: 1 for the named joints (and, with `include_children`, everything below them), 0
     /// elsewhere.
-    [[nodiscard]] std::vector<f32> make_joint_mask(const Skeleton &skeleton, std::span<const std::string> root_names,
+    [[nodiscard]] std::vector<f32> make_joint_mask(const Skeleton &skeleton, std::span<const UString> root_names,
                                                    bool include_children = true, f32 value = 1.0f);
 
     /// Runtime state of one character's graph.
@@ -182,12 +181,12 @@ namespace SFT::Animation {
         GraphInstance(std::shared_ptr<const GraphDef> def, std::shared_ptr<const Skeleton> skeleton);
 
         // Parameters, by name or index (names that do not exist are ignored / read as zero).
-        void set_float(std::string_view name, f32 value);
-        void set_bool(std::string_view name, bool value);
-        void set_int(std::string_view name, i32 value);
-        void set_trigger(std::string_view name);
+        void set_float(const ustr &name, f32 value);
+        void set_bool(const ustr &name, bool value);
+        void set_int(const ustr &name, i32 value);
+        void set_trigger(const ustr &name);
         void set_param(u32 index, f32 value);
-        [[nodiscard]] f32 get_param(std::string_view name) const;
+        [[nodiscard]] f32 get_param(const ustr &name) const;
 
         /// Advances every active node by `delta_seconds` and writes the final pose.
         void update(f32 delta_seconds, Pose &out);
@@ -198,7 +197,7 @@ namespace SFT::Animation {
         [[nodiscard]] const RootMotionDelta &root_motion() const noexcept { return root_delta_; }
 
         /// Name of the state the first state machine node is in (or fading toward); empty without one.
-        [[nodiscard]] std::string_view current_state_name() const;
+        [[nodiscard]] const UString &current_state_name() const;
         /// True while a state machine is cross-fading.
         [[nodiscard]] bool in_transition() const;
 

@@ -17,6 +17,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <Core/Core.hpp>
+#include <Core/StreamingIo.hpp>
 #include <Engine/EngineModule.hpp>
 #include <WindowManager/WindowManager.hpp>
 #include <RHI/RHI.hpp>
@@ -109,6 +110,7 @@ namespace SFT::Engine {
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Engine::Engine() {
+        Core::install_file_accelerator();
         ecs_world_.bind_resource(platform_event_inbox_);
         ecs_world_.bind_resource(window_events_);
         ecs_world_.bind_resource(keyboard_events_);
@@ -123,6 +125,9 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(input_state_);
         ecs_world_.bind_resource(window_requests_);
         ecs_world_.bind_resource(frame_time_);
+        ecs_world_.bind_resource(fixed_time_);
+        ecs_world_.bind_resource(audio_world_);
+        ecs_world_.bind_resource(audio_events_);
         ecs_world_.bind_resource(time_scale_);
         ecs_world_.bind_resource(ui_image_cache_);
         ecs_world_.bind_resource(ui_svg_cache_);
@@ -162,6 +167,29 @@ namespace SFT::Engine {
                 tick_skeleton_animator(assets_, animator, static_cast<f32>(time->delta_seconds()));
             });
 
+        // Audio: pick the listener, keep emitters anchored to their entities (or the listener), then push the listener,
+        // collect finished voices and run acoustics. Registration order is the order they run in.
+        update_schedule_.add_system([](Ecs::WriteResource<AudioWorld> audio) noexcept { audio->begin_frame(); });
+        update_schedule_.add_system(
+            [](Ecs::Entity, const AudioListener &listener, const WorldTransform &transform,
+               Ecs::WriteResource<AudioWorld> audio) noexcept {
+                if (listener.enabled) {
+                    audio->offer_listener(listener.priority, transform.value);
+                }
+            });
+        update_schedule_.add_system(
+            [](Ecs::Entity entity, AudioSource &source, const WorldTransform &transform, Ecs::WriteResource<AudioWorld> audio,
+               Ecs::ReadResource<FrameTime> time) noexcept {
+                update_audio_source(*audio, entity, source, transform.value, static_cast<f32>(time->delta_seconds()));
+            });
+        update_schedule_.add_system([](Ecs::WriteResource<AudioWorld> audio, Ecs::ReadResource<FrameTime> time,
+                                       Ecs::EventWriter<AudioSourceEvent> events) noexcept {
+            audio->end_frame(static_cast<f32>(time->delta_seconds()));
+            for (AudioSourceEvent &event : audio->take_events()) {
+                events.send(std::move(event));
+            }
+        });
+
         update_schedule_.add_system(
             [this](Ecs::Entity entity, AnimationGraphPlayer &player, WorldTransform &transform,
                    Ecs::ReadResource<FrameTime> time, Ecs::EventWriter<AnimationEvent> events) noexcept {
@@ -172,7 +200,7 @@ namespace SFT::Engine {
                                       glm::mat4_cast(root.rotation);
                 }
                 for (const Animation::FiredEvent &fired : player.events) {
-                    events.send(AnimationEvent{.entity = entity, .name = fired.name, .clip_time = fired.clip_time});
+                    events.send(AnimationEvent{.entity = entity, .name = fired.name.cpp_string(), .clip_time = fired.clip_time});
                 }
             });
 

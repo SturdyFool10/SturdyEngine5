@@ -73,6 +73,12 @@ namespace SFT::Ffi {
         ReflectionTypeBuilder = 11,
         /// Also owned: animation loaded from a file on its own. Lives until `sturdy_animation_set_release`.
         AnimationSet = 12,
+        /// Also owned (audio): sounds, voices, streams, sinks and captures live until their release/stop call.
+        AudioSound = 13,
+        AudioVoice = 14,
+        AudioStream = 15,
+        AudioSink = 16,
+        AudioCapture = 17,
     };
 
     /// Mints a token referring to `pointer`, valid until `revoke_handle`.

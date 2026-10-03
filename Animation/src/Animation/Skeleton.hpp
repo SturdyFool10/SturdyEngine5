@@ -25,13 +25,13 @@ namespace SFT::Animation {
     /// Joint hierarchy in structure-of-arrays form. Joints are stored parent-first: `parents[i] < i`
     /// for every non-root joint, so model-space evaluation is one forward pass.
     struct Skeleton {
-        std::vector<std::string> names;
+        std::vector<UString> names;
         std::vector<u32> parents;
         std::vector<JointTransform> rest_pose;
         std::vector<glm::mat4> inverse_bind;
 
         [[nodiscard]] usize joint_count() const noexcept { return parents.size(); }
-        [[nodiscard]] u32 find_joint(std::string_view name) const noexcept;
+        [[nodiscard]] u32 find_joint(const ustr &name) const noexcept;
 
         /// True when the arrays agree in length and the hierarchy is parent-first.
         [[nodiscard]] bool valid() const noexcept;
@@ -39,6 +39,10 @@ namespace SFT::Animation {
 
     /// One local transform per joint.
     using Pose = std::vector<JointTransform>;
+
+    /// Shortest-arc rotation taking direction `from` to `to` (neither needs to be normalised; identity when either is
+    /// zero-length, a half turn about a perpendicular axis when they are opposite).
+    [[nodiscard]] glm::quat shortest_arc(glm::vec3 from, glm::vec3 to);
 
     [[nodiscard]] Pose rest_pose_of(const Skeleton &skeleton);
 

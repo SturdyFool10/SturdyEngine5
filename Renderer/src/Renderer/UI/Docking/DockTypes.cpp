@@ -1,4 +1,5 @@
 #include <Renderer/UI/Docking/DockTypes.hpp>
+#include <Foundation/Iter.hpp>
 
 #include <charconv>
 #include <cstdio>
@@ -108,12 +109,13 @@ namespace SFT::UI::Docking {
             return;
         }
         DockNode *leaf = mutable_node(*leaf_id);
-        const auto it = std::find(leaf->tabs.begin(), leaf->tabs.end(), panel);
-        if (it == leaf->tabs.end()) {
+        const auto index = Foundation::iter(leaf->tabs).position(
+            [&panel](DockPanelId tab) { return tab == panel; });
+        if (!index) {
             return;
         }
-        const usize removed_index = static_cast<usize>(it - leaf->tabs.begin());
-        leaf->tabs.erase(it);
+        const usize removed_index = *index;
+        leaf->tabs.erase(leaf->tabs.begin() + static_cast<std::ptrdiff_t>(*index));
         if (leaf->tabs.empty()) {
             leaf->active_tab_index = 0;
         } else if (removed_index < leaf->active_tab_index) {

@@ -33,7 +33,7 @@ namespace SFT::Animation {
     /// Morph-target weights over time for the mesh carried by the node called `target`. `Track::values` holds
     /// `weight_count` floats per key (three such tuples per key for CubicSpline).
     struct MorphTrack {
-        std::string target;
+        UString target;
         u32 weight_count = 0;
         Track track;
     };
@@ -41,25 +41,25 @@ namespace SFT::Animation {
     /// A named marker on a clip's timeline (footstep, muzzle flash, "spawn projectile"), in seconds.
     struct ClipEvent {
         f32 time = 0.0f;
-        std::string name;
+        UString name;
     };
 
     /// Animation clip addressed by joint index of a specific skeleton.
     struct Clip {
-        std::string name;
+        UString name;
         f32 duration = 0.0f;
         /// Same length as the skeleton's joint count; joints with empty tracks keep their rest value.
         std::vector<JointChannels> channels;
         /// Name of the joint each channel animates (parallel to `channels`); lets the clip be rebound to a
         /// different skeleton by name (see `retarget.hpp`'s `remap_clip`).
-        std::vector<std::string> joint_names;
+        std::vector<UString> joint_names;
         std::vector<MorphTrack> morph_tracks;
         std::vector<ClipEvent> events;
 
         void recompute_duration();
 
         /// The morph track for `target`, or the first one when `target` is empty; null when there is none.
-        [[nodiscard]] const MorphTrack *find_morph_track(std::string_view target) const noexcept;
+        [[nodiscard]] const MorphTrack *find_morph_track(const ustr &target) const noexcept;
     };
 
     [[nodiscard]] glm::vec3 sample_vec3(const Track &track, f32 time);

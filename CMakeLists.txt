@@ -72,8 +72,8 @@ option(
 )
 option(
     STURDY_BUILD_GLFW_WINDOW_PROVIDER
-    "Build the optional GLFW desktop window provider alongside the default SDL3 provider."
-    OFF
+    "Build the GLFW desktop window provider alongside the default SDL3 provider. Turn off for leaner builds."
+    ON
 )
 option(STURDY_BUILD_SHARED_LIBS "Build SturdyEngine targets as shared libraries." OFF)
 option(
@@ -158,9 +158,9 @@ if(NOT STURDY_STATIC_ARCHIVE_TIMEOUT_SECONDS MATCHES "^[0-9]+$")
 endif()
 
 if(STURDY_BUILD_GLFW_WINDOW_PROVIDER AND STURDY_OS STREQUAL "Web")
-    message(FATAL_ERROR
-        "STURDY_BUILD_GLFW_WINDOW_PROVIDER is unavailable for Web builds."
-    )
+    # GLFW is on by default but has no Web port here; the browser build just goes without it.
+    message(STATUS "GLFW window provider skipped: not available for Web builds.")
+    set(STURDY_BUILD_GLFW_WINDOW_PROVIDER OFF)
 endif()
 
 if(STURDY_FETCH_SAMPLE_ASSETS AND NOT STURDY_BUILD_RUNTIME_DEMO)
@@ -170,6 +170,7 @@ if(STURDY_FETCH_SAMPLE_ASSETS AND NOT STURDY_BUILD_RUNTIME_DEMO)
 endif()
 
 include(SturdyBuildSpeed)
+include(SturdyCodecs)
 
 function(sturdy_configure_compiler_launcher)
     if(NOT STURDY_USE_COMPILER_LAUNCHER)

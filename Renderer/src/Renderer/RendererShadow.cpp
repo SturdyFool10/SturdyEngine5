@@ -1032,8 +1032,7 @@ namespace SFT::Renderer {
         };
 
 
-        const bool has_any_shadow_caster = std::any_of(
-            submission.draws.begin(), submission.draws.end(),
+        const bool has_any_shadow_caster = Foundation::iter(submission.draws).any(
             [](const RenderItem &item) noexcept { return item.casts_shadows; });
         if (directional_shadows_enabled && has_any_shadow_caster && sun.casts_shadows &&
             luminance(sun.radiance) > 0.0f) {

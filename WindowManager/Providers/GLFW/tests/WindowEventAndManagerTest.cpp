@@ -427,11 +427,11 @@ namespace {
                         "GLFW middle button was not normalized");
         passed &= check(normalize_mouse_button(GLFW_MOUSE_BUTTON_RIGHT) == MouseButton::Right,
                         "GLFW right button was not normalized");
-        passed &= check(SDL3::Detail::normalize_mouse_button(SDL_BUTTON_LEFT) == MouseButton::Left,
+        passed &= check(SFT::WindowManager::SDL3::Detail::normalize_mouse_button(SDL_BUTTON_LEFT) == MouseButton::Left,
                         "SDL left button was not normalized");
-        passed &= check(SDL3::Detail::normalize_mouse_button(SDL_BUTTON_MIDDLE) == MouseButton::Middle,
+        passed &= check(SFT::WindowManager::SDL3::Detail::normalize_mouse_button(SDL_BUTTON_MIDDLE) == MouseButton::Middle,
                         "SDL middle button was not normalized");
-        passed &= check(SDL3::Detail::normalize_mouse_button(SDL_BUTTON_RIGHT) == MouseButton::Right,
+        passed &= check(SFT::WindowManager::SDL3::Detail::normalize_mouse_button(SDL_BUTTON_RIGHT) == MouseButton::Right,
                         "SDL right button was not normalized");
 
         const WindowMouseButtonEvent legacy_aggregate{7, 2, 3.0F, 4.0F};

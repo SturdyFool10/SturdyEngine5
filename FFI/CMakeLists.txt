@@ -69,7 +69,7 @@ endif()
 # CPU state, so EcsFfiTest exercises real behavior, not just argument validation, with no GPU or
 # window.) ReflectionFfiTest needs neither: TypeRegistry is a process-wide singleton rather than
 # something owned by a SturdyEngine session, so it builds in both configurations.
-set(_sturdy_ffi_static_only_tests AbiContractTest EcsFfiTest AnimationFfiTest)
+set(_sturdy_ffi_static_only_tests AbiContractTest EcsFfiTest AnimationFfiTest AudioFfiTest)
 set(_sturdy_ffi_excluded_tests)
 if(STURDY_BUILD_SHARED_LIBS)
     set(_sturdy_ffi_excluded_tests ${_sturdy_ffi_static_only_tests})
@@ -81,4 +81,5 @@ sturdy_add_tests(FFI
         AbiContractTest=FfiContractTest
         EcsFfiTest=FfiEcsTest
         AnimationFfiTest=FfiAnimationTest
+        AudioFfiTest=FfiAudioTest
         ReflectionFfiTest=FfiReflectionTest)

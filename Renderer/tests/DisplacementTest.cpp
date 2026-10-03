@@ -467,6 +467,21 @@ namespace {
                 }
             }
         }
+        for (const bool wrap : {true, false}) {
+            Field f = make_noise_field(128, 128, 91);
+            f.wrap = wrap;
+            auto hierarchy = HeightfieldHierarchy::build(f.view());
+            for (u32 y = 8; y < 104; ++y) {
+                for (u32 x = 12; x < 108; ++x) {
+                    f.heights[static_cast<usize>(y) * f.width + x] = static_cast<f32>((x * 17 + y * 31) % 997) / 997.0f;
+                }
+            }
+            hierarchy.update_region(f.view(), 12, 8, 108, 104);
+            const auto rebuilt = HeightfieldHierarchy::build(f.view());
+            const auto packed = hierarchy.pack(HierarchyPrecision::Float32, HierarchyChannels::MinMax);
+            const auto rebuilt_packed = rebuilt.pack(HierarchyPrecision::Float32, HierarchyChannels::MinMax);
+            ok &= check(packed.data == rebuilt_packed.data, "large parallel update must equal a full rebuild");
+        }
         return ok;
     }
 

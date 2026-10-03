@@ -14,6 +14,8 @@
 #include <Engine/Docking/DockWindowCoordinator.hpp>
 #include <Engine/EcsEvents.hpp>
 #include <Engine/EcsAnimation.hpp>
+#include <Engine/EcsAudio.hpp>
+#include <Engine/FixedTime.hpp>
 #include <Engine/ModelImport.hpp>
 #include <Engine/SpawnImported.hpp>
 #include <Engine/EcsRendering.hpp>
@@ -378,6 +380,9 @@ namespace SFT::Engine {
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function does not throw exceptions.
         [[nodiscard]] const FrameTime &frame_time() const noexcept;
+        /// The audio mixer, device sink and acoustics provider. Call `audio().enable(config)` to turn audio on.
+        [[nodiscard]] AudioWorld &audio() noexcept { return audio_world_; }
+        [[nodiscard]] const AudioWorld &audio() const noexcept { return audio_world_; }
 
 
         /// Returns the current or globally available time scale value.
@@ -513,6 +518,9 @@ namespace SFT::Engine {
         InputState input_state_{};
         WindowRequests window_requests_{};
         FrameTime frame_time_{};
+        FixedTime fixed_time_{};
+        AudioWorld audio_world_{};
+        Ecs::Events<AudioSourceEvent> audio_events_{};
         TimeScale time_scale_{};
         UiImageCache ui_image_cache_{};
         UiSvgCache ui_svg_cache_{};

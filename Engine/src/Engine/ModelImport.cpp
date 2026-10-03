@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <Foundation/FileIo.hpp>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -68,13 +69,12 @@ namespace SFT::Engine {
     AssetExpected<ImportedAnimations> import_animations(AssetManager &assets, const std::filesystem::path &source) {
         const std::string ext = extension_of(source);
         if (ext == ".bvh") {
-            std::ifstream file(source, std::ios::binary);
-            if (!file) return std::unexpected(import_error(AssetErrorCode::IoFailure, "Could not open the BVH file.", source));
-            const std::string text{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-            auto parsed = Animation::parse_bvh(text);
-            if (!parsed) return std::unexpected(import_error(AssetErrorCode::DecodeFailure, parsed.error(), source));
+            auto text = Foundation::Io::read_text_file(source);
+            if (!text) return std::unexpected(import_error(AssetErrorCode::IoFailure, text.error(), source));
+            auto parsed = Animation::parse_bvh(*text);
+            if (!parsed) return std::unexpected(import_error(AssetErrorCode::DecodeFailure, parsed.error().cpp_string(), source));
             auto clip = std::make_shared<Animation::Clip>(std::move(parsed->clip));
-            clip->name = source.stem().string();
+            clip->name = UString{source.stem().string()};
             ImportedAnimations result;
             result.skeleton = std::make_shared<const Animation::Skeleton>(std::move(parsed->skeleton));
             result.clips.push_back(std::move(clip));
@@ -111,7 +111,7 @@ namespace SFT::Engine {
         std::span<const std::shared_ptr<const Animation::Clip>> clips) {
         auto def = Animation::load_graph_json(json, clips, skeleton);
         if (!def) {
-            return std::unexpected(import_error(AssetErrorCode::InvalidDescription, def.error(), {}));
+            return std::unexpected(import_error(AssetErrorCode::InvalidDescription, def.error().cpp_string(), {}));
         }
         return std::make_shared<const Animation::GraphDef>(std::move(*def));
     }
@@ -119,10 +119,9 @@ namespace SFT::Engine {
     AssetExpected<std::shared_ptr<const Animation::GraphDef>> load_animation_graph(
         const std::filesystem::path &source, const Animation::Skeleton &skeleton,
         std::span<const std::shared_ptr<const Animation::Clip>> clips) {
-        std::ifstream file(source, std::ios::binary);
-        if (!file) return std::unexpected(import_error(AssetErrorCode::IoFailure, "Could not open the animation graph file.", source));
-        const std::string text{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-        auto graph = parse_animation_graph(text, skeleton, clips);
+        auto text = Foundation::Io::read_text_file(source);
+        if (!text) return std::unexpected(import_error(AssetErrorCode::IoFailure, text.error(), source));
+        auto graph = parse_animation_graph(*text, skeleton, clips);
         if (!graph) {
             AssetError error = graph.error();
             error.source = source;

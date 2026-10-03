@@ -6,7 +6,6 @@
 #include <memory>
 #include <span>
 #include <string>
-#include <string_view>
 
 namespace SFT::Animation {
 
@@ -37,7 +36,7 @@ namespace SFT::Animation {
     /// (`base`, `delta`), `mix` (`a`, `b`), `state_machine`. `from` may be "*" or omitted for any state. Condition ops:
     /// `>`, `<`, `>=`, `<=`, `==`, `!=`, `true`, `false`, `trigger`. `//` and `/* */` comments are accepted.
     /// Clips are looked up by name in `clips`; layer masks need the skeleton.
-    [[nodiscard]] std::expected<GraphDef, std::string> load_graph_json(
-        std::string_view text, std::span<const std::shared_ptr<const Clip>> clips, const Skeleton &skeleton);
+    [[nodiscard]] std::expected<GraphDef, UString> load_graph_json(
+        const ustr &text, std::span<const std::shared_ptr<const Clip>> clips, const Skeleton &skeleton);
 
 } // namespace SFT::Animation
