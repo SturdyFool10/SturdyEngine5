@@ -73,7 +73,7 @@ namespace SFT::Renderer {
         const auto gather_kernel = renderer.prepare_compute_kernel(kernel_description("motion_blur_gather", "gatherMain"));
         if (!gather_kernel) return std::unexpected(gather_kernel.error());
 
-        const MotionBlurSettings &blur = settings.motion_blur;
+        const MotionBlurSettings &blur = settings.frame.motion_blur;
         const glm::uvec2 render_extent{description.extent.x, description.extent.y};
         const u32 tile_size = std::max(blur.tile_size_px, 1u);
         const glm::uvec2 tile_extent = motion_blur_tile_extent(description.extent, tile_size);

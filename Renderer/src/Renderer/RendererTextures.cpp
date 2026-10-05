@@ -670,6 +670,38 @@ namespace SFT::Renderer {
         return *handle;
     }
 
+    Core::RendererExpected<TextureHandle> Renderer::ensure_default_transparent_black_texture() {
+        ZoneScopedN("Renderer::ensure_default_transparent_black_texture");
+        if (TextureResource *existing = texture(default_transparent_black_texture_)) {
+            return existing->handle;
+        }
+        const array<std::byte, 4> clear{std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
+        auto handle = create_texture(1, 1, RHI::Format::RGBA8Unorm, span<const std::byte>{clear.data(), clear.size()},
+                                     "renderer default transparent black");
+        if (!handle) {
+            return handle;
+        }
+        default_transparent_black_texture_ = *handle;
+        return *handle;
+    }
+
+    Core::RendererExpected<RenderGraphTextureHandle> Renderer::import_default_texture(RenderGraph &graph, TextureHandle handle,
+                                                                                     const char *label) {
+        const TextureResource *resource = texture(handle);
+        if (resource == nullptr || !resource->texture || !resource->view) {
+            return unexpected(Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                           "A default texture is missing its RHI resources."));
+        }
+        return graph.import_texture(RenderGraphImportedTextureDesc{
+            .texture = resource->texture,
+            .default_view = resource->view,
+            .format = RHI::Format::RGBA8Unorm,
+            .extent = RHI::Extent3D{.width = resource->width, .height = resource->height, .depth_or_layers = 1},
+            .usage = RHI::TextureUsage::Sampled,
+            .label = label,
+        });
+    }
+
     /// Performs the adopt texture operation for `Renderer` using the supplied arguments.
     ///
     /// @param texture Texture used or affected by the operation.

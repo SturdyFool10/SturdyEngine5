@@ -1,3 +1,4 @@
+#include <glm/gtc/type_ptr.hpp>
 #include <Foundation/Foundation.hpp>
 
 #include <Renderer/ShaderTarget.hpp>
@@ -34,6 +35,8 @@
 #include <Core/Core.hpp>
 #include <RHI/RHI.hpp>
 #include <Renderer/ReflectionBinding.hpp>
+#include <Renderer/LightClusters.hpp>
+#include <Renderer/Reflections.hpp>
 #include <Renderer/RendererModule.hpp>
 #include <Renderer/ScreenSpaceGi.hpp>
 
@@ -861,8 +864,9 @@ namespace SFT::Renderer {
             if (slot.shadow_targets.directional_atlas) {
                 device->destroy_texture(slot.shadow_targets.directional_atlas);
             }
-            if (slot.shadow_targets.lighting_buffer) {
-                device->destroy_buffer(slot.shadow_targets.lighting_buffer);
+            for (RHI::BufferHandle buffer : {slot.shadow_targets.lighting_buffer, slot.shadow_targets.local_lights_buffer,
+                                             slot.shadow_targets.cluster_ranges_buffer, slot.shadow_targets.cluster_indices_buffer}) {
+                if (buffer) device->destroy_buffer(buffer);
             }
         }
         slot.shadow_targets = {};
@@ -890,7 +894,9 @@ namespace SFT::Renderer {
         static_assert(sizeof(DirectionalLightGpuData) == 80);
         static_assert(sizeof(SpotLightGpuData) == 64);
         static_assert(sizeof(PointLightGpuData) == 48);
-        static_assert(sizeof(ShadowLightingGpuData) == 5344);
+        static_assert(sizeof(ShadowLightingGpuData) == 5408);
+        static_assert(sizeof(LocalLightGpuData) == 64);
+        static_assert(offsetof(ShadowLightingGpuData, cluster_grid) == 5344);
         static_assert(offsetof(ShadowLightingGpuData, sun) == 336);
         static_assert(offsetof(ShadowLightingGpuData, spot_lights) == 416);
         static_assert(offsetof(ShadowLightingGpuData, point_lights) == 928);
@@ -912,25 +918,33 @@ namespace SFT::Renderer {
             glm::max(submission.lighting.ambient_radiance, glm::vec3{0.0f}),
             std::max(submission.lighting.exposure, 0.0f),
         };
-        gpu.background_color = submission.render_graph.background_color *
-                               glm::vec4{submission.render_graph.background_intensity,
-                                         submission.render_graph.background_intensity,
-                                         submission.render_graph.background_intensity,
+        gpu.background_color = glm::make_vec4(submission.render_graph.frame.scene.background_color) *
+                               glm::vec4{submission.render_graph.frame.scene.background_intensity,
+                                         submission.render_graph.frame.scene.background_intensity,
+                                         submission.render_graph.frame.scene.background_intensity,
                                          1.0f};
         gpu.spectral_params.x = static_cast<f32>(submission.render_graph.spectral_path_tracing.mode);
         // .y/.z are repurposed here for ReSTIR GI enable/intensity rather than adding a new packed
         // vec4 field — spectral_params previously only used .x, leaving these lanes reserved.
         // The indirect term comes from ReSTIR GI or, without it, the screen-space GI (see ScreenSpaceGi.hpp).
         const bool screen_space_gi = screen_space_gi_active(submission.render_graph, submission.camera);
-        gpu.spectral_params.y = submission.render_graph.restir_gi.enabled || screen_space_gi ? 1.0f : 0.0f;
+        gpu.spectral_params.y = submission.render_graph.frame.restir_gi.enabled || screen_space_gi ? 1.0f : 0.0f;
         gpu.spectral_params.z = std::max(
-            finite_or(screen_space_gi ? submission.render_graph.screen_space_gi.intensity
-                                      : submission.render_graph.restir_gi.intensity, 1.0f), 0.0f);
+            finite_or(screen_space_gi ? submission.render_graph.frame.screen_space_gi.intensity
+                                      : submission.render_graph.frame.restir_gi.intensity, 1.0f), 0.0f);
+        {
+            const RenderSettings::ReflectionSettings &reflections = submission.render_graph.frame.reflections;
+            const bool ibl = reflections_environment_active(submission.render_graph);
+            const bool ssr = reflections_screen_space_active(submission.render_graph, submission.camera);
+            gpu.indirect_specular = glm::vec4{ibl ? std::max(finite_or(reflections.environment_intensity, 1.0f), 0.0f) : 0.0f,
+                                              ssr ? std::max(finite_or(reflections.screen_space_intensity, 1.0f), 0.0f) : 0.0f,
+                                              reflections.specular_occlusion ? 1.0f : 0.0f, 0.0f};
+        }
         gpu.viewport_params = glm::vec4{
             1.0f / static_cast<f32>(std::max(render_extent.x, 1u)),
             1.0f / static_cast<f32>(std::max(render_extent.y, 1u)),
             std::abs(submission.camera.projection[1][1]),
-            submission.render_graph.ambient_occlusion ? 1.0f : 0.0f,
+            submission.render_graph.frame.ambient_occlusion.enabled ? 1.0f : 0.0f,
         };
 
         const DirectionalLight &sun = submission.lighting.sun;
@@ -941,32 +955,32 @@ namespace SFT::Renderer {
         };
         gpu.sun.radiance_shadow = glm::vec4{glm::max(sun.radiance, glm::vec3{0.0f}), 0.0f};
 
-        const bool shadows_enabled = submission.render_graph.shadows;
+        const bool shadows_enabled = submission.render_graph.frame.shadows.enabled;
         const bool punctual_shadows_enabled = shadows_enabled && static_cast<bool>(targets.atlas);
         const bool directional_shadows_enabled =
             shadows_enabled && static_cast<bool>(targets.directional_atlas) &&
             static_cast<bool>(targets.directional_layout);
         const u32 atlas_size = targets.atlas_size;
         const f32 filter_radius_texels = std::clamp(
-            finite_or(submission.render_graph.shadow_filter_radius_texels, 2.0f), 0.5f, 8.0f);
+            finite_or(submission.render_graph.frame.shadows.filter_radius_texels, 2.0f), 0.5f, 8.0f);
         gpu.shadow_params = glm::vec4{
             filter_radius_texels,
-            std::clamp(finite_or(submission.render_graph.shadow_normal_bias, 0.75f), 0.0f, 4.0f),
-            submission.render_graph.shadow_contact_hardening ? 1.0f : 0.0f,
-            std::max(finite_or(submission.render_graph.shadow_max_distance, 250.0f), submission.camera.near_plane),
+            std::clamp(finite_or(submission.render_graph.frame.shadows.normal_bias, 0.75f), 0.0f, 4.0f),
+            submission.render_graph.frame.shadows.contact_hardening ? 1.0f : 0.0f,
+            std::max(finite_or(submission.render_graph.frame.shadows.max_distance, 250.0f), submission.camera.near_plane),
         };
         // Kept in sync with Engine::ShadowDebugView's final `UnshadowedSunLighting` value.
-        gpu.spectral_params.w = static_cast<f32>(std::min(submission.render_graph.shadow_debug_view, 25u));
+        gpu.spectral_params.w = static_cast<f32>(std::min(static_cast<u32>(submission.render_graph.frame.shadows.debug_view), 28u));
         gpu.contact_shadow_params = glm::vec4{
-            std::clamp(finite_or(submission.render_graph.contact_shadow_distance, 0.5f), 0.0f, 5.0f),
-            std::clamp(finite_or(submission.render_graph.contact_shadow_thickness, 0.05f), 0.0f, 1.0f),
-            static_cast<f32>(std::clamp(submission.render_graph.contact_shadow_steps, 2u, 12u)),
-            submission.render_graph.contact_shadows && directional_shadows_enabled && sun.casts_shadows ? 1.0f : 0.0f,
+            std::clamp(finite_or(submission.render_graph.frame.shadows.contact_shadow_distance, 0.5f), 0.0f, 5.0f),
+            std::clamp(finite_or(submission.render_graph.frame.shadows.contact_shadow_thickness, 0.05f), 0.0f, 1.0f),
+            static_cast<f32>(std::clamp(submission.render_graph.frame.shadows.contact_shadow_steps, 2u, 12u)),
+            submission.render_graph.frame.shadows.contact_shadows && directional_shadows_enabled && sun.casts_shadows ? 1.0f : 0.0f,
         };
         gpu.contact_shadow_params_extra = glm::vec4{
-            std::clamp(finite_or(submission.render_graph.contact_shadow_intensity, 0.85f), 0.0f, 1.0f),
-            std::max(finite_or(submission.render_graph.contact_shadow_fade_distance, 40.0f), 0.01f),
-            std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f),
+            std::clamp(finite_or(submission.render_graph.frame.shadows.contact_shadow_intensity, 0.85f), 0.0f, 1.0f),
+            std::max(finite_or(submission.render_graph.frame.shadows.contact_shadow_fade_distance, 40.0f), 0.01f),
+            std::max(submission.render_graph.frame.camera_emulation.lens_strength, 0.0f),
             0.0f,
         };
 
@@ -1038,18 +1052,18 @@ namespace SFT::Renderer {
             luminance(sun.radiance) > 0.0f) {
             const DirectionalAtlasLayout &layout = targets.directional_layout;
             const u32 cascade_count = std::min(
-                std::clamp(submission.render_graph.shadow_cascade_count, 1u, max_directional_shadow_cascades),
+                std::clamp(submission.render_graph.frame.shadows.cascade_count, 1u, max_directional_shadow_cascades),
                 layout.cascade_count);
             const f32 camera_near = std::max(submission.camera.near_plane, 0.0001f);
             const f32 camera_far = std::max(camera_near + 0.01f,
                                             std::min(submission.camera.far_plane,
-                                                     finite_or(submission.render_graph.shadow_max_distance, 250.0f)));
+                                                     finite_or(submission.render_graph.frame.shadows.max_distance, 250.0f)));
 
             // Practical split scheme: a blend of uniform and logarithmic distributions. Logarithmic
             // alone starves the far cascades on a large far plane; uniform alone wastes almost all
             // of cascade 0 on distant geometry.
             const f32 split_lambda = std::clamp(
-                finite_or(submission.render_graph.shadow_cascade_split_lambda, 0.65f), 0.0f, 1.0f);
+                finite_or(submission.render_graph.frame.shadows.cascade_split_lambda, 0.65f), 0.0f, 1.0f);
             array<f32, max_directional_shadow_cascades> splits{};
             for (u32 cascade = 0; cascade < cascade_count; ++cascade) {
                 const f32 p = static_cast<f32>(cascade + 1) / static_cast<f32>(cascade_count);
@@ -1065,7 +1079,7 @@ namespace SFT::Renderer {
             // to `splits[c]`. Cascade `c + 1` is fitted from `fade_starts[c]`, not from `splits[c]`,
             // so both cascades are valid everywhere in the band.
             const f32 cascade_blend = std::clamp(
-                finite_or(submission.render_graph.shadow_cascade_blend, 0.10f), 0.0f, 0.5f);
+                finite_or(submission.render_graph.frame.shadows.cascade_blend, 0.10f), 0.0f, 0.5f);
             array<f32, max_directional_shadow_cascades> starts{};
             array<f32, max_directional_shadow_cascades> fade_starts{};
             for (u32 cascade = 0; cascade < cascade_count; ++cascade) {
@@ -1231,7 +1245,7 @@ namespace SFT::Renderer {
                                                   std::max(light.inner_cone_cos, output.direction_outer_cos.w + 0.0001f)};
             output.shadow_params = glm::vec4{-1.0f, std::max(light.source_radius, 0.0f), 0.0f, 0.0f};
             if (!punctual_shadows_enabled || !light.casts_shadows ||
-                shadowed_spots >= std::min(submission.render_graph.max_shadowed_spot_lights,
+                shadowed_spots >= std::min(submission.render_graph.frame.shadows.max_shadowed_spot_lights,
                                            max_lighting_spot_lights) ||
                 !has_shadow_caster_in_sphere(light.position, range)) {
                 continue;
@@ -1299,7 +1313,7 @@ namespace SFT::Renderer {
                                                       std::max(light.source_radius, 0.0f)};
             output.shadow_params = glm::vec4{-1.0f, 0.0f, 0.0f, 0.0f};
             if (!punctual_shadows_enabled || !light.casts_shadows ||
-                shadowed_points >= std::min(submission.render_graph.max_shadowed_point_lights,
+                shadowed_points >= std::min(submission.render_graph.frame.shadows.max_shadowed_point_lights,
                                             max_shadowed_point_lights) ||
                 !has_shadow_caster_in_sphere(light.position, range)) {
                 continue;
@@ -1346,6 +1360,113 @@ namespace SFT::Renderer {
             }
             output.shadow_params.x = static_cast<f32>(first_view);
             ++shadowed_points;
+        }
+
+        // ---- clustered local lights ----------------------------------------------------------------------------------
+        // Every spot and point light (nearest/brightest first, up to `max_lights`) goes into one storage list, binned into
+        // view-space clusters; the first 8 + 8 keep the shadow views assigned above. The constant-buffer arrays stay filled
+        // for consumers that read them (ReSTIR GI, the spectral integrators).
+        {
+            const RenderSettings::LightingSettings &lighting_settings = submission.render_graph.frame.lighting;
+            struct Ranked {
+                f32 importance;
+                LocalLightGpuData gpu;
+                ClusterLight bounds;
+            };
+            vector<Ranked> ranked;
+            ranked.reserve(submission.lighting.spot_lights.size() + submission.lighting.point_lights.size());
+            for (usize order = 0; order < spot_order.size(); ++order) {
+                const SpotLight &light = submission.lighting.spot_lights[spot_order[order]];
+                const f32 range = std::max(light.range, kMinimumLightRange);
+                const glm::vec3 direction = safe_normalize(light.direction, glm::vec3{0.0f, -1.0f, 0.0f});
+                const f32 outer = std::clamp(light.outer_cone_cos, 0.001f, 0.9999f);
+                const f32 shadow_view = order < spot_count ? gpu.spot_lights[order].shadow_params.x : -1.0f;
+                ranked.push_back(Ranked{
+                    punctual_importance(light.position, light.radiance, light.range, submission.camera.world_position),
+                    LocalLightGpuData{
+                        .position_range = glm::vec4{light.position, range},
+                        .direction_outer_cos = glm::vec4{direction, outer},
+                        .radiance_inner_cos = glm::vec4{glm::max(light.radiance, glm::vec3{0.0f}), std::max(light.inner_cone_cos, outer + 0.0001f)},
+                        .shadow_radius_kind = glm::vec4{shadow_view, std::max(light.source_radius, 0.0f), 0.0f, 0.0f},
+                    },
+                    ClusterLight{.position = light.position, .range = range, .direction = direction, .cone_cos = outer}});
+            }
+            for (usize order = 0; order < point_order.size(); ++order) {
+                const PointLight &light = submission.lighting.point_lights[point_order[order]];
+                const f32 range = std::max(light.range, kMinimumLightRange);
+                const f32 shadow_view = order < point_count ? gpu.point_lights[order].shadow_params.x : -1.0f;
+                ranked.push_back(Ranked{
+                    punctual_importance(light.position, light.radiance, light.range, submission.camera.world_position),
+                    LocalLightGpuData{
+                        .position_range = glm::vec4{light.position, range},
+                        .direction_outer_cos = glm::vec4{0.0f, -1.0f, 0.0f, -2.0f},
+                        .radiance_inner_cos = glm::vec4{glm::max(light.radiance, glm::vec3{0.0f}), 1.0f},
+                        .shadow_radius_kind = glm::vec4{shadow_view, std::max(light.source_radius, 0.0f), 1.0f, 0.0f},
+                    },
+                    ClusterLight{.position = light.position, .range = range}});
+            }
+            std::stable_sort(ranked.begin(), ranked.end(), [](const Ranked &a, const Ranked &b) { return a.importance > b.importance; });
+            ranked.resize(std::min<usize>(ranked.size(), std::clamp(lighting_settings.max_lights, 1u, 65536u)));
+
+            vector<LocalLightGpuData> local_lights;
+            vector<ClusterLight> bounds;
+            local_lights.reserve(ranked.size());
+            bounds.reserve(ranked.size());
+            for (const Ranked &r : ranked) {
+                local_lights.push_back(r.gpu);
+                bounds.push_back(r.bounds);
+            }
+            LightClusters clusters;
+            if (lighting_settings.clustered && !local_lights.empty()) {
+                clusters = build_light_clusters(bounds, submission.camera.view, submission.camera.projection, render_extent.x,
+                                                render_extent.y, submission.camera.near_plane, lighting_settings);
+            }
+            prepared.clustered = lighting_settings.clustered && clusters.grid.cluster_count() > 0;
+            prepared.local_light_count = static_cast<u32>(local_lights.size());
+            prepared.cluster_count = clusters.grid.cluster_count();
+            prepared.clustered_entries = static_cast<u32>(clusters.indices.size());
+            prepared.clustered_dropped = clusters.dropped;
+
+            // Storage buffers always exist (bind groups need them) and only grow.
+            const auto upload = [&](RHI::BufferHandle &buffer, u64 &capacity, std::span<const std::byte> bytes, const char *label) -> Core::RendererResult {
+                const u64 needed = std::max<u64>(bytes.size(), 256u);
+                if (!buffer || capacity < needed) {
+                    if (buffer) device->destroy_buffer(buffer);
+                    buffer = {};
+                    const u64 size = std::max<u64>(needed + needed / 2, 4096u);
+                    auto created = device->create_buffer(RHI::BufferDesc{
+                        .size = size, .usage = RHI::BufferUsage::Storage, .memory = RHI::MemoryLocation::HostUpload, .label = label});
+                    if (!created) return unexpected(graphics_error_from_rhi(created.error(), label));
+                    buffer = *created;
+                    capacity = size;
+                }
+                if (!bytes.empty()) {
+                    auto written = device->write_buffer(buffer, 0, bytes);
+                    if (!written) return unexpected(graphics_error_from_rhi(written.error(), label));
+                }
+                return {};
+            };
+            if (auto r = upload(targets.local_lights_buffer, targets.local_lights_capacity, std::as_bytes(span<const LocalLightGpuData>{local_lights}),
+                                "clustered local lights");
+                !r) {
+                return r;
+            }
+            if (auto r = upload(targets.cluster_ranges_buffer, targets.cluster_ranges_capacity, std::as_bytes(span<const glm::uvec2>{clusters.ranges}),
+                                "light cluster ranges");
+                !r) {
+                return r;
+            }
+            if (auto r = upload(targets.cluster_indices_buffer, targets.cluster_indices_capacity, std::as_bytes(span<const u32>{clusters.indices}),
+                                "light cluster indices");
+                !r) {
+                return r;
+            }
+            const LightClusterGrid &grid = clusters.grid;
+            gpu.cluster_grid = glm::vec4{static_cast<f32>(grid.tiles_x), static_cast<f32>(grid.tiles_y), static_cast<f32>(grid.slices),
+                                         static_cast<f32>(grid.tile_px)};
+            gpu.cluster_depth = glm::vec4{grid.near_plane, grid.far_plane, grid.slice_scale, grid.slice_bias};
+            gpu.cluster_flags = glm::vec4{prepared.clustered ? 1.0f : 0.0f, static_cast<f32>(local_lights.size()),
+                                          static_cast<f32>(std::clamp(lighting_settings.max_lights_per_cluster, 1u, 1024u)), 0.0f};
         }
 
         prepared.atlas_used = !prepared.punctual_views.empty();
@@ -1613,11 +1734,14 @@ namespace SFT::Renderer {
         RHI::TextureViewHandle shadow_atlas_view,
         RHI::TextureViewHandle directional_shadow_atlas_view,
         RHI::BufferHandle lighting_buffer,
+        const FrameShadowTargets &cluster_targets,
         RHI::TextureViewHandle transmittance_lut_view,
         RHI::TextureViewHandle multi_scattering_lut_view,
         RHI::TextureViewHandle sky_view_lut_view,
         RHI::TextureViewHandle surfel_irradiance_view,
         RHI::TextureViewHandle gtao_ambient_occlusion_view,
+        RHI::TextureViewHandle environment_atlas_view,
+        RHI::TextureViewHandle ssr_radiance_view,
         RHI::BufferHandle atmosphere_buffer,
         RHI::Format color_format,
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
@@ -1629,7 +1753,9 @@ namespace SFT::Renderer {
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr || !albedo_view || !normal_view || !material_view || !emissive_view || !depth_view ||
             !spectral_effect_view || !shadow_atlas_view || !directional_shadow_atlas_view || !lighting_buffer || !transmittance_lut_view || !multi_scattering_lut_view ||
-            !sky_view_lut_view || !surfel_irradiance_view || !gtao_ambient_occlusion_view || !atmosphere_buffer) {
+            !sky_view_lut_view || !surfel_irradiance_view || !gtao_ambient_occlusion_view || !environment_atlas_view ||
+            !ssr_radiance_view || !atmosphere_buffer ||
+            !cluster_targets.local_lights_buffer || !cluster_targets.cluster_ranges_buffer || !cluster_targets.cluster_indices_buffer) {
             return unexpected(shadow_error("Deferred shadow lighting received an invalid G-buffer, atlas, or constants resource."));
         }
 
@@ -1667,6 +1793,18 @@ namespace SFT::Renderer {
             } else if (resource.name == "atmosphereData") {
                 entry.buffer = atmosphere_buffer;
                 entry.size = sizeof(AtmosphereGpuData);
+            } else if (resource.name == "localLights") {
+                entry.buffer = cluster_targets.local_lights_buffer;
+                entry.size = cluster_targets.local_lights_capacity;
+                entry.structure_stride = sizeof(LocalLightGpuData);
+            } else if (resource.name == "clusterRanges") {
+                entry.buffer = cluster_targets.cluster_ranges_buffer;
+                entry.size = cluster_targets.cluster_ranges_capacity;
+                entry.structure_stride = sizeof(glm::uvec2);
+            } else if (resource.name == "clusterLightIndices") {
+                entry.buffer = cluster_targets.cluster_indices_buffer;
+                entry.size = cluster_targets.cluster_indices_capacity;
+                entry.structure_stride = sizeof(u32);
             } else if (resource.name == "gbufferAlbedo") {
                 entry.texture_view = albedo_view;
             } else if (resource.name == "gbufferNormal") {
@@ -1693,6 +1831,10 @@ namespace SFT::Renderer {
                 entry.texture_view = surfel_irradiance_view;
             } else if (resource.name == "gtaoAmbientOcclusion") {
                 entry.texture_view = gtao_ambient_occlusion_view;
+            } else if (resource.name == "environmentAtlas") {
+                entry.texture_view = environment_atlas_view;
+            } else if (resource.name == "ssrRadiance") {
+                entry.texture_view = ssr_radiance_view;
             } else if (resource.name == "gbufferSampler") {
                 entry.sampler = gbuffer_sampler;
             } else if (resource.name == "shadowDepthSampler") {

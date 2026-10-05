@@ -1,3 +1,4 @@
+#include <Renderer/Text/EmbeddedFont.hpp>
 #include <RuntimeDemoGameLogic/RuntimeDemoGameLogic.hpp>
 
 #include <algorithm>
@@ -754,19 +755,13 @@ namespace SFT::Runtime {
             return {};
         }
         if (!tweak_panel_font_registered_) {
-            const std::optional<std::string> font_bytes =
-                Foundation::read_file_to_string("Fonts/MapleMono-NF-Regular.ttf");
-            if (font_bytes) {
-                const std::span<const char> chars{font_bytes->data(), font_bytes->size()};
-                if (auto loaded = Text::Font::load(std::as_bytes(chars))) {
-                    tweak_panel_font_ = std::move(*loaded);
-                    screen_ui_->context().register_font(kTweakPanelFontId, tweak_panel_font_);
-                    tweak_panel_font_registered_ = true;
-                } else {
-                    Foundation::log_warn("Runtime tweak panel: failed to load font: {}", loaded.error().message);
-                }
+            // Maple is embedded in the Renderer, so the panel's text never depends on the working directory.
+            if (auto loaded = Text::Font::load(Text::embedded_default_font_bytes())) {
+                tweak_panel_font_ = std::move(*loaded);
+                screen_ui_->context().register_font(kTweakPanelFontId, tweak_panel_font_);
+                tweak_panel_font_registered_ = true;
             } else {
-                Foundation::log_warn("Runtime tweak panel: could not read Fonts/MapleMono-NF-Regular.ttf");
+                Foundation::log_warn("Runtime tweak panel: failed to load the embedded font: {}", loaded.error().message);
             }
         }
 
@@ -1004,11 +999,11 @@ namespace SFT::Runtime {
                              cam.saturation, 0.0, 2.0, 0.01);
                 tweak_slider(ctx, "Contrast", "runtime-tweak-camera-contrast", camera_emulation_sliders_[6],
                              cam.contrast, 0.5, 2.0, 0.01);
-                tweak_slider(ctx, "Tint R", "runtime-tweak-camera-tint-r", camera_emulation_sliders_[7], cam.tint.r,
+                tweak_slider(ctx, "Tint R", "runtime-tweak-camera-tint-r", camera_emulation_sliders_[7], cam.tint[0],
                              0.5, 1.5, 0.01);
-                tweak_slider(ctx, "Tint G", "runtime-tweak-camera-tint-g", camera_emulation_sliders_[8], cam.tint.g,
+                tweak_slider(ctx, "Tint G", "runtime-tweak-camera-tint-g", camera_emulation_sliders_[8], cam.tint[1],
                              0.5, 1.5, 0.01);
-                tweak_slider(ctx, "Tint B", "runtime-tweak-camera-tint-b", camera_emulation_sliders_[9], cam.tint.b,
+                tweak_slider(ctx, "Tint B", "runtime-tweak-camera-tint-b", camera_emulation_sliders_[9], cam.tint[2],
                              0.5, 1.5, 0.01);
                 tweak_slider(ctx, "Housing", "runtime-tweak-camera-housing", camera_emulation_sliders_[10], cam.housing,
                              0.0, 1.0, 0.01);

@@ -31,7 +31,7 @@ namespace SFT::Renderer {
         u64 history_key = 0;
     };
 
-    /// Adds the pass and returns the output-resolution colour. Reads `settings.temporal_upscaler`.
+    /// Adds the pass and returns the output-resolution colour. Reads `settings.frame.temporal_upscaler`.
     [[nodiscard]] Core::RendererExpected<RenderGraphTextureHandle> add_temporal_upscale_pass(
         Renderer &renderer, RHI::RhiDevice &device, HistoryTextureCache &histories, RenderGraph &graph,
         std::vector<RHI::BindGroupHandle> &transient_bind_groups, const TemporalUpscaleDescription &description,

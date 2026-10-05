@@ -110,8 +110,12 @@ namespace SFT::Engine {
     void Engine::update(f64 delta_seconds) {
         frame_time_.advance(delta_seconds, time_scale_.value());
         fixed_time_.advance(frame_time_.delta_seconds());
+        // Systems this update read world matrices that reflect every Transform set before it.
+        (void)Engine::propagate_transforms();
         update_schedule_.run(ecs_world_);
     }
+
+    PropagationStats Engine::propagate_transforms() { return SFT::Engine::propagate_transforms(ecs_world_); }
 
     /// Returns the current or globally available frame time value.
     ///

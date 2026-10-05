@@ -18,7 +18,9 @@
 #include <Renderer/MotionBlur.hpp>
 #include <Renderer/Overlay.hpp>
 #include <Renderer/RendererModule.hpp>
+#include <Renderer/Reflections.hpp>
 #include <Renderer/ToneMapping.hpp>
+#include <Renderer/VolumetricFog.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -203,11 +205,11 @@ namespace SFT::Renderer {
                     .set_execute([this, &submission, &view_storage, &slot, frame_index, uses_bundles](
                                      RenderGraphContext &context) -> Core::RendererResult {
                         RHI::RenderPassEncoder &pass = context.render_pass();
-                        const f32 shadow_depth_bias = std::isfinite(submission.render_graph.shadow_depth_bias)
-                                                          ? std::max(submission.render_graph.shadow_depth_bias, 0.0f)
+                        const f32 shadow_depth_bias = std::isfinite(submission.render_graph.frame.shadows.depth_bias)
+                                                          ? std::max(submission.render_graph.frame.shadows.depth_bias, 0.0f)
                                                           : 0.75f;
-                        const f32 shadow_slope_bias = std::isfinite(submission.render_graph.shadow_slope_bias)
-                                                          ? std::max(submission.render_graph.shadow_slope_bias, 0.0f)
+                        const f32 shadow_slope_bias = std::isfinite(submission.render_graph.frame.shadows.slope_bias)
+                                                          ? std::max(submission.render_graph.frame.shadows.slope_bias, 0.0f)
                                                           : 1.0f;
                         const span<const ShadowRenderView> views{view_storage.data(), view_storage.size()};
                         const RHI::Format depth_format = slot.shadow_targets.format;
@@ -460,7 +462,7 @@ namespace SFT::Renderer {
                                       .height = static_cast<f32>(render_extent.y),
                                       .min_depth = 0.0f, .max_depth = 1.0f},
                         RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y},
-                        submission.render_graph.camera_emulation.lens_strength);
+                        submission.render_graph.frame.camera_emulation.lens_strength);
                     !recorded.has_value()) {
                     return recorded;
                 }
@@ -565,6 +567,10 @@ namespace SFT::Renderer {
             graph_resources.publish_texture<RenderGraphSemantics::TransmittanceLut>(transmittance_lut_out);
             graph_resources.publish_texture<RenderGraphSemantics::MultiScatteringLut>(multi_scattering_lut_out);
             graph_resources.publish_texture<RenderGraphSemantics::SkyViewLut>(sky_view_lut_out);
+            if (slot.atmosphere_targets.constants_buffer) {
+                graph_resources.publish_buffer<RenderGraphSemantics::AtmosphereConstants>(graph.import_buffer(RenderGraphImportedBufferDesc{
+                    .buffer = slot.atmosphere_targets.constants_buffer, .size = sizeof(AtmosphereGpuData), .label = "atmosphere constants"}));
+            }
         }
 
         return {};
@@ -875,6 +881,33 @@ namespace SFT::Renderer {
         return {};
     }
 
+    /// Feature `lighting_data` (Scene stage): publishes the lighting constants and the clustered light list (buffers uploaded by `shadow_maps`' CPU preparation) so later features -- reflections, volumetric fog -- light with the same data as deferred lighting. Publishes LightingConstants, LocalLights, LightClusterRanges and LightClusterIndices.
+    Core::RendererResult Renderer::build_frame_feature_lighting_data(FrameBuildContext &context) {
+        ZoneScopedN("Renderer::frame_feature::lighting_data");
+        BuiltinFrameState &state = *static_cast<BuiltinFrameState *>(context.builtin);
+        FrameSubmission &submission = *state.submission;
+        FrameInFlight &slot = *state.slot;
+        SceneFrameState &scene = *state.scene;
+        RenderGraph &graph = context.graph;
+        RenderGraphBlackboard &graph_resources = context.resources;
+        const PreparedShadowFrame &shadow_frame = *scene.shadow_frame;
+        if (submission.render_graph.render_scene && !scene.full_path_tracing && slot.shadow_targets.lighting_buffer) {
+            // Host-written before the graph runs; published so later passes (volumetric fog) light with the same data.
+            const FrameShadowTargets &targets = slot.shadow_targets;
+            graph_resources.publish_buffer<RenderGraphSemantics::LightingConstants>(graph.import_buffer(RenderGraphImportedBufferDesc{
+                .buffer = targets.lighting_buffer, .size = sizeof(ShadowLightingGpuData), .label = "lighting constants"}));
+            if (shadow_frame.clustered && targets.local_lights_buffer && targets.cluster_ranges_buffer && targets.cluster_indices_buffer) {
+                graph_resources.publish_buffer<RenderGraphSemantics::LocalLights>(graph.import_buffer(RenderGraphImportedBufferDesc{
+                    .buffer = targets.local_lights_buffer, .size = targets.local_lights_capacity, .label = "local lights"}));
+                graph_resources.publish_buffer<RenderGraphSemantics::LightClusterRanges>(graph.import_buffer(RenderGraphImportedBufferDesc{
+                    .buffer = targets.cluster_ranges_buffer, .size = targets.cluster_ranges_capacity, .label = "light cluster ranges"}));
+                graph_resources.publish_buffer<RenderGraphSemantics::LightClusterIndices>(graph.import_buffer(RenderGraphImportedBufferDesc{
+                    .buffer = targets.cluster_indices_buffer, .size = targets.cluster_indices_capacity, .label = "light cluster indices"}));
+            }
+        }
+        return {};
+    }
+
     /// Feature `lighting` (Scene stage): deferred shadow lighting into SceneHdrColor. Consumes GBuffer*, ResolvedSceneDepth, both shadow atlases, the atmosphere LUTs, AmbientOcclusion and SurfelIrradiance.
     Core::RendererResult Renderer::build_frame_feature_lighting(FrameBuildContext &context) {
         ZoneScopedN("Renderer::frame_feature::lighting");
@@ -910,6 +943,24 @@ namespace SFT::Renderer {
         [[maybe_unused]] const RenderGraphTextureHandle gtao_ambient_occlusion = graph_resources.texture<RenderGraphSemantics::AmbientOcclusion>();
         [[maybe_unused]] const RenderGraphTextureHandle surfel_irradiance = graph_resources.texture<RenderGraphSemantics::SurfelIrradiance>();
         if (submission.render_graph.render_scene && !full_path_tracing) {
+            // Reflection inputs: the reflections feature publishes them when it runs; otherwise neutral 1x1 stand-ins keep
+            // the pass's binding layout fixed (the lighting constants switch both terms off).
+            RenderGraphTextureHandle environment_atlas = graph_resources.texture<RenderGraphSemantics::ReflectionEnvironment>();
+            RenderGraphTextureHandle ssr_radiance = graph_resources.texture<RenderGraphSemantics::ScreenSpaceReflections>();
+            if (!environment_atlas || !ssr_radiance) {
+                auto black = ensure_default_transparent_black_texture();
+                if (!black) return unexpected(black.error());
+                if (!environment_atlas) {
+                    auto imported = import_default_texture(graph, *black, "reflections disabled environment");
+                    if (!imported) return unexpected(imported.error());
+                    environment_atlas = *imported;
+                }
+                if (!ssr_radiance) {
+                    auto imported = import_default_texture(graph, *black, "reflections disabled screen-space");
+                    if (!imported) return unexpected(imported.error());
+                    ssr_radiance = *imported;
+                }
+            }
             const RenderGraphTextureHandle lighting_spectral_effect = hybrid_spectral
                 ? spectral_effect : gbuffer_emissive;
             RenderGraphRenderPassBuilder &lighting_pass = graph.add_render_pass("deferred shadow lighting"_ustr);
@@ -937,12 +988,15 @@ namespace SFT::Renderer {
             lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = surfel_irradiance});
             lighting_pass.add_sampled_texture(
                 RenderGraphSampledTextureReadDesc{.texture = gtao_ambient_occlusion});
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = environment_atlas});
+            lighting_pass.add_sampled_texture(RenderGraphSampledTextureReadDesc{.texture = ssr_radiance});
             lighting_pass
                 .set_render_area(RHI::Rect2D{.x = 0, .y = 0, .width = render_extent.x, .height = render_extent.y})
                 .set_execute([this, &submission, &slot, render_extent, gbuffer_albedo, gbuffer_normal,
                               gbuffer_material, gbuffer_emissive, depth_texture, lighting_spectral_effect,
                               shadow_atlas, directional_shadow_atlas, &shadow_frame, surfel_irradiance,
-                              gtao_ambient_occlusion, transmittance_lut, multi_scattering_lut, sky_view_lut](
+                              gtao_ambient_occlusion, transmittance_lut, multi_scattering_lut, sky_view_lut,
+                              environment_atlas, ssr_radiance](
                                  RenderGraphContext &context) -> Core::RendererResult {
                     RHI::RenderPassEncoder &pass = context.render_pass();
                     pass.set_viewport(RHI::Viewport{
@@ -973,11 +1027,14 @@ namespace SFT::Renderer {
                         atlas_view,
                         directional_atlas_view,
                         slot.shadow_targets.lighting_buffer,
+                        slot.shadow_targets,
                         context.texture(transmittance_lut).default_view,
                         context.texture(multi_scattering_lut).default_view,
                         context.texture(sky_view_lut).default_view,
                         context.texture(surfel_irradiance).default_view,
                         context.texture(gtao_ambient_occlusion).default_view,
+                        context.texture(environment_atlas).default_view,
+                        context.texture(ssr_radiance).default_view,
                         slot.atmosphere_targets.constants_buffer,
                         submission.deferred_formats.scene_color,
                         submission.transient_bind_groups);
@@ -1021,7 +1078,7 @@ namespace SFT::Renderer {
         // back next frame by restir_gi_initial_sample.slang for multi-bounce feedback. Must run after
         // the lighting pass above has written `scene_color` and is gated identically to
         // build_restir_gi_module so the history texture only exists/updates while ReSTIR GI is enabled.
-        if (submission.render_graph.render_scene && !full_path_tracing && submission.render_graph.restir_gi.enabled) {
+        if (submission.render_graph.render_scene && !full_path_tracing && submission.render_graph.frame.restir_gi.enabled) {
             graph.add_compute_pass("restir gi history copy"_ustr)
                 .add_sampled_texture(scene_color)
                 .set_side_effect(true)
@@ -1120,7 +1177,7 @@ namespace SFT::Renderer {
                         .samples = samples,
                         .frame_index = frame_index,
                         .view_projection = submission.view_projection,
-                        .camera_lens = submission.render_graph.camera_emulation.lens_strength,
+                        .camera_lens = submission.render_graph.frame.camera_emulation.lens_strength,
                         .depth_only = true,
                         .culler = culler_ptr,
                         .label = "z prepass",
@@ -1227,7 +1284,7 @@ namespace SFT::Renderer {
         [[maybe_unused]] const u32 frame_slot_index = state.frame_slot_index;
         [[maybe_unused]] const glm::vec4 background = state.background;
 
-        if (context.settings.motion_blur.enabled) {
+        if (context.settings.frame.motion_blur.enabled) {
             const RenderGraphTextureHandle source = graph_resources.texture<RenderGraphSemantics::SceneHdrColor>();
             if (!source) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -1277,7 +1334,7 @@ namespace SFT::Renderer {
         [[maybe_unused]] const u32 frame_slot_index = state.frame_slot_index;
         [[maybe_unused]] const glm::vec4 background = state.background;
 
-        if (context.settings.post_process_aa != 0) {
+        if (context.settings.frame.anti_aliasing.post_process != RenderSettings::PostProcessAntiAliasing::None) {
             const RenderGraphTextureHandle source = graph_resources.texture<RenderGraphSemantics::SceneHdrColor>();
             if (!source) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -1358,7 +1415,7 @@ namespace SFT::Renderer {
         [[maybe_unused]] const u32 frame_slot_index = state.frame_slot_index;
         [[maybe_unused]] const glm::vec4 background = state.background;
 
-        if (context.settings.bloom && context.settings.bloom_intensity > 0.0f) {
+        if (context.settings.frame.bloom.enabled && context.settings.frame.bloom.intensity > 0.0f) {
             const RenderGraphTextureHandle scene_source = graph_resources.texture<RenderGraphSemantics::SceneHdrColor>();
             if (!scene_source) {
                 return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
@@ -1369,13 +1426,13 @@ namespace SFT::Renderer {
                 BloomDescription{
                     .source = scene_source,
                     .source_extent = module_context.render_extent,
-                    .max_levels = context.settings.bloom_max_levels,
-                    .downsample_ratio = context.settings.bloom_downsample_ratio,
+                    .max_levels = context.settings.frame.bloom.max_levels,
+                    .downsample_ratio = context.settings.frame.bloom.downsample_ratio,
                     .output_extent = module_context.render_texture_extent(),
                     .output_format = submission.deferred_formats.scene_color,
                     // Thresholded bloom is an emission layer (additive); the no-threshold mode
                     // interpolates so a constant HDR image is conserved.
-                    .additive_composite = context.settings.bloom_threshold > 0.0f,
+                    .additive_composite = context.settings.frame.bloom.threshold > 0.0f,
                 },
                 context.settings);
             if (!composite.has_value()) {
@@ -1458,15 +1515,15 @@ namespace SFT::Renderer {
                       .label = "display-encoded scene",
                   })
                 : RenderGraphTextureHandle{};
-            submission.render_graph.tone_mapping_hdr_output = hdr_output;
-            submission.render_graph.tone_mapping_hdr_color_space = record.presentation.hdr_color_space;
+            submission.render_graph.hdr_output = hdr_output;
+            submission.render_graph.hdr_color_space = record.presentation.hdr_color_space;
             const RenderGraphTextureHandle scene_source = graph_resources.texture<RenderGraphSemantics::SceneHdrColor>();
             const RenderGraphTextureHandle tonemap_target = tonemap_destination
                 ? tonemap_destination
                 : graph_resources.texture<RenderGraphSemantics::PresentationTarget>();
             if (Core::RendererResult tone_mapped = add_tone_mapping_pass(
                     context, scene_source, tonemap_target, submission.render_graph, false,
-                    submission.render_graph.tone_mapping ? "tonemap" : "present scene color");
+                    submission.render_graph.frame.tone_mapping.enabled ? "tonemap" : "present scene color");
                 !tone_mapped.has_value()) {
                 return tone_mapped;
             }
@@ -1535,14 +1592,18 @@ namespace SFT::Renderer {
         (void)pipeline->add("gbuffer", [this](FrameBuildContext &context) { return build_frame_feature_gbuffer(context); }, FrameStage::Scene);
         (void)pipeline->add("hiz_build", [this](FrameBuildContext &context) { return build_frame_feature_hiz_build(context); }, FrameStage::Scene);
         (void)pipeline->add("spectral_path_tracing", [this](FrameBuildContext &context) { return build_frame_feature_spectral_path_tracing(context); }, FrameStage::Scene);
+        (void)pipeline->add("lighting_data", [this](FrameBuildContext &context) { return build_frame_feature_lighting_data(context); }, FrameStage::Scene);
         (void)pipeline->add("ambient_occlusion", [this](FrameBuildContext &context) { return build_frame_feature_ambient_occlusion(context); }, FrameStage::Scene);
         (void)pipeline->add("global_illumination", [this](FrameBuildContext &context) { return build_frame_feature_global_illumination(context); }, FrameStage::Scene);
         (void)pipeline->add("screen_space_gi", [](FrameBuildContext &context) { return build_screen_space_gi_feature(context); }, FrameStage::Scene);
+        (void)pipeline->add("reflections", [](FrameBuildContext &context) { return build_reflections_feature(context); }, FrameStage::Scene);
         (void)pipeline->add("lighting", [this](FrameBuildContext &context) { return build_frame_feature_lighting(context); }, FrameStage::Scene);
         (void)pipeline->add("restir_history_copy", [this](FrameBuildContext &context) { return build_frame_feature_restir_history_copy(context); }, FrameStage::Scene);
         (void)pipeline->add("msaa_resolve", [this](FrameBuildContext &context) { return build_frame_feature_msaa_resolve(context); }, FrameStage::Scene);
         (void)pipeline->add("screen_space_gi_history", [](FrameBuildContext &context) { return build_screen_space_gi_history_feature(context); }, FrameStage::Scene);
+        (void)pipeline->add("reflections_history", [](FrameBuildContext &context) { return build_reflections_history_feature(context); }, FrameStage::Scene);
         (void)pipeline->add("scene_background", [this](FrameBuildContext &context) { return build_frame_feature_scene_background(context); });
+        (void)pipeline->add("volumetric_fog", [](FrameBuildContext &context) { return build_volumetric_fog_feature(context); });
         (void)pipeline->add("light_indicators", [this](FrameBuildContext &context) { return build_frame_feature_light_indicators(context); });
         (void)pipeline->add("motion_blur", [this](FrameBuildContext &context) { return build_frame_feature_motion_blur(context); });
         (void)pipeline->add("post_process_aa", [this](FrameBuildContext &context) { return build_frame_feature_post_process_aa(context); });

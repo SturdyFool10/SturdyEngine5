@@ -71,7 +71,7 @@ namespace SFT::Renderer {
     /// Number of 32x32-pixel metering tiles per axis.
     [[nodiscard]] glm::uvec2 auto_exposure_tile_extent(Core::Extent2D extent) noexcept;
 
-    /// Adds the passes. Reads `settings.auto_exposure`.
+    /// Adds the passes. Reads `settings.frame.auto_exposure`.
     [[nodiscard]] Core::RendererExpected<AutoExposureResult> add_auto_exposure_passes(
         Renderer &renderer, RHI::RhiDevice &device, AutoExposureHistory &history, RenderGraph &graph,
         std::vector<RHI::BindGroupHandle> &transient_bind_groups, const AutoExposureDescription &description,

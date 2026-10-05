@@ -4,4 +4,6 @@
 
 #include <CxxApi/Types/Camera.hpp>
 #include <CxxApi/Types/Common.hpp>
+#include <CxxApi/Types/Render.hpp>
 #include <CxxApi/Types/Runtime.hpp>
+#include <CxxApi/Types/Scene.hpp>

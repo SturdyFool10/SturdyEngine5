@@ -1,3 +1,4 @@
+#include <Renderer/Text/EmbeddedFont.hpp>
 #include <UiWorkbenchGameLogic/WorkbenchUi.hpp>
 
 #if defined(STURDY_UI_WORKBENCH_HAS_GLFW)
@@ -406,15 +407,8 @@ namespace SFT::UiWorkbench {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Engine::GameLogicResult WorkbenchUi::initialize(Engine::Engine &engine) {
         const Foundation::Stopwatch stopwatch;
-        const std::optional<std::string> font_bytes =
-            Foundation::read_file_to_string("Fonts/MapleMono-NF-Regular.ttf");
-        if (!font_bytes) {
-            return std::unexpected(Engine::GameLogicError{
-                .message = UString{"UiWorkbench could not read Fonts/MapleMono-NF-Regular.ttf"},
-            });
-        }
-        const std::span<const char> chars{font_bytes->data(), font_bytes->size()};
-        auto loaded = Text::Font::load(std::as_bytes(chars));
+        // Maple is embedded in the Renderer, so it never depends on the working directory.
+        auto loaded = Text::Font::load(Text::embedded_default_font_bytes());
         if (!loaded) {
             return std::unexpected(Engine::GameLogicError{.message = loaded.error().message});
         }
@@ -439,9 +433,9 @@ namespace SFT::UiWorkbench {
         swapchain_transparent_ =
             static_cast<bool>(engine.config().features.presentation.transparent_composition);
         Foundation::log_info(
-            "UiWorkbench: loaded font 'Fonts/MapleMono-NF-Regular.ttf' ({} bytes) + CJK fallback "
+            "UiWorkbench: loaded the embedded Maple font ({} bytes) + CJK fallback "
             "'Fonts/NotoSansMonoCJK-JP-Subset.ttf' ({} bytes) in {}",
-            font_bytes->size(),
+            Text::embedded_default_font_bytes().size(),
             cjk_font_bytes->size(),
             stopwatch.elapsed_human());
         markdown_input_state_.set_text(UString{"# Text Lab\n"

@@ -16,6 +16,7 @@
 #include <Engine/EcsAnimation.hpp>
 #include <Engine/EcsAudio.hpp>
 #include <Engine/FixedTime.hpp>
+#include <Engine/Transform.hpp>
 #include <Engine/ModelImport.hpp>
 #include <Engine/SpawnImported.hpp>
 #include <Engine/EcsRendering.hpp>
@@ -269,6 +270,9 @@ namespace SFT::Engine {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void update(f64 delta_seconds);
+        /// Recomputes every `WorldTransform` driven by a `Transform` (parents first). `update` and render extraction already
+        /// do this; call it after moving things outside a frame (editor tools, tests) to see the result immediately.
+        PropagationStats propagate_transforms();
         /// Performs the queue window event operation for `Engine` using the supplied arguments.
         ///
         /// @param window Window used or affected by the operation.

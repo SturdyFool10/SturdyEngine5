@@ -19,7 +19,7 @@ namespace SFT::Renderer {
     [[nodiscard]] CustomPostProcessEffect post_process_aa_effect(const RenderGraphSettings &settings);
 
     /// Adds a pass that anti-aliases `source` into `destination` (both `format`, `extent` pixels). Does nothing
-    /// when `settings.post_process_aa == 0`.
+    /// when `settings.frame.anti_aliasing.post_process == 0`.
     [[nodiscard]] Core::RendererResult add_post_process_aa_pass(Renderer &renderer, RenderGraph &graph,
                                                                 std::vector<RHI::BindGroupHandle> &transient_bind_groups,
                                                                 RenderGraphTextureHandle source, RenderGraphTextureHandle destination,

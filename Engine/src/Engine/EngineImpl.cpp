@@ -15,6 +15,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <Core/Core.hpp>
 #include <Core/StreamingIo.hpp>
@@ -37,29 +38,6 @@ namespace RendererApi = SFT::Renderer;
 namespace SFT::Engine {
 
     namespace {
-        /// Performs the lower tone mapping operation for `Engine` using the supplied arguments.
-        ///
-        /// @param operation `operation` value used by the operation.
-        ///
-        /// @return Returns the value produced by the operation.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] RendererApi::ToneMappingOperator lower_tone_mapping(ToneMappingOperator operation) noexcept {
-            switch (operation) {
-                case ToneMappingOperator::None:
-                    return RendererApi::ToneMappingOperator::None;
-                case ToneMappingOperator::Reinhard:
-                    return RendererApi::ToneMappingOperator::Reinhard;
-                case ToneMappingOperator::Exponential:
-                    return RendererApi::ToneMappingOperator::Exponential;
-                case ToneMappingOperator::Agx:
-                    return RendererApi::ToneMappingOperator::Agx;
-                case ToneMappingOperator::HermiteSpline:
-                    return RendererApi::ToneMappingOperator::HermiteSpline;
-                case ToneMappingOperator::PsychoV:
-                    return RendererApi::ToneMappingOperator::PsychoV;
-            }
-            return RendererApi::ToneMappingOperator::Agx;
-        }
 
         /// Performs the lower scene integrator operation for `Engine` using the supplied arguments.
         ///
@@ -85,23 +63,6 @@ namespace SFT::Engine {
             return RendererApi::SpectralRenderMode::RasterDeferred;
         }
 
-        /// Performs the lower agx look operation for `Engine` using the supplied arguments.
-        ///
-        /// @param look `look` value used by the operation.
-        ///
-        /// @return Returns the value produced by the operation.
-        /// @note This function does not throw exceptions.
-        [[nodiscard]] RendererApi::AgxLook lower_agx_look(AgxLook look) noexcept {
-            switch (look) {
-                case AgxLook::None:
-                    return RendererApi::AgxLook::None;
-                case AgxLook::Punchy:
-                    return RendererApi::AgxLook::Punchy;
-                case AgxLook::Golden:
-                    return RendererApi::AgxLook::Golden;
-            }
-            return RendererApi::AgxLook::None;
-        }
 
     } // namespace
 
@@ -717,6 +678,8 @@ namespace SFT::Engine {
                                                      const RenderFrameParameters &parameters) {
         render_frame_requests_.begin_frame();
         light_frame_requests_.begin_frame();
+        // Transforms changed during the update (or since) are what this frame shows.
+        (void)propagate_transforms();
         render_extraction_schedule_.run(ecs_world_);
 
         const shared_ptr<const LightFrameRequests::ExtractedLights> lights = light_frame_requests_.finish_frame();
@@ -780,8 +743,10 @@ namespace SFT::Engine {
             graph_settings.resolution_scale * camera.render_scale(),
             0.1f,
             2.0f);
-        if (!graph_settings.scene.background_color) {
-            graph_settings.scene.background_color = camera.clear_color();
+        if (!graph_settings.scene.use_background_color) {
+            const glm::vec4 clear = camera.clear_color();
+            graph_settings.scene.use_background_color = true;
+            std::copy_n(glm::value_ptr(clear), 4, graph_settings.scene.background_color);
         }
 
         // Fisheye without stretching: render wider and bigger (see CameraEmulationSettings::fisheye_strength).
@@ -808,8 +773,9 @@ namespace SFT::Engine {
         emulation.lens_strength = lens_strength;
         // The widened projection also scales the jitter's screen shift.
         graph_settings.temporal_upscaler.enabled = temporal_upscaler;
-        graph_settings.temporal_upscaler.jitter_uv = jitter_uv / projection_widening;
-        graph_settings.temporal_upscaler.previous_jitter_uv = previous_jitter_uv / projection_widening;
+        const glm::vec2 jitter = jitter_uv / projection_widening, previous_jitter = previous_jitter_uv / projection_widening;
+        std::copy_n(glm::value_ptr(jitter), 2, graph_settings.temporal_upscaler.jitter_uv);
+        std::copy_n(glm::value_ptr(previous_jitter), 2, graph_settings.temporal_upscaler.previous_jitter_uv);
         SFT::Renderer::CameraView camera_view = camera.renderer_view();
         if (projection_widening > 1.0f) {
             // Scale the projection about the view axis: same position and orientation, `overscan` times the
@@ -1010,167 +976,45 @@ namespace SFT::Engine {
         desc.view.camera = frame.camera;
         desc.view.lighting = frame.lighting;
         desc.view.deferred_formats = frame.deferred_formats;
-        desc.view.render_graph = RendererApi::RenderGraphSettings{
-            .render_scene = has_scene && graph.scene.enabled,
-            .spectral_path_tracing = RendererApi::SpectralPathTracingSettings{
-                .mode = lower_scene_integrator(graph.scene.integrator),
-                .samples_per_pixel = graph.scene.path_samples_per_pixel,
-                .max_bounces = graph.scene.path_max_bounces,
-                .russian_roulette_start_bounce = graph.scene.path_russian_roulette_start_bounce,
-                .photon_count = graph.scene.caustic_photon_count,
-                .caustic_gather_radius = graph.scene.caustic_gather_radius,
-                .wavelength_min_nm = graph.scene.wavelength_min_nm,
-                .wavelength_max_nm = graph.scene.wavelength_max_nm,
-            },
-            .restir_gi = RendererApi::RestirGiSettings{
-                .enabled = has_scene && graph.restir_gi.enabled && capabilities().raytracing,
-                .quality = static_cast<u32>(graph.restir_gi.quality),
-                .spatial_reuse_samples = graph.restir_gi.spatial_reuse_samples,
-                .spatial_reuse_radius_px = graph.restir_gi.spatial_reuse_radius_px,
-                .temporal_history_max = graph.restir_gi.temporal_history_max,
-                .max_ray_distance = graph.restir_gi.max_ray_distance,
-                .multi_bounce_feedback = graph.restir_gi.multi_bounce_feedback,
-                .intensity = graph.restir_gi.intensity,
-                .denoiser = static_cast<u32>(graph.restir_gi.denoiser),
-                .svgf_atrous_iterations = graph.restir_gi.svgf_atrous_iterations,
-                .svgf_temporal_alpha = graph.restir_gi.svgf_temporal_alpha,
-                .svgf_phi_normal = graph.restir_gi.svgf_phi_normal,
-                .svgf_phi_depth = graph.restir_gi.svgf_phi_depth,
-                .svgf_phi_luminance = graph.restir_gi.svgf_phi_luminance,
-                .show_debug_reservoirs = graph.restir_gi.show_debug_reservoirs,
-            },
-            .motion_blur = RendererApi::MotionBlurSettings{
-                .enabled = has_scene && graph.motion_blur.enabled,
-                .intensity = graph.motion_blur.intensity,
-                .shutter_angle_degrees = graph.motion_blur.shutter_angle_degrees,
-                .tile_size_px = graph.motion_blur.tile_size_px,
-                .sample_count = graph.motion_blur.sample_count,
-                .max_blur_radius_px = graph.motion_blur.max_blur_radius_px,
-                .background_foreground_weight_bias = graph.motion_blur.background_foreground_weight_bias,
-                .camera_motion_only = graph.motion_blur.camera_motion_only,
-            },
-            .camera_emulation = RendererApi::CameraEmulationSettings{
-                .enabled = graph.camera_emulation.enabled,
-                .fisheye_strength = graph.camera_emulation.fisheye_strength,
-                .chromatic_aberration = graph.camera_emulation.chromatic_aberration,
-                .vignette_strength = graph.camera_emulation.vignette_strength,
-                .sensor_noise = graph.camera_emulation.sensor_noise,
-                .sharpen = graph.camera_emulation.sharpen,
-                .saturation = graph.camera_emulation.saturation,
-                .contrast = graph.camera_emulation.contrast,
-                .tint = graph.camera_emulation.tint,
-                .housing = graph.camera_emulation.housing,
-                .fisheye_mode = static_cast<RendererApi::FisheyeMode>(graph.camera_emulation.fisheye_mode),
-                .overscan = graph.camera_emulation.overscan,
-                .lens_strength = graph.camera_emulation.lens_strength,
-            },
-            .temporal_upscaler = RendererApi::TemporalUpscalerSettings{
-                .enabled = has_scene && graph.temporal_upscaler.enabled,
-                .current_frame_weight = graph.temporal_upscaler.current_frame_weight,
-                .sharpness = graph.temporal_upscaler.sharpness,
-                .jitter_uv = graph.temporal_upscaler.jitter_uv,
-                .previous_jitter_uv = graph.temporal_upscaler.previous_jitter_uv,
-            },
-            .screen_space_gi = RendererApi::ScreenSpaceGiSettings{
-                .enabled = has_scene && graph.screen_space_gi.enabled,
-                .intensity = graph.screen_space_gi.intensity,
-                .radius = graph.screen_space_gi.radius,
-                .thickness = graph.screen_space_gi.thickness,
-                .slice_count = graph.screen_space_gi.slice_count,
-                .step_count = graph.screen_space_gi.step_count,
-                .temporal_alpha = graph.screen_space_gi.temporal_alpha,
-                .max_radiance = graph.screen_space_gi.max_radiance,
-            },
-            .auto_exposure = RendererApi::AutoExposureSettings{
-                .enabled = graph.auto_exposure.enabled,
-                .min_log2_luminance = graph.auto_exposure.min_log2_luminance,
-                .max_log2_luminance = graph.auto_exposure.max_log2_luminance,
-                .low_percent = graph.auto_exposure.low_percent,
-                .high_percent = graph.auto_exposure.high_percent,
-                .key_value = graph.auto_exposure.key_value,
-                .compensation_ev = graph.auto_exposure.compensation_ev,
-                .min_exposure = graph.auto_exposure.min_exposure,
-                .max_exposure = graph.auto_exposure.max_exposure,
-                .adapt_up_speed = graph.auto_exposure.adapt_up_speed,
-                .adapt_down_speed = graph.auto_exposure.adapt_down_speed,
-                .center_weight = graph.auto_exposure.center_weight,
-            },
-            .shadows = has_scene && graph.shadows.enabled,
-            .ambient_occlusion = has_scene && graph.ambient_occlusion.enabled,
-            // A shadow debug view writes raw diagnostic values (cascade tints, atlas UVs, an
-            // isolated visibility term) into scene colour. Running them through bloom and a tone
-            // curve makes them unreadable as numbers, which defeats the point, so both are bypassed
-            // for as long as a debug view is selected.
-            .bloom = has_bloom && graph.bloom.enabled && shadow_debug_view_off,
-            .tone_mapping = has_tone_mapping && graph.tone_mapping.enabled && shadow_debug_view_off,
-            .frame_timings = graph.frame_timings.enabled,
-            .wait_for_completion = graph.execution_mode == RenderGraphExecutionMode::WaitForCompletion,
-            .resolution_scale = graph.resolution_scale,
-            .background_color = graph.scene.background_color.value_or(glm::vec4{0.0f, 0.0f, 0.0f, 1.0f}),
-            .background_intensity = graph.scene.background_intensity,
-            .shadow_atlas_size = graph.shadows.atlas_size,
-            .shadow_cascade_count = graph.shadows.cascade_count,
-            .shadow_max_distance = graph.shadows.max_distance,
-            .shadow_cascade_split_lambda = graph.shadows.cascade_split_lambda,
-            .shadow_cascade_blend = graph.shadows.cascade_blend,
-            .shadow_depth_bias = graph.shadows.depth_bias,
-            .shadow_slope_bias = graph.shadows.slope_bias,
-            .shadow_normal_bias = graph.shadows.normal_bias,
-            .shadow_cascade_resolutions = graph.shadows.cascade_resolutions,
-            .shadow_filter_radius_texels = graph.shadows.filter_radius_texels,
-            .shadow_debug_view = static_cast<u32>(graph.shadows.debug_view),
-            .max_shadowed_spot_lights = graph.shadows.max_shadowed_spot_lights,
-            .max_shadowed_point_lights = graph.shadows.max_shadowed_point_lights,
-            .shadow_contact_hardening = graph.shadows.contact_hardening,
-            .contact_shadows = graph.shadows.contact_shadows,
-            .contact_shadow_distance = graph.shadows.contact_shadow_distance,
-            .contact_shadow_thickness = graph.shadows.contact_shadow_thickness,
-            .contact_shadow_steps = graph.shadows.contact_shadow_steps,
-            .contact_shadow_intensity = graph.shadows.contact_shadow_intensity,
-            .contact_shadow_fade_distance = graph.shadows.contact_shadow_fade_distance,
-            .ambient_occlusion_radius = graph.ambient_occlusion.radius,
-            .ambient_occlusion_quality = static_cast<u32>(graph.ambient_occlusion.quality),
-            .ambient_occlusion_intensity = graph.ambient_occlusion.intensity,
-            .ambient_occlusion_falloff_range = graph.ambient_occlusion.falloff_range,
-            .ambient_occlusion_thin_occluder_compensation = graph.ambient_occlusion.thin_occluder_compensation,
-            .ambient_occlusion_final_value_power = graph.ambient_occlusion.final_value_power,
-            .ambient_occlusion_sample_distribution_power = graph.ambient_occlusion.sample_distribution_power,
-            .ambient_occlusion_denoise = graph.ambient_occlusion.denoise,
-            .msaa_samples = has_anti_aliasing ? graph.anti_aliasing.msaa_samples : 1u,
-            .post_process_aa = has_anti_aliasing ? static_cast<u32>(graph.anti_aliasing.post_process) : static_cast<u32>(PostProcessAntiAliasing::None),
-            .aa_subpixel_quality = graph.anti_aliasing.subpixel_quality,
-            .aa_edge_threshold = graph.anti_aliasing.edge_threshold,
-            .bloom_threshold = graph.bloom.threshold,
-            .bloom_soft_knee = graph.bloom.soft_knee,
-            .bloom_intensity = graph.bloom.intensity,
-            .bloom_scatter = graph.bloom.scatter,
-            .bloom_downsample_ratio = graph.bloom.downsample_ratio,
-            .bloom_max_levels = graph.bloom.max_levels,
-            .tone_mapping_operator = lower_tone_mapping(graph.tone_mapping.operation),
-            .tone_mapping_exposure = graph.tone_mapping.exposure,
-            .tone_mapping_white_point = graph.tone_mapping.white_point,
-            .tone_mapping_saturation = graph.tone_mapping.saturation,
-            .tone_mapping_hdr_paper_white_nits = graph.tone_mapping.hdr_paper_white_nits,
-            .tone_mapping_hdr_peak_nits = graph.tone_mapping.hdr_peak_nits,
-            .agx_look = lower_agx_look(graph.tone_mapping.agx.look),
-            .hermite_toe_strength = graph.tone_mapping.hermite_spline.toe_strength,
-            .hermite_toe_length = graph.tone_mapping.hermite_spline.toe_length,
-            .hermite_shoulder_strength = graph.tone_mapping.hermite_spline.shoulder_strength,
-            .hermite_shoulder_length = graph.tone_mapping.hermite_spline.shoulder_length,
-            .hermite_shoulder_angle = graph.tone_mapping.hermite_spline.shoulder_angle,
-            .psychov_highlights = graph.tone_mapping.psycho_v.highlights,
-            .psychov_shadows = graph.tone_mapping.psycho_v.shadows,
-            .psychov_contrast = graph.tone_mapping.psycho_v.contrast,
-            .psychov_purity_scale = graph.tone_mapping.psycho_v.purity_scale,
-            .psychov_gamut_compression = graph.tone_mapping.psycho_v.gamut_compression,
-            .psychov_gamut_compression_use_bt2020 = graph.tone_mapping.psycho_v.gamut_compression_use_bt2020,
-            .psychov_compression = graph.tone_mapping.psycho_v.compression,
-            .psychov_adapted_gray_bt709 = graph.tone_mapping.psycho_v.adapted_gray_bt709,
-            .psychov_background_gray_bt709 = graph.tone_mapping.psycho_v.background_gray_bt709,
-            .custom_post_processes = std::move(custom_effects),
-            .custom_graph = std::move(custom_graph),
-            .overlay_passes = frame.overlay_passes,
+        // The renderer takes the caller's settings as they are (one shared type), adjusted for this frame: features whose
+        // pass is not on the presentation path are switched off, and a shadow debug view bypasses bloom and tone mapping so
+        // its raw diagnostic values stay readable as numbers.
+        RendererApi::RenderGraphSettings &render_graph = desc.view.render_graph;
+        render_graph.frame = graph;
+        RenderSettings::FrameSettings &adjusted = render_graph.frame;
+        render_graph.render_scene = has_scene && graph.scene.enabled;
+        render_graph.spectral_path_tracing = RendererApi::SpectralPathTracingSettings{
+            .mode = lower_scene_integrator(graph.scene.integrator),
+            .samples_per_pixel = graph.scene.path_samples_per_pixel,
+            .max_bounces = graph.scene.path_max_bounces,
+            .russian_roulette_start_bounce = graph.scene.path_russian_roulette_start_bounce,
+            .photon_count = graph.scene.caustic_photon_count,
+            .caustic_gather_radius = graph.scene.caustic_gather_radius,
+            .wavelength_min_nm = graph.scene.wavelength_min_nm,
+            .wavelength_max_nm = graph.scene.wavelength_max_nm,
         };
+        adjusted.restir_gi.enabled = has_scene && graph.restir_gi.enabled && capabilities().raytracing;
+        adjusted.motion_blur.enabled = has_scene && graph.motion_blur.enabled;
+        adjusted.temporal_upscaler.enabled = has_scene && graph.temporal_upscaler.enabled;
+        adjusted.screen_space_gi.enabled = has_scene && graph.screen_space_gi.enabled;
+        adjusted.volumetric_fog.enabled = has_scene && graph.volumetric_fog.enabled;
+        adjusted.shadows.enabled = has_scene && graph.shadows.enabled;
+        adjusted.ambient_occlusion.enabled = has_scene && graph.ambient_occlusion.enabled;
+        adjusted.bloom.enabled = has_bloom && graph.bloom.enabled && shadow_debug_view_off;
+        adjusted.tone_mapping.enabled = has_tone_mapping && graph.tone_mapping.enabled && shadow_debug_view_off;
+        if (!graph.scene.use_background_color) {
+            adjusted.scene.background_color[0] = 0.0f;
+            adjusted.scene.background_color[1] = 0.0f;
+            adjusted.scene.background_color[2] = 0.0f;
+            adjusted.scene.background_color[3] = 1.0f;
+        }
+        if (!has_anti_aliasing) {
+            adjusted.anti_aliasing.msaa_samples = 1u;
+            adjusted.anti_aliasing.post_process = PostProcessAntiAliasing::None;
+        }
+        render_graph.custom_post_processes = std::move(custom_effects);
+        render_graph.custom_graph = std::move(custom_graph);
+        render_graph.overlay_passes = frame.overlay_passes;
         desc.view.visibility_mask = frame.visibility_mask;
         if (frame.renderables) {
             desc.view.renderables = span<const RendererApi::SceneRenderable>{

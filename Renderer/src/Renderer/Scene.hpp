@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Foundation/Foundation.hpp>
+#include <RenderSettings/RenderSettings.hpp>
 
 #pragma region Imports
 #include <array>
@@ -64,21 +65,18 @@ namespace SFT::Renderer {
     };
 
 
-    enum class ToneMappingOperator : u8 {
-        None,
-        Reinhard,
-        Exponential,
-        Agx,
-        HermiteSpline,
-        PsychoV,
-    };
-
-    enum class AgxLook : u8 {
-        None,
-        Punchy,
-        Golden,
-    };
-
+    using ToneMappingOperator = RenderSettings::ToneMappingOperator;
+    using AgxLook = RenderSettings::AgxLook;
+    using FisheyeMode = RenderSettings::FisheyeMode;
+    using RestirGiSettings = RenderSettings::RestirGiSettings;
+    using MotionBlurSettings = RenderSettings::MotionBlurSettings;
+    using CameraEmulationSettings = RenderSettings::CameraEmulationSettings;
+    using AutoExposureSettings = RenderSettings::AutoExposureSettings;
+    using TemporalUpscalerSettings = RenderSettings::TemporalUpscalerSettings;
+    using ScreenSpaceGiSettings = RenderSettings::ScreenSpaceGiSettings;
+    using LightingSettings = RenderSettings::LightingSettings;
+    using VolumetricFogSettings = RenderSettings::VolumetricFogSettings;
+    using ReflectionSettings = RenderSettings::ReflectionSettings;
 
     enum class PostProcessStage : u8 {
         BeforeBloom,
@@ -229,273 +227,16 @@ namespace SFT::Renderer {
         std::vector<std::pair<std::string, f64>> cpu_stage_timings_ms;
     };
 
-    struct RestirGiSettings {
-        bool enabled = false;
-        u32 quality = 1; // 0=Low, 1=Medium, 2=High
-        u32 spatial_reuse_samples = 2;
-        f32 spatial_reuse_radius_px = 12.0f;
-        u32 temporal_history_max = 20;
-        f32 max_ray_distance = 60.0f;
-        f32 multi_bounce_feedback = 0.5f;
-        f32 intensity = 1.0f;
-        u32 denoiser = 1; // 0=None, 1=Svgf, 2=DlssRayReconstruction, 3=FsrRedstone
-        u32 svgf_atrous_iterations = 3;
-        f32 svgf_temporal_alpha = 0.2f;
-        f32 svgf_phi_normal = 128.0f;
-        f32 svgf_phi_depth = 1.0f;
-        f32 svgf_phi_luminance = 4.0f;
-        bool show_debug_reservoirs = false;
-    };
-
-    struct MotionBlurSettings {
-        bool enabled = false;
-        f32 intensity = 1.0f;
-        f32 shutter_angle_degrees = 180.0f;
-        u32 tile_size_px = 20;
-        u32 sample_count = 8;
-        f32 max_blur_radius_px = 32.0f;
-        f32 background_foreground_weight_bias = 0.5f;
-        bool camera_motion_only = false;
-    };
-
-    /// How the fisheye is produced.
-    enum class FisheyeMode : u8 {
-        /// A pass after rendering resamples an overscanned (larger, wider) frame. Simple and exact for any
-        /// geometry, but shades the extra pixels.
-        PostProcess,
-        /// The camera passes' vertex stage warps clip positions, so the frame is rasterized directly at output
-        /// resolution: no extra pixels, no resampling. Approximate for large triangles (edges stay straight
-        /// between warped vertices) and unsupported for displaced/mesh-shader materials; see sturdy_space.slang.
-        VertexWarp,
-    };
-
-    /// Display-space body-camera look; mirrors Engine::CameraEmulationSettings (see camera_emulation.slang).
-    struct CameraEmulationSettings {
-        bool enabled = false;
-        /// Barrel ("fisheye") distortion, 0..1 (0 = none): how much extra field of view the corners see.
-        /// It stays pixel-perfect: the engine renders the frame `1 + fisheye_strength` times wider and with
-        /// that many more pixels per axis (capped by the 2x render-scale limit), so the centre of the image
-        /// keeps a 1:1 texel-to-pixel ratio and the edges are only ever minified, never stretched. The cost
-        /// is that larger renders, roughly `(1 + fisheye_strength)^2` times the pixels.
-        f32 fisheye_strength = 0.35f;
-        /// Radial red/blue channel separation, as a fraction of the frame half-size at the corners.
-        f32 chromatic_aberration = 0.004f;
-        f32 vignette_strength = 0.35f;
-        /// Luminance-dependent temporal sensor noise (stronger in shadows), 0 = none.
-        f32 sensor_noise = 0.03f;
-        /// Local-contrast sharpening; small camcorder-style over-sharpening starts around 0.3.
-        f32 sharpen = 0.25f;
-        f32 saturation = 0.9f;
-        f32 contrast = 1.08f;
-        /// Multiplies the image; use to push a cool/warm white balance (1,1,1 = neutral).
-        glm::vec3 tint{1.0f, 1.0f, 1.0f};
-        /// Darkens a rounded-rectangle "camera housing" frame around the edges, 0 = none.
-        f32 housing = 0.0f;
-        /// How the fisheye is produced; see `FisheyeMode`.
-        FisheyeMode fisheye_mode = FisheyeMode::PostProcess;
-        /// Set by the engine every frame (any value you write is overwritten): the overscan factor actually
-        /// applied to the projection and render resolution for the post-process fisheye, 1 when there is none.
-        f32 overscan = 1.0f;
-        /// Set by the engine every frame: the strength the vertex-warp lens is applied with, 0 when the fisheye is
-        /// off or post-processed.
-        f32 lens_strength = 0.0f;
-    };
-
-    /// Histogram auto-exposure (see auto_exposure_*.slang); mirrors Engine::AutoExposureSettings.
-    struct AutoExposureSettings {
-        bool enabled = false;
-        /// Luminance range the histogram meters, as log2(luminance) (scene-linear, 1.0 = 1 unit of radiance).
-        f32 min_log2_luminance = -9.0f;
-        f32 max_log2_luminance = 5.0f;
-        /// The darkest / brightest fraction of the metered pixels ignored, so specular glints and black
-        /// regions do not steer the exposure.
-        f32 low_percent = 0.40f;
-        f32 high_percent = 0.95f;
-        /// Luminance the metered average is mapped to (middle grey).
-        f32 key_value = 0.18f;
-        /// Exposure compensation in stops (+1 = twice as bright).
-        f32 compensation_ev = 0.0f;
-        f32 min_exposure = 0.03f;
-        f32 max_exposure = 32.0f;
-        /// Adaptation rates, per second, when the scene gets darker (exposure rises) / brighter.
-        f32 adapt_up_speed = 2.5f;
-        f32 adapt_down_speed = 1.0f;
-        /// 0 = every pixel counts equally, 1 = the frame edges count for nothing.
-        f32 center_weight = 0.4f;
-    };
-
-    /// Temporal anti-aliasing and upscaling: the camera is jittered by a sub-pixel amount every frame and the
-    /// `temporal_upscale` feature accumulates the frames into an output-resolution image, so the scene can be rendered
-    /// below the output resolution (`resolution_scale` < 1) and still resolve fine detail. Works on every backend; it
-    /// is also the slot a vendor upscaler (FSR, DLSS, XeSS) replaces.
-    struct TemporalUpscalerSettings {
-        bool enabled = false;
-        /// Blend weight of a new frame where a sample lands exactly on the output pixel (lower = smoother, slower).
-        f32 current_frame_weight = 0.1f;
-        /// History reconstruction: 0 = bilinear (soft), 1 = Catmull-Rom (sharp).
-        f32 sharpness = 0.6f;
-        /// Set by the engine every frame (values you write are overwritten): the screen-UV shift the projection jitter
-        /// applied to the scene this frame and last frame.
-        glm::vec2 jitter_uv{0.0f, 0.0f};
-        glm::vec2 previous_jitter_uv{0.0f, 0.0f};
-    };
-
-    /// Screen-space indirect lighting with a visibility bitmask (SSILVB): one bounce of diffuse light gathered from the
-    /// depth buffer and last frame's lit image. Needs no ray tracing, so it runs on every backend; when ReSTIR GI is
-    /// enabled (and available) that is used instead.
-    struct ScreenSpaceGiSettings {
-        bool enabled = false;
-        f32 intensity = 1.0f;
-        /// How far, in world units, a surface can light its neighbours.
-        f32 radius = 2.0f;
-        /// Assumed thickness of what the depth buffer shows, in world units: light can pass behind thinner things.
-        f32 thickness = 0.25f;
-        /// Screen-space directions searched per pixel and depth taps per direction (both ways), at half resolution.
-        u32 slice_count = 2;
-        u32 step_count = 8;
-        /// Weight of the newest frame in the temporal accumulation (lower = smoother, slower to react).
-        f32 temporal_alpha = 0.1f;
-        /// Brightest scene-linear luminance a texel may contribute (tames sun glints).
-        f32 max_radiance = 64.0f;
-    };
-
+    /// What the renderer is asked to do this frame: the shared `RenderSettings::FrameSettings` (as the caller set them, with
+    /// the engine's per-frame adjustments applied: features without a scene switched off, values the engine computes such
+    /// as jitter and overscan filled in) plus what only exists at run time.
     struct RenderGraphSettings {
+        RenderSettings::FrameSettings frame{};
         bool render_scene = true;
         SpectralPathTracingSettings spectral_path_tracing{};
-        RestirGiSettings restir_gi{};
-        MotionBlurSettings motion_blur{};
-        CameraEmulationSettings camera_emulation{};
-        AutoExposureSettings auto_exposure{};
-        ScreenSpaceGiSettings screen_space_gi{};
-        TemporalUpscalerSettings temporal_upscaler{};
-        bool shadows = true;
-        bool ambient_occlusion = true;
-        bool bloom = true;
-        bool tone_mapping = true;
-        /// Collect GPU pass timestamps and CPU stage timings each frame and publish them through
-        /// `Renderer::last_frame_timings`. Costs a timestamp query pool; off unless something displays them.
-        bool frame_timings = false;
-
-
-        bool wait_for_completion = false;
-        f32 resolution_scale = 1.0f;
-        glm::vec4 background_color{0.01f, 0.015f, 0.025f, 1.0f};
-        f32 background_intensity = 1.0f;
-
-
-        u32 shadow_atlas_size = 4096;
-        u32 shadow_cascade_count = 4;
-        f32 shadow_max_distance = 250.0f;
-        f32 shadow_cascade_split_lambda = 0.65f;
-        f32 shadow_cascade_blend = 0.10f;
-        f32 shadow_depth_bias = 0.75f;
-        f32 shadow_slope_bias = 1.0f;
-        f32 shadow_normal_bias = 0.75f;
-
-
-        /// Per-cascade directional shadow-map edge resolution, near cascade first.
-        std::array<u32, 4> shadow_cascade_resolutions{2048u, 1024u, 1024u, 1024u};
-
-
-        /// PCF filter radius in shadow texels of the sampled cascade.
-        f32 shadow_filter_radius_texels = 2.0f;
-
-
-        /// Shadow debug visualization selector; see `Engine::ShadowDebugView`.
-        u32 shadow_debug_view = 0;
-        u32 max_shadowed_spot_lights = 8;
-        u32 max_shadowed_point_lights = 4;
-
-
-        /// Optional PCSS-style contact hardening. Kept opt-in so the production default is the
-        /// stable single-frame PCF path; PCSS is more sensitive to grazing-angle depth disagreement.
-        bool shadow_contact_hardening = false;
-
-
-        bool contact_shadows = true;
-        f32 contact_shadow_distance = 0.5f;
-        f32 contact_shadow_thickness = 0.05f;
-        u32 contact_shadow_steps = 8;
-        f32 contact_shadow_intensity = 0.85f;
-        f32 contact_shadow_fade_distance = 40.0f;
-        /// World-space radius of the GTAO horizon search. This is a near-field/contact radius, not
-        /// a stand-in for long-range indirect occlusion.
-        f32 ambient_occlusion_radius = 1.0f;
-
-
-        /// 0=Low (1 slice x 3 steps), 1=Medium (2 x 4), 2=High (3 x 6, the paper's practical
-        /// configuration), 3=Ultra (4 x 8).
-        u32 ambient_occlusion_quality = 2;
-
-
-        /// Blend of the AO term toward fully unoccluded. 1 = full strength.
-        f32 ambient_occlusion_intensity = 1.0f;
-
-
-        /// Fraction of the radius over which a tap fades out, so occluders lose influence smoothly
-        /// instead of switching off at the radius edge.
-        f32 ambient_occlusion_falloff_range = 0.615f;
-
-
-        /// Thin-occluder compensation. Screen-space depth is a height field and cannot know how
-        /// thick a surface is; raising this discards taps behind the shaded point sooner. Defaults
-        /// to 0 because over-thick assumptions produce black halos around thin geometry, and
-        /// missing some occlusion reads far better than occlusion that is visibly wrong.
-        f32 ambient_occlusion_thin_occluder_compensation = 0.0f;
-
-
-        /// Contrast curve applied to the visibility term (XeGTAO's FinalValuePower).
-        f32 ambient_occlusion_final_value_power = 2.2f;
-
-
-        /// Exponent of the normalized sample-distance distribution. 2 concentrates taps near the
-        /// shaded pixel, where small crevices and contact occlusion live.
-        f32 ambient_occlusion_sample_distribution_power = 2.0f;
-
-
-        /// Runs the 5x5 edge-aware spatial denoiser. The denoiser is part of the algorithm, not a
-        /// polish step; disabling it exposes the raw horizon-search result for A/B validation.
-        bool ambient_occlusion_denoise = true;
-        u32 msaa_samples = 1;
-        u32 post_process_aa = 1;
-        f32 aa_subpixel_quality = 0.75f;
-        f32 aa_edge_threshold = 0.125f;
-        f32 bloom_threshold = 0.0f;
-        f32 bloom_soft_knee = 0.5f;
-        f32 bloom_intensity = 0.04f;
-        f32 bloom_scatter = 0.7f;
-        f32 bloom_downsample_ratio = 1.61803398875f;
-        u32 bloom_max_levels = 12;
-        ToneMappingOperator tone_mapping_operator = ToneMappingOperator::Agx;
-        f32 tone_mapping_exposure = 1.0f;
-        f32 tone_mapping_white_point = 1.0f;
-        f32 tone_mapping_saturation = 1.0f;
-
-
-        bool tone_mapping_hdr_output = false;
-
-
-        Core::HdrColorSpaceMode tone_mapping_hdr_color_space = Core::HdrColorSpaceMode::Hdr10St2084;
-        f32 tone_mapping_hdr_paper_white_nits = 203.0f;
-        f32 tone_mapping_hdr_peak_nits = 1000.0f;
-
-        AgxLook agx_look = AgxLook::None;
-
-        f32 hermite_toe_strength = 0.5f;
-        f32 hermite_toe_length = 0.5f;
-        f32 hermite_shoulder_strength = 2.0f;
-        f32 hermite_shoulder_length = 0.5f;
-        f32 hermite_shoulder_angle = 1.0f;
-
-        f32 psychov_highlights = 1.0f;
-        f32 psychov_shadows = 1.0f;
-        f32 psychov_contrast = 1.0f;
-        f32 psychov_purity_scale = 1.0f;
-        f32 psychov_gamut_compression = 1.0f;
-        bool psychov_gamut_compression_use_bt2020 = true;
-        f32 psychov_compression = 0.0f;
-        glm::vec3 psychov_adapted_gray_bt709{0.18f};
-        glm::vec3 psychov_background_gray_bt709{0.18f};
+        /// The frame is presented to an HDR display, in this encoding.
+        bool hdr_output = false;
+        Core::HdrColorSpaceMode hdr_color_space = Core::HdrColorSpaceMode::Hdr10St2084;
         std::vector<CustomPostProcessEffect> custom_post_processes;
         CustomGraphProgram custom_graph;
         /// Application overlays, drawn in order on the finished frame (see `OverlayPass`).

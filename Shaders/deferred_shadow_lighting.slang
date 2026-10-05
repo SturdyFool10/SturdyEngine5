@@ -10,14 +10,13 @@ import sturdy_space;
 import sturdy_lens;
 import sturdy_pbr;
 import sturdy_atmosphere;
+import sturdy_lighting_data;
+import sturdy_specular;
 
 // Must match sky_view_lut.slang's LUT_SIZE exactly — same mirrored-constant convention as the limits
 // below (no shared header between C++/multiple shaders to source a single definition from).
 static const uint2 SFT_SKY_VIEW_LUT_SIZE = uint2(192, 108);
 
-static const uint SFT_MAX_SPOT_LIGHTS = 8;
-static const uint SFT_MAX_POINT_LIGHTS = 8;
-static const uint SFT_MAX_SHADOW_VIEWS = 36;
 static const uint SFT_PCSS_BLOCKER_SAMPLES = 12;
 static const uint SFT_PCF_SAMPLES = 16;
 
@@ -51,6 +50,9 @@ static const uint SFT_RENDER_DEBUG_AMBIENT_LIGHTING = 22;
 static const uint SFT_RENDER_DEBUG_SUN_N_DOT_L = 23;
 static const uint SFT_RENDER_DEBUG_UNSHADOWED_SUN_LIGHTING = 24;
 static const uint SFT_RENDER_DEBUG_AMBIENT_OCCLUSION = 25;
+static const uint SFT_RENDER_DEBUG_LIGHT_CLUSTER_OCCUPANCY = 26;
+static const uint SFT_RENDER_DEBUG_INDIRECT_SPECULAR = 27;
+static const uint SFT_RENDER_DEBUG_REFLECTION_CONFIDENCE = 28;
 
 // Vogel (sunflower) disk point `index` of `count`, rotated by `rotation` radians.
 //
@@ -84,57 +86,7 @@ struct VertexOutput {
     float2 uv : TEXCOORD0;
 };
 
-struct ShadowViewGpuData {
-    float4x4 viewProjection;
-    float4 atlasScaleBias;
-    float4 depthParams;
-    float4 filterParams;
-};
-
-struct DirectionalLightGpuData {
-    float4 directionAngularRadius;
-    float4 radianceShadow;
-    // View-space distance at which each cascade ends.
-    float4 cascadeSplits;
-    // View-space distance at which each cascade begins cross-fading into the next one. Computed on
-    // the CPU from the cascade's own extent, not from a fixed percentage of the split distance.
-    float4 cascadeFadeStarts;
-    float4 cascadeParams;
-};
-
-struct SpotLightGpuData {
-    float4 positionRange;
-    float4 directionOuterCos;
-    float4 radianceInnerCos;
-    float4 shadowParams;
-};
-
-struct PointLightGpuData {
-    float4 positionRange;
-    float4 radianceSourceRadius;
-    float4 shadowParams;
-};
-
-struct ShadowLightingGpuData {
-    float4x4 inverseViewProjection;
-    float4x4 viewProjection;
-    float4x4 view;
-    float4 cameraPositionNear;
-    float4 ambientRadianceExposure;
-    float4 backgroundColor;
-    float4 counts;
-    float4 shadowParams;
-    float4 contactShadowParams;
-    // (max intensity, fade-out view distance, camera lens strength, unused)
-    float4 contactShadowParamsExtra;
-    float4 viewportParams;
-    float4 spectralParams;
-    DirectionalLightGpuData sun;
-    SpotLightGpuData spotLights[SFT_MAX_SPOT_LIGHTS];
-    PointLightGpuData pointLights[SFT_MAX_POINT_LIGHTS];
-    ShadowViewGpuData shadowViews[SFT_MAX_SHADOW_VIEWS];
-};
-
+// ShadowLightingGpuData, the light structs and LocalLightGpuData live in sturdy_lighting_data.slang.
 ConstantBuffer<ShadowLightingGpuData> lightingData;
 
 // Strength of the vertex-warp camera lens (0 = none); see sturdy_space.slang. Every reconstruction of the
@@ -187,6 +139,11 @@ Texture2D<float4> transmittanceLut;
 Texture2D<float4> multiScatteringLut;
 Texture2D<float4> skyViewLut;
 Texture2D<float4> surfelIrradiance;
+// Prefiltered sky per roughness level (sturdy_specular.slang) and the accumulated screen-space reflections
+// (rgb radiance before exposure, a = how much of the pixel's lobe the screen answered). Neutral 1x1 black stand-ins are
+// bound when the feature is off; `lightingData.indirectSpecular` then switches both terms off.
+Texture2D<float4> environmentAtlas;
+Texture2D<float4> ssrRadiance;
 // Screen-space ambient occlusion from the spatial-only XeGTAO passes (Shaders/gtao_main.slang),
 // already denoised and intensity-scaled. A 1x1 white dummy is bound when AO is disabled, so this
 // shader never needs to branch on the feature toggle.
@@ -194,6 +151,11 @@ Texture2D<float> gtaoAmbientOcclusion;
 SamplerState gbufferSampler;
 SamplerState shadowDepthSampler;
 SamplerComparisonState shadowCompareSampler;
+// Clustered local lights (Renderer/LightClusters.cpp): every spot and point light of the frame, the per-cluster ranges into
+// the index list, and the index list. Used instead of the constant-buffer arrays when `clusterFlags.x` is set.
+StructuredBuffer<LocalLightGpuData> localLights;
+StructuredBuffer<uint2> clusterRanges;
+StructuredBuffer<uint> clusterLightIndices;
 SamplerState atmosphereSampler;
 
 [shader("vertex")]
@@ -920,13 +882,6 @@ bool directionalShadowDebug(uint mode, float3 worldPosition, float3 normal, floa
     return true;
 }
 
-uint pointShadowFace(float3 fromLight) {
-    float3 a = abs(fromLight);
-    if (a.x >= a.y && a.x >= a.z) return fromLight.x >= 0.0 ? 0u : 1u;
-    if (a.y >= a.x && a.y >= a.z) return fromLight.y >= 0.0 ? 2u : 3u;
-    return fromLight.z >= 0.0 ? 4u : 5u;
-}
-
 float3 evaluateDirect(float3 albedo, float metallic, float perceptualRoughness,
                       float alphaRoughness, float dielectricF0,
                       float3 normal, float3 viewVector, float3 lightVector, float3 radiance,
@@ -958,12 +913,6 @@ float3 evaluateDirect(float3 albedo, float metallic, float perceptualRoughness,
         albedo, perceptualRoughness, normal, lightVector, viewVector);
     float3 diffuse = (1.0 - fresnel) * (1.0 - metallic) * diffuseBrdf;
     return (diffuse + specular) * radiance * nDotL;
-}
-
-float punctualAttenuation(float distanceToLight, float range) {
-    float ratio = distanceToLight / max(range, SFT_EPSILON);
-    float window = saturate(1.0 - pow4(ratio));
-    return square(window) / max(distanceToLight * distanceToLight, 0.01);
 }
 
 // World-space view ray direction for a background pixel (nothing in the gbuffer to derive it from —
@@ -1084,8 +1033,39 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
                            lightingData.spectralParams.z;
         hdr += diffuseAlbedoForIndirect * surfelGi * indirectOcclusion;
     }
+    // Indirect specular: what the surface reflects besides the lights. The prefiltered sky answers every pixel; where the
+    // screen-space trace found the reflected surface it replaces the sky by the confidence it earned. Both are scaled by the
+    // split-sum reflectance (with multiple-scattering compensation), so a rough metal keeps its energy and a dielectric only
+    // shows the Fresnel rim. Skipped when the spectral integrator already traced this term.
+    float3 indirectSpecular = float3(0.0);
+    float reflectionConfidence = 0.0;
+    if (spectralMode != 2u) {
+        float nDotV = max(dot(normal, viewVector), 1.0e-4);
+        float3 specularF0 = lerp(float3(dielectricF0), albedo, metallic);
+        float3 reflectance = specularReflectance(specularF0, environmentBrdfApprox(nDotV, perceptualRoughness));
+        float3 environment = float3(0.0);
+        if (lightingData.indirectSpecular.x > 0.0) {
+            float3 dominant = specularDominantDirection(normal, reflect(-viewVector, normal), roughness);
+            environment = sampleEnvironment(environmentAtlas, atmosphereSampler, dominant, perceptualRoughness) *
+                          lightingData.indirectSpecular.x;
+            if (lightingData.indirectSpecular.z > 0.5) {
+                environment *= specularOcclusion(nDotV, indirectOcclusion, roughness);
+            }
+        }
+        float4 screenSpace = float4(0.0);
+        if (lightingData.indirectSpecular.y > 0.0) {
+            screenSpace = ssrRadiance.SampleLevel(gbufferSampler, input.uv, 0.0);
+            reflectionConfidence = saturate(screenSpace.a);
+        }
+        indirectSpecular = lerp(environment, screenSpace.rgb * lightingData.indirectSpecular.y, reflectionConfidence) * reflectance;
+    }
+    if (shadowDebugMode == SFT_RENDER_DEBUG_INDIRECT_SPECULAR) return float4(indirectSpecular, 1.0);
+    if (shadowDebugMode == SFT_RENDER_DEBUG_REFLECTION_CONFIDENCE) {
+        return float4(0.1, reflectionConfidence, 1.0 - reflectionConfidence, 1.0);
+    }
     float3 sunVector = -safeNormalizeOr(lightingData.sun.directionAngularRadius.xyz, float3(0.0, -1.0, 0.0));
     if (shadowDebugMode == SFT_RENDER_DEBUG_AMBIENT_LIGHTING) return float4(hdr, 1.0);
+    hdr += indirectSpecular;
     if (shadowDebugMode == SFT_RENDER_DEBUG_SUN_N_DOT_L) {
         return float4(saturate(dot(normal, sunVector)).xxx, 1.0);
     }
@@ -1136,50 +1116,84 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // identical for every pixel evaluating loop iteration `i` and introduces no divergence. Only the
     // per-pixel range/cone rejection moves into a mask applied to the accumulated contribution
     // instead of skipping the call.
-    uint spotCount = min((uint)lightingData.counts.x, SFT_MAX_SPOT_LIGHTS);
-    [loop]
-    for (uint i = 0; i < spotCount; ++i) {
-        SpotLightGpuData light = lightingData.spotLights[i];
-        float3 toLight = light.positionRange.xyz - worldPosition;
-        float distanceToLight = length(toLight);
-        float3 lightVector = toLight / max(distanceToLight, SFT_EPSILON);
-        float coneCos = dot(safeNormalizeOr(light.directionOuterCos.xyz, float3(0.0, -1.0, 0.0)), -lightVector);
-        float cone = smoothstep(light.directionOuterCos.w, light.radianceInnerCos.w, coneCos);
-        bool active = distanceToLight < light.positionRange.w && cone > 0.0;
-
-        float visibility = 1.0;
-        int shadowView = (int)light.shadowParams.x;
-        if (shadowView >= 0) {
-            visibility = shadowVisibility(shadowAtlas, (uint)shadowView, worldPosition, normal,
-                                          lightVector, worldDx, worldDy);
+    if (clusteredLightingEnabled(lightingData)) {
+        // Only the lights binned into this pixel's cluster. `clusterFlags` is a constant-buffer value, so the branch is
+        // uniform; inside, shadow lookups use explicit-LOD/compare-level-zero sampling, which WGSL allows in divergent flow.
+        uint cluster = lightClusterIndex(lightingData, worldPosition);
+        uint2 clusterRange = clusterRanges[cluster];
+        uint clusterLightCount = min(clusterRange.y, (uint)lightingData.clusterFlags.z);
+        if (shadowDebugMode == SFT_RENDER_DEBUG_LIGHT_CLUSTER_OCCUPANCY) {
+            float occupancy = saturate(float(clusterLightCount) / max(lightingData.clusterFlags.z, 1.0));
+            return float4(occupancy, 0.15, 1.0 - occupancy, 1.0);
         }
-        float3 radiance = light.radianceInnerCos.rgb * punctualAttenuation(distanceToLight, light.positionRange.w) * cone;
-        float spotSphereAngleTangent = light.shadowParams.y / max(distanceToLight, SFT_EPSILON);
-        float3 contribution = evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal,
-                                             viewVector, lightVector, radiance, spotSphereAngleTangent) * visibility;
-        hdr += active ? contribution : float3(0.0);
-    }
-
-    uint pointCount = min((uint)lightingData.counts.y, SFT_MAX_POINT_LIGHTS);
-    [loop]
-    for (uint i = 0; i < pointCount; ++i) {
-        PointLightGpuData light = lightingData.pointLights[i];
-        float3 toLight = light.positionRange.xyz - worldPosition;
-        float distanceToLight = length(toLight);
-        bool active = distanceToLight < light.positionRange.w;
-        float3 lightVector = toLight / max(distanceToLight, SFT_EPSILON);
-        float visibility = 1.0;
-        int firstShadowView = (int)light.shadowParams.x;
-        if (firstShadowView >= 0) {
-            uint face = pointShadowFace(worldPosition - light.positionRange.xyz);
-            visibility = shadowVisibility(shadowAtlas, (uint)firstShadowView + face, worldPosition,
-                                          normal, lightVector, worldDx, worldDy);
+        [loop]
+        for (uint k = 0; k < clusterLightCount; ++k) {
+            LocalLightGpuData light = localLights[clusterLightIndices[clusterRange.x + k]];
+            float3 lightVector;
+            float distanceToLight;
+            float3 radiance;
+            bool active = localLightIncident(light, worldPosition, lightVector, distanceToLight, radiance);
+            float visibility = 1.0;
+            int shadowView = (int)light.shadowRadiusKind.x;
+            if (shadowView >= 0) {
+                uint viewIndex = (uint)shadowView;
+                if (light.shadowRadiusKind.z > 0.5) {
+                    viewIndex += pointShadowFace(worldPosition - light.positionRange.xyz);
+                }
+                visibility = shadowVisibility(shadowAtlas, viewIndex, worldPosition, normal, lightVector, worldDx, worldDy);
+            }
+            float sphereAngleTangent = light.shadowRadiusKind.y / max(distanceToLight, SFT_EPSILON);
+            float3 contribution = evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal,
+                                                 viewVector, lightVector, radiance, sphereAngleTangent) * visibility;
+            hdr += active ? contribution : float3(0.0);
         }
-        float3 radiance = light.radianceSourceRadius.rgb * punctualAttenuation(distanceToLight, light.positionRange.w);
-        float pointSphereAngleTangent = light.radianceSourceRadius.w / max(distanceToLight, SFT_EPSILON);
-        float3 contribution = evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal,
-                                             viewVector, lightVector, radiance, pointSphereAngleTangent) * visibility;
-        hdr += active ? contribution : float3(0.0);
+    } else {
+        uint spotCount = min((uint)lightingData.counts.x, SFT_MAX_SPOT_LIGHTS);
+        [loop]
+        for (uint i = 0; i < spotCount; ++i) {
+            SpotLightGpuData light = lightingData.spotLights[i];
+            float3 toLight = light.positionRange.xyz - worldPosition;
+            float distanceToLight = length(toLight);
+            float3 lightVector = toLight / max(distanceToLight, SFT_EPSILON);
+            float coneCos = dot(safeNormalizeOr(light.directionOuterCos.xyz, float3(0.0, -1.0, 0.0)), -lightVector);
+            float cone = smoothstep(light.directionOuterCos.w, light.radianceInnerCos.w, coneCos);
+            bool active = distanceToLight < light.positionRange.w && cone > 0.0;
+
+            float visibility = 1.0;
+            int shadowView = (int)light.shadowParams.x;
+            if (shadowView >= 0) {
+                visibility = shadowVisibility(shadowAtlas, (uint)shadowView, worldPosition, normal,
+                                              lightVector, worldDx, worldDy);
+            }
+            float3 radiance = light.radianceInnerCos.rgb * punctualAttenuation(distanceToLight, light.positionRange.w) * cone;
+            float spotSphereAngleTangent = light.shadowParams.y / max(distanceToLight, SFT_EPSILON);
+            float3 contribution = evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal,
+                                                 viewVector, lightVector, radiance, spotSphereAngleTangent) * visibility;
+            hdr += active ? contribution : float3(0.0);
+        }
+
+        uint pointCount = min((uint)lightingData.counts.y, SFT_MAX_POINT_LIGHTS);
+        [loop]
+        for (uint i = 0; i < pointCount; ++i) {
+            PointLightGpuData light = lightingData.pointLights[i];
+            float3 toLight = light.positionRange.xyz - worldPosition;
+            float distanceToLight = length(toLight);
+            bool active = distanceToLight < light.positionRange.w;
+            float3 lightVector = toLight / max(distanceToLight, SFT_EPSILON);
+            float visibility = 1.0;
+            int firstShadowView = (int)light.shadowParams.x;
+            if (firstShadowView >= 0) {
+                uint face = pointShadowFace(worldPosition - light.positionRange.xyz);
+                visibility = shadowVisibility(shadowAtlas, (uint)firstShadowView + face, worldPosition,
+                                              normal, lightVector, worldDx, worldDy);
+            }
+            float3 radiance = light.radianceSourceRadius.rgb * punctualAttenuation(distanceToLight, light.positionRange.w);
+            float pointSphereAngleTangent = light.radianceSourceRadius.w / max(distanceToLight, SFT_EPSILON);
+            float3 contribution = evaluateDirect(albedo, metallic, perceptualRoughness, roughness, dielectricF0, normal,
+                                                 viewVector, lightVector, radiance, pointSphereAngleTangent) * visibility;
+            hdr += active ? contribution : float3(0.0);
+        }
+
     }
 
     hdr *= lightingData.ambientRadianceExposure.w;

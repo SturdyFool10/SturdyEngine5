@@ -116,7 +116,7 @@ namespace SFT::Renderer {
         std::vector<SceneObjectGpuData> objects(submission.draws.size());
         // The camera lens strength rides in the unused w column of the (affine) model matrices; these objects are
         // only ever drawn from the camera's view (see sturdy_space.slang).
-        const f32 lens_strength = std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f);
+        const f32 lens_strength = std::max(submission.render_graph.frame.camera_emulation.lens_strength, 0.0f);
         const auto with_lens = [lens_strength](glm::mat4 matrix) {
             matrix[0][3] = lens_strength;
             return matrix;

@@ -502,7 +502,7 @@ namespace SFT::Renderer {
         vector<RHI::BindGroupHandle> &transient_bind_groups) {
         ZoneScopedN("Renderer::record_restir_gi_initial_sample");
         if (Core::RendererResult ready = ensure_restir_gi_resources(
-                render_extent, restir_gi_grid_scale(settings.restir_gi.quality));
+                render_extent, restir_gi_grid_scale(static_cast<u32>(settings.frame.restir_gi.quality)));
             !ready.has_value()) {
             return ready;
         }
@@ -860,25 +860,22 @@ namespace SFT::Renderer {
         FrameInFlight &slot,
         const RestirGiDenoiserInputs &inputs) {
         ZoneScopedN("Renderer::build_restir_gi_denoiser_module");
-        // Mirrors Renderer::RestirGiSettings::denoiser's documented wire values (Scene.hpp); the
-        // Renderer package intentionally uses plain integers rather than Engine::RestirGiDenoiser here
-        // so it does not need to depend on the Engine layer's enum type.
-        enum : u32 { kDenoiserNone = 0, kDenoiserSvgf = 1, kDenoiserDlssRayReconstruction = 2, kDenoiserFsrRedstone = 3 };
-        switch (submission.render_graph.restir_gi.denoiser) {
-            case kDenoiserNone:
+        using enum RenderSettings::RestirGiDenoiser;
+        switch (submission.render_graph.frame.restir_gi.denoiser) {
+            case None:
                 return inputs.raw_irradiance;
-            case kDenoiserDlssRayReconstruction:
-            case kDenoiserFsrRedstone: {
+            case DlssRayReconstruction:
+            case FsrRedstone: {
                 static std::atomic<bool> warned{false};
                 if (!warned.exchange(true)) {
                     Foundation::log_warn(
                         "ReSTIR GI denoiser {} is not implemented yet; falling back to SVGF.",
-                        submission.render_graph.restir_gi.denoiser == kDenoiserDlssRayReconstruction
+                        submission.render_graph.frame.restir_gi.denoiser == DlssRayReconstruction
                             ? "DLSS Ray Reconstruction" : "FSR Redstone");
                 }
                 return build_svgf_denoiser_module(context, submission, slot, inputs);
             }
-            case kDenoiserSvgf:
+            case Svgf:
             default:
                 return build_svgf_denoiser_module(context, submission, slot, inputs);
         }

@@ -1,4 +1,7 @@
 #include <Engine/RenderGraph.hpp>
+
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/vector_relational.hpp>
 #include <Foundation/Iter.hpp>
 
 #include <algorithm>
@@ -163,7 +166,7 @@ namespace SFT::Engine {
         graph.description_.bloom.enabled = false;
         graph.description_.tone_mapping.enabled = false;
         // An overlay-only window still has the application's own diagnostics to feed.
-        graph.description_.frame_timings.enabled = true;
+        graph.description_.frame_timings = true;
         graph.description_.restir_gi.enabled = false;
         graph.description_.motion_blur.enabled = false;
         return graph;
@@ -239,8 +242,12 @@ namespace SFT::Engine {
     /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
     /// @note This function does not throw exceptions.
     ToneMappingSettings &RenderGraph::tone_mapping() noexcept { return description_.tone_mapping; }
-    const FrameTimingSettings &RenderGraph::frame_timings() const noexcept { return description_.frame_timings; }
-    FrameTimingSettings &RenderGraph::frame_timings() noexcept { return description_.frame_timings; }
+    const LightingSettings &RenderGraph::lighting() const noexcept { return description_.lighting; }
+    LightingSettings &RenderGraph::lighting() noexcept { return description_.lighting; }
+    const VolumetricFogSettings &RenderGraph::volumetric_fog() const noexcept { return description_.volumetric_fog; }
+    VolumetricFogSettings &RenderGraph::volumetric_fog() noexcept { return description_.volumetric_fog; }
+    const ReflectionSettings &RenderGraph::reflections() const noexcept { return description_.reflections; }
+    ReflectionSettings &RenderGraph::reflections() noexcept { return description_.reflections; }
     /// Returns the current or globally available ReSTIR GI value.
     ///
     /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
@@ -635,7 +642,7 @@ namespace SFT::Engine {
             case RenderFeature::ToneMapping:
                 return description_.tone_mapping.enabled;
             case RenderFeature::FrameTimings:
-                return description_.frame_timings.enabled;
+                return description_.frame_timings;
             case RenderFeature::RestirGi:
                 return description_.restir_gi.enabled;
             case RenderFeature::MotionBlur:
@@ -676,7 +683,7 @@ namespace SFT::Engine {
                 description_.tone_mapping.enabled = enabled_value;
                 break;
             case RenderFeature::FrameTimings:
-                description_.frame_timings.enabled = enabled_value;
+                description_.frame_timings = enabled_value;
                 break;
             case RenderFeature::RestirGi:
                 description_.restir_gi.enabled = enabled_value;
@@ -732,7 +739,11 @@ namespace SFT::Engine {
     /// @return Returns `*this` so the operation can be chained.
     /// @note This function does not throw exceptions.
     RenderGraph &RenderGraph::set_background_color(glm::vec4 color) noexcept {
-        description_.scene.background_color = color;
+        description_.scene.use_background_color = true;
+        description_.scene.background_color[0] = color.r;
+        description_.scene.background_color[1] = color.g;
+        description_.scene.background_color[2] = color.b;
+        description_.scene.background_color[3] = color.a;
         return *this;
     }
 
@@ -741,7 +752,7 @@ namespace SFT::Engine {
     /// @return Returns `*this` so the operation can be chained.
     /// @note This function does not throw exceptions.
     RenderGraph &RenderGraph::inherit_camera_background() noexcept {
-        description_.scene.background_color.reset();
+        description_.scene.use_background_color = false;
         return *this;
     }
 
@@ -1044,7 +1055,7 @@ namespace SFT::Engine {
                 .message = UString{"Render graph resolution_scale must be finite and in [0.1, 2.0]."_ustr},
             });
         }
-        if (description_.scene.background_color && !finite(*description_.scene.background_color)) {
+        if (description_.scene.use_background_color && !finite(glm::make_vec4(description_.scene.background_color))) {
             return std::unexpected(RenderGraphError{
                 .code = RenderGraphErrorCode::InvalidBackgroundColor,
                 .message = UString{"Render graph background color must contain only finite values."_ustr},
@@ -1157,11 +1168,10 @@ namespace SFT::Engine {
             !std::isfinite(tone.psycho_v.purity_scale) || tone.psycho_v.purity_scale < 0.0f ||
             !std::isfinite(tone.psycho_v.gamut_compression) || tone.psycho_v.gamut_compression < 0.0f || tone.psycho_v.gamut_compression > 1.0f ||
             !std::isfinite(tone.psycho_v.compression) || tone.psycho_v.compression < 0.0f ||
-            !finite(glm::vec4{tone.psycho_v.adapted_gray_bt709, 1.0f}) ||
-            !finite(glm::vec4{tone.psycho_v.background_gray_bt709, 1.0f}) ||
-            tone.psycho_v.adapted_gray_bt709.x <= 0.0f || tone.psycho_v.adapted_gray_bt709.y <= 0.0f ||
-            tone.psycho_v.adapted_gray_bt709.z <= 0.0f || tone.psycho_v.background_gray_bt709.x <= 0.0f ||
-            tone.psycho_v.background_gray_bt709.y <= 0.0f || tone.psycho_v.background_gray_bt709.z <= 0.0f) {
+            !finite(glm::vec4{glm::make_vec3(tone.psycho_v.adapted_gray_bt709), 1.0f}) ||
+            !finite(glm::vec4{glm::make_vec3(tone.psycho_v.background_gray_bt709), 1.0f}) ||
+            glm::any(glm::lessThanEqual(glm::make_vec3(tone.psycho_v.adapted_gray_bt709), glm::vec3{0.0f})) ||
+            glm::any(glm::lessThanEqual(glm::make_vec3(tone.psycho_v.background_gray_bt709), glm::vec3{0.0f}))) {
             return std::unexpected(RenderGraphError{
                 .code = RenderGraphErrorCode::InvalidToneMappingSettings,
                 .message = UString{"Render graph PsychoV settings must be finite, with positive highlights/shadows/contrast, non-negative purity/compression, gamut_compression in [0, 1], and positive adapted/background gray points."_ustr},
@@ -1193,8 +1203,8 @@ namespace SFT::Engine {
         desc.resolution_scale = std::isfinite(desc.resolution_scale)
                                     ? std::clamp(desc.resolution_scale, 0.1f, 2.0f)
                                     : 1.0f;
-        if (desc.scene.background_color && !finite(*desc.scene.background_color)) {
-            desc.scene.background_color.reset();
+        if (desc.scene.use_background_color && !finite(glm::make_vec4(desc.scene.background_color))) {
+            desc.scene.use_background_color = false;
         }
         desc.scene.background_intensity = std::isfinite(desc.scene.background_intensity)
                                               ? std::max(desc.scene.background_intensity, 0.0f)
@@ -1297,13 +1307,13 @@ namespace SFT::Engine {
         psycho_v.purity_scale = std::isfinite(psycho_v.purity_scale) ? std::max(psycho_v.purity_scale, 0.0f) : 1.0f;
         psycho_v.gamut_compression = std::isfinite(psycho_v.gamut_compression) ? std::clamp(psycho_v.gamut_compression, 0.0f, 1.0f) : 1.0f;
         psycho_v.compression = std::isfinite(psycho_v.compression) ? std::max(psycho_v.compression, 0.0f) : 0.0f;
-        if (!finite(glm::vec4{psycho_v.adapted_gray_bt709, 1.0f}) ||
-            psycho_v.adapted_gray_bt709.x <= 0.0f || psycho_v.adapted_gray_bt709.y <= 0.0f || psycho_v.adapted_gray_bt709.z <= 0.0f) {
-            psycho_v.adapted_gray_bt709 = glm::vec3{0.18f};
+        if (!finite(glm::vec4{glm::make_vec3(psycho_v.adapted_gray_bt709), 1.0f}) ||
+            glm::any(glm::lessThanEqual(glm::make_vec3(psycho_v.adapted_gray_bt709), glm::vec3{0.0f}))) {
+            std::fill_n(psycho_v.adapted_gray_bt709, 3, 0.18f);
         }
-        if (!finite(glm::vec4{psycho_v.background_gray_bt709, 1.0f}) ||
-            psycho_v.background_gray_bt709.x <= 0.0f || psycho_v.background_gray_bt709.y <= 0.0f || psycho_v.background_gray_bt709.z <= 0.0f) {
-            psycho_v.background_gray_bt709 = glm::vec3{0.18f};
+        if (!finite(glm::vec4{glm::make_vec3(psycho_v.background_gray_bt709), 1.0f}) ||
+            glm::any(glm::lessThanEqual(glm::make_vec3(psycho_v.background_gray_bt709), glm::vec3{0.0f}))) {
+            std::fill_n(psycho_v.background_gray_bt709, 3, 0.18f);
         }
 
         if (!result.validate_topology()) {

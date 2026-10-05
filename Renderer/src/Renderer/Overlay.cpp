@@ -96,14 +96,14 @@ namespace SFT::Renderer {
 
         if (frame.overlay_display_transform) {
             RenderGraphSettings display;
-            display.tone_mapping = false;
-            display.tone_mapping_exposure = 1.0f;
-            display.tone_mapping_white_point = 1.0f;
-            display.tone_mapping_saturation = 1.0f;
-            display.tone_mapping_hdr_output = frame.hdr_output;
-            display.tone_mapping_hdr_color_space = frame.hdr_color_space;
-            display.tone_mapping_hdr_paper_white_nits = frame.overlay_reference_white_nits;
-            display.tone_mapping_hdr_peak_nits = frame.settings.tone_mapping_hdr_peak_nits;
+            display.frame.tone_mapping.enabled = false;
+            display.frame.tone_mapping.exposure = 1.0f;
+            display.frame.tone_mapping.white_point = 1.0f;
+            display.frame.tone_mapping.saturation = 1.0f;
+            display.hdr_output = frame.hdr_output;
+            display.hdr_color_space = frame.hdr_color_space;
+            display.frame.tone_mapping.hdr_paper_white_nits = frame.overlay_reference_white_nits;
+            display.frame.tone_mapping.hdr_peak_nits = frame.settings.frame.tone_mapping.hdr_peak_nits;
             // Over a scene the encoded layer is composited onto the frame; over nothing it is the frame.
             return add_tone_mapping_pass(frame, target, frame.final_output, display, true, "overlay display encode",
                                          RHI::Format::Undefined, /*composite_over=*/!frame.direct_overlay_presentation);

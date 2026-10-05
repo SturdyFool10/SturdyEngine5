@@ -22,6 +22,8 @@ namespace SFT::Renderer {
       public:
         struct Desc {
             RHI::Format format = RHI::Format::RGBA16Float;
+            /// `Dim3D` for a volume (`extent.depth_or_layers` is its depth).
+            RHI::TextureDimension dimension = RHI::TextureDimension::Dim2D;
             RHI::Extent3D extent{};
             RHI::TextureUsage usage = RHI::TextureUsage::Storage | RHI::TextureUsage::Sampled;
             const char *label = "history texture";

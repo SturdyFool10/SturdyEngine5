@@ -518,7 +518,7 @@ namespace SFT::Renderer {
         FrameInFlight &slot,
         const RestirGiDenoiserInputs &inputs) {
         ZoneScopedN("Renderer::build_svgf_denoiser_module");
-        const RestirGiSettings &settings = submission.render_graph.restir_gi;
+        const RestirGiSettings &settings = submission.render_graph.frame.restir_gi;
         const glm::uvec2 render_extent{context.render_extent.x, context.render_extent.y};
 
         if (Core::RendererResult ready = ensure_svgf_resources(render_extent); !ready.has_value()) {
@@ -548,7 +548,7 @@ namespace SFT::Renderer {
                 settings.svgf_temporal_alpha, settings.svgf_phi_normal, settings.svgf_phi_depth, settings.svgf_phi_luminance,
             },
             .camera_position = glm::vec4{submission.camera.world_position,
-                                         std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f)},
+                                         std::max(submission.render_graph.frame.camera_emulation.lens_strength, 0.0f)},
         };
 
         auto constant_buffer = device->create_buffer(RHI::BufferDesc{
@@ -595,7 +595,7 @@ namespace SFT::Renderer {
                     submission.transient_bind_groups);
             });
 
-        const u32 iterations = std::clamp(settings.svgf_atrous_iterations, 1u, restir_gi_max_atrous_iterations(settings.quality));
+        const u32 iterations = std::clamp(settings.svgf_atrous_iterations, 1u, restir_gi_max_atrous_iterations(static_cast<u32>(settings.quality)));
         RenderGraphTextureHandle ping = accumulated;
         RenderGraphTextureHandle final_output = accumulated;
         for (u32 iteration = 0; iteration < iterations; ++iteration) {

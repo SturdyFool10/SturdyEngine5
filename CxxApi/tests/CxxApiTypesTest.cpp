@@ -22,7 +22,11 @@ namespace {
                   GraphicsBackend, PresentationOptions, RuntimeOptions, FrameInfo, SceneLightingDesc, GpuDescription, GpuString,
                   RendererCapabilities,
                   // Camera
-                  CameraProjection, Containment, CameraDesc>);
+                  CameraProjection, Containment, CameraDesc,
+                  // Scene
+                  Entity, TransformDesc, TransformPropagationStats,
+                  // Render (the RenderSettings records, bound as they are)
+                  FrameSettings, SFT::RenderSettings::LightingSettings, SFT::RenderSettings::VolumetricFogSettings>);
 
 } // namespace
 

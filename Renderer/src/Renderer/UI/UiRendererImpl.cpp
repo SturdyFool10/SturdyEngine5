@@ -692,7 +692,7 @@ namespace SFT::UI {
             // flat pass-through multiplier on the shared blur/composite chain, not a second per-element
             // control.
             Renderer::RenderGraphSettings settings{};
-            settings.bloom_intensity = 1.0f;
+            settings.frame.bloom.intensity = 1.0f;
             if (Core::RendererResult bloom_added = texture_resolver->add_ui_glow_bloom_passes(
                     render_graph, mask_handle, viewport_extent, bloom_handle, color_format_, settings,
                     out_transient_bind_groups);

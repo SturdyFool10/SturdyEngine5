@@ -1913,7 +1913,7 @@ void RenderGraph::reset() noexcept {
             vector<PendingSlot> pending;
 
             auto signature_matches = [](const RenderGraphTextureDesc &a, const RenderGraphTextureDesc &b) noexcept {
-                return a.format == b.format && a.extent.width == b.extent.width && a.extent.height == b.extent.height &&
+                return a.dimension == b.dimension && a.format == b.format && a.extent.width == b.extent.width && a.extent.height == b.extent.height &&
                        a.extent.depth_or_layers == b.extent.depth_or_layers && a.mip_levels == b.mip_levels &&
                        a.samples == b.samples && a.usage == b.usage;
             };
@@ -1979,7 +1979,7 @@ void RenderGraph::reset() noexcept {
                 const PendingSlot &pending_slot = pending[p];
 
                 auto texture_handle = device.create_texture(RHI::TextureDesc{
-                    .dimension = RHI::TextureDimension::Dim2D,
+                    .dimension = pending_slot.desc.dimension,
                     .format = pending_slot.desc.format,
                     .extent = pending_slot.desc.extent,
                     .mip_levels = pending_slot.desc.mip_levels,
@@ -1996,7 +1996,9 @@ void RenderGraph::reset() noexcept {
 
                 auto view_handle = device.create_texture_view(RHI::TextureViewDesc{
                     .texture = *texture_handle,
-                    .view_type = RHI::TextureViewType::View2D,
+                    .view_type = pending_slot.desc.dimension == RHI::TextureDimension::Dim3D ? RHI::TextureViewType::View3D
+                                 : pending_slot.desc.extent.depth_or_layers > 1             ? RHI::TextureViewType::View2DArray
+                                                                                            : RHI::TextureViewType::View2D,
                     .label = pending_slot.label.empty() ? "render graph transient texture view" : pending_slot.label.c_str(),
                 });
                 if (!view_handle) {

@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 31u
+#define STURDY_ABI_VERSION_MINOR 33u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -965,6 +965,96 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_motion_blur_settings_init(SturdyM
 /// Replaces the motion-blur stage's settings for the frame being built.
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_motion_blur_settings(
     SturdyFrame frame, const SturdyMotionBlurSettings *settings);
+
+/// Clustered local lighting (since 0.32). Every spot and point light (nearest/brightest first, up to `max_lights`) is binned
+/// into screen tiles x depth slices so each pixel evaluates only the lights that reach it; with `clustered` off the
+/// deferred pass falls back to the first 8 spot + 8 point lights.
+typedef struct SturdyLightingSettings {
+    /// Set to `sizeof(SturdyLightingSettings)` by `sturdy_lighting_settings_init`.
+    uint32_t struct_size;
+    SturdyBool clustered;
+    uint8_t reserved[3];
+    uint32_t cluster_tile_px;
+    uint32_t cluster_depth_slices;
+    float cluster_max_distance;
+    uint32_t max_lights;
+    uint32_t max_lights_per_cluster;
+} SturdyLightingSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (clustered on).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_lighting_settings_init(SturdyLightingSettings *settings);
+
+/// Replaces the clustered-lighting settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_lighting_settings(
+    SturdyFrame frame, const SturdyLightingSettings *settings);
+
+/// Froxel volumetric fog (since 0.32): height fog with optional wind-driven noise, lit by the sun (cascaded shadows), the
+/// ambient term and every clustered local light (spot/point shadows), so flashlight and lamp beams show in the air.
+typedef struct SturdyVolumetricFogSettings {
+    /// Set to `sizeof(SturdyVolumetricFogSettings)` by `sturdy_volumetric_fog_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    SturdyBool sun_shadows;
+    SturdyBool local_light_shadows;
+    uint8_t reserved;
+    /// Extinction per world unit at `base_height`, and its exponential falloff above it (0 = uniform).
+    float density;
+    float height_falloff;
+    float base_height;
+    /// Scattering fraction of extinction per channel, Henyey-Greenstein anisotropy, self-emission per unit length.
+    float albedo[3];
+    float anisotropy;
+    float emissive[3];
+    float sun_intensity;
+    float ambient_intensity;
+    float local_light_intensity;
+    /// Fog is computed this far from the camera, in `slice_count` slices of `tile_px`-pixel froxels.
+    float max_distance;
+    uint32_t tile_px;
+    uint32_t slice_count;
+    /// 1 = linear slices, larger = more slices near the camera.
+    float slice_distribution;
+    /// Weight of the new frame in the temporal blend (lower = smoother, slower).
+    float temporal_blend;
+    float noise_strength;
+    float noise_scale;
+    float wind[3];
+} SturdyVolumetricFogSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (disabled — fog is opt-in).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_volumetric_fog_settings_init(SturdyVolumetricFogSettings *settings);
+
+/// Replaces the volumetric-fog settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_volumetric_fog_settings(
+    SturdyFrame frame, const SturdyVolumetricFogSettings *settings);
+
+/// Indirect specular light (since 0.33): the sky prefiltered per roughness (so every surface reflects something and metals are
+/// never black) plus deterministic (noise-free) screen-space reflections with cone-traced glossiness, which replace it where
+/// the reflected surface is on screen. On by default.
+typedef struct SturdyReflectionSettings {
+    /// Set to `sizeof(SturdyReflectionSettings)` by `sturdy_reflection_settings_init`.
+    uint32_t struct_size;
+    SturdyBool environment;
+    SturdyBool specular_occlusion;
+    SturdyBool screen_space;
+    uint8_t reserved;
+    float environment_intensity;
+    float screen_space_intensity;
+    /// Surfaces rougher than this (perceptual roughness) use only the environment.
+    float max_roughness;
+    uint32_t max_steps;
+    /// How far behind the depth buffer a surface is assumed to extend, as a fraction of its view depth.
+    float thickness;
+    /// Scales how fast the specular cone widens with distance (1 = the GGX lobe).
+    float glossy_blur;
+} SturdyReflectionSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_settings_init(SturdyReflectionSettings *settings);
+
+/// Replaces the reflection settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_reflection_settings(
+    SturdyFrame frame, const SturdyReflectionSettings *settings);
 
 typedef struct SturdyAutoExposureSettings {
     /// Set to `sizeof(SturdyAutoExposureSettings)` by `sturdy_auto_exposure_settings_init`.

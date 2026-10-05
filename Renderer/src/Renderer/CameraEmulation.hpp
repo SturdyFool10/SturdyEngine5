@@ -23,7 +23,7 @@ namespace SFT::Renderer {
                                                                  RHI::Format format, const RenderGraphSettings &settings);
 
     /// The engine's `camera_emulation` frame feature: reads `SceneHdrColor` and republishes the processed colour.
-    /// A no-op unless `settings.camera_emulation.enabled`. Register it (or your own) with `FramePipeline::add`.
+    /// A no-op unless `settings.frame.camera_emulation.enabled`. Register it (or your own) with `FramePipeline::add`.
     [[nodiscard]] Core::RendererResult build_camera_emulation_feature(FrameBuildContext &frame);
 
 } // namespace SFT::Renderer

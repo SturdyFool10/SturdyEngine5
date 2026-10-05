@@ -624,7 +624,7 @@ namespace SFT::Renderer {
         const bool orthographic = std::abs(submission.camera.projection[3][3]) > 0.5f;
         // Below the minimum extent the depth pyramid cannot supply all five mip levels.
         const bool too_small = std::max(render_extent.x, render_extent.y) < kGtaoMinimumRenderExtent;
-        if (!settings.ambient_occlusion || ray_traced_ambient_occlusion || orthographic || too_small) {
+        if (!settings.frame.ambient_occlusion.enabled || ray_traced_ambient_occlusion || orthographic || too_small) {
             auto default_texture = ensure_default_white_texture();
             if (!default_texture) return unexpected(default_texture.error());
             const TextureResource *white = texture(*default_texture);
@@ -660,15 +660,15 @@ namespace SFT::Renderer {
         const f32 width = static_cast<f32>(std::max(render_extent.x, 1u));
         const f32 height = static_cast<f32>(std::max(render_extent.y, 1u));
 
-        const GtaoQualityConfiguration quality = gtao_quality_configuration(settings.ambient_occlusion_quality);
-        const f32 radius = std::max(gtao_finite_or(settings.ambient_occlusion_radius, 1.0f), 1.0e-3f);
-        const f32 falloff_range = std::clamp(gtao_finite_or(settings.ambient_occlusion_falloff_range, 0.615f), 0.05f, 1.0f);
-        const f32 final_value_power = std::clamp(gtao_finite_or(settings.ambient_occlusion_final_value_power, 2.2f), 0.5f, 5.0f);
+        const GtaoQualityConfiguration quality = gtao_quality_configuration(static_cast<u32>(settings.frame.ambient_occlusion.quality));
+        const f32 radius = std::max(gtao_finite_or(settings.frame.ambient_occlusion.radius, 1.0f), 1.0e-3f);
+        const f32 falloff_range = std::clamp(gtao_finite_or(settings.frame.ambient_occlusion.falloff_range, 0.615f), 0.05f, 1.0f);
+        const f32 final_value_power = std::clamp(gtao_finite_or(settings.frame.ambient_occlusion.final_value_power, 2.2f), 0.5f, 5.0f);
         const f32 thin_occluder = std::clamp(
-            gtao_finite_or(settings.ambient_occlusion_thin_occluder_compensation, 0.0f), 0.0f, 0.7f);
+            gtao_finite_or(settings.frame.ambient_occlusion.thin_occluder_compensation, 0.0f), 0.0f, 0.7f);
         const f32 distribution_power = std::clamp(
-            gtao_finite_or(settings.ambient_occlusion_sample_distribution_power, 2.0f), 1.0f, 3.0f);
-        const f32 intensity = std::clamp(gtao_finite_or(settings.ambient_occlusion_intensity, 1.0f), 0.0f, 1.0f);
+            gtao_finite_or(settings.frame.ambient_occlusion.sample_distribution_power, 2.0f), 1.0f, 3.0f);
+        const f32 intensity = std::clamp(gtao_finite_or(settings.frame.ambient_occlusion.intensity, 1.0f), 0.0f, 1.0f);
 
         const GtaoGpuConstants constants{
             .view = submission.camera.view,
@@ -693,7 +693,7 @@ namespace SFT::Renderer {
                 std::max(4.0f, 0.01f * std::min(width, height)),
                 intensity,
             },
-            .lens = glm::vec4{std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f), 0.0f, 0.0f, 0.0f},
+            .lens = glm::vec4{std::max(submission.render_graph.frame.camera_emulation.lens_strength, 0.0f), 0.0f, 0.0f, 0.0f},
         };
 
         auto constant_buffer = device->create_buffer(RHI::BufferDesc{
@@ -766,7 +766,7 @@ namespace SFT::Renderer {
                     constants_buffer, render_extent, submission.transient_bind_groups);
             });
 
-        if (!settings.ambient_occlusion_denoise) {
+        if (!settings.frame.ambient_occlusion.denoise) {
             // Validation path only: the raw buffer is what the lighting pass will consume, which is
             // the intended way to see how much of the final result the denoiser is responsible for.
             return raw_ambient_occlusion;

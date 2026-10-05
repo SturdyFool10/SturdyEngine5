@@ -31,7 +31,7 @@ namespace SFT::Renderer {
     /// Number of tiles the tile-max pass produces per axis.
     [[nodiscard]] glm::uvec2 motion_blur_tile_extent(Core::Extent2D extent, u32 tile_size_px) noexcept;
 
-    /// Adds the passes and returns the blurred colour texture. Reads `settings.motion_blur`.
+    /// Adds the passes and returns the blurred colour texture. Reads `settings.frame.motion_blur`.
     [[nodiscard]] Core::RendererExpected<RenderGraphTextureHandle> add_motion_blur_passes(
         Renderer &renderer, RenderGraph &graph, std::vector<RHI::BindGroupHandle> &transient_bind_groups,
         const MotionBlurDescription &description, const RenderGraphSettings &settings);

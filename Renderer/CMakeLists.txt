@@ -17,6 +17,7 @@ sturdy_add_package(Renderer
 
     PUBLIC_DEPS
         Sturdy::Foundation
+        Sturdy::RenderSettings
         Sturdy::Async
         Sturdy::RHI
         Sturdy::Core

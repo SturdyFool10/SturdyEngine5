@@ -69,7 +69,7 @@ namespace SFT::Renderer {
 
     bool screen_space_gi_active(const RenderGraphSettings &settings, const CameraView &camera) noexcept {
         const bool orthographic = std::abs(camera.projection[3][3]) > 0.5f;
-        return settings.screen_space_gi.enabled && !settings.restir_gi.enabled && settings.render_scene &&
+        return settings.frame.screen_space_gi.enabled && !settings.frame.restir_gi.enabled && settings.render_scene &&
                settings.spectral_path_tracing.mode != SpectralRenderMode::FullPathTracing && !orthographic;
     }
 
@@ -82,7 +82,7 @@ namespace SFT::Renderer {
                 Core::GraphicsBackendErrorCode::OperationFailed,
                 "Screen-space GI requires depth, normal and motion-vector render-graph textures."});
         }
-        const ScreenSpaceGiSettings &gi = settings.screen_space_gi;
+        const ScreenSpaceGiSettings &gi = settings.frame.screen_space_gi;
         const auto trace_kernel = renderer.prepare_compute_kernel(kernel_description("ssgi_trace", "traceMain"));
         if (!trace_kernel) return std::unexpected(trace_kernel.error());
         const auto resolve_kernel = renderer.prepare_compute_kernel(kernel_description("ssgi_resolve", "resolveMain"));
@@ -227,7 +227,7 @@ namespace SFT::Renderer {
         if (!lease) return std::unexpected(lease.error());
         const HistoryConstants constants{
             .inverse_exposure = exposure > 1.0e-6f && std::isfinite(exposure) ? 1.0f / exposure : 1.0f,
-            .max_luminance = std::max(finite_or(settings.screen_space_gi.max_radiance, 64.0f), 0.0f),
+            .max_luminance = std::max(finite_or(settings.frame.screen_space_gi.max_radiance, 64.0f), 0.0f),
             .output_extent = glm::uvec2{half.x, half.y},
         };
         graph.add_compute_pass("ssgi radiance history"_ustr)
@@ -259,7 +259,7 @@ namespace SFT::Renderer {
                 .motion = frame.resources.texture<RenderGraphSemantics::GBufferMotion>(),
                 .extent = frame.module.render_extent,
                 .camera = frame.camera,
-                .lens_strength = frame.settings.camera_emulation.lens_strength,
+                .lens_strength = frame.settings.frame.camera_emulation.lens_strength,
                 .frame_index = frame.frame_index,
                 .history_key = static_cast<u64>(frame.surface.window_id),
             },

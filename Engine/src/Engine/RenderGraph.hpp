@@ -13,14 +13,10 @@
 #include <glm/vec4.hpp>
 
 #include <Engine/RenderGraphModule.hpp>
+#include <RenderSettings/RenderSettings.hpp>
 
 namespace SFT::Engine {
 
-
-    enum class RenderGraphExecutionMode : u8 {
-        FireAndForget,
-        WaitForCompletion,
-    };
 
     enum class RenderFeature : u8 {
         Scene,
@@ -36,507 +32,37 @@ namespace SFT::Engine {
         MotionBlur,
     };
 
-    enum class SceneIntegrator : u8 {
-        RasterDeferred,
-        ShadowOnly,
-        ReflectionOnly,
-        AmbientOcclusionOnly,
-        ShadowAndTransmission,
-        FullPathTracing,
-    };
-
-    enum class AmbientOcclusionQuality : u8 {
-        Low,
-        Medium,
-        High,
-        Ultra,
-    };
-
-
-    enum class PostProcessAntiAliasing : u8 {
-        None,
-        Fxaa,
-        ConservativeMorphological,
-    };
-
-
-    enum class ToneMappingOperator : u8 {
-        None,
-        Reinhard,
-        Exponential,
-        Agx,
-        HermiteSpline,
-        PsychoV,
-    };
-
-
-    enum class AgxLook : u8 {
-        None,
-        Punchy,
-        Golden,
-    };
-
-    struct AgxSettings {
-        AgxLook look = AgxLook::None;
-    };
-
-
-    struct HermiteSplineSettings {
-        f32 toe_strength = 0.5f;
-        f32 toe_length = 0.5f;
-        f32 shoulder_strength = 2.0f;
-        f32 shoulder_length = 0.5f;
-        f32 shoulder_angle = 1.0f;
-    };
-
-
-    struct PsychoVSettings {
-        f32 highlights = 1.0f;
-        f32 shadows = 1.0f;
-        f32 contrast = 1.0f;
-        f32 purity_scale = 1.0f;
-        f32 gamut_compression = 1.0f;
-        bool gamut_compression_use_bt2020 = true;
-
-
-        f32 compression = 0.0f;
-        glm::vec3 adapted_gray_bt709{0.18f};
-        glm::vec3 background_gray_bt709{0.18f};
-    };
-
-    struct SceneRenderSettings {
-        bool enabled = true;
-        SceneIntegrator integrator = SceneIntegrator::RasterDeferred;
-        u32 path_samples_per_pixel = 1;
-        u32 path_max_bounces = 8;
-        u32 path_russian_roulette_start_bounce = 3;
-        u32 caustic_photon_count = 262144;
-        f32 caustic_gather_radius = 0.075f;
-        f32 wavelength_min_nm = 380.0f;
-        f32 wavelength_max_nm = 780.0f;
-
-
-        std::optional<glm::vec4> background_color;
-
-        f32 background_intensity = 1.0f;
-    };
-
-
-    /// Single-frame shadow debug visualizations.
-    ///
-    /// These replace the shaded result for pixels the sun cascade covers so cascade allocation,
-    /// transitions and shadow-map footprint can be judged directly, without any temporal filtering.
-    enum class ShadowDebugView : u8 {
-        /// Normal shading.
-        None = 0,
-        /// Tints each pixel by the cascade it samples.
-        CascadeIndex = 1,
-        /// Tints by cascade and highlights the cross-fade band between two cascades.
-        CascadeFade = 2,
-        /// Draws the shadow-map texel grid of the selected cascade in world space.
-        ShadowTexelGrid = 3,
-        /// Shows the shadow-atlas UV the pixel samples, so tile bounds are directly visible.
-        ShadowUv = 4,
-        /// Shows the normal-offset receiver depth in the selected cascade.
-        ReceiverDepth = 5,
-        /// Shows the depth stored in the directional atlas at the receiver's unfiltered UV.
-        AtlasDepth = 6,
-        /// Shows signed receiver-minus-atlas depth at the unfiltered UV (grey = equal).
-        DepthDelta = 7,
-        /// Shows the receiver's normal-offset displacement in shadow texels.
-        NormalBias = 8,
-        /// Shows the receiver-plane d(depth)/d(shadow UV) correction.
-        ReceiverPlaneGradient = 9,
-        /// Shows the unfiltered hardware depth-comparison result.
-        HardComparison = 10,
-        /// Shows fixed-radius PCF before cascade blending or contact shadows.
-        Pcf = 11,
-        /// Shows the complete rasterized directional CSM result, including cascade blending.
-        DirectionalCsm = 12,
-        /// Isolates the screen-space contact-shadow term, with no cascade shading mixed in.
-        ContactShadow = 13,
-        /// Shows the directional CSM and contact terms multiplied together.
-        CombinedSunVisibility = 14,
-
-        // These renderer-stage views deliberately remain available when `ShadowSettings::enabled`
-        // is false. They distinguish a CSM artifact from material/G-buffer/AO/direct-lighting bugs.
-        /// Raw hardware depth from the G-buffer.
-        GbufferDepth = 15,
-        /// World position, visualized as repeating 10 m coordinate bands.
-        WorldPosition = 16,
-        /// Decoded G-buffer normal, remapped from [-1, 1] to [0, 1].
-        GbufferNormal = 17,
-        /// G-buffer base color.
-        GbufferAlbedo = 18,
-        /// G-buffer perceptual roughness.
-        GbufferRoughness = 19,
-        /// G-buffer metallic value.
-        GbufferMetallic = 20,
-        /// Material-authored ambient-occlusion value.
-        MaterialAmbientOcclusion = 21,
-        /// Ambient/indirect lighting after ambient occlusion is applied.
-        AmbientLighting = 22,
-        /// Directional sun N dot L before any shadow visibility is applied.
-        SunNdotL = 23,
-        /// Directional sun BRDF contribution before any shadow visibility is applied.
-        UnshadowedSunLighting = 24,
-        /// The screen-space ambient-occlusion buffer on its own, exactly as deferred lighting
-        /// consumes it. With `AmbientOcclusionSettings::denoise` off this shows the raw
-        /// horizon-search result instead, which is the intended A/B for judging the denoiser.
-        ScreenSpaceAmbientOcclusion = 25,
-    };
-
-    struct ShadowSettings {
-        bool enabled = true;
-
-
-        /// Edge size of the shared spot/point shadow atlas. Directional cascades no longer draw
-        /// from this atlas; see `cascade_resolutions`.
-        u32 atlas_size = 4096;
-        u32 cascade_count = 4;
-        f32 max_distance = 250.0f;
-        f32 cascade_split_lambda = 0.65f;
-
-
-        /// Fraction of a cascade's view-space depth range spent cross-fading into the next cascade.
-        f32 cascade_blend = 0.10f;
-        f32 depth_bias = 0.75f;
-        f32 slope_bias = 1.0f;
-
-
-        /// Per-cascade shadow-map edge resolution, near cascade first.
-        ///
-        /// Deliberate rather than a by-product of atlas packing. The default keeps the far cascades
-        /// at half the near cascade's resolution: with practical (mostly logarithmic) splits each
-        /// successive cascade covers roughly twice the view-space depth but a much smaller share of
-        /// the screen, so holding them at 1024 keeps world texel size within ~2x of cascade 0 while
-        /// costing a quarter of its memory each. Raise uniformly (e.g. {4096, 2048, 2048, 2048}) for
-        /// a high-quality preset. Values are clamped to powers of two, forced non-increasing, and
-        /// uniformly halved if the packed atlas would exceed the device texture limit.
-        std::array<u32, 4> cascade_resolutions{2048u, 1024u, 1024u, 1024u};
-
-
-        /// PCF filter radius in shadow texels of the sampled cascade.
-        ///
-        /// Texel-relative so the perceived softness stays constant when cascade resolution changes.
-        f32 filter_radius_texels = 2.0f;
-
-
-        /// Receiver normal-offset magnitude in shadow texels at normal incidence.
-        f32 normal_bias = 0.75f;
-
-
-        ShadowDebugView debug_view = ShadowDebugView::None;
-        u32 max_shadowed_spot_lights = 8;
-        u32 max_shadowed_point_lights = 4;
-
-
-        /// Enables optional PCSS-style contact hardening for raster shadows.
-        ///
-        /// Disabled by default: stable CSM geometry and PCF are the baseline, while PCSS can
-        /// amplify residual grazing-angle depth disagreement into a secondary dark band. Enable
-        /// it only after validating a scene's caster/receiver bias at the selected quality level.
-        bool contact_hardening = false;
-
-
-        /// Screen-space short-range sun occlusion.
-        ///
-        /// A refinement for contact detail too small to survive the shadow-map footprint (feet,
-        /// thin stems, cables). It supplements the cascades and is deliberately incapable of
-        /// compensating for them: it is clamped in strength, fades out with view distance, and is
-        /// only ever evaluated within `contact_shadow_distance` world units of the receiver.
-        bool contact_shadows = true;
-        f32 contact_shadow_distance = 0.5f;
-        f32 contact_shadow_thickness = 0.05f;
-        u32 contact_shadow_steps = 8;
-
-
-        /// Maximum darkening the contact term may apply, in [0, 1].
-        ///
-        /// Below 1.0 the effect can never drive the sun contribution to zero on its own, which is
-        /// what keeps it reading as contact occlusion rather than as a second, harder shadow.
-        f32 contact_shadow_intensity = 0.85f;
-
-
-        /// View-space distance at which the contact term has completely faded out.
-        ///
-        /// Past this range a shadow texel is already smaller than the detail the march is meant to
-        /// recover, so the cascades alone are the better answer.
-        f32 contact_shadow_fade_distance = 40.0f;
-    };
-
-    struct AmbientOcclusionSettings {
-        bool enabled = true;
-
-
-        /// World-space radius the occlusion search covers around a shaded point. This bounds the
-        /// *near field*: contact darkening and small crevices, not long-range indirect occlusion.
-        f32 radius = 1.0f;
-
-
-        /// Slice/step budget. High (3 slices x 6 steps = 18 taps) is the paper's practical
-        /// configuration and the default; the 5x5 spatial denoiser is what makes that tap count
-        /// sufficient, so raising this is rarely the right lever.
-        AmbientOcclusionQuality quality = AmbientOcclusionQuality::High;
-
-
-        /// Blend toward fully unoccluded. 1 = full strength, 0 = no occlusion.
-        f32 intensity = 1.0f;
-
-
-        /// Fraction of `radius` over which an occluder fades out. Without a falloff band, occluders
-        /// switch off abruptly at the radius edge and produce a visible ring.
-        f32 falloff_range = 0.615f;
-
-
-        /// Thin-occluder compensation, in [0, 0.7]. The depth buffer is a height field and cannot
-        /// represent how thick a surface is; raising this discards taps sitting behind the shaded
-        /// point sooner. Defaults to 0 deliberately - aggressive thickness assumptions produce black
-        /// halos around railings and foliage and make walls read as far thicker than they are, and
-        /// missing some occlusion looks better than occlusion that is visibly false.
-        f32 thin_occluder_compensation = 0.0f;
-
-
-        /// Contrast curve applied to the visibility term.
-        f32 final_value_power = 2.2f;
-
-
-        /// Exponent of the normalized sample-distance distribution. 2 concentrates taps near the
-        /// shaded pixel, where the visually important occlusion is.
-        f32 sample_distribution_power = 2.0f;
-
-
-        /// Runs the 5x5 edge-aware spatial denoiser. It is part of the algorithm rather than a
-        /// polish step - this renderer has no temporal reconstruction, so the filter is the only
-        /// stage that removes residual sampling structure. Turn it off only to inspect raw output.
-        bool denoise = true;
-    };
-
-    struct AntiAliasingSettings {
-
-
-        u32 msaa_samples = 1;
-        PostProcessAntiAliasing post_process = PostProcessAntiAliasing::Fxaa;
-
-        f32 subpixel_quality = 0.75f;
-
-        f32 edge_threshold = 0.125f;
-    };
-
-
-    struct BloomSettings {
-        bool enabled = true;
-
-
-        f32 threshold = 0.0f;
-        f32 soft_knee = 0.5f;
-        f32 intensity = 0.04f;
-        f32 scatter = 0.7f;
-
-        f32 downsample_ratio = 1.61803398875f;
-
-
-        u32 max_levels = 12;
-    };
-
-    struct ToneMappingSettings {
-        bool enabled = true;
-
-
-        ToneMappingOperator operation = ToneMappingOperator::Agx;
-        f32 exposure = 1.0f;
-        f32 white_point = 1.0f;
-        f32 saturation = 1.0f;
-
-
-        f32 hdr_paper_white_nits = 203.0f;
-        f32 hdr_peak_nits = 1000.0f;
-
-        AgxSettings agx{};
-        HermiteSplineSettings hermite_spline{};
-        PsychoVSettings psycho_v{};
-    };
-
-    struct FrameTimingSettings {
-        bool enabled = false;
-    };
-
-    enum class RestirGiQuality : u8 { Low, Medium, High };
-
-    /// Selects which denoiser resolves ReSTIR GI's raw per-pixel reservoir output into the smoothed
-    /// irradiance the deferred lighting pass consumes. `DlssRayReconstruction`/`FsrRedstone` are seam
-    /// values reserved for future vendor-SDK integrations (NVIDIA NGX/Streamline, AMD's respective
-    /// path); selecting either today falls back to `Svgf` with a one-time warning until that backend is
-    /// actually implemented. Adding a real backend is: implement
-    /// `Renderer::build_<name>_denoiser_module` with the same signature as
-    /// `build_svgf_denoiser_module`, and add its case to `build_restir_gi_denoiser_module`'s switch —
-    /// no other ReSTIR GI code changes.
-    enum class RestirGiDenoiser : u8 { None, Svgf, DlssRayReconstruction, FsrRedstone };
-
-    /// Settings for the ReSTIR GI subsystem: a screen-space reservoir that resamples one ray-traced
-    /// indirect-diffuse bounce per pixel per frame across time (temporal reuse) and neighboring pixels
-    /// (spatial reuse). Replaces the earlier surfel-based GI system.
-    struct RestirGiSettings {
-        bool enabled = false;
-        /// Bounds the GI cost: Low/Medium trace one ray per 2x2 pixel block, High traces every pixel;
-        /// Low also caps spatial reuse to 1 tap and SVGF to 2 a-trous iterations (Medium/High: 2 taps, 3
-        /// iterations). The explicit reuse/iteration settings below can only lower those caps.
-        RestirGiQuality quality = RestirGiQuality::Medium;
-        u32 spatial_reuse_samples = 2;
-        f32 spatial_reuse_radius_px = 12.0f;
-        u32 temporal_history_max = 20;
-        f32 max_ray_distance = 60.0f;
-        /// Damping factor (0-1) applied to last frame's own final lit scene color when it is read back
-        /// as an extra indirect term at a GI ray's hit point, giving convergent multi-bounce lighting
-        /// over a few frames without a separate probe cache. 0 disables multi-bounce feedback.
-        f32 multi_bounce_feedback = 0.5f;
-        f32 intensity = 1.0f;
-        RestirGiDenoiser denoiser = RestirGiDenoiser::Svgf;
-        /// Wavelet filter iterations svgf_atrous.slang runs per frame (step sizes double each
-        /// iteration: 1,2,4,8,16 for the default 5). Only read when `denoiser == Svgf`.
-        u32 svgf_atrous_iterations = 3;
-        /// Temporal color/moment blend rate (0-1, higher = faster/less smoothing). Dynamically raised
-        /// while a pixel's history is still short, the same hysteresis trick surfel GI used.
-        f32 svgf_temporal_alpha = 0.2f;
-        f32 svgf_phi_normal = 128.0f;
-        f32 svgf_phi_depth = 1.0f;
-        f32 svgf_phi_luminance = 4.0f;
-        bool show_debug_reservoirs = false;
-    };
-
-    struct MotionBlurSettings {
-        bool enabled = false;
-        f32 intensity = 1.0f;
-        f32 shutter_angle_degrees = 180.0f;
-        u32 tile_size_px = 20;
-        u32 sample_count = 8;
-        f32 max_blur_radius_px = 32.0f;
-        f32 background_foreground_weight_bias = 0.5f;
-        bool camera_motion_only = false;
-    };
-
-    /// Histogram auto-exposure: meters the scene-linear image before tone mapping and adapts over time. The
-    /// tone-mapping exposure stays as a manual multiplier on top.
-    struct AutoExposureSettings {
-        bool enabled = false;
-        /// Luminance range the histogram meters, as log2(luminance) (scene-linear, 1.0 = 1 unit of radiance).
-        f32 min_log2_luminance = -9.0f;
-        f32 max_log2_luminance = 5.0f;
-        /// The darkest / brightest fraction of the metered pixels ignored, so specular glints and black
-        /// regions do not steer the exposure.
-        f32 low_percent = 0.40f;
-        f32 high_percent = 0.95f;
-        /// Luminance the metered average is mapped to (middle grey).
-        f32 key_value = 0.18f;
-        /// Exposure compensation in stops (+1 = twice as bright).
-        f32 compensation_ev = 0.0f;
-        f32 min_exposure = 0.03f;
-        f32 max_exposure = 32.0f;
-        /// Adaptation rates, per second, when the scene gets darker (exposure rises) / brighter.
-        f32 adapt_up_speed = 2.5f;
-        f32 adapt_down_speed = 1.0f;
-        /// 0 = every pixel counts equally, 1 = the frame edges count for nothing.
-        f32 center_weight = 0.4f;
-    };
-
-    /// How the fisheye is produced.
-    enum class FisheyeMode : u8 {
-        /// A pass after rendering resamples an overscanned (larger, wider) frame. Simple and exact for any
-        /// geometry, but shades the extra pixels.
-        PostProcess,
-        /// The camera passes' vertex stage warps clip positions, so the frame is rasterized directly at output
-        /// resolution: no extra pixels, no resampling. Approximate for large triangles (edges stay straight
-        /// between warped vertices) and unsupported for displaced/mesh-shader materials; see sturdy_space.slang.
-        VertexWarp,
-    };
-
-    /// Body-camera / camcorder look, applied last, in display space (after tone mapping and after any
-    /// custom `AfterToneMap` effects). One cheap fullscreen pass.
-    struct CameraEmulationSettings {
-        bool enabled = false;
-        /// Barrel ("fisheye") distortion, 0..1 (0 = none): how much extra field of view the corners see.
-        /// It stays pixel-perfect: the engine renders the frame `1 + fisheye_strength` times wider and with
-        /// that many more pixels per axis (capped by the 2x render-scale limit), so the centre of the image
-        /// keeps a 1:1 texel-to-pixel ratio and the edges are only ever minified, never stretched. The cost
-        /// is that larger renders, roughly `(1 + fisheye_strength)^2` times the pixels.
-        f32 fisheye_strength = 0.35f;
-        /// Radial red/blue channel separation, as a fraction of the frame half-size at the corners.
-        f32 chromatic_aberration = 0.004f;
-        f32 vignette_strength = 0.35f;
-        /// Luminance-dependent temporal sensor noise (stronger in shadows), 0 = none.
-        f32 sensor_noise = 0.03f;
-        /// Local-contrast sharpening; small camcorder-style over-sharpening starts around 0.3.
-        f32 sharpen = 0.25f;
-        f32 saturation = 0.9f;
-        f32 contrast = 1.08f;
-        /// Multiplies the image; use to push a cool/warm white balance (1,1,1 = neutral).
-        glm::vec3 tint{1.0f, 1.0f, 1.0f};
-        /// Darkens a rounded-rectangle "camera housing" frame around the edges, 0 = none.
-        f32 housing = 0.0f;
-        /// How the fisheye is produced; see `FisheyeMode`.
-        FisheyeMode fisheye_mode = FisheyeMode::PostProcess;
-        /// Set by the engine every frame (any value you write is overwritten): the overscan factor actually
-        /// applied to the projection and render resolution for the post-process fisheye, 1 when there is none.
-        f32 overscan = 1.0f;
-        /// Set by the engine every frame: the strength the vertex-warp lens is applied with, 0 when the fisheye is
-        /// off or post-processed.
-        f32 lens_strength = 0.0f;
-    };
-
-    /// Temporal anti-aliasing and upscaling: the camera is jittered by a sub-pixel amount every frame and the
-    /// `temporal_upscale` feature accumulates the frames into an output-resolution image, so the scene can be rendered
-    /// below the output resolution (`resolution_scale` < 1) and still resolve fine detail. Works on every backend; it
-    /// is also the slot a vendor upscaler (FSR, DLSS, XeSS) replaces.
-    struct TemporalUpscalerSettings {
-        bool enabled = false;
-        /// Blend weight of a new frame where a sample lands exactly on the output pixel (lower = smoother, slower).
-        f32 current_frame_weight = 0.1f;
-        /// History reconstruction: 0 = bilinear (soft), 1 = Catmull-Rom (sharp).
-        f32 sharpness = 0.6f;
-        /// Set by the engine every frame (values you write are overwritten): the screen-UV shift the projection jitter
-        /// applied to the scene this frame and last frame.
-        glm::vec2 jitter_uv{0.0f, 0.0f};
-        glm::vec2 previous_jitter_uv{0.0f, 0.0f};
-    };
-
-    /// Screen-space indirect lighting with a visibility bitmask (SSILVB): one bounce of diffuse light gathered from the
-    /// depth buffer and last frame's lit image. Needs no ray tracing, so it runs on every backend; when ReSTIR GI is
-    /// enabled (and available) that is used instead.
-    struct ScreenSpaceGiSettings {
-        bool enabled = false;
-        f32 intensity = 1.0f;
-        /// How far, in world units, a surface can light its neighbours.
-        f32 radius = 2.0f;
-        /// Assumed thickness of what the depth buffer shows, in world units: light can pass behind thinner things.
-        f32 thickness = 0.25f;
-        /// Screen-space directions searched per pixel and depth taps per direction (both ways), at half resolution.
-        u32 slice_count = 2;
-        u32 step_count = 8;
-        /// Weight of the newest frame in the temporal accumulation (lower = smoother, slower to react).
-        f32 temporal_alpha = 0.1f;
-        /// Brightest scene-linear luminance a texel may contribute (tames sun glints).
-        f32 max_radiance = 64.0f;
-    };
-
-    struct RenderGraphDescription {
-        SceneRenderSettings scene{};
-        ShadowSettings shadows{};
-        AmbientOcclusionSettings ambient_occlusion{};
-        AntiAliasingSettings anti_aliasing{};
-        BloomSettings bloom{};
-        ToneMappingSettings tone_mapping{};
-        FrameTimingSettings frame_timings{};
-        RestirGiSettings restir_gi{};
-        MotionBlurSettings motion_blur{};
-        CameraEmulationSettings camera_emulation{};
-        AutoExposureSettings auto_exposure{};
-        ScreenSpaceGiSettings screen_space_gi{};
-        TemporalUpscalerSettings temporal_upscaler{};
-        RenderGraphExecutionMode execution_mode = RenderGraphExecutionMode::FireAndForget;
-
-
-        f32 resolution_scale = 1.0f;
-    };
+    // Every per-frame setting is defined once, in RenderSettings/RenderSettings.hpp (plain data the renderer, the C ABI
+    // and the CxxApi share). These names are the Engine-side spelling of the same types.
+    using RenderGraphExecutionMode = RenderSettings::ExecutionMode;
+    using SceneIntegrator = RenderSettings::SceneIntegrator;
+    using AmbientOcclusionQuality = RenderSettings::AmbientOcclusionQuality;
+    using PostProcessAntiAliasing = RenderSettings::PostProcessAntiAliasing;
+    using ToneMappingOperator = RenderSettings::ToneMappingOperator;
+    using AgxLook = RenderSettings::AgxLook;
+    using HermiteSplineSettings = RenderSettings::HermiteSplineSettings;
+    using PsychoVSettings = RenderSettings::PsychoVSettings;
+    using SceneRenderSettings = RenderSettings::SceneSettings;
+    using ShadowDebugView = RenderSettings::ShadowDebugView;
+    using ShadowSettings = RenderSettings::ShadowSettings;
+    using AmbientOcclusionSettings = RenderSettings::AmbientOcclusionSettings;
+    using AntiAliasingSettings = RenderSettings::AntiAliasingSettings;
+    using BloomSettings = RenderSettings::BloomSettings;
+    using ToneMappingSettings = RenderSettings::ToneMappingSettings;
+    using RestirGiQuality = RenderSettings::RestirGiQuality;
+    using RestirGiDenoiser = RenderSettings::RestirGiDenoiser;
+    using RestirGiSettings = RenderSettings::RestirGiSettings;
+    using ScreenSpaceGiSettings = RenderSettings::ScreenSpaceGiSettings;
+    using LightingSettings = RenderSettings::LightingSettings;
+    using VolumetricFogSettings = RenderSettings::VolumetricFogSettings;
+    using ReflectionSettings = RenderSettings::ReflectionSettings;
+    using MotionBlurSettings = RenderSettings::MotionBlurSettings;
+    using FisheyeMode = RenderSettings::FisheyeMode;
+    using CameraEmulationSettings = RenderSettings::CameraEmulationSettings;
+    using AutoExposureSettings = RenderSettings::AutoExposureSettings;
+    using TemporalUpscalerSettings = RenderSettings::TemporalUpscalerSettings;
+    /// Everything a frame is rendered with.
+    using RenderGraphDescription = RenderSettings::FrameSettings;
 
     enum class RenderGraphErrorCode : u8 {
         InvalidResolutionScale,
@@ -689,8 +215,12 @@ namespace SFT::Engine {
         /// @note This function does not throw exceptions.
         [[nodiscard]] ToneMappingSettings &tone_mapping() noexcept;
         /// Frame timing collection (off by default); see `RenderFeature::FrameTimings`.
-        [[nodiscard]] const FrameTimingSettings &frame_timings() const noexcept;
-        [[nodiscard]] FrameTimingSettings &frame_timings() noexcept;
+        [[nodiscard]] const LightingSettings &lighting() const noexcept;
+        [[nodiscard]] LightingSettings &lighting() noexcept;
+        [[nodiscard]] const VolumetricFogSettings &volumetric_fog() const noexcept;
+        [[nodiscard]] VolumetricFogSettings &volumetric_fog() noexcept;
+        [[nodiscard]] const ReflectionSettings &reflections() const noexcept;
+        [[nodiscard]] ReflectionSettings &reflections() noexcept;
         /// Returns the current or globally available ReSTIR GI value.
         ///
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.

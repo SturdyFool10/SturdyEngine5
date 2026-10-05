@@ -102,8 +102,8 @@ namespace SFT::Renderer {
             const Core::Extent2D destination_extent = extents[level];
             const BloomConstants constants{
                 .source_texel_size = glm::vec2{1.0f / static_cast<f32>(source_extent.x), 1.0f / static_cast<f32>(source_extent.y)},
-                .threshold = settings.bloom_threshold,
-                .soft_knee = settings.bloom_soft_knee,
+                .threshold = settings.frame.bloom.threshold,
+                .soft_knee = settings.frame.bloom.soft_knee,
                 .filter_scale = glm::vec2{0.5f * static_cast<f32>(source_extent.x) / static_cast<f32>(destination_extent.x),
                                           0.5f * static_cast<f32>(source_extent.y) / static_cast<f32>(destination_extent.y)},
             };
@@ -124,13 +124,13 @@ namespace SFT::Renderer {
         }
 
         // Upsample: accumulate level n into level n-1 as coarse * scatter + fine * (1 - scatter).
-        const f32 scatter = std::clamp(settings.bloom_scatter, 0.0f, 1.0f);
+        const f32 scatter = std::clamp(settings.frame.bloom.scatter, 0.0f, 1.0f);
         for (usize level = extents.size(); level-- > 1;) {
             const Core::Extent2D source_extent = extents[level];
             const BloomConstants constants{
                 .source_texel_size = glm::vec2{1.0f / static_cast<f32>(source_extent.x), 1.0f / static_cast<f32>(source_extent.y)},
-                .threshold = settings.bloom_threshold,
-                .soft_knee = settings.bloom_soft_knee,
+                .threshold = settings.frame.bloom.threshold,
+                .soft_knee = settings.frame.bloom.soft_knee,
                 .filter_scale = glm::vec2{1.0f},
             };
             CustomPostProcessEffect effect = bloom_effect("upsampleMain", constants, prefix + " upsample");
@@ -169,7 +169,7 @@ namespace SFT::Renderer {
         composite.extra_input_count = 1;
         composite.label = UString{prefix + " composite"};
         set_constants(composite, BloomCompositeConstants{
-                                     .bloom_intensity = settings.bloom_intensity,
+                                     .bloom_intensity = settings.frame.bloom.intensity,
                                      .threshold_enabled = description.additive_composite ? 1u : 0u,
                                  });
         RHI::Format composite_format = description.output_format;

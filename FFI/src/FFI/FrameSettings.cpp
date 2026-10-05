@@ -9,6 +9,7 @@
 
 #include <Foundation/Foundation.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <initializer_list>
 
@@ -284,7 +285,7 @@ SturdyResult STURDY_ABI_CALL sturdy_shadow_settings_init(SturdyShadowSettings *s
         settings->cascade_blend = defaults.cascade_blend;
         settings->depth_bias = defaults.depth_bias;
         settings->slope_bias = defaults.slope_bias;
-        for (SFT::usize i = 0; i < defaults.cascade_resolutions.size(); ++i) {
+        for (SFT::usize i = 0; i < std::size(defaults.cascade_resolutions); ++i) {
             settings->cascade_resolutions[i] = defaults.cascade_resolutions[i];
         }
         settings->filter_radius_texels = defaults.filter_radius_texels;
@@ -337,7 +338,7 @@ SturdyResult STURDY_ABI_CALL sturdy_frame_set_shadow_settings(SturdyFrame frame,
         shadows.cascade_blend = settings->cascade_blend;
         shadows.depth_bias = settings->depth_bias;
         shadows.slope_bias = settings->slope_bias;
-        for (SFT::usize i = 0; i < shadows.cascade_resolutions.size(); ++i) {
+        for (SFT::usize i = 0; i < std::size(shadows.cascade_resolutions); ++i) {
             shadows.cascade_resolutions[i] = settings->cascade_resolutions[i];
         }
         shadows.filter_radius_texels = settings->filter_radius_texels;
@@ -539,12 +540,12 @@ SturdyResult STURDY_ABI_CALL sturdy_tone_mapping_settings_init(SturdyToneMapping
         settings->psychov_gamut_compression_use_bt2020 =
             defaults.psycho_v.gamut_compression_use_bt2020 ? STURDY_TRUE : STURDY_FALSE;
         settings->psychov_compression = defaults.psycho_v.compression;
-        settings->psychov_adapted_gray_bt709[0] = defaults.psycho_v.adapted_gray_bt709.x;
-        settings->psychov_adapted_gray_bt709[1] = defaults.psycho_v.adapted_gray_bt709.y;
-        settings->psychov_adapted_gray_bt709[2] = defaults.psycho_v.adapted_gray_bt709.z;
-        settings->psychov_background_gray_bt709[0] = defaults.psycho_v.background_gray_bt709.x;
-        settings->psychov_background_gray_bt709[1] = defaults.psycho_v.background_gray_bt709.y;
-        settings->psychov_background_gray_bt709[2] = defaults.psycho_v.background_gray_bt709.z;
+        settings->psychov_adapted_gray_bt709[0] = defaults.psycho_v.adapted_gray_bt709[0];
+        settings->psychov_adapted_gray_bt709[1] = defaults.psycho_v.adapted_gray_bt709[1];
+        settings->psychov_adapted_gray_bt709[2] = defaults.psycho_v.adapted_gray_bt709[2];
+        settings->psychov_background_gray_bt709[0] = defaults.psycho_v.background_gray_bt709[0];
+        settings->psychov_background_gray_bt709[1] = defaults.psycho_v.background_gray_bt709[1];
+        settings->psychov_background_gray_bt709[2] = defaults.psycho_v.background_gray_bt709[2];
         return STURDY_OK;
     });
 }
@@ -592,7 +593,7 @@ SturdyResult STURDY_ABI_CALL sturdy_frame_set_tone_mapping_settings(SturdyFrame 
         tone_mapping.saturation = settings->saturation;
         tone_mapping.hdr_paper_white_nits = settings->hdr_paper_white_nits;
         tone_mapping.hdr_peak_nits = settings->hdr_peak_nits;
-        tone_mapping.agx.look = agx_look;
+        tone_mapping.agx_look = agx_look;
         tone_mapping.hermite_spline.toe_strength = settings->hermite_toe_strength;
         tone_mapping.hermite_spline.toe_length = settings->hermite_toe_length;
         tone_mapping.hermite_spline.shoulder_strength = settings->hermite_shoulder_strength;
@@ -606,12 +607,8 @@ SturdyResult STURDY_ABI_CALL sturdy_frame_set_tone_mapping_settings(SturdyFrame 
         tone_mapping.psycho_v.gamut_compression_use_bt2020 =
             settings->psychov_gamut_compression_use_bt2020 != STURDY_FALSE;
         tone_mapping.psycho_v.compression = settings->psychov_compression;
-        tone_mapping.psycho_v.adapted_gray_bt709 = glm::vec3{
-            settings->psychov_adapted_gray_bt709[0], settings->psychov_adapted_gray_bt709[1],
-            settings->psychov_adapted_gray_bt709[2]};
-        tone_mapping.psycho_v.background_gray_bt709 = glm::vec3{
-            settings->psychov_background_gray_bt709[0], settings->psychov_background_gray_bt709[1],
-            settings->psychov_background_gray_bt709[2]};
+        std::copy_n(settings->psychov_adapted_gray_bt709, 3, tone_mapping.psycho_v.adapted_gray_bt709);
+        std::copy_n(settings->psychov_background_gray_bt709, 3, tone_mapping.psycho_v.background_gray_bt709);
         return STURDY_OK;
     });
 }
@@ -739,6 +736,178 @@ SturdyResult STURDY_ABI_CALL sturdy_frame_set_motion_blur_settings(SturdyFrame f
     });
 }
 
+// ─── Clustered lighting ─────────────────────────────────────────────────────
+
+SturdyResult STURDY_ABI_CALL sturdy_lighting_settings_init(SturdyLightingSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::RenderSettings::LightingSettings defaults{};
+        *settings = SturdyLightingSettings{};
+        settings->struct_size = static_cast<uint32_t>(sizeof(SturdyLightingSettings));
+        settings->clustered = defaults.clustered ? STURDY_TRUE : STURDY_FALSE;
+        settings->cluster_tile_px = defaults.cluster_tile_px;
+        settings->cluster_depth_slices = defaults.cluster_depth_slices;
+        settings->cluster_max_distance = defaults.cluster_max_distance;
+        settings->max_lights = defaults.max_lights;
+        settings->max_lights_per_cluster = defaults.max_lights_per_cluster;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_frame_set_lighting_settings(SturdyFrame frame, const SturdyLightingSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "settings must not be null");
+        }
+        if (!all_finite({settings->cluster_max_distance})) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "lighting settings must be finite");
+        }
+        SFT::Engine::RenderFrameParameters *parameters = nullptr;
+        const SturdyResult resolved = resolve_frame(frame, &parameters);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        SFT::RenderSettings::LightingSettings &lighting = parameters->render_graph.lighting();
+        lighting.clustered = settings->clustered != STURDY_FALSE;
+        lighting.cluster_tile_px = settings->cluster_tile_px;
+        lighting.cluster_depth_slices = settings->cluster_depth_slices;
+        lighting.cluster_max_distance = settings->cluster_max_distance;
+        lighting.max_lights = settings->max_lights;
+        lighting.max_lights_per_cluster = settings->max_lights_per_cluster;
+        return STURDY_OK;
+    });
+}
+
+// ─── Volumetric fog ─────────────────────────────────────────────────────────
+
+SturdyResult STURDY_ABI_CALL sturdy_volumetric_fog_settings_init(SturdyVolumetricFogSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::RenderSettings::VolumetricFogSettings d{};
+        *settings = SturdyVolumetricFogSettings{};
+        settings->struct_size = static_cast<uint32_t>(sizeof(SturdyVolumetricFogSettings));
+        settings->enabled = d.enabled ? STURDY_TRUE : STURDY_FALSE;
+        settings->sun_shadows = d.sun_shadows ? STURDY_TRUE : STURDY_FALSE;
+        settings->local_light_shadows = d.local_light_shadows ? STURDY_TRUE : STURDY_FALSE;
+        settings->density = d.density;
+        settings->height_falloff = d.height_falloff;
+        settings->base_height = d.base_height;
+        std::copy_n(d.albedo, 3, settings->albedo);
+        settings->anisotropy = d.anisotropy;
+        std::copy_n(d.emissive, 3, settings->emissive);
+        settings->sun_intensity = d.sun_intensity;
+        settings->ambient_intensity = d.ambient_intensity;
+        settings->local_light_intensity = d.local_light_intensity;
+        settings->max_distance = d.max_distance;
+        settings->tile_px = d.tile_px;
+        settings->slice_count = d.slice_count;
+        settings->slice_distribution = d.slice_distribution;
+        settings->temporal_blend = d.temporal_blend;
+        settings->noise_strength = d.noise_strength;
+        settings->noise_scale = d.noise_scale;
+        std::copy_n(d.wind, 3, settings->wind);
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_frame_set_volumetric_fog_settings(SturdyFrame frame,
+                                                                       const SturdyVolumetricFogSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "settings must not be null");
+        }
+        const SturdyVolumetricFogSettings &s = *settings;
+        if (!all_finite({s.density, s.height_falloff, s.base_height, s.albedo[0], s.albedo[1], s.albedo[2], s.anisotropy,
+                         s.emissive[0], s.emissive[1], s.emissive[2], s.sun_intensity, s.ambient_intensity,
+                         s.local_light_intensity, s.max_distance, s.slice_distribution, s.temporal_blend, s.noise_strength,
+                         s.noise_scale, s.wind[0], s.wind[1], s.wind[2]})) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "volumetric fog settings must be finite");
+        }
+        SFT::Engine::RenderFrameParameters *parameters = nullptr;
+        const SturdyResult resolved = resolve_frame(frame, &parameters);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        SFT::RenderSettings::VolumetricFogSettings &fog = parameters->render_graph.volumetric_fog();
+        fog.enabled = s.enabled != STURDY_FALSE;
+        fog.sun_shadows = s.sun_shadows != STURDY_FALSE;
+        fog.local_light_shadows = s.local_light_shadows != STURDY_FALSE;
+        fog.density = s.density;
+        fog.height_falloff = s.height_falloff;
+        fog.base_height = s.base_height;
+        std::copy_n(s.albedo, 3, fog.albedo);
+        fog.anisotropy = s.anisotropy;
+        std::copy_n(s.emissive, 3, fog.emissive);
+        fog.sun_intensity = s.sun_intensity;
+        fog.ambient_intensity = s.ambient_intensity;
+        fog.local_light_intensity = s.local_light_intensity;
+        fog.max_distance = s.max_distance;
+        fog.tile_px = s.tile_px;
+        fog.slice_count = s.slice_count;
+        fog.slice_distribution = s.slice_distribution;
+        fog.temporal_blend = s.temporal_blend;
+        fog.noise_strength = s.noise_strength;
+        fog.noise_scale = s.noise_scale;
+        std::copy_n(s.wind, 3, fog.wind);
+        return STURDY_OK;
+    });
+}
+
+// ─── Reflections ────────────────────────────────────────────────────────────
+
+SturdyResult STURDY_ABI_CALL sturdy_reflection_settings_init(SturdyReflectionSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::RenderSettings::ReflectionSettings d{};
+        *settings = SturdyReflectionSettings{};
+        settings->struct_size = static_cast<uint32_t>(sizeof(SturdyReflectionSettings));
+        settings->environment = d.environment ? STURDY_TRUE : STURDY_FALSE;
+        settings->specular_occlusion = d.specular_occlusion ? STURDY_TRUE : STURDY_FALSE;
+        settings->screen_space = d.screen_space ? STURDY_TRUE : STURDY_FALSE;
+        settings->environment_intensity = d.environment_intensity;
+        settings->screen_space_intensity = d.screen_space_intensity;
+        settings->max_roughness = d.max_roughness;
+        settings->max_steps = d.max_steps;
+        settings->thickness = d.thickness;
+        settings->glossy_blur = d.glossy_blur;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_frame_set_reflection_settings(SturdyFrame frame, const SturdyReflectionSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "settings must not be null");
+        }
+        if (!all_finite({settings->environment_intensity, settings->screen_space_intensity, settings->max_roughness,
+                         settings->thickness, settings->glossy_blur})) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "reflection settings must be finite");
+        }
+        SFT::Engine::RenderFrameParameters *parameters = nullptr;
+        const SturdyResult resolved = resolve_frame(frame, &parameters);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        SFT::RenderSettings::ReflectionSettings &r = parameters->render_graph.reflections();
+        r.environment = settings->environment != STURDY_FALSE;
+        r.specular_occlusion = settings->specular_occlusion != STURDY_FALSE;
+        r.screen_space = settings->screen_space != STURDY_FALSE;
+        r.environment_intensity = settings->environment_intensity;
+        r.screen_space_intensity = settings->screen_space_intensity;
+        r.max_roughness = settings->max_roughness;
+        r.max_steps = settings->max_steps;
+        r.thickness = settings->thickness;
+        r.glossy_blur = settings->glossy_blur;
+        return STURDY_OK;
+    });
+}
+
 // ─── Auto exposure ──────────────────────────────────────────────────────────
 
 SturdyResult STURDY_ABI_CALL sturdy_auto_exposure_settings_init(SturdyAutoExposureSettings *settings) {
@@ -815,9 +984,9 @@ SturdyResult STURDY_ABI_CALL sturdy_camera_emulation_settings_init(SturdyCameraE
         settings->saturation = defaults.saturation;
         settings->contrast = defaults.contrast;
         settings->housing = defaults.housing;
-        settings->tint_r = defaults.tint.r;
-        settings->tint_g = defaults.tint.g;
-        settings->tint_b = defaults.tint.b;
+        settings->tint_r = defaults.tint[0];
+        settings->tint_g = defaults.tint[1];
+        settings->tint_b = defaults.tint[2];
         return STURDY_OK;
     });
 }
@@ -846,7 +1015,9 @@ SturdyResult STURDY_ABI_CALL sturdy_frame_set_camera_emulation_settings(
         camera.saturation = settings->saturation;
         camera.contrast = settings->contrast;
         camera.housing = settings->housing;
-        camera.tint = glm::vec3{settings->tint_r, settings->tint_g, settings->tint_b};
+        camera.tint[0] = settings->tint_r;
+        camera.tint[1] = settings->tint_g;
+        camera.tint[2] = settings->tint_b;
         return STURDY_OK;
     });
 }

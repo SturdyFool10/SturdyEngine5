@@ -69,7 +69,7 @@ namespace {
         passed &= check(!graph.scene().enabled, "overlay-only graph still enables scene rendering");
         passed &= check(!graph.bloom().enabled, "overlay-only graph still enables bloom");
         passed &= check(!graph.tone_mapping().enabled, "overlay-only graph still enables tone mapping");
-        passed &= check(graph.frame_timings().enabled,
+        passed &= check(graph.description().frame_timings,
                         "overlay-only graph disabled timing collection with scene rendering");
         return passed;
     }

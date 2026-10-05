@@ -20,9 +20,9 @@ namespace SFT::Renderer {
 
     CustomPostProcessEffect post_process_aa_effect(const RenderGraphSettings &settings) {
         const PostProcessAaConstants constants{
-            .mode = settings.post_process_aa,
-            .subpixel = settings.aa_subpixel_quality,
-            .edge_threshold = settings.aa_edge_threshold,
+            .mode = static_cast<u32>(settings.frame.anti_aliasing.post_process),
+            .subpixel = settings.frame.anti_aliasing.subpixel_quality,
+            .edge_threshold = settings.frame.anti_aliasing.edge_threshold,
         };
         CustomPostProcessEffect effect{
             .shader_path = "Shaders/fullscreen_anti_aliasing.slang",
@@ -40,7 +40,7 @@ namespace SFT::Renderer {
                                                   std::vector<RHI::BindGroupHandle> &transient_bind_groups,
                                                   RenderGraphTextureHandle source, RenderGraphTextureHandle destination,
                                                   Core::Extent2D extent, RHI::Format format, const RenderGraphSettings &settings) {
-        if (settings.post_process_aa == 0) {
+        if (settings.frame.anti_aliasing.post_process == RenderSettings::PostProcessAntiAliasing::None) {
             return {};
         }
         return add_fullscreen_effect_pass(renderer, graph, transient_bind_groups,

@@ -152,7 +152,7 @@ namespace SFT::Renderer {
         RenderGraphTextureHandle transmittance_lut,
         RenderGraphTextureHandle sky_view_lut) {
         ZoneScopedN("Renderer::build_restir_gi_module");
-        const RestirGiSettings &settings = submission.render_graph.restir_gi;
+        const RestirGiSettings &settings = submission.render_graph.frame.restir_gi;
 
         if (!settings.enabled) {
             auto default_texture = ensure_default_white_texture();
@@ -174,7 +174,7 @@ namespace SFT::Renderer {
         }
 
         const glm::uvec2 render_extent{context.render_extent.x, context.render_extent.y};
-        const u32 grid_scale = restir_gi_grid_scale(settings.quality);
+        const u32 grid_scale = restir_gi_grid_scale(static_cast<u32>(settings.quality));
         if (Core::RendererResult ready = ensure_restir_gi_resources(render_extent, grid_scale); !ready.has_value()) {
             return unexpected(ready.error());
         }
@@ -184,7 +184,7 @@ namespace SFT::Renderer {
             grid_extent = glm::uvec2{guard->reservoir_extent_x, guard->reservoir_extent_y};
         }
         // `quality` bounds the reuse work; the explicit settings can only ask for less than the cap.
-        const u32 spatial_taps = std::min(settings.spatial_reuse_samples, restir_gi_max_spatial_taps(settings.quality));
+        const u32 spatial_taps = std::min(settings.spatial_reuse_samples, restir_gi_max_spatial_taps(static_cast<u32>(settings.quality)));
 
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -250,7 +250,7 @@ namespace SFT::Renderer {
                 static_cast<f32>(light_count),
                 settings.multi_bounce_feedback,
                 has_history ? 1.0f : 0.0f,
-                std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f),
+                std::max(submission.render_graph.frame.camera_emulation.lens_strength, 0.0f),
             },
         };
         constants.lights = packed_lights;

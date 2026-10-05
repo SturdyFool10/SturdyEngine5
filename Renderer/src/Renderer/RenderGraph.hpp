@@ -84,6 +84,9 @@ namespace SFT::Renderer {
     };
 
     struct RenderGraphTextureDesc {
+        /// `Dim3D` makes a volume (`extent.depth_or_layers` is its depth) viewed as a 3D texture; `Dim2D` with more than one
+        /// layer is an array.
+        RHI::TextureDimension dimension = RHI::TextureDimension::Dim2D;
         RHI::Format format = RHI::Format::Undefined;
         RHI::Extent3D extent{};
         u32 mip_levels = 1;

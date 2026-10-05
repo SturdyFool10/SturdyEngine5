@@ -140,11 +140,11 @@ namespace {
         desc.frame.framebuffer_height = kSize;
         desc.frame.frame_index = h.frame++;
         desc.view.render_graph.render_scene = false;
-        desc.view.render_graph.tone_mapping = false;
-        desc.view.render_graph.bloom = false;
-        desc.view.render_graph.shadows = false;
-        desc.view.render_graph.ambient_occlusion = false;
-        desc.view.render_graph.wait_for_completion = true;
+        desc.view.render_graph.frame.tone_mapping.enabled = false;
+        desc.view.render_graph.frame.bloom.enabled = false;
+        desc.view.render_graph.frame.shadows.enabled = false;
+        desc.view.render_graph.frame.ambient_occlusion.enabled = false;
+        desc.view.render_graph.frame.execution_mode = SFT::RenderSettings::ExecutionMode::WaitForCompletion;
         desc.view.render_graph.overlay_passes.push_back(ui.finish_overlay(&h.renderer));
         if (Core::RendererResult r = h.renderer.render_frame(desc); !r) {
             std::cerr << "render_frame failed: " << r.error().message << '\n';

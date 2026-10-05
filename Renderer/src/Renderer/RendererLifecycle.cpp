@@ -394,7 +394,7 @@ namespace SFT::Renderer {
 
         {
             ScopedRendererStageTimer timer{"extract render items",
-                                           desc.view.render_graph.frame_timings ? &submission.pre_dispatch_stage_timings_ms : nullptr};
+                                           desc.view.render_graph.frame.frame_timings ? &submission.pre_dispatch_stage_timings_ms : nullptr};
             submission.draws.reserve(desc.view.renderables.size());
             for (const SceneRenderable &renderable : desc.view.renderables) {
                 if ((renderable.visibility_mask & desc.view.visibility_mask) == 0) {
@@ -509,7 +509,7 @@ namespace SFT::Renderer {
 
         {
             ScopedRendererStageTimer timer{"sort render items",
-                                           submission.render_graph.frame_timings ? &submission.pre_dispatch_stage_timings_ms : nullptr};
+                                           submission.render_graph.frame.frame_timings ? &submission.pre_dispatch_stage_timings_ms : nullptr};
             std::sort(submission.draws.begin(), submission.draws.end(), [](const RenderItem &a, const RenderItem &b) {
                 if (!(a.material == b.material)) {
                     return a.material.value < b.material.value;
@@ -1530,12 +1530,12 @@ namespace SFT::Renderer {
                                                 "Renderer RHI device is unavailable.");
         }
         if (Core::RendererResult spectral_ready = ensure_spectral_path_tracing_resources(
-                submission.render_graph.spectral_path_tracing.mode, submission.render_graph.restir_gi.enabled);
+                submission.render_graph.spectral_path_tracing.mode, submission.render_graph.frame.restir_gi.enabled);
             !spectral_ready.has_value()) {
             return spectral_ready;
         }
         if (submission.render_graph.spectral_path_tracing.mode != SpectralRenderMode::RasterDeferred ||
-            submission.render_graph.restir_gi.enabled) {
+            submission.render_graph.frame.restir_gi.enabled) {
             if (Core::RendererResult acceleration_ready =
                     ensure_spectral_mesh_acceleration_structures(submission.draws);
                 !acceleration_ready.has_value()) {
@@ -1771,7 +1771,7 @@ namespace SFT::Renderer {
         const RHI::Format output_format = offscreen_output
             ? RHI::Format::BGRA8UnormSrgb
             : active_presentation.effective_format;
-        const f32 resolution_scale = std::clamp(submission.render_graph.resolution_scale, 0.1f, 2.0f);
+        const f32 resolution_scale = std::clamp(submission.render_graph.frame.resolution_scale, 0.1f, 2.0f);
         const Core::Extent2D render_extent = glm::max(
             Core::Extent2D{std::lround(static_cast<f64>(presentation_extent.x) * resolution_scale),
                            std::lround(static_cast<f64>(presentation_extent.y) * resolution_scale)},
@@ -1793,7 +1793,7 @@ namespace SFT::Renderer {
         // A custom visibility rule bypasses the frustum-based GPU instance culling unless the model says it is compatible.
         // The instanced path draws the original meshes and its HiZ test does not know the lens, so it is off under the lens.
         const bool gpu_instance_culling = space_model_snapshot->gpu_culling && !space_model_snapshot->item_visible &&
-                                          !(submission.render_graph.camera_emulation.lens_strength > 0.0f);
+                                          !(submission.render_graph.frame.camera_emulation.lens_strength > 0.0f);
         const vector<InstancedBatch> instanced_batches =
             submission.render_graph.render_scene && gpu_instance_culling ? detect_instanced_batches(submission.draws) : vector<InstancedBatch>{};
 
@@ -1841,7 +1841,7 @@ namespace SFT::Renderer {
         const bool full_path_tracing = submission.render_graph.spectral_path_tracing.mode ==
                                        SpectralRenderMode::FullPathTracing;
         const u32 requested_msaa = full_path_tracing
-            ? 1u : std::min(std::max(submission.render_graph.msaa_samples, 1u), 8u);
+            ? 1u : std::min(std::max(submission.render_graph.frame.anti_aliasing.msaa_samples, 1u), 8u);
         const u32 supported_msaa = device->limits().framebuffer_sample_counts;
         const RHI::SampleCount framebuffer_samples =
             requested_msaa >= 8u && (supported_msaa & 8u) != 0 ? RHI::SampleCount::X8 :
@@ -1901,7 +1901,7 @@ namespace SFT::Renderer {
             hash_float_both(submission.lighting.sun.radiance.x);
             hash_float_both(submission.lighting.sun.radiance.y);
             hash_float_both(submission.lighting.sun.radiance.z);
-            hash_float(submission.render_graph.background_intensity);
+            hash_float(submission.render_graph.frame.scene.background_intensity);
             const SpectralPathTracingSettings &spectral = submission.render_graph.spectral_path_tracing;
             hash_u64_both(spectral.samples_per_pixel);
             hash_u64_both(spectral.max_bounces);
@@ -1942,24 +1942,24 @@ namespace SFT::Renderer {
                 .extent_height = record.hiz_pyramid.extent.y,
                 .mip_count = record.hiz_pyramid.mip_levels,
                 // The pyramid holds lens-warped depth; the culling shader projects bounds without the lens.
-                .valid = record.hiz_pyramid.has_valid_data && !(submission.render_graph.camera_emulation.lens_strength > 0.0f),
+                .valid = record.hiz_pyramid.has_valid_data && !(submission.render_graph.frame.camera_emulation.lens_strength > 0.0f),
             };
         }
         PreparedShadowFrame shadow_frame{};
         if (submission.render_graph.render_scene) {
             const SpectralIntegratorPolicy integrator_policy = spectral_integrator_policy(
                 submission.render_graph.spectral_path_tracing.mode);
-            const u32 requested_shadow_atlas = submission.render_graph.shadows &&
+            const u32 requested_shadow_atlas = submission.render_graph.frame.shadows.enabled &&
                                                        integrator_policy.raster_shadow_atlas
-                                                   ? submission.render_graph.shadow_atlas_size
+                                                   ? submission.render_graph.frame.shadows.atlas_size
                                                    : 0u;
             const DirectionalAtlasLayout directional_layout =
                 requested_shadow_atlas == 0
                     ? DirectionalAtlasLayout{}
                     : build_directional_atlas_layout(
-                          span<const u32>{submission.render_graph.shadow_cascade_resolutions.data(),
-                                          submission.render_graph.shadow_cascade_resolutions.size()},
-                          submission.render_graph.shadow_cascade_count,
+                          span<const u32>{submission.render_graph.frame.shadows.cascade_resolutions,
+                                          std::size(submission.render_graph.frame.shadows.cascade_resolutions)},
+                          submission.render_graph.frame.shadows.cascade_count,
                           device->limits().max_texture_dimension_2d);
             if (Core::RendererResult shadow_targets =
                     ensure_frame_shadow_targets(slot, requested_shadow_atlas, directional_layout);
@@ -2018,8 +2018,8 @@ namespace SFT::Renderer {
             }
         }
         const bool direct_overlay_presentation =
-            !submission.render_graph.render_scene && !submission.render_graph.tone_mapping &&
-            !submission.render_graph.bloom && submission.render_graph.post_process_aa == 0u &&
+            !submission.render_graph.render_scene && !submission.render_graph.frame.tone_mapping.enabled &&
+            !submission.render_graph.frame.bloom.enabled && submission.render_graph.frame.anti_aliasing.post_process == RenderSettings::PostProcessAntiAliasing::None &&
             submission.render_graph.custom_post_processes.empty() &&
             submission.render_graph.custom_graph.passes.empty() && submission.gizmo_draws.empty() &&
             std::ranges::any_of(submission.render_graph.overlay_passes,
@@ -2030,7 +2030,7 @@ namespace SFT::Renderer {
                                                      [](const OverlayPass &overlay) { return static_cast<bool>(overlay.draw); });
         const bool direct_overlay_display_transform =
             has_overlay && (hdr_output || (direct_overlay_presentation && static_cast<bool>(record.presentation.transparent_composition)));
-        f32 ui_reference_white_nits = submission.render_graph.tone_mapping_hdr_paper_white_nits;
+        f32 ui_reference_white_nits = submission.render_graph.frame.tone_mapping.hdr_paper_white_nits;
         bool platform_reference_white = false;
         if (hdr_output && record.window != nullptr) {
             if (const optional<WindowManager::WindowHdrProperties> properties =
@@ -2093,7 +2093,7 @@ namespace SFT::Renderer {
         // "commandEncoder.writeTimestamp is not a function" the moment any frame with the debug
         // overlay visible tried to record a timing query -- this was never checked at all before.
         const bool gpu_timing_enabled =
-            submission.render_graph.frame_timings && device->is_enabled(RHI::Feature::TimestampQueries);
+            submission.render_graph.frame.frame_timings && device->is_enabled(RHI::Feature::TimestampQueries);
         if (gpu_timing_enabled) {
             if (Core::RendererResult pregraph_timing = ensure_frame_pregraph_gpu_timing_target(slot);
                 !pregraph_timing.has_value()) {
@@ -2104,7 +2104,7 @@ namespace SFT::Renderer {
         }
         const bool spectral_scene_active = submission.render_graph.spectral_path_tracing.mode !=
                                                SpectralRenderMode::RasterDeferred ||
-                                           submission.render_graph.restir_gi.enabled;
+                                           submission.render_graph.frame.restir_gi.enabled;
         if (spectral_scene_active) {
             if (gpu_timing_enabled) {
                 (**encoder).write_timestamp(RHI::PipelineStage::AllCommands, slot.pregraph_gpu_timing_query_set, 0);
@@ -2192,11 +2192,12 @@ namespace SFT::Renderer {
 
 
         const steady_clock::time_point declare_graph_start = steady_clock::now();
+        const RenderSettings::SceneSettings &scene_settings = submission.render_graph.frame.scene;
         const glm::vec4 background{
-            submission.render_graph.background_color.r * submission.render_graph.background_intensity,
-            submission.render_graph.background_color.g * submission.render_graph.background_intensity,
-            submission.render_graph.background_color.b * submission.render_graph.background_intensity,
-            submission.render_graph.background_color.a,
+            scene_settings.background_color[0] * scene_settings.background_intensity,
+            scene_settings.background_color[1] * scene_settings.background_intensity,
+            scene_settings.background_color[2] * scene_settings.background_intensity,
+            scene_settings.background_color[3],
         };
         const RenderGraphTextureHandle final_output = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = output_texture,
@@ -2603,7 +2604,7 @@ namespace SFT::Renderer {
             return built;
         }
 
-        if (submission.render_graph.frame_timings) {
+        if (submission.render_graph.frame.frame_timings) {
             const f64 seconds = duration<f64>(steady_clock::now() - declare_graph_start).count();
             current_frame_cpu_stage_timings_ms.emplace_back("declare render graph", seconds * 1000.0);
         }
@@ -2764,7 +2765,7 @@ namespace SFT::Renderer {
             }
         }
 
-        if (submission.render_graph.wait_for_completion) {
+        if (submission.render_graph.frame.execution_mode == RenderSettings::ExecutionMode::WaitForCompletion) {
             ScopedRendererStageTimer timer{"wait explicitly requested frame completion", &current_frame_cpu_stage_timings_ms};
             auto waited = device->wait_fences(span<const RHI::FenceHandle>{&slot.fence, 1}, true);
             if (!waited) {

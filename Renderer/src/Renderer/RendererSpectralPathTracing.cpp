@@ -766,7 +766,7 @@ namespace SFT::Renderer {
         RHI::CommandEncoder &encoder, FrameInFlight &slot, const FrameSubmission &submission) {
         ZoneScopedN("Renderer::prepare_spectral_scene_acceleration_structure");
         if (submission.render_graph.spectral_path_tracing.mode == SpectralRenderMode::RasterDeferred &&
-            !submission.render_graph.restir_gi.enabled) {
+            !submission.render_graph.frame.restir_gi.enabled) {
             return {};
         }
         RHI::RhiDevice *device = rhi_device();
@@ -1490,15 +1490,15 @@ namespace SFT::Renderer {
             .samples_per_pixel = settings.samples_per_pixel,
             .max_bounces = settings.max_bounces,
             .russian_roulette_start_bounce = settings.russian_roulette_start_bounce,
-            .ao_ray_count = std::max(1u, submission.render_graph.ambient_occlusion_quality + 1u),
+            .ao_ray_count = std::max(1u, static_cast<u32>(submission.render_graph.frame.ambient_occlusion.quality) + 1u),
             .instance_mask = 0xffu,
-            .ao_radius = submission.render_graph.ambient_occlusion_radius,
+            .ao_radius = submission.render_graph.frame.ambient_occlusion.radius,
             .wavelength_min_nm = settings.wavelength_min_nm,
             .wavelength_max_nm = settings.wavelength_max_nm,
-            .environment_intensity = submission.render_graph.background_intensity,
+            .environment_intensity = submission.render_graph.frame.scene.background_intensity,
             .caustic_gather_parameters = glm::vec4{
                 settings.caustic_gather_radius, settings.caustic_gather_radius,
-                std::max(submission.render_graph.camera_emulation.lens_strength, 0.0f), 0.0f},
+                std::max(submission.render_graph.frame.camera_emulation.lens_strength, 0.0f), 0.0f},
             .caustic_gather_control = glm::uvec4{
                 slot.spectral_photon_targets.hash_capacity,
                 128u,

@@ -137,7 +137,7 @@ namespace SFT::Renderer {
             return std::unexpected(Core::GraphicsBackendError{
                 Core::GraphicsBackendErrorCode::OperationFailed, "Auto exposure needs the output format."});
         }
-        const AutoExposureSettings &exposure = settings.auto_exposure;
+        const AutoExposureSettings &exposure = settings.frame.auto_exposure;
 
         const auto histogram_kernel = renderer.prepare_compute_kernel(kernel_description("auto_exposure_histogram", "histogramMain"));
         if (!histogram_kernel) return std::unexpected(histogram_kernel.error());
@@ -279,7 +279,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult build_auto_exposure_feature(FrameBuildContext &frame) {
-        if (!frame.settings.auto_exposure.enabled || frame.direct_overlay_presentation) {
+        if (!frame.settings.frame.auto_exposure.enabled || frame.direct_overlay_presentation) {
             return {};
         }
         const RenderGraphTextureHandle source = frame.resources.texture<RenderGraphSemantics::SceneHdrColor>();

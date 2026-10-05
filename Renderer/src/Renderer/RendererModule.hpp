@@ -852,6 +852,9 @@ namespace SFT::Renderer {
         [[nodiscard]] Core::RendererResult build_frame_feature_spectral_path_tracing(FrameBuildContext &context);
         [[nodiscard]] Core::RendererResult build_frame_feature_ambient_occlusion(FrameBuildContext &context);
         [[nodiscard]] Core::RendererResult build_frame_feature_global_illumination(FrameBuildContext &context);
+        /// Feature `lighting_data` (Scene stage): publishes the frame's lighting constants and clustered light list on the blackboard
+        /// (LightingConstants, LocalLights, LightClusterRanges, LightClusterIndices) so any later feature can light with them.
+        [[nodiscard]] Core::RendererResult build_frame_feature_lighting_data(FrameBuildContext &context);
         [[nodiscard]] Core::RendererResult build_frame_feature_lighting(FrameBuildContext &context);
         [[nodiscard]] Core::RendererResult build_frame_feature_restir_history_copy(FrameBuildContext &context);
         [[nodiscard]] Core::RendererResult build_frame_feature_msaa_resolve(FrameBuildContext &context);
@@ -945,6 +948,18 @@ namespace SFT::Renderer {
             glm::vec4 shadow_params{};
         };
 
+        /// One entry of the clustered local-light list (`sturdy_lighting_data.slang` `LocalLightGpuData`).
+        struct alignas(16) LocalLightGpuData {
+            /// xyz position, w range.
+            glm::vec4 position_range{};
+            /// Spot: xyz cone axis, w cos(outer half-angle). Point: w = -2.
+            glm::vec4 direction_outer_cos{};
+            /// rgb radiance, w cos(inner half-angle) for spots.
+            glm::vec4 radiance_inner_cos{};
+            /// x first shadow view (-1 none), y source radius, z 0 = spot / 1 = point.
+            glm::vec4 shadow_radius_kind{};
+        };
+
         struct alignas(16) ShadowLightingGpuData {
             glm::mat4 inverse_view_projection{1.0f};
             glm::mat4 view_projection{1.0f};
@@ -967,6 +982,15 @@ namespace SFT::Renderer {
             std::array<SpotLightGpuData, max_lighting_spot_lights> spot_lights{};
             std::array<PointLightGpuData, max_lighting_point_lights> point_lights{};
             std::array<ShadowViewGpuData, max_shadow_views> shadow_views{};
+            /// Clustered lighting: (tiles x, tiles y, depth slices, tile size in pixels).
+            glm::vec4 cluster_grid{};
+            /// (near, far, slice scale, slice bias): slice = floor(log(view depth) * scale + bias).
+            glm::vec4 cluster_depth{};
+            /// (1 = clustered lighting on, local light count, max lights per cluster, unused).
+            glm::vec4 cluster_flags{};
+            /// Indirect specular: (environment intensity, 0 = no environment; screen-space reflection intensity, 0 = none;
+            /// 1 = specular occlusion; unused).
+            glm::vec4 indirect_specular{};
         };
 
         struct ShadowRenderView {
@@ -1038,6 +1062,12 @@ namespace SFT::Renderer {
             vector<ShadowRenderView> punctual_views;
             bool atlas_used = false;
             bool directional_atlas_used = false;
+            /// Clustered lighting this frame (false: the lighting pass loops the first 8 spot + 8 point lights).
+            bool clustered = false;
+            u32 local_light_count = 0;
+            u32 cluster_count = 0;
+            u32 clustered_entries = 0;
+            u32 clustered_dropped = 0;
         };
 
         struct FrameShadowTargets {
@@ -1046,6 +1076,13 @@ namespace SFT::Renderer {
             RHI::TextureHandle atlas{};
             RHI::TextureViewHandle atlas_view{};
             RHI::BufferHandle lighting_buffer{};
+            /// Clustered lighting storage, grown on demand (bytes): every local light, per-cluster ranges, light indices.
+            RHI::BufferHandle local_lights_buffer{};
+            RHI::BufferHandle cluster_ranges_buffer{};
+            RHI::BufferHandle cluster_indices_buffer{};
+            u64 local_lights_capacity = 0;
+            u64 cluster_ranges_capacity = 0;
+            u64 cluster_indices_capacity = 0;
 
 
             DirectionalAtlasLayout directional_layout{};
@@ -2523,6 +2560,12 @@ namespace SFT::Renderer {
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<TextureHandle> ensure_default_flat_normal_texture();
+        /// Finds or creates a 1x1 (0, 0, 0, 0) texture: the neutral input for an optional effect whose alpha is a
+        /// confidence (screen-space reflections), so a pass that binds it unconditionally reads "nothing here".
+        [[nodiscard]] Core::RendererExpected<TextureHandle> ensure_default_transparent_black_texture();
+        /// Imports one of the 1x1 default textures into `graph` as a sampled texture.
+        [[nodiscard]] Core::RendererExpected<RenderGraphTextureHandle> import_default_texture(RenderGraph &graph, TextureHandle handle,
+                                                                                            const char *label);
 
 
         /// Resolves the material pipeline associated with the supplied key, handle, or resource.
@@ -2654,11 +2697,14 @@ namespace SFT::Renderer {
             RHI::TextureViewHandle shadow_atlas_view,
             RHI::TextureViewHandle directional_shadow_atlas_view,
             RHI::BufferHandle lighting_buffer,
+            const FrameShadowTargets &cluster_targets,
             RHI::TextureViewHandle transmittance_lut_view,
             RHI::TextureViewHandle multi_scattering_lut_view,
             RHI::TextureViewHandle sky_view_lut_view,
             RHI::TextureViewHandle surfel_irradiance_view,
             RHI::TextureViewHandle gtao_ambient_occlusion_view,
+            RHI::TextureViewHandle environment_atlas_view,
+            RHI::TextureViewHandle ssr_radiance_view,
             RHI::BufferHandle atmosphere_buffer,
             RHI::Format color_format,
             vector<RHI::BindGroupHandle> &transient_bind_groups);
@@ -3395,6 +3441,7 @@ namespace SFT::Renderer {
         Async::Mutex<vector<DisplacedMaterialRecord>> displaced_materials_;
         TextureHandle default_white_texture_{};
         TextureHandle default_flat_normal_texture_{};
+        TextureHandle default_transparent_black_texture_{};
 
 
         vector<RenderItem> frame_draws_;

@@ -192,9 +192,9 @@ namespace {
         desc.view.lighting.sun.direction = glm::normalize(glm::vec3{-0.6f, -0.5f, -0.4f});
         desc.view.lighting.sun.radiance = {3.0f, 2.9f, 2.7f};
         desc.view.renderables = std::span<const SceneRenderable>{&renderable, 1};
-        desc.view.render_graph.wait_for_completion = true;
-        desc.view.render_graph.bloom = false;
-        desc.view.render_graph.contact_shadows = false;
+        desc.view.render_graph.frame.execution_mode = SFT::RenderSettings::ExecutionMode::WaitForCompletion;
+        desc.view.render_graph.frame.bloom.enabled = false;
+        desc.view.render_graph.frame.shadows.contact_shadows = false;
         for (int i = 0; i < 2; ++i) {
             desc.frame.frame_index = h.frame++;
             if (Core::RendererResult r = h.renderer.render_frame(desc); !r) {

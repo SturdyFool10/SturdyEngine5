@@ -47,7 +47,7 @@ namespace SFT::Renderer {
     /// perspective camera, and a raster (not fully path-traced) frame.
     [[nodiscard]] bool screen_space_gi_active(const RenderGraphSettings &settings, const CameraView &camera) noexcept;
 
-    /// Adds the trace and resolve passes. Reads `settings.screen_space_gi`.
+    /// Adds the trace and resolve passes. Reads `settings.frame.screen_space_gi`.
     [[nodiscard]] Core::RendererExpected<ScreenSpaceGiResult> add_screen_space_gi_passes(
         Renderer &renderer, RHI::RhiDevice &device, HistoryTextureCache &histories, RenderGraph &graph,
         std::vector<RHI::BindGroupHandle> &transient_bind_groups, const ScreenSpaceGiDescription &description,

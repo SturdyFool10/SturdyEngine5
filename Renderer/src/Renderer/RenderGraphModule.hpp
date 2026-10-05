@@ -226,6 +226,61 @@ namespace SFT::Renderer {
             static constexpr std::string_view name = "sturdy.render.ssgi-radiance-history";
         };
 
+        /// The deferred lighting constants, `ShadowLightingGpuData` (buffer; uploaded by `lighting`, read by anything that
+        /// lights: `volumetric_fog`). Shader side: `sturdy_lighting_data.slang`.
+        struct LightingConstants {
+            static constexpr std::string_view name = "sturdy.render.lighting-constants";
+        };
+
+        /// Every local light this frame as `LocalLightGpuData` (buffer; published by `lighting`).
+        struct LocalLights {
+            static constexpr std::string_view name = "sturdy.render.local-lights";
+        };
+
+        /// Per-cluster (first, count) ranges into `LightClusterIndices` (buffer; published by `lighting`).
+        struct LightClusterRanges {
+            static constexpr std::string_view name = "sturdy.render.light-cluster-ranges";
+        };
+
+        /// Flat light-index list the cluster ranges point into (buffer; published by `lighting`).
+        struct LightClusterIndices {
+            static constexpr std::string_view name = "sturdy.render.light-cluster-indices";
+        };
+
+        /// Sky prefiltered per roughness level, an octahedral atlas (sturdy_specular.slang; written by `reflections`, read by lighting).
+        struct ReflectionEnvironment {
+            static constexpr std::string_view name = "sturdy.render.reflection-environment";
+        };
+
+        /// Accumulated screen-space reflections: rgb radiance before exposure, a confidence (written by `reflections`).
+        struct ScreenSpaceReflections {
+            static constexpr std::string_view name = "sturdy.render.screen-space-reflections";
+        };
+
+        /// Last frame's lit colour, exposure-free, as a chain of five progressively blurred half-resolution levels the reflection
+        /// trace reads its glossiness from (published by `reflections`, rewritten by `reflections_history`). Level 0 is the
+        /// sharpest.
+        struct ReflectionColorLevel0 {
+            static constexpr std::string_view name = "sturdy.render.reflection-color-level-0";
+        };
+        struct ReflectionColorLevel1 {
+            static constexpr std::string_view name = "sturdy.render.reflection-color-level-1";
+        };
+        struct ReflectionColorLevel2 {
+            static constexpr std::string_view name = "sturdy.render.reflection-color-level-2";
+        };
+        struct ReflectionColorLevel3 {
+            static constexpr std::string_view name = "sturdy.render.reflection-color-level-3";
+        };
+        struct ReflectionColorLevel4 {
+            static constexpr std::string_view name = "sturdy.render.reflection-color-level-4";
+        };
+
+        /// The atmosphere constants, `AtmosphereGpuData` (buffer; published by `atmosphere_luts`).
+        struct AtmosphereConstants {
+            static constexpr std::string_view name = "sturdy.render.atmosphere-constants";
+        };
+
     } // namespace RenderGraphSemantics
 
     struct RenderGraphModuleBuildContext {

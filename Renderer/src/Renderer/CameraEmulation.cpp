@@ -48,9 +48,9 @@ namespace SFT::Renderer {
             .saturation = std::max(settings.saturation, 0.0f),
             .contrast = std::max(settings.contrast, 0.0f),
             .housing = std::clamp(settings.housing, 0.0f, 1.0f),
-            .tint_r = settings.tint.r,
-            .tint_g = settings.tint.g,
-            .tint_b = settings.tint.b,
+            .tint_r = settings.tint[0],
+            .tint_g = settings.tint[1],
+            .tint_b = settings.tint[2],
             .frame_index = frame_index,
             .aspect = std::max(aspect, 0.01f),
             .overscan = std::max(settings.overscan, 1.0f),
@@ -73,7 +73,7 @@ namespace SFT::Renderer {
                                                 "Camera emulation needs a source and a destination texture.");
         }
         CustomPostProcessEffect effect = camera_emulation_effect(
-            settings.camera_emulation, static_cast<u32>(frame.frame_index),
+            settings.frame.camera_emulation, static_cast<u32>(frame.frame_index),
             static_cast<f32>(extent.x) / static_cast<f32>(std::max(extent.y, 1u)));
         if (Core::RendererResult ready = frame.renderer.prepare_fullscreen_effect(effect, format); !ready.has_value()) {
             return ready;
@@ -102,7 +102,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult build_camera_emulation_feature(FrameBuildContext &frame) {
-        if (!frame.settings.camera_emulation.enabled || frame.direct_overlay_presentation) {
+        if (!frame.settings.frame.camera_emulation.enabled || frame.direct_overlay_presentation) {
             return {};
         }
         const RenderGraphTextureHandle source = frame.resources.texture<RenderGraphSemantics::SceneHdrColor>();
@@ -112,7 +112,7 @@ namespace SFT::Renderer {
         }
         // The frame was rendered `overscan` times wider than what is shown; this pass maps it back down to the
         // un-overscanned size, which is the resolution the centre of the image keeps 1:1.
-        const f32 overscan = std::max(frame.settings.camera_emulation.overscan, 1.0f);
+        const f32 overscan = std::max(frame.settings.frame.camera_emulation.overscan, 1.0f);
         // After a temporal upscaler the scene colour is already at the output size; only a render-sized (overscanned)
         // image is mapped back down.
         const Core::Extent2D input_extent = scene_color_extent(frame);

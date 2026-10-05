@@ -250,9 +250,9 @@ namespace {
             }
         }
         desc.view.renderables = std::span<const SceneRenderable>{list.data(), list.size()};
-        desc.view.render_graph.wait_for_completion = true;
-        desc.view.render_graph.bloom = false;
-        desc.view.render_graph.contact_shadows = false;
+        desc.view.render_graph.frame.execution_mode = SFT::RenderSettings::ExecutionMode::WaitForCompletion;
+        desc.view.render_graph.frame.bloom.enabled = false;
+        desc.view.render_graph.frame.shadows.contact_shadows = false;
 
         // Several frames: the first builds pipelines/history, later ones exercise the per-frame ring reuse.
         for (int i = 0; i < 4; ++i) {

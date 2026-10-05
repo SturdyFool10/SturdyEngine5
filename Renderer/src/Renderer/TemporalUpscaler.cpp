@@ -1,3 +1,4 @@
+#include <glm/gtc/type_ptr.hpp>
 #include <Renderer/TemporalUpscaler.hpp>
 
 #include <algorithm>
@@ -72,12 +73,12 @@ namespace SFT::Renderer {
             import_history_texture(graph, *previous, previous->ever_written(), "temporal upscale history (previous)");
         const RenderGraphTextureHandle upscaled = import_history_texture(graph, *current, false, "temporal upscale output");
 
-        const TemporalUpscalerSettings &taa = settings.temporal_upscaler;
+        const TemporalUpscalerSettings &taa = settings.frame.temporal_upscaler;
         const UpscaleConstants constants{
             .input_size = glm::vec2{static_cast<f32>(description.input_extent.x), static_cast<f32>(description.input_extent.y)},
             .output_size = glm::vec2{static_cast<f32>(output.x), static_cast<f32>(output.y)},
-            .jitter_uv = taa.jitter_uv,
-            .previous_jitter_uv = taa.previous_jitter_uv,
+            .jitter_uv = glm::make_vec2(taa.jitter_uv),
+            .previous_jitter_uv = glm::make_vec2(taa.previous_jitter_uv),
             .current_weight = std::clamp(std::isfinite(taa.current_frame_weight) ? taa.current_frame_weight : 0.1f, 0.02f, 1.0f),
             .sharpness = std::clamp(std::isfinite(taa.sharpness) ? taa.sharpness : 0.5f, 0.0f, 1.0f),
             .has_history = previous->written_in_previous_frame(frame) ? 1u : 0u,
@@ -108,7 +109,7 @@ namespace SFT::Renderer {
     }
 
     Core::RendererResult build_temporal_upscale_feature(FrameBuildContext &frame) {
-        if (!frame.settings.temporal_upscaler.enabled || !frame.settings.render_scene || frame.direct_overlay_presentation) {
+        if (!frame.settings.frame.temporal_upscaler.enabled || !frame.settings.render_scene || frame.direct_overlay_presentation) {
             return {};
         }
         // The jitter only exists for perspective cameras (see the engine's frame preparation).

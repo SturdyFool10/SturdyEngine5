@@ -9,8 +9,9 @@ namespace SFT::Renderer {
                                                                                     std::optional<u64> write_frame) {
         auto slots = slots_.lock();
         Slot &slot = (*slots)[key];
+        const u32 depth = desc.dimension == RHI::TextureDimension::Dim3D ? std::max(desc.extent.depth_or_layers, 1u) : 1u;
         const bool stale = slot.device != &device || slot.format != desc.format || slot.extent.width != desc.extent.width ||
-                           slot.extent.height != desc.extent.height || !slot.texture;
+                           slot.extent.height != desc.extent.height || slot.extent.depth_or_layers != depth || !slot.texture;
         if (stale) {
             if (slot.device == &device) {
                 if (slot.view) device.destroy_texture_view(slot.view);
@@ -18,10 +19,10 @@ namespace SFT::Renderer {
             }
             slot = Slot{};
             auto texture = device.create_texture(RHI::TextureDesc{
-                .dimension = RHI::TextureDimension::Dim2D,
+                .dimension = desc.dimension,
                 .format = desc.format,
                 .extent = RHI::Extent3D{.width = std::max(desc.extent.width, 1u), .height = std::max(desc.extent.height, 1u),
-                                        .depth_or_layers = 1},
+                                        .depth_or_layers = depth},
                 .mip_levels = 1,
                 .samples = RHI::SampleCount::X1,
                 .usage = desc.usage,
@@ -33,7 +34,7 @@ namespace SFT::Renderer {
             }
             auto view = device.create_texture_view(RHI::TextureViewDesc{
                 .texture = *texture,
-                .view_type = RHI::TextureViewType::View2D,
+                .view_type = desc.dimension == RHI::TextureDimension::Dim3D ? RHI::TextureViewType::View3D : RHI::TextureViewType::View2D,
                 .base_mip_level = 0,
                 .mip_level_count = 1,
                 .label = desc.label,
@@ -48,7 +49,7 @@ namespace SFT::Renderer {
             slot.view = *view;
             slot.format = desc.format;
             slot.extent = RHI::Extent3D{.width = std::max(desc.extent.width, 1u), .height = std::max(desc.extent.height, 1u),
-                                        .depth_or_layers = 1};
+                                        .depth_or_layers = depth};
         }
         Lease lease{.texture = slot.texture, .view = slot.view, .format = slot.format, .extent = slot.extent,
                     .last_written_frame = slot.last_written_frame};
