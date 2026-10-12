@@ -1617,6 +1617,12 @@ fn demonstrate_window_mutation(engine: &mut Engine<'_>, surface: SurfaceHandle) 
     engine.set_transparent(surface, false);
     engine.set_relative_mouse_mode(surface, false);
     engine.set_window_effect(surface, WindowEffectKind::Blur, false);
+    // A blur with rounded corners and a one-rectangle region: exercises the options path end to end.
+    let blur_params = sturdy::render::WindowEffectParams {
+        options: sturdy::render::WindowEffectOptions { corner_radius: 12.0, ..Default::default() },
+        ..Default::default()
+    };
+    engine.set_window_effect_with(surface, WindowEffectKind::Blur, true, &blur_params);
     engine.set_text_input_active(surface, false);
     engine.set_text_input_area(surface, TextInputArea { position: glam::vec2(10.0, 10.0), size: glam::vec2(100.0, 20.0), cursor_offset_x: 0.0 });
     eprintln!(
@@ -1634,12 +1640,31 @@ fn demonstrate_window_mutation(engine: &mut Engine<'_>, surface: SurfaceHandle) 
 /// done, so the caller can stop polling.
 fn check_window_mutation_demo(engine: &mut Engine<'_>, surface: SurfaceHandle, frames_waited: u32) -> bool {
     let locked = engine.diagnostics().window(0).map(|info| info.mouse_locked).unwrap_or(false);
+    let blur_status = engine.window_effect_status(surface, WindowEffectKind::Blur);
+    if blur_status.is_none() && frames_waited < 300 {
+        return false;
+    }
     if !locked {
         assert!(
             frames_waited < 300,
             "[window-ext] set_mouse_locked(true) never applied after {frames_waited} frames"
         );
         return false;
+    }
+    if let Some(status) = &blur_status {
+        // Whatever the compositor said, the verdict must be readable: that is the point of the readback.
+        eprintln!(
+            "[window-ext] blur verdict: {:?} (requested enabled={}): {} (supported on platform: {})",
+            status.outcome,
+            status.requested_enabled,
+            status.details,
+            engine.window_effect_supported(WindowEffectKind::Blur)
+        );
+    }
+    let support = engine.window_effect_support(surface, WindowEffectKind::Blur);
+    eprintln!("[window-ext] blur support: {:?}", support.availability);
+    for route in &support.routes {
+        eprintln!("[window-ext]   route {:<28} {:?} {}", route.name, route.availability, route.reason);
     }
     eprintln!("[window-ext] confirmed mouse_locked=true via diagnostics().window(0) after {frames_waited} frame(s)");
     engine.set_mouse_locked(surface, false);

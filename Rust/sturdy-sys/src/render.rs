@@ -97,6 +97,80 @@ pub mod ffi {
         CaptionColor,
         TextColor,
         Transparent,
+        BackdropAuto,
+        BackdropNone,
+        AccentBlur,
+        AccentAcrylic,
+        CornerPreference,
+        VisualEffect,
+    }
+
+    /// Mirrors `SFT::WindowManager::LinuxBlurProtocol`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum LinuxBlurProtocol {
+        Automatic,
+        ExtBackgroundEffect,
+        KdeBlur,
+        KdeX11,
+    }
+
+    /// Mirrors `SFT::WindowManager::WindowEffectOptions`. Blur rectangles are flat `x, y, w, h` quadruples
+    /// (at most 8 are used); the enum-valued fields are the C++ enums' integer values.
+    #[derive(Debug, Clone)]
+    struct WindowEffectOptionsInfo {
+        blur_rects: Vec<i32>,
+        corner_radius: f32,
+        tint_argb: u32,
+        accent_border_left: bool,
+        accent_border_top: bool,
+        accent_border_right: bool,
+        accent_border_bottom: bool,
+        corner_preference: u8,
+        mac_material: u8,
+        mac_blending: u8,
+        mac_state: u8,
+        mac_emphasized: bool,
+        mac_appearance: u8,
+    }
+
+    /// Mirrors `SFT::WindowManager::EffectAvailability`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum EffectAvailability {
+        Available,
+        Unavailable,
+        Unknown,
+    }
+
+    #[derive(Debug, Clone)]
+    struct EffectRouteInfo {
+        name: String,
+        availability: EffectAvailability,
+        reason: String,
+    }
+
+    /// Mirrors `SFT::WindowManager::WindowEffectSupport`.
+    #[derive(Debug, Clone)]
+    struct WindowEffectSupportInfo {
+        availability: EffectAvailability,
+        routes: Vec<EffectRouteInfo>,
+    }
+
+    /// Mirrors `SFT::WindowManager::WindowEffectResultKind`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum WindowEffectResultKind {
+        Success,
+        Degraded,
+        Failed,
+    }
+
+    /// What the platform did with the last request of one effect kind. `has_result` is false until the
+    /// request has run on the window thread.
+    #[derive(Debug, Clone)]
+    struct WindowEffectStatusInfo {
+        has_result: bool,
+        requested_enabled: bool,
+        result: WindowEffectResultKind,
+        details: String,
     }
 
     /// Mirrors `SFT::WindowManager::TextInputArea` -- the on-screen rectangle (window-client-area
@@ -584,6 +658,22 @@ pub mod ffi {
         /// unsupported `kind` is silently ignored the same way the engine's own `Window::
         /// set_effect` documents.
         fn window_set_effect(engine: Pin<&mut EngineView>, surface: SurfaceHandle, kind: WindowEffectKind, enabled: bool);
+        /// Like [`window_set_effect`] with the Linux blur protocol and an ARGB colour (colour effects).
+        fn window_set_effect_ex(
+            engine: Pin<&mut EngineView>,
+            surface: SurfaceHandle,
+            kind: WindowEffectKind,
+            enabled: bool,
+            protocol: LinuxBlurProtocol,
+            color_argb: u32,
+            options: &WindowEffectOptionsInfo,
+        );
+        /// What `surface`'s window can do for `kind`, route by route. Changes nothing.
+        fn window_effect_support(engine: &EngineView, surface: SurfaceHandle, kind: WindowEffectKind) -> WindowEffectSupportInfo;
+        /// The platform's verdict on the last request of `kind` for `surface`'s window.
+        fn window_effect_status(engine: Pin<&mut EngineView>, surface: SurfaceHandle, kind: WindowEffectKind) -> WindowEffectStatusInfo;
+        /// Whether this build's platform implements `kind` at all (an upper bound; see the status for the real answer).
+        fn window_effect_supported(kind: WindowEffectKind) -> bool;
 
         // -- offscreen render targets --
 

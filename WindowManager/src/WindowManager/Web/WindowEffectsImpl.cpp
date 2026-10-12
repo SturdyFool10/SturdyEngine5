@@ -57,6 +57,14 @@ namespace SFT::WindowManager {
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note This function does not throw exceptions.
+    WindowEffectSupport query_native_window_effect_support(NativeWindowHandle handle, WindowEffectKind kind) noexcept {
+        (void)handle;
+        (void)kind;
+        WindowEffectSupport support;
+        support.add("none", EffectAvailability::Unavailable, "window effects are not available for Web builds");
+        return support;
+    }
+
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
         (void)handle;
         if (!operating_system_may_support_window_effect(effect.kind)) [[likely]] {

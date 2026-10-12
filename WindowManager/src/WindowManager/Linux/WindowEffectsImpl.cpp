@@ -10,6 +10,7 @@
 #pragma endregion
 
 #include <WindowManager/Linux/WaylandBackgroundEffects.hpp>
+#include <WindowManager/Linux/X11BlurProperty.hpp>
 #include <WindowManager/WindowError.hpp>
 #include <WindowManager/WindowConfig.hpp>
 #include <WindowManager/WindowEffect.hpp>
@@ -81,11 +82,20 @@ namespace SFT::WindowManager {
         /// @note This function does not throw exceptions.
         WindowEffectResult try_linux_blur(NativeWindowHandle handle, WindowEffect effect) noexcept {
             ZoneScopedN("Windowing::try_linux_blur");
+            // X11 has exactly one route, whatever protocol was asked for: the KDE blur property.
+            if (handle.system == NativeWindowSystem::X11) {
+                if (effect.linux_blur_protocol == LinuxBlurProtocol::ExtBackgroundEffect ||
+                    effect.linux_blur_protocol == LinuxBlurProtocol::KdeBlur) {
+                    return WindowEffectResult::failed("The Wayland blur protocols do not apply to an X11 window.");
+                }
+                return Detail::set_x11_kde_blur(handle, effect);
+            }
             switch (effect.linux_blur_protocol) {
                 case LinuxBlurProtocol::ExtBackgroundEffect:
                     return try_ext_background_effect_blur(handle, effect);
                 case LinuxBlurProtocol::KdeBlur:
                     return try_kde_blur(handle, effect);
+                case LinuxBlurProtocol::KdeX11:
                 case LinuxBlurProtocol::Automatic:
                     break;
             }
@@ -147,6 +157,29 @@ namespace SFT::WindowManager {
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note This function does not throw exceptions.
+    WindowEffectSupport query_native_window_effect_support(NativeWindowHandle handle, WindowEffectKind kind) noexcept {
+        WindowEffectSupport support;
+#if defined(__linux__)
+        if (kind != WindowEffectKind::Blur) {
+            support.add("none", EffectAvailability::Unavailable,
+                        "Linux compositors only offer background blur; transparency is a creation-time window flag");
+            return support;
+        }
+        if (handle.system == NativeWindowSystem::Wayland) {
+            return Detail::query_wayland_background_support(handle);
+        }
+        if (handle.system == NativeWindowSystem::X11) {
+            return Detail::query_x11_blur_support(handle);
+        }
+        support.add("none", EffectAvailability::Unavailable, "the window is neither a Wayland nor an X11 window");
+#else
+        (void)handle;
+        (void)kind;
+        support.add("none", EffectAvailability::Unavailable, "not a Linux build");
+#endif
+        return support;
+    }
+
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
         ZoneScopedN("Windowing::enable_native_window_effect");
 #if defined(__linux__)

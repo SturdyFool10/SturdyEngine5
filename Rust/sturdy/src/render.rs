@@ -259,6 +259,283 @@ impl Engine<'_> {
     pub fn set_window_effect(&mut self, surface: SurfaceHandle, kind: WindowEffectKind, enabled: bool) {
         ffi::window_set_effect(self.view_mut(), surface.to_ffi(), kind.into(), enabled);
     }
+
+    /// Like [`set_window_effect`](Self::set_window_effect), choosing the Linux blur protocol and an ARGB colour
+    /// (for [`WindowEffectKind::BorderColor`]/`CaptionColor`/`TextColor`). The protocol is ignored off Linux.
+    ///
+    /// The request runs on the window thread; read the platform's verdict with
+    /// [`window_effect_status`](Self::window_effect_status) a frame later. Setting the effect again after a device
+    /// switch is **not** needed: it is a window property, not a swapchain one, and the engine re-applies recorded
+    /// effects itself when it recreates the primary window.
+    pub fn set_window_effect_with(
+        &mut self,
+        surface: SurfaceHandle,
+        kind: WindowEffectKind,
+        enabled: bool,
+        params: &WindowEffectParams,
+    ) {
+        ffi::window_set_effect_ex(
+            self.view_mut(),
+            surface.to_ffi(),
+            kind.into(),
+            enabled,
+            params.protocol.into(),
+            params.color_argb,
+            &params.options.to_ffi(),
+        );
+    }
+
+    /// What `surface`'s window can do for `kind` on this OS and compositor, route by route (for a blur on Linux:
+    /// `ext-background-effect-v1`, `org_kde_kwin_blur`, or the X11 property). Creates no effect and changes
+    /// nothing, so a settings screen can call it to decide what to offer.
+    pub fn window_effect_support(&self, surface: SurfaceHandle, kind: WindowEffectKind) -> WindowEffectSupport {
+        let s = ffi::window_effect_support(self.view(), surface.to_ffi(), kind.into());
+        WindowEffectSupport {
+            availability: s.availability.into(),
+            routes: s
+                .routes
+                .into_iter()
+                .map(|r| EffectRoute { name: r.name, availability: r.availability.into(), reason: r.reason })
+                .collect(),
+        }
+    }
+
+    /// What the platform did with the last request of `kind` on `surface`'s window, or `None` if it has not run yet.
+    /// Use it to downgrade with a notice: a [`WindowEffectOutcome::Failed`] blur becomes plain transparency, say.
+    pub fn window_effect_status(&mut self, surface: SurfaceHandle, kind: WindowEffectKind) -> Option<WindowEffectStatus> {
+        let s = ffi::window_effect_status(self.view_mut(), surface.to_ffi(), kind.into());
+        s.has_result.then(|| WindowEffectStatus {
+            requested_enabled: s.requested_enabled,
+            outcome: match s.result {
+                ffi::WindowEffectResultKind::Success => WindowEffectOutcome::Applied,
+                ffi::WindowEffectResultKind::Degraded => WindowEffectOutcome::Degraded,
+                _ => WindowEffectOutcome::Failed,
+            },
+            details: s.details,
+        })
+    }
+
+    /// Whether this build's platform implements `kind` at all. An upper bound: Windows backdrops need Windows 11 and
+    /// Linux blur needs a compositor that advertises a blur protocol, so still check
+    /// [`window_effect_status`](Self::window_effect_status) after requesting.
+    pub fn window_effect_supported(&self, kind: WindowEffectKind) -> bool {
+        ffi::window_effect_supported(kind.into())
+    }
+}
+
+mirrored_enum!(
+    /// Which Linux compositor protocol a blur request uses. See [`Engine::set_window_effect_with`].
+    LinuxBlurProtocol => LinuxBlurProtocol { Automatic, ExtBackgroundEffect, KdeBlur, KdeX11 }
+);
+
+/// Whether a system offers an effect route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectAvailability {
+    Available,
+    Unavailable,
+    /// Cannot be known without trying (X11 never says whether the window manager reads the blur property).
+    Unknown,
+}
+
+impl From<ffi::EffectAvailability> for EffectAvailability {
+    fn from(value: ffi::EffectAvailability) -> Self {
+        match value {
+            ffi::EffectAvailability::Available => Self::Available,
+            ffi::EffectAvailability::Unavailable => Self::Unavailable,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// One way to produce an effect and whether this system offers it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectRoute {
+    pub name: String,
+    pub availability: EffectAvailability,
+    /// Why it is unavailable or unknown; empty when available.
+    pub reason: String,
+}
+
+/// What a window can do for an effect, route by route. See [`Engine::window_effect_support`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowEffectSupport {
+    /// `Available` when any route is, `Unavailable` when all are, otherwise `Unknown`.
+    pub availability: EffectAvailability,
+    pub routes: Vec<EffectRoute>,
+}
+
+/// Windows 11 window corner rounding. See [`WindowEffectKind::CornerPreference`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WindowCornerPreference {
+    #[default]
+    Default,
+    DoNotRound,
+    Round,
+    RoundSmall,
+}
+
+/// `NSVisualEffectMaterial` (macOS 10.14 semantic materials).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacMaterial {
+    Titlebar,
+    Selection,
+    Menu,
+    Popover,
+    Sidebar,
+    HeaderView,
+    Sheet,
+    WindowBackground,
+    HudWindow,
+    FullScreenUi,
+    ToolTip,
+    ContentBackground,
+    UnderWindowBackground,
+    UnderPageBackground,
+}
+
+/// `NSVisualEffectBlendingMode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacBlendingMode {
+    BehindWindow,
+    WithinWindow,
+}
+
+/// `NSVisualEffectState`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacEffectState {
+    FollowsWindowActiveState,
+    Active,
+    Inactive,
+}
+
+/// `NSAppearanceName` override for the effect view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MacAppearance {
+    Inherit,
+    Aqua,
+    DarkAqua,
+    VibrantLight,
+    VibrantDark,
+}
+
+/// macOS `NSVisualEffectView` settings, for [`WindowEffectKind::VisualEffect`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MacVisualEffect {
+    pub material: MacMaterial,
+    pub blending: MacBlendingMode,
+    pub state: MacEffectState,
+    pub emphasized: bool,
+    pub appearance: MacAppearance,
+}
+
+impl Default for MacVisualEffect {
+    fn default() -> Self {
+        Self {
+            material: MacMaterial::UnderWindowBackground,
+            blending: MacBlendingMode::BehindWindow,
+            state: MacEffectState::FollowsWindowActiveState,
+            emphasized: false,
+            appearance: MacAppearance::Inherit,
+        }
+    }
+}
+
+/// An integer rectangle in window-local logical pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EffectRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// Per-effect settings. Each field applies to specific effects and is ignored by the rest; the doc on each says
+/// which. Defaults leave every effect at the platform's own look.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowEffectOptions {
+    /// Blur on Linux and Windows: the region to blur, window-local logical pixels (at most 8 rectangles are used).
+    /// Empty = the whole window.
+    pub blur_region: Vec<EffectRect>,
+    /// Blur on Linux and Windows: round the corners of the blurred region by this many logical pixels. The region
+    /// is rebuilt on window resize, so it follows the window.
+    pub corner_radius: f32,
+    /// [`WindowEffectKind::AccentBlur`] / [`AccentAcrylic`](WindowEffectKind::AccentAcrylic): tint colour, ARGB.
+    /// Acrylic honours the alpha channel as tint opacity.
+    pub tint_argb: u32,
+    /// Accent effects: draw the window border on [left, top, right, bottom].
+    pub accent_borders: [bool; 4],
+    /// [`WindowEffectKind::CornerPreference`] (Windows 11).
+    pub corner_preference: WindowCornerPreference,
+    /// [`WindowEffectKind::VisualEffect`] (macOS).
+    pub mac: MacVisualEffect,
+}
+
+impl Default for WindowEffectOptions {
+    fn default() -> Self {
+        Self {
+            blur_region: Vec::new(),
+            corner_radius: 0.0,
+            tint_argb: 0,
+            accent_borders: [true; 4],
+            corner_preference: WindowCornerPreference::Default,
+            mac: MacVisualEffect::default(),
+        }
+    }
+}
+
+impl WindowEffectOptions {
+    fn to_ffi(&self) -> ffi::WindowEffectOptionsInfo {
+        ffi::WindowEffectOptionsInfo {
+            blur_rects: self.blur_region.iter().take(8).flat_map(|r| [r.x, r.y, r.width, r.height]).collect(),
+            corner_radius: self.corner_radius,
+            tint_argb: self.tint_argb,
+            accent_border_left: self.accent_borders[0],
+            accent_border_top: self.accent_borders[1],
+            accent_border_right: self.accent_borders[2],
+            accent_border_bottom: self.accent_borders[3],
+            corner_preference: self.corner_preference as u8,
+            mac_material: self.mac.material as u8,
+            mac_blending: self.mac.blending as u8,
+            mac_state: self.mac.state as u8,
+            mac_emphasized: self.mac.emphasized,
+            mac_appearance: self.mac.appearance as u8,
+        }
+    }
+}
+
+/// Everything beyond kind and on/off for an effect request. `Default` is "platform's choice, no extras".
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowEffectParams {
+    /// Linux blur route; ignored elsewhere.
+    pub protocol: LinuxBlurProtocol,
+    /// ARGB colour for the colour effects ([`WindowEffectKind::BorderColor`], `CaptionColor`, `TextColor`).
+    pub color_argb: u32,
+    pub options: WindowEffectOptions,
+}
+
+impl Default for WindowEffectParams {
+    fn default() -> Self {
+        Self { protocol: LinuxBlurProtocol::Automatic, color_argb: 0, options: WindowEffectOptions::default() }
+    }
+}
+
+/// How the platform handled an effect request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowEffectOutcome {
+    Applied,
+    /// Applied in a reduced form (see the details).
+    Degraded,
+    Failed,
+}
+
+/// The platform's verdict on an effect request. See [`Engine::window_effect_status`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowEffectStatus {
+    /// What the app asked for (enable or disable).
+    pub requested_enabled: bool,
+    pub outcome: WindowEffectOutcome,
+    /// Platform detail, e.g. why the compositor refused.
+    pub details: String,
 }
 
 mirrored_enum!(
@@ -273,7 +550,7 @@ mirrored_enum!(
     /// A blur/vibrancy-style window effect. See [`Engine::set_window_effect`].
     WindowEffectKind => WindowEffectKind {
         Blur, Acrylic, Mica, MicaAlt, Tabbed, DarkMode, BorderColor, CaptionColor, TextColor,
-        Transparent,
+        Transparent, BackdropAuto, BackdropNone, AccentBlur, AccentAcrylic, CornerPreference, VisualEffect,
     }
 );
 

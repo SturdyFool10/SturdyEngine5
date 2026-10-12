@@ -17,6 +17,7 @@
 #pragma endregion
 
 #include <WindowManager/Linux/WaylandBackgroundEffects.hpp>
+#include <WindowManager/WindowEffects.hpp>
 #include <WindowManager/WindowLog.hpp>
 
 #include <tracy/Tracy.hpp>
@@ -260,15 +261,23 @@ namespace SFT::WindowManager::Detail {
         /// @return Returns a pointer to the requested object/resource, or `nullptr` when it is unavailable.
         /// @note Absence is represented by a null pointer rather than an exception.
         /// @note This function does not throw exceptions.
-        wl_region *full_surface_region(WaylandBackgroundEffectConnection &connection) noexcept {
+        wl_region *full_surface_region(WaylandBackgroundEffectConnection &connection,
+                                       const std::vector<EffectRect> &rects) noexcept {
             if (connection.compositor == nullptr) {
                 return nullptr;
             }
             wl_region *region = wl_compositor_create_region(connection.compositor);
-            if (region != nullptr) {
-
-
+            if (region == nullptr) {
+                return nullptr;
+            }
+            if (rects.empty()) {
+                // No explicit region: the whole surface (the compositor clips to the surface size).
                 wl_region_add(region, 0, 0, INT_MAX, INT_MAX);
+            } else {
+                // Surface-local logical coordinates, which is what the window effect options are in.
+                for (const EffectRect &rect : rects) {
+                    wl_region_add(region, rect.x, rect.y, rect.width, rect.height);
+                }
             }
             return region;
         }
@@ -283,7 +292,8 @@ namespace SFT::WindowManager::Detail {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note This function does not throw exceptions.
         WindowEffectResult set_ext_blur(WaylandBackgroundEffectConnection &connection,
-                                        wl_surface *surface, bool enabled) noexcept {
+                                        wl_surface *surface, bool enabled,
+                                        const std::vector<EffectRect> &rects) noexcept {
             if (!enabled) {
                 remove_ext_effect(connection, surface, true);
                 (void)wl_display_flush(connection.display);
@@ -295,7 +305,7 @@ namespace SFT::WindowManager::Detail {
             if ((connection.ext_capabilities & EXT_BACKGROUND_EFFECT_MANAGER_V1_CAPABILITY_BLUR) == 0u) {
                 return WindowEffectResult::failed("The Wayland compositor advertises ext-background-effect-v1 without blur capability.");
             }
-            wl_region *region = full_surface_region(connection);
+            wl_region *region = full_surface_region(connection, rects);
             if (region == nullptr) {
                 return WindowEffectResult::failed("ext-background-effect-v1 blur requires wl_compositor region support.");
             }
@@ -330,7 +340,8 @@ namespace SFT::WindowManager::Detail {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note This function does not throw exceptions.
         WindowEffectResult set_kde_blur(WaylandBackgroundEffectConnection &connection,
-                                        wl_surface *surface, bool enabled) noexcept {
+                                        wl_surface *surface, bool enabled,
+                                        const std::vector<EffectRect> &rects) noexcept {
             if (!enabled) {
                 remove_kde_effect(connection, surface);
                 (void)wl_display_flush(connection.display);
@@ -339,7 +350,7 @@ namespace SFT::WindowManager::Detail {
             if (connection.kde_manager == nullptr) {
                 return WindowEffectResult::failed("The Wayland compositor does not advertise org_kde_kwin_blur_manager.");
             }
-            wl_region *region = full_surface_region(connection);
+            wl_region *region = full_surface_region(connection, rects);
             if (region == nullptr) {
                 return WindowEffectResult::failed("org_kde_kwin_blur requires wl_compositor region support.");
             }
@@ -393,11 +404,14 @@ namespace SFT::WindowManager::Detail {
             return WindowEffectResult::failed("Failed to dispatch pending Wayland background-effect events.");
         }
 
+        const std::vector<EffectRect> rects = resolve_blur_region(effect.options);
         switch (effect.linux_blur_protocol) {
             case LinuxBlurProtocol::ExtBackgroundEffect:
-                return set_ext_blur(*connection, surface, effect.enabled);
+                return set_ext_blur(*connection, surface, effect.enabled, rects);
             case LinuxBlurProtocol::KdeBlur:
-                return set_kde_blur(*connection, surface, effect.enabled);
+                return set_kde_blur(*connection, surface, effect.enabled, rects);
+            case LinuxBlurProtocol::KdeX11:
+                return WindowEffectResult::failed("The X11 blur property route does not apply to a Wayland surface.");
             case LinuxBlurProtocol::Automatic:
                 break;
         }
@@ -410,11 +424,11 @@ namespace SFT::WindowManager::Detail {
             return WindowEffectResult::success("Wayland background blur disabled.");
         }
 
-        const WindowEffectResult ext = set_ext_blur(*connection, surface, true);
+        const WindowEffectResult ext = set_ext_blur(*connection, surface, true, rects);
         if (ext.succeeded()) {
             return ext;
         }
-        const WindowEffectResult kde = set_kde_blur(*connection, surface, true);
+        const WindowEffectResult kde = set_kde_blur(*connection, surface, true, rects);
         if (kde.succeeded()) {
             window_warn("ext-background-effect-v1 unavailable ({}); using org_kde_kwin_blur compatibility path.",
                         ext.details);
@@ -432,6 +446,42 @@ namespace SFT::WindowManager::Detail {
     /// @param release_display `release_display` value used by the operation.
     ///
     /// @note This function does not throw exceptions.
+    WindowEffectSupport query_wayland_background_support(NativeWindowHandle handle) noexcept {
+        ZoneScopedN("Windowing::query_wayland_background_support");
+        WindowEffectSupport support;
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr) {
+            support.add("ext-background-effect-v1", EffectAvailability::Unavailable, "not a Wayland window");
+            support.add("org_kde_kwin_blur", EffectAvailability::Unavailable, "not a Wayland window");
+            return support;
+        }
+        auto *display = static_cast<wl_display *>(handle.display);
+        const std::lock_guard lock{connection_mutex()};
+        WaylandBackgroundEffectConnection *connection = ensure_connection(display);
+        if (connection == nullptr) {
+            support.add("ext-background-effect-v1", EffectAvailability::Unknown, "could not read the compositor's globals");
+            support.add("org_kde_kwin_blur", EffectAvailability::Unknown, "could not read the compositor's globals");
+            return support;
+        }
+        (void)wl_display_dispatch_queue_pending(display, connection->event_queue);
+
+        if (connection->ext_manager == nullptr) {
+            support.add("ext-background-effect-v1", EffectAvailability::Unavailable,
+                        "the compositor does not advertise ext_background_effect_manager_v1 (KWin 6.7+, Mutter 51+, niri 26.04+)");
+        } else if ((connection->ext_capabilities & EXT_BACKGROUND_EFFECT_MANAGER_V1_CAPABILITY_BLUR) == 0u) {
+            support.add("ext-background-effect-v1", EffectAvailability::Unavailable,
+                        "the compositor advertises the protocol without the blur capability");
+        } else {
+            support.add("ext-background-effect-v1", EffectAvailability::Available);
+        }
+        if (connection->kde_manager == nullptr) {
+            support.add("org_kde_kwin_blur", EffectAvailability::Unavailable,
+                        "the compositor does not advertise org_kde_kwin_blur_manager");
+        } else {
+            support.add("org_kde_kwin_blur", EffectAvailability::Available);
+        }
+        return support;
+    }
+
     void release_wayland_background_effects(
         NativeWindowHandle handle, bool release_display) noexcept {
         if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr) {

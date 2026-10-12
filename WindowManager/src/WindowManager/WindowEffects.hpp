@@ -5,6 +5,7 @@
 #pragma region Imports
 #include <expected>
 #include <string_view>
+#include <vector>
 #pragma endregion
 
 #include <WindowManager/WindowError.hpp>
@@ -77,5 +78,16 @@ namespace SFT::WindowManager {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note This function does not throw exceptions.
     [[nodiscard]] expected<void, WindowError> set_native_window_blur_enabled(NativeWindowHandle handle, bool enabled) noexcept;
+
+    /// What `handle`'s window can do for `kind` on this OS / compositor, route by route. Changes nothing and creates
+    /// no effect. Implemented per platform (Linux reads the compositor's advertised globals, Windows checks the OS
+    /// build, macOS checks the AppKit classes).
+    [[nodiscard]] WindowEffectSupport query_native_window_effect_support(NativeWindowHandle handle,
+                                                                         WindowEffectKind kind) noexcept;
+
+    /// The rectangles (window-local logical pixels) a blur request covers: its explicit rectangles, or the whole
+    /// window when none are given, with each rounded by `options.corner_radius`. An empty result means "the whole
+    /// window, square corners" (no region needed). Pure; the rounded corners are scanline rectangles.
+    [[nodiscard]] std::vector<EffectRect> resolve_blur_region(const WindowEffectOptions &options);
 
 } // namespace SFT::WindowManager

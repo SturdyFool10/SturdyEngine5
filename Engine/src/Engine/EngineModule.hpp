@@ -448,6 +448,12 @@ namespace SFT::Engine {
         /// @note This function does not throw exceptions.
         [[nodiscard]] std::optional<WindowManager::NativeWindowHandle> native_window_handle(WindowManager::WindowId window) const noexcept;
 
+        /// What `window` can do for the effect `kind` on this OS and compositor, route by route (for example which of
+        /// ext-background-effect-v1, org_kde_kwin_blur and the X11 property a blur could use). Changes nothing; call it
+        /// to decide what to offer in a settings screen before requesting the effect.
+        [[nodiscard]] WindowManager::WindowEffectSupport window_effect_support(WindowManager::WindowId window,
+                                                                               WindowManager::WindowEffectKind kind) const noexcept;
+
         /// Sets the primary window for this `Engine`.
         ///
         /// @param window Window used or affected by the operation.

@@ -119,6 +119,24 @@ namespace SFT::Engine {
         WindowManager::WindowId window{};
         WindowManager::WindowEffectKind kind = WindowManager::WindowEffectKind::Blur;
         bool enabled = false;
+        /// Linux only: which compositor blur protocol to use (`Automatic` tries ext-background-effect, then KDE).
+        WindowManager::LinuxBlurProtocol linux_blur_protocol = WindowManager::LinuxBlurProtocol::Automatic;
+        /// ARGB colour for the colour effects (`BorderColor`, `CaptionColor`, `TextColor`).
+        u32 color_argb = 0;
+        /// Per-effect settings (blur region, corner radius, accent tint, macOS material, ...).
+        WindowManager::WindowEffectOptions options{};
+    };
+
+    /// What the platform actually did with the last effect request for one window and kind. Written on the window
+    /// thread when the request runs, so it lags the request by up to a frame.
+    struct WindowEffectStatus {
+        WindowManager::WindowId window{};
+        WindowManager::WindowEffectKind kind = WindowManager::WindowEffectKind::Blur;
+        /// What the app asked for (enable or disable).
+        bool requested_enabled = false;
+        WindowManager::WindowEffectResultKind result = WindowManager::WindowEffectResultKind::Failed;
+        /// Platform-provided detail ("The Wayland compositor does not advertise ext-background-effect-v1.", ...).
+        std::string details;
     };
 
 
@@ -208,6 +226,17 @@ namespace SFT::Engine {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void set_decorated(WindowManager::WindowId window, bool decorated);
 
+        /// Queues a full window effect (kind, protocol, colour). The platform's verdict is read back with
+        /// `effect_status` once the request has run.
+        void set_effect(WindowManager::WindowId window, WindowManager::WindowEffect effect);
+
+        /// Records the platform's verdict for an effect request (called by `Application` on the window thread).
+        void record_effect_status(WindowEffectStatus status);
+
+        /// The platform's verdict on the last request of `kind` for `window`, or `nullopt` if none has run yet.
+        [[nodiscard]] std::optional<WindowEffectStatus> effect_status(WindowManager::WindowId window,
+                                                                      WindowManager::WindowEffectKind kind) const;
+
         /// Sets the transparent for this `WindowRequests`.
         ///
         /// @param window Window used or affected by the operation.
@@ -296,6 +325,7 @@ namespace SFT::Engine {
             u64 next_id = 1;
             vector<WindowRequest> pending;
             vector<WindowRequestCompletion> completions;
+            vector<WindowEffectStatus> effect_statuses;
         };
         mutable Async::Mutex<State> state_;
     };

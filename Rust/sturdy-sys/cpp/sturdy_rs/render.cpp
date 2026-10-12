@@ -93,8 +93,42 @@ namespace sturdy_rs::render {
             case WindowEffectKind::CaptionColor: return W::WindowEffectKind::CaptionColor;
             case WindowEffectKind::TextColor: return W::WindowEffectKind::TextColor;
             case WindowEffectKind::Transparent: return W::WindowEffectKind::Transparent;
+            case WindowEffectKind::BackdropAuto: return W::WindowEffectKind::BackdropAuto;
+            case WindowEffectKind::BackdropNone: return W::WindowEffectKind::BackdropNone;
+            case WindowEffectKind::AccentBlur: return W::WindowEffectKind::AccentBlur;
+            case WindowEffectKind::AccentAcrylic: return W::WindowEffectKind::AccentAcrylic;
+            case WindowEffectKind::CornerPreference: return W::WindowEffectKind::CornerPreference;
+            case WindowEffectKind::VisualEffect: return W::WindowEffectKind::VisualEffect;
             }
             return W::WindowEffectKind::Blur;
+        }
+
+        template <typename Enum>
+        Enum clamp_enum(std::uint8_t value, Enum last) noexcept {
+            return static_cast<Enum>(std::min<std::uint8_t>(value, static_cast<std::uint8_t>(last)));
+        }
+
+        W::WindowEffectOptions map(const WindowEffectOptionsInfo &v) noexcept {
+            W::WindowEffectOptions options{};
+            const std::size_t rect_count = std::min<std::size_t>(v.blur_rects.size() / 4, W::WindowEffectOptions::max_rects);
+            for (std::size_t i = 0; i < rect_count; ++i) {
+                options.blur_rects[i] = W::EffectRect{v.blur_rects[i * 4], v.blur_rects[i * 4 + 1], v.blur_rects[i * 4 + 2],
+                                                      v.blur_rects[i * 4 + 3]};
+            }
+            options.blur_rect_count = static_cast<std::uint8_t>(rect_count);
+            options.corner_radius = std::max(v.corner_radius, 0.0f);
+            options.tint_argb = v.tint_argb;
+            options.accent_border_left = v.accent_border_left;
+            options.accent_border_top = v.accent_border_top;
+            options.accent_border_right = v.accent_border_right;
+            options.accent_border_bottom = v.accent_border_bottom;
+            options.corner_preference = clamp_enum(v.corner_preference, W::WindowCornerPreference::RoundSmall);
+            options.mac_material = clamp_enum(v.mac_material, W::MacVisualEffectMaterial::UnderPageBackground);
+            options.mac_blending = clamp_enum(v.mac_blending, W::MacBlendingMode::WithinWindow);
+            options.mac_state = clamp_enum(v.mac_state, W::MacVisualEffectState::Inactive);
+            options.mac_emphasized = v.mac_emphasized;
+            options.mac_appearance = clamp_enum(v.mac_appearance, W::MacAppearance::VibrantDark);
+            return options;
         }
 
         W::TextInputArea map(TextInputArea v) noexcept {
@@ -648,6 +682,65 @@ namespace sturdy_rs::render {
 
     void window_set_effect(EngineView &engine, SurfaceHandle surface, WindowEffectKind kind, bool enabled) noexcept {
         engine.window_requests().set_blur(window_id_of(surface), map(kind), enabled);
+    }
+
+    void window_set_effect_ex(EngineView &engine, SurfaceHandle surface, WindowEffectKind kind, bool enabled,
+                              LinuxBlurProtocol protocol, std::uint32_t color_argb,
+                              const WindowEffectOptionsInfo &options) noexcept {
+        W::LinuxBlurProtocol native_protocol = W::LinuxBlurProtocol::Automatic;
+        switch (protocol) {
+        case LinuxBlurProtocol::Automatic: break;
+        case LinuxBlurProtocol::ExtBackgroundEffect: native_protocol = W::LinuxBlurProtocol::ExtBackgroundEffect; break;
+        case LinuxBlurProtocol::KdeBlur: native_protocol = W::LinuxBlurProtocol::KdeBlur; break;
+        case LinuxBlurProtocol::KdeX11: native_protocol = W::LinuxBlurProtocol::KdeX11; break;
+        }
+        engine.window_requests().set_effect(window_id_of(surface),
+                                            W::WindowEffect{map(kind), enabled, color_argb, native_protocol, map(options)});
+    }
+
+    WindowEffectSupportInfo window_effect_support(const EngineView &engine, SurfaceHandle surface, WindowEffectKind kind) {
+        const W::WindowEffectSupport support = engine.window_effect_support(window_id_of(surface), map(kind));
+        const auto convert = [](W::EffectAvailability value) {
+            switch (value) {
+            case W::EffectAvailability::Available: return EffectAvailability::Available;
+            case W::EffectAvailability::Unavailable: return EffectAvailability::Unavailable;
+            case W::EffectAvailability::Unknown: break;
+            }
+            return EffectAvailability::Unknown;
+        };
+        WindowEffectSupportInfo info{};
+        info.availability = convert(support.availability);
+        for (std::size_t i = 0; i < support.route_count; ++i) {
+            const W::EffectRoute &route = support.routes[i];
+            EffectRouteInfo entry{};
+            entry.name = rust::String(std::string(route.name));
+            entry.availability = convert(route.availability);
+            entry.reason = rust::String(std::string(route.reason));
+            info.routes.push_back(std::move(entry));
+        }
+        return info;
+    }
+
+    WindowEffectStatusInfo window_effect_status(EngineView &engine, SurfaceHandle surface, WindowEffectKind kind) {
+        WindowEffectStatusInfo info{};
+        info.result = WindowEffectResultKind::Failed;
+        const auto status = engine.window_requests().effect_status(window_id_of(surface), map(kind));
+        if (!status) {
+            return info;
+        }
+        info.has_result = true;
+        info.requested_enabled = status->requested_enabled;
+        switch (status->result) {
+        case W::WindowEffectResultKind::Success: info.result = WindowEffectResultKind::Success; break;
+        case W::WindowEffectResultKind::Degraded: info.result = WindowEffectResultKind::Degraded; break;
+        case W::WindowEffectResultKind::Failed: info.result = WindowEffectResultKind::Failed; break;
+        }
+        info.details = to_rust_string(status->details);
+        return info;
+    }
+
+    bool window_effect_supported(WindowEffectKind kind) noexcept {
+        return W::window_effect_supported_on_platform(map(kind));
     }
 
     OffscreenTargetCreateResult offscreen_target_create(EngineView &engine, const OffscreenTargetDesc &desc) {

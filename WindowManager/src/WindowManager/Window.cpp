@@ -1,4 +1,5 @@
 #include <WindowManager/Window.hpp>
+#include <WindowManager/WindowEffects.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -23,6 +24,16 @@ namespace SFT::WindowManager {
 /// @note This function does not throw exceptions.
 Window::Window(ConstructorKey) noexcept
             : id_(Detail::allocate_window_id()) {}
+
+WindowEffectSupport Window::window_effect_support(WindowEffectKind kind) const noexcept {
+    const auto handle = native_window_handle();
+    if (!handle) {
+        WindowEffectSupport support;
+        support.add("none", EffectAvailability::Unknown, "the window has no native handle yet");
+        return support;
+    }
+    return query_native_window_effect_support(*handle, kind);
+}
 
 /// Returns the current or globally available ID value.
 ///

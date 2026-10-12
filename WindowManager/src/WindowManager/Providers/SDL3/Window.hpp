@@ -460,6 +460,10 @@ namespace SFT::WindowManager::SDL3 {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note This function does not throw exceptions.
         [[nodiscard]] expected<NativeWindowHandle, WindowError> native_window_handle_locked() const noexcept;
+        /// Fills the window-size/scale fields platform code needs to turn effect options into pixel regions.
+        void fill_effect_geometry_locked(WindowEffect &effect) const noexcept;
+        /// Re-applies the active blur when its region is derived from the window size (rounded corners).
+        void reapply_blur_region_locked() noexcept;
 
         SDL_Window *window_ = nullptr;
         deque<WindowEvent> events_;

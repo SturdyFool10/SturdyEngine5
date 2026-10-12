@@ -22,6 +22,9 @@ namespace SFT::WindowManager::Detail {
     /// @param release_display `release_display` value used by the operation.
     ///
     /// @note This function does not throw exceptions.
+    /// Which Wayland blur protocols the compositor behind `handle` advertises right now.
+    [[nodiscard]] WindowEffectSupport query_wayland_background_support(NativeWindowHandle handle) noexcept;
+
     void release_wayland_background_effects(
         NativeWindowHandle handle, bool release_display) noexcept;
 

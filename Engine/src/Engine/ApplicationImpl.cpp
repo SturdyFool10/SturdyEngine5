@@ -483,10 +483,23 @@ namespace SFT::Engine {
             }
 
             if (auto *blur = std::get_if<SetBlurRequest>(&request)) {
-                record_applied_effect(blur->window, WindowManager::WindowEffect{blur->kind, blur->enabled});
-                window_manager_.post_to_window(blur->window, [kind = blur->kind, enabled = blur->enabled](WindowManager::Window &w) {
-                    return w.set_effect(WindowManager::WindowEffect{kind, enabled});
-                });
+                const WindowManager::WindowEffect effect{blur->kind, blur->enabled, blur->color_argb,
+                                                         blur->linux_blur_protocol, blur->options};
+                record_applied_effect(blur->window, effect);
+                // Runs on the window thread: keep the platform's verdict so the app can read it back and downgrade
+                // (blur -> transparent) with a notice instead of the request silently doing nothing.
+                window_manager_.post_to_window(
+                    blur->window, [effect, window = blur->window, requests = &engine_->window_requests()](WindowManager::Window &w) {
+                        const WindowManager::WindowEffectResult result = w.enable_window_effect(effect);
+                        requests->record_effect_status(WindowEffectStatus{
+                            .window = window,
+                            .kind = effect.kind,
+                            .requested_enabled = effect.enabled,
+                            .result = result.kind,
+                            .details = std::string{result.details},
+                        });
+                        return WindowManager::window_result_from_effect_result(result);
+                    });
                 continue;
             }
 

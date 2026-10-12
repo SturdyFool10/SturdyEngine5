@@ -28,6 +28,13 @@ namespace sturdy_rs::render {
     struct TextInputArea;
     enum class CursorIcon : std::uint8_t;
     enum class WindowEffectKind : std::uint8_t;
+    enum class LinuxBlurProtocol : std::uint8_t;
+    enum class WindowEffectResultKind : std::uint8_t;
+    struct WindowEffectStatusInfo;
+    struct WindowEffectOptionsInfo;
+    struct WindowEffectSupportInfo;
+    enum class EffectAvailability : std::uint8_t;
+    struct EffectRouteInfo;
     struct OffscreenTargetDesc;
     struct OffscreenTargetCreateResult;
     struct PresentationSettings;
@@ -58,6 +65,12 @@ namespace sturdy_rs::render {
     void window_set_text_input_active(EngineView &engine, SurfaceHandle surface, bool active) noexcept;
     void window_set_text_input_area(EngineView &engine, SurfaceHandle surface, TextInputArea area) noexcept;
     void window_set_effect(EngineView &engine, SurfaceHandle surface, WindowEffectKind kind, bool enabled) noexcept;
+    void window_set_effect_ex(EngineView &engine, SurfaceHandle surface, WindowEffectKind kind, bool enabled,
+                              LinuxBlurProtocol protocol, std::uint32_t color_argb,
+                              const WindowEffectOptionsInfo &options) noexcept;
+    WindowEffectSupportInfo window_effect_support(const EngineView &engine, SurfaceHandle surface, WindowEffectKind kind);
+    WindowEffectStatusInfo window_effect_status(EngineView &engine, SurfaceHandle surface, WindowEffectKind kind);
+    bool window_effect_supported(WindowEffectKind kind) noexcept;
 
     // -- offscreen render targets --
 

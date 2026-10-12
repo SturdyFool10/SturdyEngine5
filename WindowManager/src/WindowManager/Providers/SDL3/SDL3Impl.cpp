@@ -1058,6 +1058,10 @@ namespace SFT::WindowManager::SDL3 {
                     target->pending_resize_ = window_event.resize;
                     target->events_.push_back(window_event);
                     ++queued_event_count;
+                    if (event.type == SDL_EVENT_WINDOW_RESIZED) {
+                        // A rounded-corner blur region is built from the window size, so it follows every resize.
+                        target->reapply_blur_region_locked();
+                    }
                 }
             } else if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
                 if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
@@ -1280,6 +1284,7 @@ namespace SFT::WindowManager::SDL3 {
         if (active_blur_effect_) {
             if (auto handle = native_window_handle_locked()) {
                 native_effect_handle_ = *handle;
+                fill_effect_geometry_locked(*active_blur_effect_);
                 const WindowEffectResult applied = enable_native_window_effect(*handle, *active_blur_effect_);
                 if (!applied.succeeded()) {
                     Foundation::log_warn("SDL3 could not reapply blur after showing a recreated native surface: {}", applied.details);
@@ -1922,6 +1927,29 @@ namespace SFT::WindowManager::SDL3 {
     /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note This function does not throw exceptions.
+    void SDL3Window::fill_effect_geometry_locked(WindowEffect &effect) const noexcept {
+        int width = 0;
+        int height = 0;
+        if (window_ != nullptr && SDL_GetWindowSize(window_, &width, &height)) {
+            effect.options.window_width = static_cast<u32>(std::max(width, 0));
+            effect.options.window_height = static_cast<u32>(std::max(height, 0));
+        }
+        const float density = window_ != nullptr ? SDL_GetWindowPixelDensity(window_) : 1.0f;
+        effect.options.pixel_scale = density > 0.0f ? density : 1.0f;
+    }
+
+    void SDL3Window::reapply_blur_region_locked() noexcept {
+        if (!active_blur_effect_ || !active_blur_effect_->options.region_follows_window_size()) {
+            return;
+        }
+        const auto handle = native_window_handle_locked();
+        if (!handle) {
+            return;
+        }
+        fill_effect_geometry_locked(*active_blur_effect_);
+        (void)enable_native_window_effect(*handle, *active_blur_effect_);
+    }
+
     WindowEffectResult SDL3Window::enable_window_effect(WindowEffect effect) noexcept {
         ZoneScopedN("SDL3Window::enable_window_effect");
         auto lock = sdl_window_mutex().lock();
@@ -1962,6 +1990,7 @@ namespace SFT::WindowManager::SDL3 {
 
             native_effect_handle_ = *handle;
         }
+        fill_effect_geometry_locked(effect);
         WindowEffectResult result = enable_native_window_effect(*handle, effect);
         if (result.succeeded() && effect.kind == WindowEffectKind::Blur) {
             if (effect.enabled) {

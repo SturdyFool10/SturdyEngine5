@@ -563,6 +563,11 @@ namespace SFT::WindowManager {
         /// @note This function does not throw exceptions.
         [[nodiscard]] virtual WindowEffectResult enable_window_effect(WindowEffect effect) noexcept = 0;
 
+        /// What this window can do for `kind` on this OS and compositor, route by route (for example which of
+        /// `ext-background-effect-v1`, `org_kde_kwin_blur` and the X11 blur property exist). Changes nothing. The
+        /// default asks the platform layer through `native_window_handle()`.
+        [[nodiscard]] virtual WindowEffectSupport window_effect_support(WindowEffectKind kind) const noexcept;
+
 
         /// Sets the effect for this `Window`.
         ///

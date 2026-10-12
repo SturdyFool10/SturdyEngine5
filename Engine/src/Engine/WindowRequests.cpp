@@ -153,6 +153,35 @@ namespace SFT::Engine {
         guard->pending.emplace_back(SetBlurRequest{window, kind, enabled});
     }
 
+    void WindowRequests::set_effect(WindowManager::WindowId window, WindowManager::WindowEffect effect) {
+        auto guard = state_.lock();
+        guard->pending.emplace_back(
+            SetBlurRequest{window, effect.kind, effect.enabled, effect.linux_blur_protocol, effect.color_argb,
+                           effect.options});
+    }
+
+    void WindowRequests::record_effect_status(WindowEffectStatus status) {
+        auto guard = state_.lock();
+        for (WindowEffectStatus &existing : guard->effect_statuses) {
+            if (existing.window == status.window && existing.kind == status.kind) {
+                existing = std::move(status);
+                return;
+            }
+        }
+        guard->effect_statuses.push_back(std::move(status));
+    }
+
+    std::optional<WindowEffectStatus> WindowRequests::effect_status(WindowManager::WindowId window,
+                                                                    WindowManager::WindowEffectKind kind) const {
+        auto guard = state_.lock();
+        for (const WindowEffectStatus &status : guard->effect_statuses) {
+            if (status.window == window && status.kind == kind) {
+                return status;
+            }
+        }
+        return std::nullopt;
+    }
+
     /// Sets the text input area for this `Engine`.
     ///
     /// @param window Window used or affected by the operation.

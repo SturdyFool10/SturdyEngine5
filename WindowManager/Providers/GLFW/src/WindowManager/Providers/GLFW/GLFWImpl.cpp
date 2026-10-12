@@ -1969,6 +1969,17 @@ namespace SFT::WindowManager::GLFW {
             return WindowEffectResult::failed("GLFW native window handle is unavailable.");
         }
 
+        // Platform code turns the effect options (rounded corners, regions) into pixel regions and needs the size.
+        int width = 0;
+        int height = 0;
+        glfwGetWindowSize(window_, &width, &height);
+        effect.options.window_width = static_cast<u32>(width > 0 ? width : 0);
+        effect.options.window_height = static_cast<u32>(height > 0 ? height : 0);
+        int framebuffer_width = 0;
+        int framebuffer_height = 0;
+        glfwGetFramebufferSize(window_, &framebuffer_width, &framebuffer_height);
+        effect.options.pixel_scale = width > 0 ? static_cast<f32>(framebuffer_width) / static_cast<f32>(width) : 1.0f;
+
         return enable_native_window_effect(*handle, effect);
     }
 

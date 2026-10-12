@@ -246,6 +246,17 @@ namespace SFT::Engine {
         return snapshot != nullptr ? snapshot->native_handle : std::nullopt;
     }
 
+    WindowManager::WindowEffectSupport Engine::window_effect_support(WindowManager::WindowId window,
+                                                                     WindowManager::WindowEffectKind kind) const noexcept {
+        const std::optional<WindowManager::NativeWindowHandle> handle = native_window_handle(window);
+        if (!handle) {
+            WindowManager::WindowEffectSupport support;
+            support.add("none", WindowManager::EffectAvailability::Unknown, "the window is unknown or has no native handle");
+            return support;
+        }
+        return WindowManager::query_native_window_effect_support(*handle, kind);
+    }
+
     /// Sets the primary window for this `Engine`.
     ///
     /// @param window Window used or affected by the operation.
