@@ -12,6 +12,7 @@
 pub mod assets;
 pub mod camera;
 pub mod color;
+pub mod device;
 pub mod diagnostics;
 pub mod ecs;
 pub mod geometry;

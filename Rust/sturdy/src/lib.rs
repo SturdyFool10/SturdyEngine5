@@ -36,6 +36,7 @@ mod runtime;
 // `sturdy::ecs::World`, `sturdy::rhi::BufferDesc`, etc. — each accessible from `Engine` via the
 // matching method (`Engine::ecs()`, `Engine::rhi()`, ...).
 pub mod assets;
+pub mod device;
 pub mod diagnostics;
 pub mod ecs;
 pub mod geometry;

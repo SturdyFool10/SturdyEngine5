@@ -521,3 +521,15 @@ were excluded. All of it is now bound and checked against the live engine in `ex
 - [ ] `RenderGraphModule` registration (new built-in module kinds) — no runtime form.
 - [ ] Rust-authored hot-reload modules that register reflected types — would need the module to
       link its own copy of the engine or a C-ABI registry facade the engine doesn't ship.
+
+## Live device changes (Vertex Launcher migration, 2026-10-11)
+
+See `Rust/plans/vertex-launcher-gaps.md` for the full verification report.
+
+- [x] `sturdy::device`: `Engine::available_backends`/`available_adapters` (stable ids, per-API driver strings),
+      `switch_device(&DeviceRequest) -> DeviceSwitch` (`Switched` / `SwitchedWithFallback(reason)` /
+      `Failed(reason)`, in place, previous device restored on failure), `device_generation`,
+      `take_device_change_events` (switches and automatic device-loss recoveries). Bridge
+      `sturdy-sys/src/device.rs`, shim `cpp/sturdy_rs/device.cpp`.
+- [ ] Per-adapter, per-surface presentability: reported `Presentability::Unknown` except for the running device.
+- [ ] Rust access to `WindowEffect::linux_blur_protocol` and the `WindowEffectResult` readback (both exist in C++).

@@ -354,6 +354,7 @@ namespace SFT::Engine {
         config_ = config;
         primary_window_ = &window;
         capabilities_ = renderer_.capabilities();
+        renderer_.set_device_change_callback([this](const Core::DeviceChangeNotice &notice) { dispatch_device_change(notice); });
         Foundation::log_info("Engine initialized in {}", stopwatch.elapsed_human());
         return *surface;
     }
@@ -1095,6 +1096,127 @@ namespace SFT::Engine {
     /// @note This function does not throw exceptions.
     RHI::RhiDevice *Engine::rhi_device() noexcept {
         return renderer_.rhi_device();
+    }
+
+    vector<RHI::BackendType> Engine::available_backends() const {
+        return ::SFT::Engine::available_backends(gpu_inventory_);
+    }
+
+    vector<AdapterDescription> Engine::available_adapters() {
+        const RHI::RhiDevice *device = renderer_.rhi_device();
+        if (device == nullptr) {
+            return describe_adapters(gpu_inventory_, std::nullopt, {});
+        }
+        return describe_adapters(gpu_inventory_, device->backend_type(), device->adapter_info().physical_device_id);
+    }
+
+    DeviceSwitchResult Engine::switch_device(const DeviceRequest &request) {
+        DeviceSwitchResult result;
+        const auto describe_running = [&] {
+            result.generation = renderer_.device_generation();
+            if (const RHI::RhiDevice *device = renderer_.rhi_device()) {
+                result.backend = device->backend_type();
+                result.adapter_name = device->adapter_info().name;
+                for (const RHI::PhysicalGpu &gpu : gpu_inventory_.gpus) {
+                    if (gpu.physical_device_id == device->adapter_info().physical_device_id) {
+                        result.adapter_stable_id = adapter_stable_id(gpu);
+                    }
+                }
+            }
+        };
+        describe_running();
+
+        if (!initialized_ || primary_window_ == nullptr || renderer_.rhi_device() == nullptr) {
+            result.reason = "The engine has no running graphics device to replace.";
+            return result;
+        }
+
+        const RHI::BackendType running_backend = renderer_.rhi_device()->backend_type();
+        const string running_physical_id = renderer_.rhi_device()->adapter_info().physical_device_id;
+        const DeviceResolution resolved = resolve_device_request(gpu_inventory_, request, running_backend);
+        if (!resolved.ok) {
+            result.reason = resolved.error;
+            return result;
+        }
+        const RHI::PhysicalGpu &gpu = gpu_inventory_.gpus[resolved.gpu_index];
+        const DeviceSwitchOutcome success_outcome =
+            resolved.fallback_reason.empty() ? DeviceSwitchOutcome::Switched : DeviceSwitchOutcome::SwitchedWithFallback;
+
+        if (!request.force_recreate && resolved.backend == running_backend && gpu.physical_device_id == running_physical_id) {
+            // Already on the requested device: nothing to rebuild (and nothing to lose by doing nothing).
+            result.outcome = success_outcome;
+            result.reason = resolved.fallback_reason;
+            return result;
+        }
+
+        EngineConfig settings = config_;
+        settings.graphics_backend = resolved.backend;
+        settings.graphics_physical_device_id = gpu.physical_device_id;
+
+        const u64 generation_before = renderer_.device_generation();
+        wait_idle();
+        auto applied = apply_runtime_settings(Core::RenderSurfaceHandle{}, settings);
+        describe_running();
+        if (!applied.has_value()) {
+            // A failure that had already torn the old device down rebuilds it, which advances the generation.
+            result.rolled_back = result.generation != generation_before && renderer_.rhi_device() != nullptr;
+            result.reason = applied.error().message;
+            return result;
+        }
+        result.outcome = success_outcome;
+        result.reason = resolved.fallback_reason;
+        return result;
+    }
+
+    vector<DeviceChangeEvent> Engine::take_device_change_events() {
+        auto guard = device_observers_.lock();
+        vector<DeviceChangeEvent> out;
+        out.swap(guard->pending);
+        return out;
+    }
+
+    usize Engine::add_device_observer(std::function<void(const DeviceChangeEvent &)> observer) {
+        auto guard = device_observers_.lock();
+        const usize token = guard->next_token++;
+        guard->observers.emplace_back(token, std::move(observer));
+        return token;
+    }
+
+    void Engine::remove_device_observer(usize token) {
+        auto guard = device_observers_.lock();
+        std::erase_if(guard->observers, [token](const auto &entry) { return entry.first == token; });
+    }
+
+    void Engine::dispatch_device_change(const Core::DeviceChangeNotice &notice) {
+        DeviceChangeEvent event;
+        event.generation = notice.generation;
+        event.message = notice.message;
+        const RHI::RhiDevice *device = renderer_.rhi_device();
+        if (device != nullptr) {
+            event.backend = device->backend_type();
+            event.adapter_name = device->adapter_info().name;
+        }
+        switch (notice.phase) {
+            case Core::DeviceChangePhase::Before: event.kind = DeviceChangeKind::Switching; break;
+            case Core::DeviceChangePhase::After:
+                event.kind = notice.reason == "GPU device loss" ? DeviceChangeKind::Recovered : DeviceChangeKind::Switched;
+                break;
+            case Core::DeviceChangePhase::Failed: event.kind = DeviceChangeKind::LostUnrecoverable; break;
+        }
+        // Observers run outside the lock so one may register or remove observers without deadlocking.
+        vector<std::function<void(const DeviceChangeEvent &)>> to_call;
+        {
+            auto guard = device_observers_.lock();
+            if (event.kind != DeviceChangeKind::Switching) {
+                guard->pending.push_back(event);
+            }
+            for (const auto &entry : guard->observers) {
+                to_call.push_back(entry.second);
+            }
+        }
+        for (const auto &observer : to_call) {
+            observer(event);
+        }
     }
 
 } // namespace SFT::Engine

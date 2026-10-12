@@ -1648,6 +1648,85 @@ fn check_window_mutation_demo(engine: &mut Engine<'_>, surface: SurfaceHandle, f
     true
 }
 
+/// Exercises `sturdy::device` against the live engine: enumeration, an in-place device rebuild, a typed
+/// failure that leaves the running device alone, and the missing-saved-adapter fallback. Rendering must keep
+/// going afterwards (checked by waiting for later frames), which is the real proof the swapchain, assets and
+/// UI survived the switch.
+#[derive(Default)]
+struct DeviceDemo {
+    stage: u8,
+    switched_at_frame: u64,
+    generation_after: u64,
+}
+
+impl DeviceDemo {
+    fn step(&mut self, engine: &mut Engine<'_>, frame_index: u64) {
+        use sturdy::device::{Backend, DeviceChangeKind, DeviceRequest, SwitchOutcome};
+        match self.stage {
+            0 if frame_index >= 120 => {
+                let backends = engine.available_backends();
+                let adapters = engine.available_adapters();
+                assert!(!backends.is_empty() && !adapters.is_empty(), "[device-switch] nothing enumerated");
+                let active: Vec<_> = adapters
+                    .iter()
+                    .flat_map(|a| a.backends.iter().filter(|b| b.active).map(move |b| (a, b)))
+                    .collect();
+                assert_eq!(active.len(), 1, "[device-switch] exactly one backend offer should be active");
+                let (adapter, offer) = active[0];
+                eprintln!(
+                    "[device-switch] {} adapter(s), backends {backends:?}; running on {} via {:?} (stable id {})",
+                    adapters.len(),
+                    adapter.name,
+                    offer.backend,
+                    adapter.stable_id
+                );
+                let before = engine.device_generation();
+
+                // A typed failure that must leave the running device untouched.
+                let impossible = if backends.contains(&Backend::Metal) { Backend::D3D12 } else { Backend::Metal };
+                if !backends.contains(&impossible) {
+                    let failed = engine.switch_device(&DeviceRequest::new().backend(impossible));
+                    assert!(matches!(failed.outcome, SwitchOutcome::Failed(_)), "[device-switch] {failed:?}");
+                    assert_eq!(failed.generation, before, "[device-switch] a refused request rebuilt the device");
+                    assert_eq!(failed.backend, Some(offer.backend));
+                    eprintln!("[device-switch] unsupported {impossible:?} refused, device untouched");
+                }
+
+                // A saved adapter that is gone degrades to the profile with a reason; same device, so no rebuild.
+                let fallback = engine.switch_device(&DeviceRequest::new().adapter("0000000000000000"));
+                assert!(
+                    matches!(fallback.outcome, SwitchOutcome::SwitchedWithFallback(_)),
+                    "[device-switch] {fallback:?}"
+                );
+                eprintln!("[device-switch] missing saved adapter -> {:?}", fallback.outcome);
+
+                // The real thing: tear the device down and rebuild it in place.
+                let started = std::time::Instant::now();
+                let rebuilt = engine.switch_device(&DeviceRequest::new().adapter(adapter.stable_id.clone()).force_recreate(true));
+                assert_eq!(rebuilt.outcome, SwitchOutcome::Switched, "[device-switch] {rebuilt:?}");
+                assert!(rebuilt.generation > before, "[device-switch] generation did not advance");
+                assert!(!rebuilt.rolled_back);
+                eprintln!("[device-switch] rebuilt in {:?}: generation {before} -> {}", started.elapsed(), rebuilt.generation);
+                self.generation_after = rebuilt.generation;
+                self.switched_at_frame = frame_index;
+                self.stage = 1;
+            }
+            1 if frame_index >= self.switched_at_frame + 60 => {
+                // 60 more frames rendered on the new device without a panic or a failed present.
+                let events = engine.take_device_change_events();
+                assert!(
+                    events.iter().any(|e| e.kind == DeviceChangeKind::Switched && e.generation == self.generation_after),
+                    "[device-switch] no Switched event: {events:?}"
+                );
+                assert_eq!(engine.device_generation(), self.generation_after, "[device-switch] device changed again");
+                eprintln!("[device-switch] 60 frames rendered after the switch; all device-switch checks passed");
+                self.stage = 2;
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Per-frame results of `install_ui_draw_demo`'s draw hook, read back from `frame()`. Atomics
 /// because the hook is a `Send + 'static` closure the engine calls on its own schedule.
 struct UiDemoResults {
@@ -2219,6 +2298,7 @@ struct Spinner {
     window_demo_queued: bool,
     window_demo_checked: bool,
     window_demo_frames_waited: u32,
+    device_demo: DeviceDemo,
     ui_demo: Option<Arc<UiDemoResults>>,
     ui_demo_checked: bool,
     ui_demo_frames_waited: u32,
@@ -4158,6 +4238,8 @@ impl GameLogic for Spinner {
             self.window_demo_frames_waited += 1;
         }
 
+        self.device_demo.step(engine, frame.index);
+
         let modifiers = engine.input().modifiers();
         if engine.input().key_just_pressed(Key::Enter) && modifiers.control {
             eprintln!("[input] Ctrl+Enter pressed: {modifiers:?}");
@@ -4245,6 +4327,7 @@ fn main() -> ExitCode {
             window_demo_queued: false,
             window_demo_checked: false,
             window_demo_frames_waited: 0,
+            device_demo: DeviceDemo::default(),
             ui_demo: None,
             ui_demo_checked: false,
             ui_demo_frames_waited: 0,

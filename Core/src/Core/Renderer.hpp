@@ -4,6 +4,7 @@
 
 #pragma region Imports
 #include <expected>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -79,6 +80,25 @@ namespace SFT::Core {
     struct RuntimeSettingsChangeResult {
         RuntimeSettingApplyMode mode = RuntimeSettingApplyMode::NoChange;
         UString message;
+    };
+
+    /// Where a graphics-device replacement is. `Before` fires while the old device is still alive (release anything
+    /// that must be destroyed against it); `After` once a device is running again; `Failed` when none could be built.
+    enum class DeviceChangePhase : u8 {
+        Before,
+        After,
+        Failed,
+    };
+
+    struct DeviceChangeNotice {
+        DeviceChangePhase phase = DeviceChangePhase::After;
+        /// "runtime settings change", "GPU device loss", or "rollback after failed switch".
+        string reason;
+        /// `Renderer::device_generation()` once the change completes (the old value for `Before`).
+        u64 generation = 0;
+        /// Set for `After`/`Failed` on the rollback path: the requested device could not be built.
+        bool rolled_back = false;
+        string message;
     };
 
 

@@ -91,9 +91,17 @@ namespace SFT::Engine {
                     if (wanted(event.window)) apply_window_event(surface_.input(), event);
                 }
             }));
+        // A live device switch destroys the UI's GPU renderer against the old device while it is still alive; the
+        // layout context (fonts, text caches, widget state) is kept and `ensure_ready` rebuilds the renderer.
+        device_observer_ = engine.add_device_observer([this](const DeviceChangeEvent &event) {
+            if (event.kind == DeviceChangeKind::Switching) {
+                release_gpu_objects();
+            }
+        });
     }
 
     ScreenUi::~ScreenUi() {
+        engine_.remove_device_observer(device_observer_);
         for (const Ecs::SystemHandle system : systems_) {
             (void)engine_.update_schedule().remove_system(system);
         }

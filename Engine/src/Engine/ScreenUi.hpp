@@ -83,6 +83,7 @@ namespace SFT::Engine {
         /// Returns physical pixels per window-coordinate unit for `window`, or 1 when it is unknown.
         [[nodiscard]] glm::vec2 pixel_density_for(WindowManager::WindowId window) const noexcept;
         std::vector<Ecs::SystemHandle> systems_;
+        usize device_observer_ = 0;
     };
 
 } // namespace SFT::Engine

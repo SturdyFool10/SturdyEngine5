@@ -10,6 +10,7 @@
 #include <WindowManager/WindowManager.hpp>
 #include <RHI/RHI.hpp>
 #include <Renderer/RendererModule.hpp>
+#include <Renderer/ShaderTarget.hpp>
 
 #include <tracy/Tracy.hpp>
 
@@ -61,7 +62,60 @@ namespace SFT::Renderer {
                                                                     const char *reason) {
         ZoneScopedN("Renderer::rebuild_backend_from_create_info");
         auto backend_operation = backend_operation_mutex_.lock();
-        if (!initialized_ || create_info.window == nullptr || window_surfaces_.lock()->empty()) {
+        const auto notify = [this](Core::DeviceChangePhase phase, const char *why, bool rolled_back, string message) {
+            if (device_change_callback_) {
+                device_change_callback_(Core::DeviceChangeNotice{.phase = phase,
+                                                                 .reason = why,
+                                                                 .generation = device_generation_,
+                                                                 .rolled_back = rolled_back,
+                                                                 .message = std::move(message)});
+            }
+        };
+        // The device being replaced is still alive here: observers destroy whatever they built against it.
+        notify(Core::DeviceChangePhase::Before, reason, false, {});
+
+        // A failed replacement used to leave the renderer uninitialized (every later frame errored). Remember what
+        // was running so a failure can put it back; this is what makes a live device switch safe to attempt.
+        const Core::RendererCreateInfo previous = recovery_create_info_;
+        const bool was_initialized = initialized_;
+        Core::RendererResult attempted = rebuild_backend_attempt(create_info, reason, false);
+        if (attempted.has_value()) {
+            ++device_generation_;
+            notify(Core::DeviceChangePhase::After, reason, false, {});
+            return attempted;
+        }
+
+        // Every failure that tore the old device down leaves `initialized_` false; a refusal before any teardown
+        // (nothing initialised, no window) leaves the old device running and needs no rollback.
+        const bool can_roll_back = was_initialized && !initialized_ && previous.window != nullptr &&
+                                   !window_surfaces_.lock()->empty();
+        if (can_roll_back) {
+            Foundation::log_warn("Graphics backend rebuild for {} failed ({}); restoring the previous device.", reason,
+                                 attempted.error().message);
+            Core::RendererResult restored = rebuild_backend_attempt(previous, "rollback after failed switch", true);
+            if (restored.has_value()) {
+                ++device_generation_;
+                notify(Core::DeviceChangePhase::After, "rollback after failed switch", true, attempted.error().message);
+                return unexpected(Core::GraphicsBackendError{
+                    .code = attempted.error().code,
+                    .message = attempted.error().message + " (the previous device was restored)",
+                });
+            }
+            attempted = unexpected(Core::GraphicsBackendError{
+                .code = attempted.error().code,
+                .message = attempted.error().message + " (restoring the previous device also failed: " +
+                           restored.error().message + ")",
+            });
+        }
+        notify(Core::DeviceChangePhase::Failed, reason, false, attempted.error().message);
+        return attempted;
+    }
+
+    /// One rebuild attempt; `rebuild_backend_from_create_info` wraps it with notification and rollback.
+    Core::RendererResult Renderer::rebuild_backend_attempt(const Core::RendererCreateInfo &create_info,
+                                                           const char *reason, bool allow_uninitialized) {
+        ZoneScopedN("Renderer::rebuild_backend_attempt");
+        if ((!initialized_ && !allow_uninitialized) || create_info.window == nullptr || window_surfaces_.lock()->empty()) {
             return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::DeviceLost,
                                                 "Cannot rebuild graphics backend before renderer initialization state is available.");
         }
@@ -227,6 +281,23 @@ namespace SFT::Renderer {
         *instance_cull_.lock() = {};
         instanced_pipeline_variants_.lock()->clear();
         reset_displacement_mesh_gpu_after_device_loss();
+        {
+            // Skinning buffers (including the previous-positions buffer every object-history bind group reads) name
+            // objects on the old device; forget them without destroying and re-pose once the new device is up.
+            auto skinning = skinning_.lock();
+            for (auto &[_, skin] : skinning->skins) {
+                skin.bind_buffer = {};
+                skin.influence_buffer = {};
+                skin.morph_offset_buffer = {};
+                skin.morph_entry_buffer = {};
+                skin.dirty = !skin.pending.empty();
+            }
+            for (RHI::BufferHandle &slot : skinning->joint_ring) slot = {};
+            for (RHI::BufferHandle &slot : skinning->weight_ring) slot = {};
+            skinning->dummy_buffer = {};
+            skinning->previous_positions = {};
+            skinning->previous_capacity_vertices = 0;
+        }
         *object_history_.lock() = {};
         object_history_pipeline_variants_.lock()->clear();
         *hiz_build_.lock() = {};
@@ -285,9 +356,32 @@ namespace SFT::Renderer {
             material_template.has_uniform_block = false;
             material_template.parameters.clear();
             material_template.texture_slots.clear();
+            // Templates made from source dropped their compiler state after the first build, and the bytecode they
+            // hold was generated for the *old* device's shader target (SPIR-V vs WGSL vs DXIL). Recompile from the
+            // retained source against the new device before building.
+            const Core::Slang::ShaderSource &retained_source = material_template.variant_cache.source();
+            const bool from_source = !retained_source.path.empty() || !retained_source.source.empty();
+            if (from_source) {
+                Core::Slang::ShaderCompileOptions options = material_template.variant_cache.base_options();
+                options.targets = shader_compile_targets_for_device(*rhi_device());
+                Core::Slang::ShaderVariantCache rebuilt_cache{retained_source, std::move(options), {},
+                                                              recovery_create_info_.enable_shader_disk_cache};
+                auto base = rebuilt_cache.get_or_compile_base();
+                if (!base) {
+                    return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                        "Cannot recompile material template after backend rebuild: " +
+                                                            base.error().message);
+                }
+                material_template.shader = *base;
+                material_template.variant_cache = std::move(rebuilt_cache);
+            }
             Core::RendererResult built = build_material_template_gpu(material_template, material_template.shader);
             if (!built.has_value()) {
                 return built;
+            }
+            if (from_source) {
+                material_template.shader.release_compiler_state();
+                material_template.variant_cache.release_compiler_memory();
             }
         }
 

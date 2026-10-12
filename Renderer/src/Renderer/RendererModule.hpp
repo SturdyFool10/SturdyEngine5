@@ -172,6 +172,16 @@ namespace SFT::Renderer {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult reconfigure_backend(const Core::RendererCreateInfo &create_info);
 
+        /// Counts every time the graphics device was replaced (a runtime backend/adapter switch or a device-loss
+        /// recovery). Handles the renderer manages itself (meshes, textures, materials, offscreen targets) are
+        /// re-created in place across a change; a caller holding raw RHI objects compares this to know when theirs died.
+        [[nodiscard]] u64 device_generation() const noexcept { return device_generation_; }
+
+        /// Observer for device replacement; see `Core::DeviceChangePhase`. Called on the thread doing the rebuild,
+        /// with the backend-operation lock held, so it must not call back into the renderer's rebuild paths.
+        using DeviceChangeCallback = std::function<void(const Core::DeviceChangeNotice &)>;
+        void set_device_change_callback(DeviceChangeCallback callback) { device_change_callback_ = std::move(callback); }
+
 
         /// Queries HDR capabilities from the active backend or runtime state.
         ///
@@ -3343,6 +3353,10 @@ namespace SFT::Renderer {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererResult rebuild_backend_from_create_info(const Core::RendererCreateInfo &create_info,
                                                                             const char *reason);
+        /// One rebuild attempt with no rollback. `allow_uninitialized` lets the rollback path rebuild after a failed
+        /// attempt left `initialized_` false.
+        [[nodiscard]] Core::RendererResult rebuild_backend_attempt(const Core::RendererCreateInfo &create_info,
+                                                                   const char *reason, bool allow_uninitialized);
         /// Returns the current or globally available restore GPU resources after recovery value.
         ///
         /// @return Returns the successful result/status when the operation completes; the type-specific error state describes a failure.
@@ -3497,6 +3511,8 @@ namespace SFT::Renderer {
         Async::Mutex<u8> backend_operation_mutex_{0};
         bool initialized_ = false;
         bool recovering_from_device_loss_ = false;
+        u64 device_generation_ = 0;
+        DeviceChangeCallback device_change_callback_{};
     };
 
 } // namespace SFT::Renderer

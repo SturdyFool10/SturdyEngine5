@@ -1,3 +1,4 @@
+#include <atomic>
 #include <Foundation/Foundation.hpp>
 
 #pragma region Imports
@@ -380,13 +381,17 @@ namespace SFT::UI {
             resources.uploaded_instances.assign(instances.begin(), instances.end());
         }
 
+        // A batch whose texture is gone (an adopted texture created on a device that has since been replaced, or one
+        // the app destroyed) draws nothing; it must not fail the whole frame, UI included.
+        const usize dropped = std::erase_if(out_batches, [](const UiQuadDrawBatch &batch) { return !batch.texture_view; });
+        if (dropped != 0) {
+            static std::atomic<bool> warned{false};
+            if (!warned.exchange(true)) {
+                Foundation::log_warn("UI: skipped {} quad batch(es) referencing an invalid texture view (once per run).", dropped);
+            }
+        }
         for (UiQuadDrawBatch &batch : out_batches) {
             batch.instance_buffer = resources.instance_buffer;
-            if (!batch.texture_view) {
-                out_batches.clear();
-                return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                    "UI quad batch references an invalid texture view.");
-            }
             auto cached = std::ranges::find_if(resources.binding_cache,
                                                [&](const auto &entry) { return entry.texture_view == batch.texture_view; });
             if (cached == resources.binding_cache.end()) {

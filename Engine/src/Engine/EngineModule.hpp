@@ -18,6 +18,7 @@
 #include <Engine/EcsAudio.hpp>
 #include <Engine/FixedTime.hpp>
 #include <Engine/DebugDraw.hpp>
+#include <Engine/DeviceSwitch.hpp>
 #include <Engine/Transform.hpp>
 #include <Engine/ModelImport.hpp>
 #include <Engine/SpawnImported.hpp>
@@ -498,6 +499,40 @@ namespace SFT::Engine {
         /// @note This function does not throw exceptions.
         [[nodiscard]] const RHI::GpuInventory &gpu_inventory() const noexcept;
 
+        /// The graphics APIs at least one discovered adapter can be driven through. Reads the startup inventory;
+        /// creates no device.
+        [[nodiscard]] vector<RHI::BackendType> available_backends() const;
+
+        /// Every discovered GPU with its APIs, driver versions and stable ids, for a settings screen. Reads the
+        /// startup inventory; creates no device. The running adapter's API is marked `active` and presentable.
+        [[nodiscard]] vector<AdapterDescription> available_adapters();
+
+        /// Replaces the graphics device (API and/or adapter) while the app keeps running, with no relaunch.
+        ///
+        /// What survives, re-created in place on the new device: meshes, textures, materials, offscreen render
+        /// targets, window surfaces and swapchains, renderer pipeline caches, and (through `ScreenUi`) the UI
+        /// renderer. Handles that stay valid: every renderer/asset handle the engine hands out, window ids and
+        /// `RenderSurfaceHandle`s. What does not survive: GPU objects the caller created itself through the raw
+        /// RHI (buffers, pipelines, ...); compare `device_generation()` or watch `take_device_change_events()`.
+        ///
+        /// A failed switch never leaves a dead window: the previous device is rebuilt (`rolled_back`) and the
+        /// result is `Failed` with the reason. Must be called from the thread that owns frame submission, between
+        /// frames (not from inside a render callback).
+        [[nodiscard]] DeviceSwitchResult switch_device(const DeviceRequest &request);
+
+        /// Number of times the graphics device has been replaced (a switch, a rollback, a device-loss recovery).
+        [[nodiscard]] u64 device_generation() const noexcept { return renderer_.device_generation(); }
+
+        /// Drains the queue of device changes (switches, rollbacks, automatic device-loss recoveries) since the
+        /// last call. Safe from any thread.
+        [[nodiscard]] vector<DeviceChangeEvent> take_device_change_events();
+
+        /// Registers an observer called for every device change, including `Switching` while the old device is
+        /// still alive. Runs on the thread doing the change and must not call `switch_device`. Returns a token for
+        /// `remove_device_observer`.
+        usize add_device_observer(std::function<void(const DeviceChangeEvent &)> observer);
+        void remove_device_observer(usize token);
+
 
         /// Returns the current or globally available shaders value.
         ///
@@ -545,6 +580,13 @@ namespace SFT::Engine {
         UiSvgCache ui_svg_cache_{};
         Ecs::Schedule update_schedule_;
         /// Previous frame's view-projection per surface, for `engine_managed_camera_history`.
+        struct DeviceObservers {
+            std::vector<std::pair<usize, std::function<void(const DeviceChangeEvent &)>>> observers;
+            std::vector<DeviceChangeEvent> pending;
+            usize next_token = 1;
+        };
+        Async::Mutex<DeviceObservers> device_observers_;
+        void dispatch_device_change(const Core::DeviceChangeNotice &notice);
         Async::Mutex<std::vector<std::function<void()>>> deferred_actions_;
         Async::Mutex<std::unordered_map<usize, glm::mat4>> camera_history_;
         /// Per surface: the temporal upscaler's jitter (scene UV shift) applied last frame.
