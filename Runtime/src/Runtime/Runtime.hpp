@@ -26,4 +26,18 @@ namespace SFT::Runtime {
         RuntimeConfig config,
         Engine::GameLogicFactory game_logic_factory);
 
+    /// Like `run`, for a game-logic object that already exists, so it can carry state a bare factory function cannot (for
+    /// example the callbacks of a foreign-language module). Pass an `Engine::CompositeGameLogic` to run several modules,
+    /// written in different languages, in one process.
+    ///
+    /// @param args Command-line arguments.
+    /// @param config Application and window configuration.
+    /// @param game_logic The game logic; null logs a diagnostic and returns 1.
+    ///
+    /// @return The process exit status.
+    [[nodiscard]] i32 run_logic(
+        const Foundation::CliArgs &args,
+        RuntimeConfig config,
+        std::unique_ptr<Engine::GameLogic> game_logic);
+
 } // namespace SFT::Runtime

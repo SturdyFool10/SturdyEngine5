@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 33u
+#define STURDY_ABI_VERSION_MINOR 36u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -574,6 +574,234 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_runtime_run(const SturdyRuntimeCo
                                                            int32_t argc,
                                                            const char *const *argv,
                                                            int32_t *out_exit_code);
+
+/// One game-logic module of a game written in several languages (since 0.35): your callbacks plus where it sits in the
+/// start order. A Rust module, a C# module and a C++ module can each pass their own `SturdyGameLogic` here.
+typedef struct SturdyGameModule {
+    /// Set to `sizeof(SturdyGameModule)`.
+    uint32_t struct_size;
+    /// Number of entries in `after`.
+    uint32_t after_count;
+    /// Unique, non-empty, null-terminated UTF-8 name that other modules' `after` lists refer to. Copied.
+    const char *name;
+    /// Names of modules that must start before this one and shut down after it. May be null when `after_count` is 0.
+    /// Unknown names and cycles are reported when the modules start (see `sturdy_runtime_run_modules`).
+    const char *const *after;
+    /// Nonzero: this module may supply the scene (camera, lighting, render graph) for a frame. Zero: overlay-only, so its
+    /// overlay passes are drawn but it never replaces the scene.
+    SturdyBool contributes_scene;
+    uint8_t reserved[7];
+    /// The module's callbacks, with `struct_size` set as for `sturdy_runtime_run`.
+    SturdyGameLogic logic;
+} SturdyGameModule;
+
+/// Like `sturdy_runtime_run`, for a game made of several modules (since 0.35).
+///
+/// Modules start in the order you list them, adjusted so each comes after the modules in its `after` list; they shut down in
+/// the reverse order. If a module's `on_engine_initialized` returns false (or a dependency is unknown or cyclic), every module
+/// that had started is shut down and the call returns `STURDY_ERROR_CALLBACK_FAILED` (or
+/// `STURDY_ERROR_INITIALIZATION_FAILED` for a bad dependency, with the cause in the engine log).
+///
+/// For each frame every module's `request_render_frame` runs in start order. Among modules with `contributes_scene`, the
+/// last one that returns true supplies the camera, lighting and render graph; every module's overlay passes are kept, in
+/// start order. If no scene module returns true the frame is skipped.
+///
+/// Threading is as for `sturdy_runtime_run`: `request_render_frame` may run on per-window render threads, so a module's
+/// own state must be safe for that. The module list never changes after startup.
+///
+/// @param modules `module_count` modules. Checked before anything starts: a bad struct size, an empty or duplicate name, a
+///        module that lists itself in `after`, or no modules at all returns `STURDY_ERROR_INVALID_ARGUMENT` (or
+///        `STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE`) and no `destroy` hook is run, so you still own every `user_data`. Once the
+///        runtime starts, each module's `destroy` is invoked exactly once on every path.
+/// @param config, argc, argv, out_exit_code As for `sturdy_runtime_run`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_runtime_run_modules(const SturdyRuntimeConfig *config,
+                                                                   const SturdyGameModule *modules,
+                                                                   uint32_t module_count,
+                                                                   int32_t argc,
+                                                                   const char *const *argv,
+                                                                   int32_t *out_exit_code);
+
+// ---------------------------------------------------------------------------------------------
+// Live module changes (since 0.35)
+// ---------------------------------------------------------------------------------------------
+//
+// While a game started with `sturdy_runtime_run_modules` runs, its modules can be unloaded, replaced (hot reload) or added. Every
+// request returns immediately and is carried out at the start of the next engine update, the one moment nothing is running, so no
+// system or frame callback is still inside the module being removed; frames wait for a change in progress. They may be called from
+// any thread, including from inside the module being replaced.
+//
+// What a module registered while it started (systems, resources and event channels created through this ABI) goes away with it.
+// Components cannot be unregistered and stay. A request that fails when it is carried out (a dependent module blocks the unload, a
+// dependency is missing, the new module's `on_engine_initialized` returns false) is reported through
+// `sturdy_module_take_failure`; the module's `destroy` hook runs for every module that is destroyed, as always.
+//
+// Ownership: a request that returns anything but `STURDY_OK` took nothing, so you still own the `user_data`. After `STURDY_OK` the
+// engine owns it and calls `destroy` exactly once, whether or not the change later fails.
+
+/// Unloads a module: its `on_shutdown` runs, what it registered is removed, and it is destroyed. Refused when another module names
+/// it in `after`. Returns `STURDY_ERROR_NOT_AVAILABLE` when the game was not started with `sturdy_runtime_run_modules`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_module_request_unload(SturdyEngine engine, const char *name);
+
+/// Replaces the module called `name` with `logic`, in the same place in the start order and with the same options. The old module
+/// is shut down and its registrations removed first. If `logic`'s `on_engine_initialized` returns false the module stays unloaded
+/// and the failure is reported.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_module_request_reload(SturdyEngine engine,
+                                                                     const char *name,
+                                                                     const SturdyGameLogic *logic);
+
+/// Adds and starts a module in the running game, after the modules in `module->after` (which must already be loaded).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_module_request_load(SturdyEngine engine, const SturdyGameModule *module);
+
+/// How many modules are loaded.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_module_count(SturdyEngine engine, uint32_t *out_count);
+
+/// The name of the module at `index` in start order. See the string-output convention above.
+/// @return `STURDY_ERROR_OUT_OF_RANGE` when `index` is not below `sturdy_module_count`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_module_name(SturdyEngine engine,
+                                                           uint32_t index,
+                                                           char *buffer,
+                                                           size_t capacity,
+                                                           size_t *out_length);
+
+/// Takes the oldest message of a live change that failed, copying it out (see the string-output convention above); it is removed
+/// only when the copy succeeded, so a too-small buffer can be retried.
+/// @return `STURDY_ERROR_NOT_AVAILABLE` when no change has failed since the last call drained them.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_module_take_failure(SturdyEngine engine,
+                                                                   char *buffer,
+                                                                   size_t capacity,
+                                                                   size_t *out_length);
+
+// ---------------------------------------------------------------------------------------------
+// Native plugins (since 0.36)
+// ---------------------------------------------------------------------------------------------
+//
+// A plugin is a shared library built by its own language's toolchain (a Rust `cdylib`, C++, Zig, Go `c-shared`, .NET NativeAOT, ...)
+// that holds one or more game modules. The engine loads it; the plugin does not own `main`, so any number of plugins written in any
+// number of languages share one game, one frame and one ECS. Nothing is interpreted or sandboxed: a module is native code, so its
+// systems read and write component columns directly and run in the engine's parallel schedule like any other system.
+//
+// A plugin exports one function, `sturdy_plugin_entry` (typedef `SturdyPluginEntryFn`), and links the engine's shared library the
+// way every other binding does (so there is one copy of the engine's state in the process). The engine calls it twice in a plugin's
+// life: with `STURDY_PLUGIN_LOAD`, during which the plugin describes itself and adds its modules through the host table, and with
+// `STURDY_PLUGIN_UNLOAD`, once, after every module has been destroyed and just before the library is closed.
+//
+// Loading and starting are separate. `sturdy_plugin_load` runs `LOAD` and only collects the modules. Start them with the game
+// (`sturdy_plugin_take_modules`, then `sturdy_runtime_run_modules`) or into a running one (`sturdy_plugin_request_load`).
+//
+// Reloading: build the new library, `sturdy_plugin_load` it with the old plugin as `previous`, then `sturdy_plugin_request_reload`.
+// Modules with the same name are replaced in place, new names are added, names the new plugin lacks are unloaded. With
+// `STURDY_PLUGIN_SHADOW_COPY` the file is copied before it is opened, so the build can overwrite the original while it runs (the
+// loader would otherwise hand back the already-open image for the same path).
+//
+// Lifetime: the library stays open until the plugin handle has been released *and* every module it handed out has been destroyed,
+// so a module's code is never unmapped while the engine may still call it. Threads the plugin started itself must be stopped by
+// the plugin before its last module's `destroy` returns (or in `UNLOAD`); the engine cannot know about them.
+
+/// A loaded plugin. Owned, not borrowed: valid until `sturdy_plugin_release`.
+typedef struct SturdyPlugin {
+    uint64_t token;
+} SturdyPlugin;
+
+/// Why the engine is calling a plugin's entry point.
+typedef enum SturdyPluginReason {
+    /// The library was just opened. Describe the plugin and add its modules through the host table.
+    STURDY_PLUGIN_LOAD = 1,
+    /// Every module has been destroyed and the library is about to be closed. Release whatever `set_state` stored.
+    STURDY_PLUGIN_UNLOAD = 2,
+    STURDY_PLUGIN_REASON_FORCE_32 = 0x7fffffff
+} SturdyPluginReason;
+
+/// What the engine offers a plugin from inside its entry point. Valid only for the duration of that call. Grows by appending; a
+/// plugin checks `struct_size` covers the members it uses.
+typedef struct SturdyPluginHost {
+    /// `sizeof(SturdyPluginHost)` as the engine built it.
+    uint32_t struct_size;
+    /// `STURDY_ABI_VERSION_MAJOR` / `MINOR` the engine was built with. A plugin built for a different major refuses to load.
+    uint32_t abi_major;
+    uint32_t abi_minor;
+    uint32_t reserved;
+    /// Pass back as the first argument of the functions below.
+    void *context;
+    /// Path of the library being loaded (the shadow copy when one was made). Null-terminated UTF-8.
+    const char *path;
+    /// The state the previous generation of this plugin stored with `set_state`, or null. Ownership moves to this generation: the
+    /// previous generation's `UNLOAD` sees null. It must be plain data, with no pointers into the previous library's code or
+    /// statics (that library is closed once the reload finishes).
+    void *prior_state;
+    /// Adds a module: `module` and everything it points to is copied, except `logic.user_data`, which the engine owns from here on
+    /// (it calls `logic.destroy` exactly once, even if the plugin is never started). Names must be unique within the plugin.
+    /// Returns `STURDY_ERROR_INVALID_ARGUMENT` or `STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE` for a bad module, and then took nothing.
+    SturdyResult(STURDY_ABI_CALL *add_module)(void *context, const SturdyGameModule *module);
+    /// Names the plugin and the language it is written in (for logs and `sturdy_plugin_language`), and a free-form version string.
+    /// Any argument may be null. Copied.
+    SturdyResult(STURDY_ABI_CALL *set_info)(void *context, const char *language, const char *plugin_name, const char *version);
+    /// Stores a pointer that survives a reload (see `prior_state`) and is handed back through `state` at `UNLOAD`.
+    void(STURDY_ABI_CALL *set_state)(void *context, void *state);
+} SturdyPluginHost;
+
+/// The one function a plugin exports, under the name `sturdy_plugin_entry`. Return `STURDY_OK` to accept the load; anything else
+/// aborts it, destroys any modules already added, and `UNLOAD` is *not* called. For `UNLOAD`, `host->context` is valid but
+/// `add_module` is refused, and `state` carries what the plugin stored.
+typedef SturdyResult(STURDY_ABI_CALL *SturdyPluginEntryFn)(const SturdyPluginHost *host, SturdyPluginReason reason, void *state);
+
+/// Flags for `SturdyPluginLoadDesc::flags`.
+typedef enum SturdyPluginLoadFlags {
+    /// Copy the library to a unique temporary file and open the copy, so the original can be rebuilt while the plugin runs.
+    STURDY_PLUGIN_SHADOW_COPY = 1,
+    STURDY_PLUGIN_LOAD_FLAGS_FORCE_32 = 0x7fffffff
+} SturdyPluginLoadFlags;
+
+/// How to load a plugin.
+typedef struct SturdyPluginLoadDesc {
+    /// Set to `sizeof(SturdyPluginLoadDesc)`.
+    uint32_t struct_size;
+    /// `SturdyPluginLoadFlags` bits.
+    uint32_t flags;
+    /// Path of the shared library, null-terminated UTF-8.
+    const char *path;
+    /// The plugin this one replaces, or a zero token. Its stored state is handed to this one as `prior_state`.
+    SturdyPlugin previous;
+} SturdyPluginLoadDesc;
+
+/// Opens a plugin library and runs its entry point with `STURDY_PLUGIN_LOAD`, collecting its modules (nothing is started).
+/// @return `STURDY_ERROR_NOT_AVAILABLE` when the library cannot be opened or exports no `sturdy_plugin_entry` (the cause is in the
+///         error message); `STURDY_ERROR_INITIALIZATION_FAILED` when the entry point refuses; the entry point's own error otherwise.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_plugin_load(const SturdyPluginLoadDesc *desc, SturdyPlugin *out_plugin);
+
+/// Releases the caller's handle. The library closes once every module that was handed out has been destroyed (immediately when
+/// none was). Modules that were never handed out are destroyed now.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_plugin_release(SturdyPlugin plugin);
+
+/// The language the plugin reported through `set_info`, empty when it did not. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_plugin_language(SturdyPlugin plugin, char *buffer, size_t capacity, size_t *out_length);
+/// The plugin's reported name (falls back to the file name).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_plugin_name(SturdyPlugin plugin, char *buffer, size_t capacity, size_t *out_length);
+
+/// How many modules the plugin added.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_plugin_module_count(SturdyPlugin plugin, uint32_t *out_count);
+
+/// The name of module `index`, in the order the plugin added them.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_plugin_module_name(SturdyPlugin plugin, uint32_t index, char *buffer, size_t capacity,
+                                                                  size_t *out_length);
+
+/// Hands the plugin's modules to the caller, to pass to `sturdy_runtime_run_modules` (the returned strings and arrays stay valid
+/// until `sturdy_plugin_release`). Each module's ownership moves to whatever consumes it, so this works once per plugin: a second
+/// call returns `STURDY_ERROR_BUSY`. If `capacity` is smaller than the module count, `STURDY_ERROR_BUFFER_TOO_SMALL` is returned and
+/// nothing is handed out; `out_count` always receives the count.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_plugin_take_modules(SturdyPlugin plugin, SturdyGameModule *out_modules, uint32_t capacity,
+                                                                   uint32_t *out_count);
+
+/// Adds every module of the plugin to the running game (as `sturdy_module_request_load` for each, in the order added). Consumes
+/// the plugin's modules like `sturdy_plugin_take_modules`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_plugin_request_load(SturdyEngine engine, SturdyPlugin plugin);
+
+/// Replaces `previous`'s modules with `next`'s in the running game: same-named modules are reloaded in place, new ones are loaded,
+/// and names `previous` had that `next` lacks are unloaded. Consumes `next`'s modules. Release `previous` afterwards; its library
+/// closes when its modules are gone.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_plugin_request_reload(SturdyEngine engine, SturdyPlugin previous, SturdyPlugin next);
+
+/// Unloads every module of `plugin` from the running game. Release the handle afterwards.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_plugin_request_unload(SturdyEngine engine, SturdyPlugin plugin);
 
 // ---------------------------------------------------------------------------------------------
 // Frame parameters
@@ -1056,6 +1284,68 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_settings_init(SturdyRe
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_reflection_settings(
     SturdyFrame frame, const SturdyReflectionSettings *settings);
 
+/// Depth of field (since 0.34): the thin-lens blur of everything away from the focal plane, with the aperture's polygon as the
+/// bokeh. With `from_camera` set the engine overwrites the lens fields from the camera every frame.
+typedef struct SturdyDepthOfFieldSettings {
+    /// Set to `sizeof(SturdyDepthOfFieldSettings)` by `sturdy_depth_of_field_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    SturdyBool from_camera;
+    SturdyBool near_field;
+    uint8_t reserved;
+    /// Distance (metres) that is perfectly sharp, f-number, focal length and sensor height in millimetres.
+    float focus_distance;
+    float aperture_f_stop;
+    float focal_length_mm;
+    float sensor_height_mm;
+    /// Aperture blades (3..32) and their rotation.
+    uint32_t blades;
+    float blade_rotation_degrees;
+    /// Cap on the blur diameter in pixels, and a multiplier on the blur.
+    float max_blur_px;
+    float strength;
+    /// Gather samples per pixel: 0 = 24, 1 = 40, 2 = 64.
+    uint32_t quality;
+} SturdyDepthOfFieldSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (disabled).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_depth_of_field_settings_init(SturdyDepthOfFieldSettings *settings);
+
+/// Replaces the depth-of-field settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_depth_of_field_settings(
+    SturdyFrame frame, const SturdyDepthOfFieldSettings *settings);
+
+/// Colour grading (since 0.34), on the scene-linear image just before tone mapping: white balance, exposure offset, contrast,
+/// lift / gamma / gain, split toning, saturation and an optional log-domain 3D LUT. Every control is neutral at its default.
+typedef struct SturdyColorGradeSettings {
+    /// Set to `sizeof(SturdyColorGradeSettings)` by `sturdy_color_grade_settings_init`.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    uint8_t reserved[3];
+    /// White balance, -1..1 (cool..warm, green..magenta).
+    float temperature;
+    float tint;
+    float exposure_ev;
+    float contrast;
+    float saturation;
+    float lift[3];
+    float gamma[3];
+    float gain[3];
+    float shadow_tint[3];
+    float highlight_tint[3];
+    float split_strength;
+    /// Renderer texture handle value of a LUT made by the C++ `Engine::create_color_lut`; 0 = none.
+    uint64_t lut_texture;
+    float lut_intensity;
+} SturdyColorGradeSettings;
+
+/// Fills `settings` with `struct_size` and engine defaults (disabled, neutral).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_color_grade_settings_init(SturdyColorGradeSettings *settings);
+
+/// Replaces the colour-grade settings for the frame being built.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frame_set_color_grade_settings(
+    SturdyFrame frame, const SturdyColorGradeSettings *settings);
+
 typedef struct SturdyAutoExposureSettings {
     /// Set to `sizeof(SturdyAutoExposureSettings)` by `sturdy_auto_exposure_settings_init`.
     uint32_t struct_size;
@@ -1291,6 +1581,102 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_register_component(SturdyEngi
                                                                       uint32_t size,
                                                                       uint32_t align,
                                                                       SturdyComponentId *out_component);
+
+/// The scalar kinds a component field can have (since 0.35). These are what two languages must agree on to share a
+/// component's memory: a C `float`, a Rust `f32` and a C# `float` are all `STURDY_FIELD_F32`. Values never change.
+typedef enum SturdyFieldKind {
+    STURDY_FIELD_BOOL = 0,
+    STURDY_FIELD_I8 = 1,
+    STURDY_FIELD_I16 = 2,
+    STURDY_FIELD_I32 = 3,
+    STURDY_FIELD_I64 = 4,
+    STURDY_FIELD_U8 = 5,
+    STURDY_FIELD_U16 = 6,
+    STURDY_FIELD_U32 = 7,
+    STURDY_FIELD_U64 = 8,
+    STURDY_FIELD_F32 = 9,
+    STURDY_FIELD_F64 = 10,
+    STURDY_FIELD_KIND_FORCE_U32 = 0x7fffffff
+} SturdyFieldKind;
+
+/// One field of a component you are registering: `count` consecutive values of `kind`, `offset` bytes into the component
+/// (`float position[3]` is one field with `count == 3`).
+typedef struct SturdyComponentField {
+    /// Set to `sizeof(SturdyComponentField)`.
+    uint32_t struct_size;
+    /// A `SturdyFieldKind`.
+    uint32_t kind;
+    uint32_t offset;
+    /// Number of consecutive values; must be nonzero.
+    uint32_t count;
+    /// For diagnostics only: null-terminated UTF-8, copied, may be null. It is NOT part of the layout comparison, because
+    /// naming conventions differ per language while the memory is the same.
+    const char *name;
+} SturdyComponentField;
+
+/// A component to register with its field layout (since 0.35).
+typedef struct SturdyComponentDesc {
+    /// Set to `sizeof(SturdyComponentDesc)`.
+    uint32_t struct_size;
+    uint32_t size;
+    uint32_t align;
+    /// Number of entries in `fields`; 0 registers without describing the layout, as `sturdy_ecs_register_component` does.
+    uint32_t field_count;
+    /// Canonical, globally unique name, as for `sturdy_ecs_register_component`.
+    const char *name;
+    /// `field_count` fields, in any order. May be null when `field_count` is 0.
+    const SturdyComponentField *fields;
+} SturdyComponentDesc;
+
+/// Registers a component and its field layout (since 0.35), so languages sharing it can be checked against each other.
+///
+/// Behaves like `sturdy_ecs_register_component` (same name and layout returns the existing id; a different size or alignment is
+/// rejected), and additionally: the fields must fit inside `size` and not overlap, and when this registration and an earlier
+/// one of the same name both describe their fields, they must describe the same layout (kinds, offsets, counts; field names
+/// are ignored). A mismatch fails with `STURDY_ERROR_INVALID_ARGUMENT` and a message naming the first field that differs, so a
+/// Rust `{f32, f32}` and a C# `{u32, u32}` cannot silently share an 8-byte component. A registration that gives no fields is
+/// still accepted against any layout.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_register_component_ex(SturdyEngine engine,
+                                                                         const SturdyComponentDesc *desc,
+                                                                         SturdyComponentId *out_component);
+
+/// One field of a registered component, as read back.
+typedef struct SturdyComponentFieldInfo {
+    /// Set by the engine to `sizeof(SturdyComponentFieldInfo)`.
+    uint32_t struct_size;
+    SturdyFieldKind kind;
+    uint32_t offset;
+    uint32_t count;
+} SturdyComponentFieldInfo;
+
+/// How many fields a component was registered with (since 0.35); 0 when its registrant did not describe them.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_component_field_count(SturdyEngine engine,
+                                                                         SturdyComponentId component,
+                                                                         uint32_t *out_count);
+
+/// Reads field `index`, in the order the fields were registered in.
+///
+/// @return `STURDY_ERROR_OUT_OF_RANGE` when `index` is not below `sturdy_ecs_component_field_count`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_component_field(SturdyEngine engine,
+                                                                   SturdyComponentId component,
+                                                                   uint32_t index,
+                                                                   SturdyComponentFieldInfo *out_field);
+
+/// Reads field `index`'s name. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_component_field_name(SturdyEngine engine,
+                                                                        SturdyComponentId component,
+                                                                        uint32_t index,
+                                                                        char *buffer,
+                                                                        size_t capacity,
+                                                                        size_t *out_length);
+
+/// The 128-bit fingerprint of a component's registered layout (size, alignment, every field's kind, offset and count), as two
+/// words; both zero when its registrant did not describe the fields. Lets a binding compare against a value baked in at build
+/// time without re-implementing the hash.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_component_layout_fingerprint(SturdyEngine engine,
+                                                                                SturdyComponentId component,
+                                                                                uint64_t *out_high,
+                                                                                uint64_t *out_low);
 
 /// Registers a tag component: one that marks an entity without carrying data.
 ///
@@ -1542,6 +1928,38 @@ sturdy_ecs_add_system_ex(SturdyEngine engine,
                          void *user_data,
                          SturdySystem *out_system);
 
+/// Body of a system registered with `sturdy_ecs_add_chunk_system_ex` (since 0.35): called once per matching archetype with
+/// that archetype's contiguous arrays, instead of once per entity.
+///
+/// `entities` holds `count` entities. `columns[i]` is the first element of an array of `count` components, one array per entry
+/// of the access list in the order it was given, each element as large as that component's size; element `r` of every array
+/// belongs to `entities[r]`. Write through the arrays declared `STURDY_ACCESS_WRITE`. All pointers are valid only for this
+/// call. `commands` is as for `SturdySystemFn`.
+///
+/// One call crosses the language boundary for a whole archetype, so a system over 10,000 entities costs a few calls instead of
+/// 10,000: use this for anything per-frame over many entities.
+typedef void(STURDY_ABI_CALL *SturdyChunkSystemFn)(const SturdyEntity *entities,
+                                                   uint32_t count,
+                                                   void *const *columns,
+                                                   SturdyCommands commands,
+                                                   void *user_data);
+
+/// Registers a chunk system (since 0.35) with a removable handle. Declaration, ordering, conflict detection, `commands` and
+/// removal behave exactly as for `sturdy_ecs_add_system_ex`; only the body differs.
+///
+/// @param access Components to iterate. At least one is required: a chunk system always iterates, and a system with nothing to
+///        iterate belongs on `sturdy_ecs_add_system_ex` as a global system.
+/// @param system Body to run. Must not unwind.
+STURDY_ABI SturdyResult STURDY_ABI_CALL
+sturdy_ecs_add_chunk_system_ex(SturdyEngine engine,
+                               const SturdySystemAccess *access,
+                               uint32_t access_count,
+                               const SturdySystemResourceAccess *resource_access,
+                               uint32_t resource_access_count,
+                               SturdyChunkSystemFn system,
+                               void *user_data,
+                               SturdySystem *out_system);
+
 /// Unregisters a system. After this returns the engine no longer references its `user_data`.
 /// Fails with `STURDY_ERROR_BUSY` semantics (a contract violation) if called while a schedule is
 /// running, including from inside a system.
@@ -1618,6 +2036,17 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_create_resource(SturdyEngine 
                                                                    const void *initial_data,
                                                                    SturdyResourceId *out_id);
 
+/// Like `sturdy_ecs_create_resource`, additionally describing the value's fields (since 0.35).
+///
+/// @param desc Name, `size` and fields, as for `sturdy_ecs_register_component_ex`; `align` is ignored (the engine allocates
+///        the storage). Re-creating a resource under the same name must give the same size and, when both calls describe their
+///        fields, the same layout: two languages that share a resource must agree on what is in it, not just how big it is.
+///        A mismatch fails with `STURDY_ERROR_INVALID_ARGUMENT` and names the first field that differs.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_create_resource_ex(SturdyEngine engine,
+                                                                      const SturdyComponentDesc *desc,
+                                                                      const void *initial_data,
+                                                                      SturdyResourceId *out_id);
+
 /// Destroys a resource created through `sturdy_ecs_create_resource` and frees its storage.
 ///
 /// @return `STURDY_ERROR_NOT_AVAILABLE` when nothing is bound under that id, or when it is bound to
@@ -1660,6 +2089,16 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_create_event_channel(SturdyEn
                                                                         const char *name,
                                                                         uint32_t event_size,
                                                                         SturdyResourceId *out_id);
+
+/// Like `sturdy_ecs_create_event_channel`, additionally describing the event payload's fields (since 0.35).
+///
+/// An event channel is how two modules written in different languages talk to each other, so they must agree on the payload.
+/// `desc->size` is the event size and `align` is ignored. Creating the channel again under the same name must give the same
+/// size and, when both calls describe their fields, the same layout (kinds, offsets, counts; names are ignored); a mismatch
+/// fails with `STURDY_ERROR_INVALID_ARGUMENT` and names the first field that differs.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ecs_create_event_channel_ex(SturdyEngine engine,
+                                                                           const SturdyComponentDesc *desc,
+                                                                           SturdyResourceId *out_id);
 
 /// Appends one event to a channel.
 ///

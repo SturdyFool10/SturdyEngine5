@@ -256,16 +256,16 @@ namespace SFT::Audio {
             std::vector<std::unique_ptr<AudioEffect>> effects;
 
             // ---- timeline
-            struct Marker {
-                u32 id = 0;
+            struct Marker { // fields ordered by descending alignment: 32 bytes, not 48
                 u64 frame = 0;
-                MarkerAction action = MarkerAction::None;
                 u64 target = 0;
-                bool seamless = false;
+                u32 id = 0;
                 i32 remaining = -1; // hits left (-1 = unlimited, 0 = exhausted)
+                f32 fade_seconds = 0.0f; // FadeStop
+                MarkerAction action = MarkerAction::None;
+                bool seamless = false;
                 bool fire = true;
                 bool armed = true;
-                f32 fade_seconds = 0.0f; // FadeStop
             };
             struct Ramp {
                 bool active = false;

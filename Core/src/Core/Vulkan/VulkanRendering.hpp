@@ -34,12 +34,12 @@ namespace SFT::Core::Vulkan {
 
     struct DepthAttachment {
         VkImageView view = VK_NULL_HANDLE;
+        VkImageView resolve_view = VK_NULL_HANDLE; // the two handles first: 40 bytes instead of 48
         VkImageLayout layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         VkAttachmentLoadOp load_op = VK_ATTACHMENT_LOAD_OP_CLEAR;
         VkAttachmentStoreOp store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         float clear_depth = 1.0f;
         VkResolveModeFlagBits resolve_mode = VK_RESOLVE_MODE_NONE;
-        VkImageView resolve_view = VK_NULL_HANDLE;
         VkImageLayout resolve_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
         /// Converts the supplied engine/RHI value to its Vulkan representation.
@@ -51,12 +51,12 @@ namespace SFT::Core::Vulkan {
 
     struct StencilAttachment {
         VkImageView view = VK_NULL_HANDLE;
+        VkImageView resolve_view = VK_NULL_HANDLE; // the two handles first: 40 bytes instead of 48
         VkImageLayout layout = VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL;
         VkAttachmentLoadOp load_op = VK_ATTACHMENT_LOAD_OP_CLEAR;
         VkAttachmentStoreOp store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         u32 clear_stencil = 0;
         VkResolveModeFlagBits resolve_mode = VK_RESOLVE_MODE_NONE;
-        VkImageView resolve_view = VK_NULL_HANDLE;
         VkImageLayout resolve_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
         /// Converts the supplied engine/RHI value to its Vulkan representation.

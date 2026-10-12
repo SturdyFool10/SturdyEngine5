@@ -1,0 +1,18 @@
+/target
+*.log
+
+# Runtime shader-compiler cache: the engine writes this to `./Shaders/.cache` (relative to cwd)
+# the first time a `sturdy`-based binary compiles a shader at runtime — pure build output, not
+# source (the engine's own `.slang` shaders ship embedded in the compiled binary via CMake; see
+# `Core::Slang::find_embedded_shader` in the vendored engine).
+/Shaders/
+
+# Runtime compressed-texture cache: the engine's BC compressor (`sturdy::images::compress*`, and
+# texture loading) writes `./.cache/compressed_textures` relative to cwd.
+/.cache/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+.idea/
+.vscode/

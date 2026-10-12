@@ -15,6 +15,8 @@
 #include <iostream>
 #include <memory>
 #include <numbers>
+#include <random>
+#include <string>
 
 using namespace SFT::Audio;
 using SFT::u32;
@@ -123,7 +125,8 @@ int main() {
 
     // ---- many streams share a small decode pool ------------------------------------------------------------------------------------
     {
-        const auto wav = std::filesystem::temp_directory_path() / "sturdy_scale_stream.wav";
+        // A name no other process shares: the tests run in parallel and a leftover file from another run must not be mistaken for ours.
+        const auto wav = std::filesystem::temp_directory_path() / ("sturdy_scale_stream_" + std::to_string(std::random_device{}()) + ".wav");
         auto source = tone(2, 330.0, 3.0, 0.5f);
         const auto written = encode_buffer(wav, *source, EncodeOptions{});
         if (!written) std::cerr << "  " << written.error() << "\n";
@@ -146,14 +149,17 @@ int main() {
             if (got == 480 && std::fabs(block.data(0)[100] - (*source->samples)[100 * 2]) < 2e-4f) ++healthy;
         }
         check(healthy == streams.size(), "32 streams all deliver exact audio from two shared decode threads");
-        check(streams.front()->seek_frames(48000), "a stream seeks");
-        u32 after = 0;
-        for (int tries = 0; tries < 400; ++tries) {
-            after = streams.front()->read(block, 480);
-            if (after == 480 && !streams.front()->starved()) break;
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        check(!streams.empty(), "at least one stream opened");
+        if (!streams.empty()) {
+            check(streams.front()->seek_frames(48000), "a stream seeks");
+            u32 after = 0;
+            for (int tries = 0; tries < 400; ++tries) {
+                after = streams.front()->read(block, 480);
+                if (after == 480 && !streams.front()->starved()) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
+            check(after == 480 && std::fabs(block.data(0)[10] - (*source->samples)[(48000 + 10) * 2]) < 2e-4f, "and lands on the right frame");
         }
-        check(after == 480 && std::fabs(block.data(0)[10] - (*source->samples)[(48000 + 10) * 2]) < 2e-4f, "and lands on the right frame");
         streams.clear();
         std::filesystem::remove(wav);
     }

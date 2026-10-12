@@ -47,7 +47,10 @@ namespace SFT::Audio {
         RealtimeOptions options;
         options.raise_priority = true;
         prepare_realtime_thread(options);
-        u32 seen = epoch_.load(std::memory_order_acquire);
+        // The epoch the pool was constructed at, not whatever it is by now: thread start-up (`prepare_realtime_thread` above) can be
+        // slower than the caller's first `run`, and a helper that read the already-bumped epoch here would sleep through that job,
+        // leaving `run` waiting forever for `remaining_` to reach zero.
+        u32 seen = 0;
         for (;;) {
             epoch_.wait(seen, std::memory_order_acquire);
             if (stop_.load(std::memory_order_acquire)) {

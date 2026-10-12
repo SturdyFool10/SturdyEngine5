@@ -1,9 +1,13 @@
 #include <CxxApi/Runtime.hpp>
 
 #include <atomic>
+#include <functional>
+#include <map>
+#include <mutex>
 #include <string_view>
 #include <utility>
 
+#include <Engine/ForeignUi.hpp>
 #include <RHI/Features.hpp>
 
 #include <CxxApi/Camera.hpp>
@@ -29,9 +33,6 @@ namespace SFT::CxxApi {
         static_assert(static_cast<int>(W::WindowMode::ExclusiveFullscreen) == static_cast<int>(WindowMode::ExclusiveFullscreen));
         static_assert(static_cast<int>(RHI::BackendType::WebGpu) == static_cast<int>(GraphicsBackend::WebGpu));
 
-        /// The engine's factory is a bare function pointer, so the callbacks are handed over through
-        /// this slot: `runtime_run` fills it immediately before `Runtime::run` and the factory drains it.
-        std::unique_ptr<GameLogicCallbacks> g_pending_logic;
         std::atomic<bool> g_runtime_running{false};
 
         class CallbackGameLogic final : public E::GameLogic {
@@ -39,7 +40,6 @@ namespace SFT::CxxApi {
             explicit CallbackGameLogic(std::unique_ptr<GameLogicCallbacks> callbacks) : callbacks_(std::move(callbacks)) {}
 
             E::GameLogicResult on_engine_initialized(E::Engine &engine) override {
-                engine_configure_default_render_extraction(engine);
                 std::string error;
                 if (callbacks_->on_engine_initialized(engine, error)) {
                     return {};
@@ -74,7 +74,28 @@ namespace SFT::CxxApi {
             std::unique_ptr<GameLogicCallbacks> callbacks_;
         };
 
-        std::unique_ptr<E::GameLogic> make_logic() { return std::make_unique<CallbackGameLogic>(std::move(g_pending_logic)); }
+        /// Hands a whole module set to the runtime as one game logic, keeping the set alive for the run.
+        class ModulesLogic final : public E::GameLogic {
+          public:
+            explicit ModulesLogic(std::unique_ptr<RuntimeModules> modules) : modules_(std::move(modules)) {}
+
+            E::GameLogicResult on_engine_initialized(E::Engine &engine) override { return modules_->composite.on_engine_initialized(engine); }
+
+            std::optional<E::RenderFrameParameters> request_render_frame(E::Engine &engine, C::RenderSurfaceHandle surface,
+                                                                         const C::FrameInput &input) override {
+                return modules_->composite.request_render_frame(engine, surface, input);
+            }
+
+            void on_shutdown(E::Engine &engine) noexcept override {
+                modules_->composite.on_shutdown(engine);
+                // Any module may have drawn UI through `ui_*`; its renderer holds GPU objects and a system on this engine, so it goes
+                // before the engine does (and after every module, which may share it).
+                E::release_foreign_ui();
+            }
+
+          private:
+            std::unique_ptr<RuntimeModules> modules_;
+        };
 
         [[nodiscard]] RHI::Feature feature_by_name(const std::string &name) {
             for (std::size_t i = 0; i < RHI::feature_count; ++i) {
@@ -216,20 +237,97 @@ namespace SFT::CxxApi {
         return names;
     }
 
-    std::int32_t runtime_run(std::unique_ptr<RuntimeConfig> config, const std::vector<std::string> &args,
+    std::unique_ptr<RuntimeModules> runtime_modules_new() {
+        return std::make_unique<RuntimeModules>();
+    }
+
+    void runtime_modules_add(RuntimeModules &modules, const std::string &name, const std::vector<std::string> &after, bool contributes_scene,
                              std::unique_ptr<GameLogicCallbacks> logic) {
-        if (!config || !logic) {
-            fail("runtime_run needs a configuration and game logic");
+        if (!logic) {
+            fail("runtime_modules_add needs the module's callbacks");
+        }
+        if (name.starts_with("sturdy.")) {
+            fail("module names starting with 'sturdy.' are reserved for the engine");
+        }
+        E::GameModuleOptions options{.after = after, .contributes_scene = contributes_scene};
+        if (auto added = modules.composite.add(name, std::make_unique<CallbackGameLogic>(std::move(logic)), std::move(options)); !added) {
+            fail(std::string{std::string_view{added.error().message}});
+        }
+    }
+
+    namespace {
+
+        std::mutex g_failures_mutex;
+        std::map<const E::Engine *, std::vector<std::string>> g_failures;
+
+        [[nodiscard]] E::CompositeGameLogic &running_composite(E::Engine &engine) {
+            E::CompositeGameLogic *composite = E::CompositeGameLogic::of(engine);
+            if (composite == nullptr) {
+                fail("no game is running on this engine");
+            }
+            return *composite;
+        }
+
+        /// Reports a failed live change: kept for `module_take_failures` and written to the log.
+        [[nodiscard]] std::function<void(E::GameLogicResult)> record_failures(E::Engine &engine) {
+            return [engine = &engine](E::GameLogicResult result) {
+                if (result) {
+                    return;
+                }
+                std::string message{std::string_view{result.error().message}};
+                Foundation::log_warn("module change failed: {}", message);
+                const std::lock_guard<std::mutex> lock{g_failures_mutex};
+                g_failures[engine].push_back(std::move(message));
+            };
+        }
+
+    } // namespace
+
+    void module_request_unload(E::Engine &engine, const std::string &name) {
+        running_composite(engine).request_unload(engine, name, record_failures(engine));
+    }
+
+    void module_request_load(E::Engine &engine, const std::string &name, const std::vector<std::string> &after, bool contributes_scene,
+                             std::unique_ptr<GameLogicCallbacks> logic) {
+        if (!logic) {
+            fail("module_request_load needs the module's callbacks");
+        }
+        running_composite(engine).request_load(engine, name, std::make_unique<CallbackGameLogic>(std::move(logic)),
+                                               E::GameModuleOptions{.after = after, .contributes_scene = contributes_scene}, record_failures(engine));
+    }
+
+    void module_request_reload(E::Engine &engine, const std::string &name, std::unique_ptr<GameLogicCallbacks> logic) {
+        if (!logic) {
+            fail("module_request_reload needs the module's callbacks");
+        }
+        running_composite(engine).request_reload(engine, name, std::make_unique<CallbackGameLogic>(std::move(logic)), record_failures(engine));
+    }
+
+    std::unique_ptr<std::vector<std::string>> module_names(E::Engine &engine) {
+        return std::make_unique<std::vector<std::string>>(running_composite(engine).start_order());
+    }
+
+    std::unique_ptr<std::vector<std::string>> module_take_failures(E::Engine &engine) {
+        auto out = std::make_unique<std::vector<std::string>>();
+        const std::lock_guard<std::mutex> lock{g_failures_mutex};
+        if (const auto found = g_failures.find(&engine); found != g_failures.end()) {
+            *out = std::move(found->second);
+            g_failures.erase(found);
+        }
+        return out;
+    }
+
+    std::int32_t runtime_run_modules(std::unique_ptr<RuntimeConfig> config, const std::vector<std::string> &args,
+                                     std::unique_ptr<RuntimeModules> modules) {
+        if (!config || !modules) {
+            fail("runtime_run_modules needs a configuration and a module set");
         }
         bool expected = false;
         if (!g_runtime_running.compare_exchange_strong(expected, true)) {
             fail("a runtime is already running in this process");
         }
         struct RunningGuard {
-            ~RunningGuard() {
-                g_pending_logic.reset();
-                g_runtime_running.store(false);
-            }
+            ~RunningGuard() { g_runtime_running.store(false); }
         } guard;
 
         // Strings the engine config refers to by pointer live in `config` for the whole run.
@@ -238,29 +336,23 @@ namespace SFT::CxxApi {
         config->config.primary_window_title = to_ustring(config->window_title);
 
         const Foundation::CliArgs cli(args.begin(), args.end());
-        g_pending_logic = std::move(logic);
-        return static_cast<std::int32_t>(Runtime::run(cli, config->config, &make_logic));
+        return static_cast<std::int32_t>(Runtime::run_logic(cli, config->config, std::make_unique<ModulesLogic>(std::move(modules))));
     }
 
-    void engine_configure_default_render_extraction(E::Engine &engine) {
-        namespace Ecs = SFT::Ecs;
-        engine.ecs_world().bind_resource(engine.render_frame_requests());
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity, const E::WorldTransform &transform, const E::ModelRenderer &model_renderer,
-               Ecs::WriteResource<E::RenderFrameRequests> render) noexcept { render->submit(entity, transform, model_renderer); });
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity, const E::WorldTransform &transform, const E::LightGizmoRenderer &gizmo,
-               Ecs::WriteResource<E::RenderFrameRequests> render) noexcept { render->submit_gizmo(entity, transform, gizmo); });
-        engine.ecs_world().bind_resource(engine.light_frame_requests());
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity, const E::WorldTransform &transform, const E::DirectionalLightRenderer &light,
-               Ecs::WriteResource<E::LightFrameRequests> lights) noexcept { lights->submit(entity, transform, light); });
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity, const E::WorldTransform &transform, const E::SpotLightRenderer &light,
-               Ecs::WriteResource<E::LightFrameRequests> lights) noexcept { lights->submit(entity, transform, light); });
-        engine.render_extraction_schedule().add_system(
-            [](Ecs::Entity entity, const E::WorldTransform &transform, const E::PointLightRenderer &light,
-               Ecs::WriteResource<E::LightFrameRequests> lights) noexcept { lights->submit(entity, transform, light); });
+    std::int32_t runtime_run(std::unique_ptr<RuntimeConfig> config, const std::vector<std::string> &args,
+                             std::unique_ptr<GameLogicCallbacks> logic) {
+        if (!config || !logic) {
+            fail("runtime_run needs a configuration and game logic");
+        }
+        auto modules = runtime_modules_new();
+        runtime_modules_add(*modules, "main", {}, true, std::move(logic));
+        return runtime_run_modules(std::move(config), args, std::move(modules));
+    }
+
+    void engine_configure_default_render_extraction(E::Engine &) {
+        // The engine registers the ECS -> renderer extraction systems itself in its constructor (`Engine::Engine`), so there is
+        // nothing left to do. This used to register them a second time, which submitted every model and light twice
+        // (`CxxApiRuntimeTest`, `extraction_is_registered_once`). Kept so existing callers still link.
     }
 
     // ---- per-frame description ----
@@ -285,6 +377,14 @@ namespace SFT::CxxApi {
     void frame_set_lighting(FrameBuilder &frame, const SceneLightingDesc &lighting) noexcept {
         frame.parameters.lighting.ambient_radiance = to_vec3(lighting.ambient_radiance);
         frame.parameters.lighting.exposure = lighting.exposure;
+    }
+
+    SceneLightingDesc scene_lighting_defaults() noexcept {
+        const Engine::SceneLighting defaults{};
+        SceneLightingDesc desc{};
+        store(desc.ambient_radiance, defaults.ambient_radiance);
+        desc.exposure = defaults.exposure;
+        return desc;
     }
 
     void frame_set_debug_label(FrameBuilder &frame, const std::string &label) { frame.parameters.debug_label = to_ustring(label); }

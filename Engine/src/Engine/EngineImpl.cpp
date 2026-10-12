@@ -19,6 +19,7 @@
 
 #include <Core/Core.hpp>
 #include <Core/StreamingIo.hpp>
+#include <Engine/EngineComponentLayouts.hpp>
 #include <Engine/EngineModule.hpp>
 #include <WindowManager/WindowManager.hpp>
 #include <RHI/RHI.hpp>
@@ -72,6 +73,7 @@ namespace SFT::Engine {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     Engine::Engine() {
         Core::install_file_accelerator();
+        describe_engine_component_layouts(ecs_component_registry_);
         ecs_world_.bind_resource(platform_event_inbox_);
         ecs_world_.bind_resource(window_events_);
         ecs_world_.bind_resource(keyboard_events_);
@@ -285,6 +287,8 @@ namespace SFT::Engine {
 
         if (initialized_) {
             wait_idle();
+            // The device is alive and idle: free the debug-line pipelines now (their destructor never touches it).
+            debug_draw_renderer_.release();
         }
     }
 
@@ -748,6 +752,14 @@ namespace SFT::Engine {
             graph_settings.scene.use_background_color = true;
             std::copy_n(glm::value_ptr(clear), 4, graph_settings.scene.background_color);
         }
+        // Depth of field follows the camera's lens (focus, aperture, focal length, sensor, blades) unless the caller sets its own.
+        if (DepthOfFieldSettings &dof = graph_settings.depth_of_field; dof.from_camera) {
+            dof.focus_distance = camera.focus_distance();
+            dof.aperture_f_stop = camera.aperture_f_stop();
+            dof.focal_length_mm = camera.focal_length_mm();
+            dof.sensor_height_mm = camera.sensor_size_mm().y;
+            dof.blades = camera.aperture_blades();
+        }
 
         // Fisheye without stretching: render wider and bigger (see CameraEmulationSettings::fisheye_strength).
         // The factor is limited by what the 2x render-scale ceiling still allows on top of the requested scale.
@@ -777,6 +789,10 @@ namespace SFT::Engine {
         std::copy_n(glm::value_ptr(jitter), 2, graph_settings.temporal_upscaler.jitter_uv);
         std::copy_n(glm::value_ptr(previous_jitter), 2, graph_settings.temporal_upscaler.previous_jitter_uv);
         SFT::Renderer::CameraView camera_view = camera.renderer_view();
+        Camera steady_camera = camera;
+        steady_camera.clear_jitter();
+        const SFT::Renderer::CameraView steady_view = steady_camera.renderer_view();
+        glm::mat4 steady_projection = steady_view.projection;
         if (projection_widening > 1.0f) {
             // Scale the projection about the view axis: same position and orientation, `overscan` times the
             // tangent range, so the extra pixels show the extra field of view.
@@ -784,12 +800,15 @@ namespace SFT::Engine {
             camera_view.projection = widen * camera_view.projection;
             camera_view.previous_view_projection = widen * camera_view.previous_view_projection;
             camera_view.vertical_fov_radians = 2.0f * std::atan(std::tan(camera_view.vertical_fov_radians * 0.5f) * projection_widening);
+            steady_projection = widen * steady_projection;
         }
 
         return PreparedRenderFrame{
             .surface = surface,
             .frame = frame,
             .camera = camera_view,
+            .steady_view_projection = steady_projection * steady_view.view,
+            .debug_lines = debug_draw_.snapshot(),
             .lighting = SFT::Renderer::SceneLighting{
                 .ambient_radiance = parameters.lighting.ambient_radiance,
                 .exposure = parameters.lighting.exposure * camera.exposure_multiplier(),
@@ -998,6 +1017,8 @@ namespace SFT::Engine {
         adjusted.temporal_upscaler.enabled = has_scene && graph.temporal_upscaler.enabled;
         adjusted.screen_space_gi.enabled = has_scene && graph.screen_space_gi.enabled;
         adjusted.volumetric_fog.enabled = has_scene && graph.volumetric_fog.enabled;
+        adjusted.depth_of_field.enabled = has_scene && graph.depth_of_field.enabled;
+        adjusted.color_grade.enabled = has_scene && graph.color_grade.enabled && shadow_debug_view_off;
         adjusted.shadows.enabled = has_scene && graph.shadows.enabled;
         adjusted.ambient_occlusion.enabled = has_scene && graph.ambient_occlusion.enabled;
         adjusted.bloom.enabled = has_bloom && graph.bloom.enabled && shadow_debug_view_off;
@@ -1015,6 +1036,13 @@ namespace SFT::Engine {
         render_graph.custom_post_processes = std::move(custom_effects);
         render_graph.custom_graph = std::move(custom_graph);
         render_graph.overlay_passes = frame.overlay_passes;
+        if (render_graph.render_scene) {
+            // Last, so it neither decides the HDR reference white (the first overlay does) nor hides under an app's own UI.
+            if (frame.debug_lines && !frame.debug_lines->empty()) {
+                render_graph.overlay_passes.push_back(debug_draw_renderer_.make_overlay(
+                    frame.debug_lines, frame.steady_view_projection, frame.camera.near_plane, debug_draw_.settings()));
+            }
+        }
         desc.view.visibility_mask = frame.visibility_mask;
         if (frame.renderables) {
             desc.view.renderables = span<const RendererApi::SceneRenderable>{

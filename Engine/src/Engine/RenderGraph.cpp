@@ -248,6 +248,10 @@ namespace SFT::Engine {
     VolumetricFogSettings &RenderGraph::volumetric_fog() noexcept { return description_.volumetric_fog; }
     const ReflectionSettings &RenderGraph::reflections() const noexcept { return description_.reflections; }
     ReflectionSettings &RenderGraph::reflections() noexcept { return description_.reflections; }
+    const DepthOfFieldSettings &RenderGraph::depth_of_field() const noexcept { return description_.depth_of_field; }
+    DepthOfFieldSettings &RenderGraph::depth_of_field() noexcept { return description_.depth_of_field; }
+    const ColorGradeSettings &RenderGraph::color_grade() const noexcept { return description_.color_grade; }
+    ColorGradeSettings &RenderGraph::color_grade() noexcept { return description_.color_grade; }
     /// Returns the current or globally available ReSTIR GI value.
     ///
     /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.

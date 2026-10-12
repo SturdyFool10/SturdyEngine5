@@ -45,6 +45,24 @@ namespace SFT::Engine {
     template <class Value>
     using EcsReflectionBridgeExpected = std::expected<Value, EcsReflectionBridgeError>;
 
+    /// The field layout of a reflected plain-data type, in the portable vocabulary two languages compare (`Ecs::ComponentSchema`).
+    ///
+    /// Only returns a layout it can vouch for: every instance field must be a scalar (bool, a signed or unsigned integer, float or
+    /// double) of a size the vocabulary has, the type must have no reflected base, and the fields must account for the whole
+    /// struct, each sitting at its natural alignment with nothing but alignment padding between them. A struct with a `glm::vec3`
+    /// member, an unreflected member or custom packing yields nothing, because a partial shape would make a foreign definition
+    /// that describes every byte look like a mismatch.
+    ///
+    /// @return The layout, or an empty optional when the type's shape cannot be stated completely.
+    [[nodiscard]] std::optional<Ecs::ComponentSchema> derive_component_schema(const Reflection::TypeInfo &type);
+
+    /// Records `type`'s derived layout on component `id` so foreign registrations of the same component are checked against it.
+    /// A type whose layout cannot be derived is left as it was (no shape), which is not an error.
+    ///
+    /// @return `DescriptorMismatch` when the component already carries a different layout.
+    [[nodiscard]] EcsReflectionBridgeExpected<void> attach_reflected_layout(Ecs::ComponentRegistry &components, Ecs::ComponentId id,
+                                                                            const Reflection::TypeInfo &type);
+
     /// Registers `T` with both `components` and the process-wide `Reflection::TypeRegistry`,
     /// cross-checking that their `size`/`align` agree.
     ///
@@ -77,6 +95,9 @@ namespace SFT::Engine {
                 .message = UString{"SFT_ECS_COMPONENT and SFT_REFLECT_TYPE disagree on size/align for this type"},
                 .world_error = std::nullopt,
             });
+        }
+        if (auto attached = attach_reflected_layout(components, *component_id, type); !attached) {
+            return std::unexpected(attached.error());
         }
         return std::pair{*component_id, type.key};
     }

@@ -52,6 +52,7 @@ namespace SFT::Renderer {
                     .retired_text_atlas_resources = *frame.retired_text_atlas_resources,
                     .transient_bind_groups = frame.transient_bind_groups,
                     .sampled_textures = sampled_textures,
+                    .resources = frame.resources,
                 };
                 if (Core::RendererResult prepared = overlay.prepare(prepare); !prepared.has_value()) {
                     return prepared;
@@ -88,7 +89,7 @@ namespace SFT::Renderer {
                     pass.set_scissor(RHI::Rect2D{.x = 0, .y = 0, .width = extent.x, .height = extent.y});
                     OverlayPassContext overlay_context{
                         .pass = pass, .extent = extent, .format = format, .hdr_output = hdr_output, .surface = surface,
-                        .frame_slot_index = slot};
+                        .frame_slot_index = slot, .graph = context};
                     return draw(overlay_context);
                 });
             first = false;

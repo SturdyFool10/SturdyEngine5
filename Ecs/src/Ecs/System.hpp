@@ -44,6 +44,17 @@ namespace SFT::Ecs {
                                     void *dispatch_context,
                                     void *user_data) noexcept;
 
+    /// Body of a system registered through `Schedule::add_erased_chunk_system`, called once per matching archetype.
+    ///
+    /// `entities` and every `columns[i]` are `count` long and parallel (see `ErasedChunkVisitFn`); `columns` follows the component
+    /// ids the system was registered with. All pointers are valid only for this call. `dispatch_context` is whatever the prepare
+    /// callback returned.
+    using ErasedChunkSystemFn = void (*)(const Entity *entities,
+                                         usize count,
+                                         void *const *columns,
+                                         void *dispatch_context,
+                                         void *user_data) noexcept;
+
     /// Tears down one dispatch of an erased system, after the last entity is visited.
     ///
     /// Runs even when no entity matched, so whatever prepare acquired is always released. May be
@@ -714,6 +725,20 @@ namespace SFT::Ecs {
                                void *user_data,
                                ErasedSystemPrepareFn prepare = nullptr,
                                ErasedSystemFinishFn finish = nullptr);
+
+        /// Registers a system that is handed a whole archetype of entities per call instead of one entity per call.
+        ///
+        /// Same declaration, ordering, `Commands` and prepare/finish rules as `add_erased_system`, but `fn` receives contiguous
+        /// arrays (`ErasedChunkSystemFn`), so a language that pays per call to cross into the engine pays once per archetype.
+        /// Like `add_erased_system` it runs inline on the scheduling thread.
+        ///
+        /// @return The system's handle, or an empty handle when `fn` is null or no components are given.
+        SystemHandle add_erased_chunk_system(SystemAccess access,
+                                             std::vector<ComponentId> component_ids,
+                                             ErasedChunkSystemFn fn,
+                                             void *user_data,
+                                             ErasedSystemPrepareFn prepare = nullptr,
+                                             ErasedSystemFinishFn finish = nullptr);
 
         /// Registers a system that runs once per frame rather than once per entity.
         ///

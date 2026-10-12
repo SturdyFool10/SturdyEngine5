@@ -44,6 +44,9 @@ namespace SFT::Audio {
         std::atomic<bool> stop{false};
         // Decoder-side state, touched only by whichever pool worker is serving this stream (under `decode_mutex`).
         std::mutex decode_mutex;
+        /// Pool workers currently using this stream (between being pinned under the pool's lock and finishing a `pump`). The owner
+        /// may not destroy the stream until this is zero; see `StreamPool::remove`.
+        std::atomic<u32> in_flight{0};
         u32 worker_generation = 0;
         u64 decode_position = 0;
         bool eof = false;
@@ -233,7 +236,13 @@ namespace SFT::Audio {
                     std::scoped_lock lock(mutex_);
                     std::erase(streams_, impl);
                 }
-                // A worker may be inside this stream right now; taking its lock waits for it to finish.
+                // Once it is erased no worker can pin it any more, so this only waits for the ones that already did (a worker that
+                // checked "still registered" and then released the pool's lock would otherwise reach a destroyed stream: pinning
+                // happens under that lock, which is what makes the check and the claim one step).
+                while (impl->in_flight.load(std::memory_order_acquire) != 0) {
+                    std::this_thread::yield();
+                }
+                // And a worker that is inside `pump` right now holds this lock; taking it waits for the step to finish.
                 std::scoped_lock wait(impl->decode_mutex);
             }
 
@@ -257,12 +266,17 @@ namespace SFT::Audio {
                     }
                     bool worked = false;
                     for (auto *impl : snapshot) {
-                        // Stop serving a stream that has been removed between the snapshot and now.
+                        // Stop serving a stream that has been removed between the snapshot and now, and pin the ones that have not
+                        // in the same step: `remove` erases first and then waits for the pins, so a pinned stream cannot be destroyed
+                        // while this worker uses it. (Checking and then releasing the lock left a window in which the owner could
+                        // remove and destroy the stream before `pump` ran.)
                         {
                             std::scoped_lock lock(mutex_);
                             if (std::find(streams_.begin(), streams_.end(), impl) == streams_.end()) continue;
+                            impl->in_flight.fetch_add(1, std::memory_order_acq_rel);
                         }
                         for (int i = 0; i < 4 && impl->pump(); ++i) worked = true;
+                        impl->in_flight.fetch_sub(1, std::memory_order_acq_rel);
                     }
                     if (!worked) {
                         std::this_thread::sleep_for(std::chrono::milliseconds(3));

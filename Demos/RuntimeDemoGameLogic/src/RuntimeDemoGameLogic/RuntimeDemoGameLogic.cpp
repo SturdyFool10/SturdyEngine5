@@ -1,3 +1,4 @@
+#include <Engine/ColorLut.hpp>
 #include <Renderer/Text/EmbeddedFont.hpp>
 #include <RuntimeDemoGameLogic/RuntimeDemoGameLogic.hpp>
 
@@ -1319,6 +1320,44 @@ namespace SFT::Runtime {
         if (threshold_view) {
             render_graph_.bloom().enabled = false;
         }
+        // Colour grade demo: STURDY_DEMO_GRADE=1 is a bodycam look (cool, contrasty, desaturated, teal shadows, warm highlights);
+        // =2 applies a LUT that swaps red and blue, which makes the LUT path unmistakable.
+        if (const char *grade = std::getenv("STURDY_DEMO_GRADE"); grade != nullptr && (grade[0] == '1' || grade[0] == '2')) {
+            Engine::ColorGradeSettings &look = render_graph_.color_grade();
+            look.enabled = true;
+            if (grade[0] == '1') {
+                look.temperature = -0.25f;
+                look.contrast = 1.25f;
+                look.saturation = 0.7f;
+                look.shadow_tint[0] = 0.8f;
+                look.shadow_tint[1] = 1.05f;
+                look.shadow_tint[2] = 1.1f;
+                look.highlight_tint[0] = 1.1f;
+                look.highlight_tint[1] = 1.0f;
+                look.highlight_tint[2] = 0.9f;
+            } else {
+                if (demo_grade_lut_ == 0 && engine.renderer() != nullptr) {
+                    Engine::ColorLut lut = Engine::make_identity_color_lut(17);
+                    for (usize i = 0; i + 2 < lut.rgb.size(); i += 3) {
+                        std::swap(lut.rgb[i], lut.rgb[i + 2]);
+                    }
+                    if (auto texture = Engine::create_color_lut(*engine.renderer(), lut)) {
+                        demo_grade_lut_ = texture->value;
+                    } else {
+                        Foundation::log_warn("Demo colour LUT: {}", texture.error().message);
+                    }
+                }
+                look.lut_texture = demo_grade_lut_;
+            }
+        }
+        // Depth of field demo: STURDY_DEMO_DOF=1 turns it on with a shallow 85 mm f/1.4 lens focused 12 m down the nave; the
+        // lens fields come from the camera (`from_camera`), so this is all a game would do.
+        if (const char *dof = std::getenv("STURDY_DEMO_DOF"); dof != nullptr && dof[0] == '1') {
+            render_graph_.depth_of_field().enabled = true;
+            camera_.set_focal_length_mm(85.0f);
+            camera_.set_aperture_f_stop(1.4f);
+            camera_.set_focus_distance(12.0f);
+        }
 
         if (auto rendering = engine.ecs_world().get_component<RuntimeRenderingState>(
                 runtime_rendering_entity_)) {
@@ -1428,6 +1467,25 @@ namespace SFT::Runtime {
             .debug_label = UString{"Runtime ECS scene"_ustr},
         };
 
+
+        // Debug drawing demo: world axes, a ground grid, and a sphere circling the origin. STURDY_DEMO_DEBUG_DRAW=0 turns it off.
+        // Shapes live until the next update, so they are drawn once per engine tick, not once per rendered frame.
+        if (const u64 tick = engine.frame_time().tick_index(); tick != last_debug_draw_tick_) {
+            last_debug_draw_tick_ = tick;
+            const char *toggle = std::getenv("STURDY_DEMO_DEBUG_DRAW");
+            if (toggle == nullptr || toggle[0] != '0') {
+                Engine::DebugDraw &debug = engine.debug_draw();
+                debug.set_width(2.0f);
+                debug.axes(glm::mat4{1.0f}, 2.0f);
+                debug.grid({0.0f, 0.02f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, 10, 1.0f, {1.0f, 1.0f, 1.0f, 0.25f});
+                const f32 t = static_cast<f32>(tick) * 0.016f;
+                const glm::vec3 orbit{3.0f * std::cos(t), 1.5f + 0.5f * std::sin(2.0f * t), 3.0f * std::sin(t)};
+                debug.sphere(orbit, 0.4f, {1.0f, 0.8f, 0.1f, 1.0f});
+                debug.arrow(glm::vec3{0.0f, 0.1f, 0.0f}, orbit, {0.2f, 0.9f, 1.0f, 1.0f});
+                debug.capsule({-4.0f, 0.3f, 2.0f}, {-4.0f, 1.8f, 2.0f}, 0.3f, {0.5f, 1.0f, 0.4f, 1.0f});
+                debug.cone({4.0f, 3.0f, 2.0f}, {0.0f, -1.0f, 0.0f}, 2.5f, glm::radians(25.0f), {1.0f, 0.5f, 0.2f, 1.0f});
+            }
+        }
 
         camera_.commit_frame();
         return parameters;

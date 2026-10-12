@@ -22,6 +22,12 @@ namespace SFT::Ecs {
             return ComponentRegistryError{.code = code, .message = UString{message}};
         }
 
+        /// `FfiBlittable` records that a binding registered the component, not what the memory is, so a binding that got there first (the
+        /// engine's own components are registered on first typed use) must not make the engine's registration of the same type collide.
+        [[nodiscard]] constexpr ComponentFlags without_origin(ComponentFlags flags) noexcept {
+            return static_cast<ComponentFlags>(static_cast<u32>(flags) & ~static_cast<u32>(ComponentFlags::FfiBlittable));
+        }
+
         /// Performs the compatible descriptor operation for `Ecs` using the supplied arguments.
         ///
         /// @param existing `existing` value used by the operation.
@@ -36,7 +42,7 @@ namespace SFT::Ecs {
                    existing.schema_version == incoming.schema_version &&
                    existing.size == incoming.size &&
                    existing.align == incoming.align &&
-                   existing.flags == incoming.flags;
+                   without_origin(existing.flags) == without_origin(incoming.flags);
         }
 
     } // namespace
@@ -58,6 +64,17 @@ namespace SFT::Ecs {
                 ComponentRegistryErrorCode::InvalidDescriptor,
                 "ECS component registration requires a key, canonical name, non-zero schema/size, power-of-two alignment, and lifecycle operations for non-trivial data."));
         }
+        if (!info.schema.fields.empty()) {
+            if (const auto reason = validate_component_fields(info.size, info.schema.fields)) {
+                return std::unexpected(registry_error(
+                    ComponentRegistryErrorCode::InvalidDescriptor,
+                    std::format("Component '{}' has an invalid field layout: {}.", info.canonical_name, *reason)));
+            }
+            // The fingerprint always follows from the fields, so a caller cannot register one that disagrees with them.
+            info.layout = fingerprint_component_layout(info.size, info.align, info.schema.fields);
+        } else {
+            info.layout = {};
+        }
         if (has_flag(info.flags, ComponentFlags::Tag) || has_flag(info.flags, ComponentFlags::Pinned)) {
             return std::unexpected(registry_error(
                 ComponentRegistryErrorCode::UnsupportedStoragePolicy,
@@ -68,6 +85,15 @@ namespace SFT::Ecs {
         if (const auto by_key = ids_by_key_.find(info.key); by_key != ids_by_key_.end()) {
             const ComponentInfo &existing = infos_[by_key->second];
             if (compatible_descriptor(existing, info)) {
+                // The same component registered twice must describe the same memory; a registration without a shape (a C++
+                // component, or a binding that does not describe fields) is accepted as before.
+                if (existing.layout && info.layout && existing.layout != info.layout) {
+                    return std::unexpected(registry_error(
+                        ComponentRegistryErrorCode::SchemaMismatch,
+                        std::format("Component '{}' was registered with a different field layout: {}.", info.canonical_name,
+                                    describe_layout_difference(existing.size, existing.align, existing.schema.fields, info.size,
+                                                               info.align, info.schema.fields))));
+                }
                 return by_key->second;
             }
             return std::unexpected(registry_error(
@@ -93,6 +119,33 @@ namespace SFT::Ecs {
         ids_by_key_.emplace(infos_.back().key, id);
         ids_by_name_.emplace(infos_.back().canonical_name, id);
         return id;
+    }
+
+    ComponentRegistryExpected<void> ComponentRegistry::describe_layout(ComponentId id, ComponentSchema schema) {
+        std::unique_lock lock{mutex_};
+        if (id >= infos_.size()) {
+            return std::unexpected(registry_error(ComponentRegistryErrorCode::InvalidDescriptor, "No component is registered under that id."));
+        }
+        ComponentInfo &info = infos_[id];
+        if (const auto reason = validate_component_fields(info.size, schema.fields); reason || schema.fields.empty()) {
+            return std::unexpected(registry_error(
+                ComponentRegistryErrorCode::InvalidDescriptor,
+                std::format("Component '{}' has an invalid field layout: {}.", info.canonical_name,
+                            reason ? *reason : std::string{"no fields were given"})));
+        }
+        const LayoutFingerprint layout = fingerprint_component_layout(info.size, info.align, schema.fields);
+        if (info.layout) {
+            if (info.layout == layout) {
+                return {};
+            }
+            return std::unexpected(registry_error(
+                ComponentRegistryErrorCode::SchemaMismatch,
+                std::format("Component '{}' was registered with a different field layout: {}.", info.canonical_name,
+                            describe_layout_difference(info.size, info.align, info.schema.fields, info.size, info.align, schema.fields))));
+        }
+        info.schema = std::move(schema);
+        info.layout = layout;
+        return {};
     }
 
     /// Finds the requested entry in the available state.

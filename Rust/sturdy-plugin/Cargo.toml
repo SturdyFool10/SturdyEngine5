@@ -1,0 +1,15 @@
+[package]
+name = "sturdy-plugin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Write a Sturdy Engine game module as a native plugin: a cdylib the engine loads, sharing one game with modules written in other languages"
+keywords = ["gamedev", "engine", "plugin"]
+
+# No dependencies, deliberately. A plugin talks to the engine through the C ABI (`FFI/src/FFI/Sturdy.h`) that the running process already
+# has loaded, so it must not link a second copy of the engine the way `sturdy-sys` does: two copies mean two ECS worlds and two sets of
+# globals. This crate is declarations plus a safe layer; the functions stay undefined in the cdylib and resolve at load time.
+[dependencies]

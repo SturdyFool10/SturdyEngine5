@@ -5,6 +5,7 @@
 #pragma region Imports
 #include <filesystem>
 #include <optional>
+#include <functional>
 #include <unordered_map>
 #include <string_view>
 #include <vector>
@@ -16,6 +17,7 @@
 #include <Engine/EcsAnimation.hpp>
 #include <Engine/EcsAudio.hpp>
 #include <Engine/FixedTime.hpp>
+#include <Engine/DebugDraw.hpp>
 #include <Engine/Transform.hpp>
 #include <Engine/ModelImport.hpp>
 #include <Engine/SpawnImported.hpp>
@@ -270,9 +272,19 @@ namespace SFT::Engine {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void update(f64 delta_seconds);
+
+        /// Queues `action` to run at the start of the next `update`, on the thread that calls `update` and before the update schedule
+        /// runs, so it can do what is forbidden while systems run (remove a system, replace a module). Callable from any thread,
+        /// including from inside a system or a frame callback. Actions run in the order they were queued; one queued by another
+        /// action runs in the following update.
+        void defer_to_update_boundary(std::function<void()> action);
+
         /// Recomputes every `WorldTransform` driven by a `Transform` (parents first). `update` and render extraction already
         /// do this; call it after moving things outside a frame (editor tools, tests) to see the result immediately.
         PropagationStats propagate_transforms();
+        /// Draws lines, boxes, spheres, arrows... over the frame (see `Engine/DebugDraw.hpp`).
+        [[nodiscard]] DebugDraw &debug_draw() noexcept;
+        [[nodiscard]] const DebugDraw &debug_draw() const noexcept;
         /// Performs the queue window event operation for `Engine` using the supplied arguments.
         ///
         /// @param window Window used or affected by the operation.
@@ -501,6 +513,9 @@ namespace SFT::Engine {
 
       private:
         SFT::Renderer::Renderer renderer_;
+        /// Declared after `renderer_` (which owns the device) so its pipelines are destroyed first.
+        SFT::Renderer::DebugDrawRenderer debug_draw_renderer_;
+        DebugDraw debug_draw_;
         RHI::GpuInventory gpu_inventory_{};
         AssetManager assets_{renderer_};
         Ecs::ComponentRegistry ecs_component_registry_;
@@ -530,6 +545,7 @@ namespace SFT::Engine {
         UiSvgCache ui_svg_cache_{};
         Ecs::Schedule update_schedule_;
         /// Previous frame's view-projection per surface, for `engine_managed_camera_history`.
+        Async::Mutex<std::vector<std::function<void()>>> deferred_actions_;
         Async::Mutex<std::unordered_map<usize, glm::mat4>> camera_history_;
         /// Per surface: the temporal upscaler's jitter (scene UV shift) applied last frame.
         Async::Mutex<std::unordered_map<usize, glm::vec2>> jitter_history_;

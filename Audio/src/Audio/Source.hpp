@@ -111,8 +111,8 @@ namespace SFT::Audio {
         /// What `read` would do for the next `frames` output frames, described instead of performed, so another executor (a
         /// compute backend) can do the arithmetic. Advances the source exactly as `read` does.
         struct BlockPlan {
-            u32 valid_frames = 0; ///< frames of the block that carry audio (fewer than asked when a one-shot ends)
             i64 base = 0;         ///< integer source frame of the first output frame
+            u32 valid_frames = 0; ///< frames of the block that carry audio (fewer than asked when a one-shot ends)
             f32 frac = 0.0f;
             f32 step = 1.0f;
             bool loop = false;

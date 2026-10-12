@@ -17,12 +17,14 @@
 
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <Ecs/Commands.hpp>
 #include <Ecs/System.hpp>
 #include <Ecs/World.hpp>
 #include <Engine/Engine.hpp>
+#include <Engine/ModuleLedger.hpp>
 
 #include <FFI/AbiSupport.hpp>
 
@@ -45,7 +47,16 @@ namespace {
     struct RegisteredSystem {
         SturdySystemFn system;
         void *user_data;
+        /// Set instead of `system` for a chunk system, which is called once per archetype rather than once per entity.
+        SturdyChunkSystemFn chunk = nullptr;
     };
+
+    // The engine's entity is passed to a chunk system as an array of `SturdyEntity` without conversion, so the layouts must agree.
+    static_assert(sizeof(SturdyEntity) == sizeof(SFT::Ecs::Entity) && alignof(SturdyEntity) == alignof(SFT::Ecs::Entity),
+                  "SturdyEntity must have the engine entity's size and alignment");
+    static_assert(offsetof(SturdyEntity, index) == offsetof(SFT::Ecs::Entity, index) &&
+                      offsetof(SturdyEntity, generation) == offsetof(SFT::Ecs::Entity, generation),
+                  "SturdyEntity must have the engine entity's field order");
 
     /// Mints the `Commands` handle for one dispatch.
     ///
@@ -95,6 +106,26 @@ namespace {
         registered->system(abi_entity, components, commands, registered->user_data);
     }
 
+    /// Forwards one archetype's worth of entities to the caller's chunk system body.
+    ///
+    /// @param entities The archetype's entities, `count` long.
+    /// @param count How many rows the arrays have.
+    /// @param columns One pointer per declared component, to that component's array of `count` elements.
+    /// @param dispatch_context Token minted by `prepare_dispatch`.
+    /// @param user_data The registered system.
+    /// @note This function does not throw exceptions.
+    void STURDY_ABI_CALL invoke_chunk_system(const SFT::Ecs::Entity *entities,
+                                             SFT::usize count,
+                                             void *const *columns,
+                                             void *dispatch_context,
+                                             void *user_data) noexcept {
+        const auto *registered = static_cast<const RegisteredSystem *>(user_data);
+        SturdyCommands commands;
+        commands.token = static_cast<uint64_t>(reinterpret_cast<SFT::usize>(dispatch_context));
+        registered->chunk(reinterpret_cast<const SturdyEntity *>(entities), static_cast<uint32_t>(count), columns, commands,
+                          registered->user_data);
+    }
+
     /// Resolves a commands handle to the queue it refers to.
     ///
     /// @param commands Handle supplied to a system body.
@@ -130,6 +161,10 @@ SturdyResult STURDY_ABI_CALL sturdy_ecs_add_system(SturdyEngine engine,
 
 namespace {
 
+    // Defined below, next to the table they act on.
+    void track_live_system(RegisteredSystem *registered);
+    void release_registered_system(SFT::Engine::Engine *engine, SFT::Ecs::SystemHandle handle, RegisteredSystem *registered);
+
     /// Shared body of the two registration entry points. `out_handle`, when non-null, receives the
     /// scheduler's handle and the leaked `RegisteredSystem` is reported through `out_registered`
     /// so a removable registration can free it later.
@@ -142,10 +177,14 @@ namespace {
                                  void *user_data,
                                  SFT::Engine::Engine **out_engine,
                                  SFT::Ecs::SystemHandle *out_handle,
-                                 RegisteredSystem **out_registered) {
+                                 RegisteredSystem **out_registered,
+                                 SturdyChunkSystemFn chunk = nullptr) {
     return guarded([&]() -> SturdyResult {
-        if (system == nullptr) {
-            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "system body must not be null");
+        if ((system == nullptr) == (chunk == nullptr)) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "a system needs exactly one body, per-entity or per-chunk");
+        }
+        if (chunk != nullptr && access_count == 0) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "a chunk system must declare at least one component to iterate");
         }
         if (access_count != 0 && access == nullptr) {
             return set_error(STURDY_ERROR_INVALID_ARGUMENT,
@@ -235,10 +274,13 @@ namespace {
 
         // Freed by sturdy_ecs_remove_system for removable registrations; otherwise it lives as long as
         // the schedule, and the schedule as long as the engine.
-        auto *registered = new RegisteredSystem{system, user_data};
+        auto *registered = new RegisteredSystem{system, user_data, chunk};
 
         SFT::Ecs::SystemHandle handle;
-        if (ids.empty()) {
+        if (chunk != nullptr) {
+            handle = resolved_engine->update_schedule().add_erased_chunk_system(
+                std::move(system_access), std::move(ids), invoke_chunk_system, registered, prepare_dispatch, finish_dispatch);
+        } else if (ids.empty()) {
             handle = resolved_engine->update_schedule().add_erased_global_system(
                 std::move(system_access), invoke_system, registered, prepare_dispatch, finish_dispatch);
         } else {
@@ -249,6 +291,12 @@ namespace {
         if (out_engine != nullptr) *out_engine = resolved_engine;
         if (out_handle != nullptr) *out_handle = handle;
         if (out_registered != nullptr) *out_registered = registered;
+        track_live_system(registered);
+        // A system registered while a module is starting up belongs to that module: unloading the module removes it (and, for
+        // one registered through `_ex`, its handle) and frees its record, unless the caller already did.
+        SFT::Engine::ModuleLedger::note(world, [engine = resolved_engine, handle, registered] {
+            release_registered_system(engine, handle, registered);
+        });
         return STURDY_OK;
     });
     }
@@ -261,6 +309,33 @@ namespace {
     std::mutex g_systems_mutex;
     std::unordered_map<uint64_t, RemovableSystem> g_systems;
     uint64_t g_next_system_token = 1;
+    /// Every registration whose record is still allocated, so a module unload and an explicit `sturdy_ecs_remove_system` cannot
+    /// both free the same one.
+    std::unordered_set<RegisteredSystem *> g_live;
+
+    /// Undoes a registration made while a module was starting: removes it from the schedule, forgets its removable token (if it
+    /// has one) and frees the record. Does nothing when the system was already removed.
+    void track_live_system(RegisteredSystem *registered) {
+        const std::lock_guard<std::mutex> lock{g_systems_mutex};
+        g_live.insert(registered);
+    }
+
+    void release_registered_system(SFT::Engine::Engine *engine, SFT::Ecs::SystemHandle handle, RegisteredSystem *registered) {
+        {
+            const std::lock_guard<std::mutex> lock{g_systems_mutex};
+            if (g_live.erase(registered) == 0) {
+                return;
+            }
+            for (auto it = g_systems.begin(); it != g_systems.end(); ++it) {
+                if (it->second.registered == registered) {
+                    g_systems.erase(it);
+                    break;
+                }
+            }
+        }
+        (void)engine->update_schedule().remove_system(handle);
+        delete registered;
+    }
 
     [[nodiscard]] SturdyResult resolve_system(SturdyEngine engine, SturdySystem system, RemovableSystem *out) noexcept {
         SFT::Engine::Engine *resolved_engine = nullptr;
@@ -321,23 +396,54 @@ sturdy_ecs_add_system_ex(SturdyEngine engine,
     });
 }
 
+SturdyResult STURDY_ABI_CALL
+sturdy_ecs_add_chunk_system_ex(SturdyEngine engine,
+                               const SturdySystemAccess *access,
+                               uint32_t access_count,
+                               const SturdySystemResourceAccess *resource_access,
+                               uint32_t resource_access_count,
+                               SturdyChunkSystemFn system,
+                               void *user_data,
+                               SturdySystem *out_system) {
+    if (out_system == nullptr) {
+        return set_error(STURDY_ERROR_INVALID_ARGUMENT, "out_system must not be null");
+    }
+    SFT::Engine::Engine *resolved_engine = nullptr;
+    SFT::Ecs::SystemHandle handle;
+    RegisteredSystem *registered = nullptr;
+    const SturdyResult result = register_system(engine, access, access_count, resource_access, resource_access_count,
+                                                nullptr, user_data, &resolved_engine, &handle, &registered, system);
+    if (result != STURDY_OK) {
+        return result;
+    }
+    return guarded([&]() -> SturdyResult {
+        const std::lock_guard<std::mutex> lock{g_systems_mutex};
+        const uint64_t token = g_next_system_token++;
+        g_systems.emplace(token, RemovableSystem{resolved_engine, handle, registered});
+        out_system->token = token;
+        return STURDY_OK;
+    });
+}
+
 SturdyResult STURDY_ABI_CALL sturdy_ecs_remove_system(SturdyEngine engine, SturdySystem system) {
     return guarded([&]() -> SturdyResult {
         RemovableSystem entry{};
         if (const SturdyResult resolved = resolve_system(engine, system, &entry); resolved != STURDY_OK) {
             return resolved;
         }
-        if (!entry.engine->update_schedule().remove_system(entry.handle)) {
-            return set_error(STURDY_ERROR_INVALID_HANDLE, "the system is no longer registered");
-        }
         {
+            // Claim the record first: a module unload may be releasing the same system, and exactly one of us frees it.
             const std::lock_guard<std::mutex> lock{g_systems_mutex};
+            if (g_live.erase(entry.registered) == 0) {
+                return set_error(STURDY_ERROR_INVALID_HANDLE, "the system is no longer registered");
+            }
             g_systems.erase(system.token);
         }
+        const bool removed = entry.engine->update_schedule().remove_system(entry.handle);
         // Nothing can be running it any more (removal is refused mid-run), so the dispatch record and
         // whatever user_data the caller owns are safe to release.
         delete entry.registered;
-        return STURDY_OK;
+        return removed ? STURDY_OK : set_error(STURDY_ERROR_INVALID_HANDLE, "the system is no longer registered");
     });
 }
 

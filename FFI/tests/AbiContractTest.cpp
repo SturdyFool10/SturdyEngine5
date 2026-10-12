@@ -351,6 +351,68 @@ int main() {
               "a null time output must be rejected");
     }
 
+    // sturdy_runtime_run_modules rejects a bad module list before anything starts, and a rejected call must not run `destroy`
+    // (the caller still owns every user_data). Starting a real runtime needs a window and a GPU, so only validation is here.
+    {
+        static int destroyed = 0;
+        SturdyRuntimeConfig runtime_config{};
+        (void)sturdy_runtime_config_init(&runtime_config);
+
+        const auto make_module = [&](const char *name) {
+            SturdyGameModule module{};
+            module.struct_size = static_cast<uint32_t>(sizeof(SturdyGameModule));
+            module.name = name;
+            module.contributes_scene = STURDY_TRUE;
+            module.logic.struct_size = static_cast<uint32_t>(sizeof(SturdyGameLogic));
+            module.logic.destroy = +[](void *) { ++destroyed; };
+            return module;
+        };
+
+        check(sturdy_runtime_run_modules(&runtime_config, nullptr, 0, 0, nullptr, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "no modules must be rejected");
+        SturdyGameModule one = make_module("a");
+        check(sturdy_runtime_run_modules(nullptr, &one, 1, 0, nullptr, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a null config must be rejected");
+        check(sturdy_runtime_run_modules(&runtime_config, nullptr, 1, 0, nullptr, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a null module array must be rejected");
+
+        SturdyGameModule wrong_size = make_module("a");
+        wrong_size.struct_size = 1;
+        check(sturdy_runtime_run_modules(&runtime_config, &wrong_size, 1, 0, nullptr, nullptr) ==
+                  STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
+              "a wrong module struct size must be rejected");
+        SturdyGameModule wrong_logic_size = make_module("a");
+        wrong_logic_size.logic.struct_size = 1;
+        check(sturdy_runtime_run_modules(&runtime_config, &wrong_logic_size, 1, 0, nullptr, nullptr) ==
+                  STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
+              "a wrong logic struct size must be rejected");
+
+        SturdyGameModule unnamed = make_module("");
+        check(sturdy_runtime_run_modules(&runtime_config, &unnamed, 1, 0, nullptr, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "an empty module name must be rejected");
+        SturdyGameModule null_named = make_module(nullptr);
+        check(sturdy_runtime_run_modules(&runtime_config, &null_named, 1, 0, nullptr, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a null module name must be rejected");
+
+        SturdyGameModule duplicates[2] = {make_module("same"), make_module("same")};
+        check(sturdy_runtime_run_modules(&runtime_config, duplicates, 2, 0, nullptr, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "duplicate module names must be rejected");
+
+        const char *self[1] = {"loop"};
+        SturdyGameModule follows_itself = make_module("loop");
+        follows_itself.after = self;
+        follows_itself.after_count = 1;
+        check(sturdy_runtime_run_modules(&runtime_config, &follows_itself, 1, 0, nullptr, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a module that starts after itself must be rejected");
+
+        SturdyGameModule missing_after = make_module("b");
+        missing_after.after_count = 1;
+        check(sturdy_runtime_run_modules(&runtime_config, &missing_after, 1, 0, nullptr, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a null after array with a nonzero count must be rejected");
+
+        check(destroyed == 0, "rejected module lists must not run destroy: the caller still owns the user data");
+    }
+
     check(sturdy_last_error_message() != nullptr, "the error message pointer is never null");
 
     if (failures != 0) {

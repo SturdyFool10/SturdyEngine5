@@ -82,7 +82,6 @@ namespace SFT::RHI {
         BindingType type = BindingType::UniformBuffer;
         ShaderStage visibility = ShaderStage::None;
         u32 count = 1;
-        bool has_dynamic_offset = false;
                                                                                                       
                                                                                                        
                                                                                                       
@@ -131,6 +130,8 @@ namespace SFT::RHI {
         // image/SRV, with the sample count carried by the image itself -- so both backends ignore
         // this field.
         bool sampled_texture_is_multisampled = false;
+        // Kept last, beside the other bools, so the four share one 4-byte slot instead of padding the struct to 48 bytes.
+        bool has_dynamic_offset = false;
     };
 
     template <>

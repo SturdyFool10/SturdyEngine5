@@ -108,14 +108,30 @@ namespace SFT::Engine {
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Engine::update(f64 delta_seconds) {
+        // The one moment nothing is running: module loads and unloads, system removals and the like queued since the last update
+        // happen here. Taken out of the queue first so an action may queue another without deadlocking (it runs next update).
+        std::vector<std::function<void()>> actions;
+        std::swap(actions, *deferred_actions_.lock());
+        for (std::function<void()> &action : actions) {
+            action();
+        }
+
         frame_time_.advance(delta_seconds, time_scale_.value());
         fixed_time_.advance(frame_time_.delta_seconds());
+        // Debug shapes drawn last update are gone (or have outlived their lifetime) before this update draws its own.
+        debug_draw_.advance(frame_time_.unscaled_delta_seconds());
         // Systems this update read world matrices that reflect every Transform set before it.
         (void)Engine::propagate_transforms();
         update_schedule_.run(ecs_world_);
     }
 
+    void Engine::defer_to_update_boundary(std::function<void()> action) { deferred_actions_.lock()->push_back(std::move(action)); }
+
     PropagationStats Engine::propagate_transforms() { return SFT::Engine::propagate_transforms(ecs_world_); }
+
+    DebugDraw &Engine::debug_draw() noexcept { return debug_draw_; }
+
+    const DebugDraw &Engine::debug_draw() const noexcept { return debug_draw_; }
 
     /// Returns the current or globally available frame time value.
     ///

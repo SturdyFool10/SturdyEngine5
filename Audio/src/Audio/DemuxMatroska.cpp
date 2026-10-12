@@ -91,9 +91,9 @@ namespace SFT::Audio {
         }
 
         struct Element {
-            u32 id = 0;
             usize payload_begin = 0;
             usize payload_end = 0;
+            u32 id = 0;
             bool unknown_size = false;
         };
 

@@ -223,6 +223,58 @@ namespace SFT::Ecs {
         return register_entry(std::move(entry));
     }
 
+    SystemHandle Schedule::add_erased_chunk_system(SystemAccess access,
+                                                   std::vector<ComponentId> component_ids,
+                                                   ErasedChunkSystemFn fn,
+                                                   void *user_data,
+                                                   ErasedSystemPrepareFn prepare,
+                                                   ErasedSystemFinishFn finish) {
+        ZoneScopedN("Schedule::add_erased_chunk_system");
+        if (fn == nullptr || component_ids.empty()) {
+            return {};
+        }
+
+        SystemEntry entry;
+        entry.access = std::move(access);
+        entry.dispatch = [ids = std::move(component_ids), fn, user_data, prepare, finish](
+                             World &world,
+                             usize,
+                             usize,
+                             ExecutorPolicy,
+                             Detail::AsyncTaskList &,
+                             Detail::CommandBufferList &command_buffers) mutable {
+            ZoneScopedN("Schedule::erased_chunk_system_dispatch");
+
+            // See `add_erased_system`: the buffer is allocated unconditionally because a function pointer cannot say whether it
+            // wants Commands, and it costs nothing when nothing is queued.
+            command_buffers.emplace_back();
+            Detail::CommandBuffer &buffer = command_buffers.back();
+            Commands commands = buffer.view();
+
+            void *dispatch_context = prepare != nullptr ? prepare(&commands, user_data) : nullptr;
+
+            struct DispatchContext {
+                ErasedChunkSystemFn fn;
+                void *dispatch_context;
+                void *user_data;
+            };
+            DispatchContext context{fn, dispatch_context, user_data};
+
+            (void)Detail::WorldAccess::for_each_scheduled_chunk(
+                world, ids,
+                [](const Entity *entities, usize count, void *const *columns, void *context_pointer) noexcept {
+                    auto *dispatch = static_cast<DispatchContext *>(context_pointer);
+                    dispatch->fn(entities, count, columns, dispatch->dispatch_context, dispatch->user_data);
+                },
+                &context);
+
+            if (finish != nullptr) {
+                finish(dispatch_context, user_data);
+            }
+        };
+        return register_entry(std::move(entry));
+    }
+
     /// Registers a system that runs once per frame rather than once per entity.
     ///
     /// @param access Declared resource and event access.

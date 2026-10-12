@@ -54,19 +54,18 @@ namespace SFT::RHI {
         CullMode cull_mode = CullMode::Back;
         FrontFace front_face = FrontFace::CounterClockwise;
         bool depth_clamp_enable = false;
+        // Requires Feature::ConservativeRasterization. Overestimation mode only (any primitive
+        // coverage of a pixel's area rasterizes that pixel) -- the only mode D3D12 exposes
+        // (D3D12_CONSERVATIVE_RASTERIZATION_MODE has no underestimate option), so Vulkan's
+        // VK_EXT_conservative_rasterization underestimate mode is deliberately not surfaced here to
+        // keep this one flag meaningful on both backends.
+        bool conservative_rasterization_enable = false; // declared beside depth_clamp_enable so the two bools share one padding slot
         // Constant/slope-scaled depth bias — the usual shadow-map peter-panning knobs. All zero
         // disables bias.
         f32 depth_bias_constant = 0.0f;
         f32 depth_bias_slope_scale = 0.0f;
         f32 depth_bias_clamp = 0.0f;
         f32 line_width = 1.0f;
-
-        // Requires Feature::ConservativeRasterization. Overestimation mode only (any primitive
-        // coverage of a pixel's area rasterizes that pixel) -- the only mode D3D12 exposes
-        // (D3D12_CONSERVATIVE_RASTERIZATION_MODE has no underestimate option), so Vulkan's
-        // VK_EXT_conservative_rasterization underestimate mode is deliberately not surfaced here to
-        // keep this one flag meaningful on both backends.
-        bool conservative_rasterization_enable = false;
     };
 
     // ─── Depth / stencil ─────────────────────────────────────────────────────────
@@ -96,19 +95,18 @@ namespace SFT::RHI {
         Format format = Format::Undefined;
         bool depth_test_enable = false;
         bool depth_write_enable = false;
-        CompareOp depth_compare = CompareOp::Less;
         bool stencil_test_enable = false;
-        StencilFaceState stencil_front{};
-        StencilFaceState stencil_back{};
         u8 stencil_read_mask = 0xFF;
         u8 stencil_write_mask = 0xFF;
-
         // Requires Feature::DepthBoundsTest. Both backends require this enabled at pipeline-creation
         // time before RenderPassEncoder::set_depth_bounds() may be called against a draw using this
         // pipeline (D3D12: D3D12_DEPTH_STENCIL_DESC1::DepthBoundsTestEnable; Vulkan:
         // VkPipelineDepthStencilStateCreateInfo::depthBoundsTestEnable) -- the bounds themselves are
         // dynamic per-draw state on both, set separately.
         bool depth_bounds_test_enable = false;
+        CompareOp depth_compare = CompareOp::Less;
+        StencilFaceState stencil_front{};
+        StencilFaceState stencil_back{};
     };
 
     // ─── Multisample ─────────────────────────────────────────────────────────────

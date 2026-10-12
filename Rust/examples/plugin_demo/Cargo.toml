@@ -1,0 +1,13 @@
+[package]
+name = "plugin_demo"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# The scene module of `FFI/bindings/python/examples/two_plugins.py`: a Rust plugin built with `sturdy-plugin`, loaded by the engine next
+# to a C plugin. Build: `cargo build --release -p plugin_demo`; it needs the engine's shared library only when loaded.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sturdy-plugin = { path = "../../sturdy-plugin" }

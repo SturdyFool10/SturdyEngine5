@@ -1,4 +1,6 @@
 #include <CxxApi/Camera.hpp>
+// The umbrella a `cxx` bridge includes; compiling it here keeps every function header coherent when included together.
+#include <CxxApi/CxxApi.hpp>
 #include <CxxApi/Error.hpp>
 #include <CxxApi/Runtime.hpp>
 
@@ -112,9 +114,50 @@ namespace {
         CHECK(ray.ok && ray.ray.direction[2] < -0.99f);
     }
 
+    class NullCallbacks final : public GameLogicCallbacks {
+      public:
+        bool on_engine_initialized(SFT::Engine::Engine &, std::string &) override { return true; }
+        bool request_render_frame(SFT::Engine::Engine &, const FrameInfo &, FrameBuilder &) override { return false; }
+        void on_shutdown(SFT::Engine::Engine &) noexcept override {}
+    };
+
+    template <typename F> bool throws_error(F &&call) {
+        try {
+            call();
+        } catch (const Error &) {
+            return true;
+        }
+        return false;
+    }
+
+    void extraction_is_registered_once() {
+        // The engine registers ECS -> renderer extraction itself; configuring it again must not add a second copy, or every
+        // model and light would be submitted twice.
+        SFT::Engine::Engine engine;
+        const auto before = engine.render_extraction_schedule().system_count();
+        engine_configure_default_render_extraction(engine);
+        CHECK(engine.render_extraction_schedule().system_count() == before);
+    }
+
+    void module_set_validates_registrations() {
+        auto modules = runtime_modules_new();
+        CHECK(modules->composite.module_count() == 0);
+        runtime_modules_add(*modules, "rust.gameplay", {}, true, std::make_unique<NullCallbacks>());
+        runtime_modules_add(*modules, "cpp.hud", {"rust.gameplay"}, false, std::make_unique<NullCallbacks>());
+        CHECK(modules->composite.module_count() == 2);
+        CHECK(throws_error([&] { runtime_modules_add(*modules, "rust.gameplay", {}, true, std::make_unique<NullCallbacks>()); }));
+        CHECK(throws_error([&] { runtime_modules_add(*modules, "", {}, true, std::make_unique<NullCallbacks>()); }));
+        CHECK(throws_error([&] { runtime_modules_add(*modules, "sturdy.mine", {}, true, std::make_unique<NullCallbacks>()); }));
+        CHECK(throws_error([&] { runtime_modules_add(*modules, "late", {}, true, nullptr); }));
+        CHECK(modules->composite.module_count() == 2);
+        CHECK(throws_error([&] { (void)runtime_run_modules(nullptr, {}, std::move(modules)); }));
+    }
+
 } // namespace
 
 int main() {
+    extraction_is_registered_once();
+    module_set_validates_registrations();
     options_round_trip();
     feature_names_resolve_and_unknown_names_throw();
     camera_defaults_match_the_engine();

@@ -70,9 +70,10 @@ endif()
 # window.) ReflectionFfiTest needs neither: TypeRegistry is a process-wide singleton rather than
 # something owned by a SturdyEngine session, so it builds in both configurations.
 set(_sturdy_ffi_static_only_tests AbiContractTest EcsFfiTest AnimationFfiTest AudioFfiTest)
-set(_sturdy_ffi_excluded_tests)
+# PluginFfiTest is registered separately below: it needs the path of the fixture plugin it loads.
+set(_sturdy_ffi_excluded_tests PluginFfiTest)
 if(STURDY_BUILD_SHARED_LIBS)
-    set(_sturdy_ffi_excluded_tests ${_sturdy_ffi_static_only_tests})
+    list(APPEND _sturdy_ffi_excluded_tests ${_sturdy_ffi_static_only_tests})
 endif()
 sturdy_add_tests(FFI
     TIMEOUT 30
@@ -83,3 +84,70 @@ sturdy_add_tests(FFI
         AnimationFfiTest=FfiAnimationTest
         AudioFfiTest=FfiAudioTest
         ReflectionFfiTest=FfiReflectionTest)
+
+# Native plugins: a plugin is a shared library that exports `sturdy_plugin_entry` and knows the engine only through Sturdy.h, so the fixture
+# is plain C built as a loadable module (like the hot-reload fixtures) and the test opens it with a real dlopen/LoadLibrary. Static-only for
+# the same reason as the other tests that mint an engine handle.
+if(STURDY_TESTS_ENABLED AND NOT STURDY_BUILD_SHARED_LIBS)
+    add_library(FfiPluginFixture MODULE tests/fixtures/PluginFixture.c)
+    set_target_properties(FfiPluginFixture PROPERTIES C_VISIBILITY_PRESET hidden C_STANDARD 99)
+    target_include_directories(FfiPluginFixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    sturdy_add_test(FFI tests/PluginFfiTest.cpp NAME FfiPluginTest TIMEOUT 30
+        DEPENDS FfiPluginFixture
+        DEFINES "STURDY_PLUGIN_FIXTURE=\"$<TARGET_FILE:FfiPluginFixture>\"")
+
+    # The same plugin written in Rust (rustc directly: no cargo, no engine crate), run through the same test. Skipped without rustc.
+    find_program(STURDY_RUSTC rustc)
+    if(STURDY_RUSTC)
+        set(_rust_plugin "${CMAKE_CURRENT_BINARY_DIR}/rust_plugin/${CMAKE_SHARED_LIBRARY_PREFIX}plugin_fixture${CMAKE_SHARED_LIBRARY_SUFFIX}")
+        add_custom_command(OUTPUT "${_rust_plugin}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/rust_plugin"
+            COMMAND ${STURDY_RUSTC} --edition 2021 --crate-type cdylib -C panic=abort -O
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/plugin_fixture.rs" -o "${_rust_plugin}"
+            DEPENDS tests/fixtures/plugin_fixture.rs
+            COMMENT "Building the Rust plugin fixture")
+        add_custom_target(FfiPluginRustFixture DEPENDS "${_rust_plugin}")
+        add_dependencies(FfiPluginTest FfiPluginRustFixture)
+        add_test(NAME FfiPluginRustTest COMMAND FfiPluginTest "${_rust_plugin}" rust)
+        set_tests_properties(FfiPluginRustTest PROPERTIES TIMEOUT 30)
+    else()
+        message(STATUS "FfiPluginRustTest skipped: rustc not found")
+    endif()
+
+    # And written with the `sturdy-plugin` crate (Rust/sturdy-plugin, over the generated FFI/bindings/rust declarations), which is what a real
+    # Rust game module would use. Built with cargo into the build tree; skipped without cargo.
+    find_program(STURDY_CARGO cargo)
+    if(STURDY_CARGO)
+        set(_rust_safe_target "${CMAKE_CURRENT_BINARY_DIR}/rust_target")
+        set(_rust_safe_plugin "${_rust_safe_target}/release/${CMAKE_SHARED_LIBRARY_PREFIX}plugin_fixture${CMAKE_SHARED_LIBRARY_SUFFIX}")
+        sturdy_glob(_rust_safe_sources RECURSE "${PROJECT_SOURCE_DIR}/Rust/sturdy-plugin/src/*.rs" "${PROJECT_SOURCE_DIR}/Rust/examples/plugin_fixture/src/*.rs")
+        add_custom_command(OUTPUT "${_rust_safe_plugin}"
+            COMMAND ${STURDY_CARGO} build --offline --release -p plugin_fixture --target-dir "${_rust_safe_target}"
+                    --manifest-path "${PROJECT_SOURCE_DIR}/Rust/Cargo.toml"
+            DEPENDS ${_rust_safe_sources} "${CMAKE_CURRENT_SOURCE_DIR}/bindings/rust/sturdy_ffi.rs"
+            COMMENT "Building the sturdy-plugin fixture")
+        add_custom_target(FfiPluginSafeRustFixture DEPENDS "${_rust_safe_plugin}")
+        add_dependencies(FfiPluginTest FfiPluginSafeRustFixture)
+        add_test(NAME FfiPluginSafeRustTest COMMAND FfiPluginTest "${_rust_safe_plugin}" rust all-callbacks)
+        set_tests_properties(FfiPluginSafeRustTest PROPERTIES TIMEOUT 120)
+    else()
+        message(STATUS "FfiPluginSafeRustTest skipped: cargo not found")
+    endif()
+endif()
+
+# Language bindings for the ABI (FFI/bindings/: Python, Java, C#) are generated from Sturdy.h by FFI/tools/ (describe_abi.py reads the
+# header with clang, gen_bindings.py writes each language). This test regenerates them and fails when a committed file differs, so a
+# header change that skips regeneration cannot land, then checks the Python and Java bindings against the real header's struct
+# layouts and by calling every function through a stub library. It needs only Python and clang (Java 22+ is used when present).
+if(STURDY_TESTS_ENABLED)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    find_program(STURDY_BINDINGS_CLANG NAMES clang clang-20 clang-19 clang-18)
+    if(Python3_Interpreter_FOUND AND STURDY_BINDINGS_CLANG)
+        add_test(NAME FfiBindingsTest
+            COMMAND ${CMAKE_COMMAND} -E env CLANG=${STURDY_BINDINGS_CLANG}
+                    ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/bindings/check_bindings.py --repo ${PROJECT_SOURCE_DIR})
+        set_tests_properties(FfiBindingsTest PROPERTIES TIMEOUT 300)
+    else()
+        message(STATUS "FfiBindingsTest skipped: needs Python 3 and clang")
+    endif()
+endif()

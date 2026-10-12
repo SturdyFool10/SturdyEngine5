@@ -94,13 +94,13 @@ namespace SFT::UI {
             f32 opacity_start = 0.0f;
             f32 opacity_target = 0.0f;
             f32 opacity_elapsed = 0.0f;
-            bool opacity_initialized = false;
 
             f32 idle_seconds = 1.0e6f;
             f32 last_offset = 0.0f;
+            f32 grab_offset = 0.0f;
+            bool opacity_initialized = false; // the three bools share one slot (32 bytes, not 36)
             bool last_offset_valid = false;
             bool dragging = false;
-            f32 grab_offset = 0.0f;
         };
 
         /// Read-only view of the vertical scrollbar's live state: `last_offset` is the scroll offset

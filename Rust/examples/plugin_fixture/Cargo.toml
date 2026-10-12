@@ -1,0 +1,13 @@
+[package]
+name = "plugin_fixture"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# The `PluginFixture.c` protocol (FFI/tests/fixtures) written with `sturdy-plugin`, so FfiPluginTest runs the same checks against a
+# plugin built from the safe crate. Needs no engine: the C ABI functions it declares are never called.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sturdy-plugin = { path = "../../sturdy-plugin" }

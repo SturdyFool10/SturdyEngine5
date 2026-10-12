@@ -15,7 +15,7 @@ namespace {
     static_assert(plain<SceneSettings> && plain<ShadowSettings> && plain<AmbientOcclusionSettings> && plain<AntiAliasingSettings>);
     static_assert(plain<BloomSettings> && plain<ToneMappingSettings> && plain<HermiteSplineSettings> && plain<PsychoVSettings>);
     static_assert(plain<RestirGiSettings> && plain<ScreenSpaceGiSettings> && plain<LightingSettings> && plain<VolumetricFogSettings> &&
-                  plain<ReflectionSettings>);
+                  plain<ReflectionSettings> && plain<DepthOfFieldSettings> && plain<ColorGradeSettings>);
     static_assert(plain<MotionBlurSettings> && plain<CameraEmulationSettings> && plain<AutoExposureSettings>);
     static_assert(plain<TemporalUpscalerSettings> && plain<FrameSettings>);
     static_assert(sizeof(SceneIntegrator) == 4 && sizeof(ShadowDebugView) == 4 && sizeof(ToneMappingOperator) == 4 && sizeof(FisheyeMode) == 4,

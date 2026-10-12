@@ -72,6 +72,14 @@ namespace SFT::Ecs {
     /// addressing that component's storage for this entity. Valid only for this call.
     using ErasedVisitFn = void (*)(Entity entity, void **components, void *user_data) noexcept;
 
+    /// Receives one archetype's worth of matching entities during a chunk visit.
+    ///
+    /// `entities` is `count` entities; `columns[i]` is the first element of the contiguous array of the i-th requested component
+    /// for those same `count` rows (element `r` of every array belongs to `entities[r]`), each element as large as that
+    /// component's registered size. All pointers are valid only for this call. One call covers many entities, so a foreign
+    /// language pays one crossing per archetype instead of one per entity.
+    using ErasedChunkVisitFn = void (*)(const Entity *entities, usize count, void *const *columns, void *user_data) noexcept;
+
     /// Upper bound on how many components one `World::for_each_erased` call may match on.
     ///
     /// Bounds the fixed-size arrays that hold the per-row pointers, so iteration allocates nothing
@@ -411,6 +419,14 @@ namespace SFT::Ecs {
         [[nodiscard]] WorldErasedExpected<usize> for_each_erased(std::span<const ComponentId> component_ids,
                                                                  ErasedVisitFn visit,
                                                                  void *user_data);
+
+        /// Like `for_each_erased`, but calls `visit` once per matching archetype with that archetype's contiguous component
+        /// arrays instead of once per entity. The same rules apply: the visitor must not change the world.
+        ///
+        /// @return How many entities were visited (summed over the archetypes), or the reason iteration could not start.
+        [[nodiscard]] WorldErasedExpected<usize> for_each_erased_chunk(std::span<const ComponentId> component_ids,
+                                                                       ErasedChunkVisitFn visit,
+                                                                       void *user_data);
 
         /// Returns the component associated with this `World`.
         ///
@@ -831,6 +847,11 @@ namespace SFT::Ecs {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] u32 archetype_index_for(const Signature &signature);
 
+        /// The lock-free body of `for_each_erased_chunk`; see `for_each_unlocked`.
+        [[nodiscard]] WorldErasedExpected<usize> for_each_chunk_unlocked(std::span<const ComponentId> component_ids,
+                                                                         ErasedChunkVisitFn visit,
+                                                                         void *user_data);
+
         /// Walks matching archetypes without taking any lock.
         ///
         /// Shared by `for_each_erased`, which locks first, and by scheduled execution, which
@@ -979,6 +1000,15 @@ namespace SFT::Ecs {
                 ErasedVisitFn visit,
                 void *user_data) {
                 return world.for_each_unlocked(component_ids, visit, user_data);
+            }
+
+            /// The chunk-at-a-time counterpart of `for_each_scheduled`, for systems that take a whole archetype per call.
+            [[nodiscard]] static WorldErasedExpected<usize> for_each_scheduled_chunk(
+                World &world,
+                std::span<const ComponentId> component_ids,
+                ErasedChunkVisitFn visit,
+                void *user_data) {
+                return world.for_each_chunk_unlocked(component_ids, visit, user_data);
             }
 
             /// Returns the current or globally available resource value.

@@ -1,0 +1,11 @@
+[package]
+name = "hot_module"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# A shared library exporting the entry points `sturdy::hot_reload::HotModule` requires, used by the
+# `hello` example to exercise loading/reloading against the live engine. It registers no types
+# (that needs the engine's C++ registry; see the `sturdy::hot_reload` module docs).
+[lib]
+crate-type = ["cdylib"]

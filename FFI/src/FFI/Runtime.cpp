@@ -7,7 +7,10 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <functional>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -15,6 +18,7 @@
 #include <vector>
 
 #include <Core/BackendInventory.hpp>
+#include <Engine/CompositeGameLogic.hpp>
 #include <Runtime/Runtime.hpp>
 
 #include <FFI/AbiSupport.hpp>
@@ -24,6 +28,7 @@ namespace {
     using SFT::Ffi::HandleKind;
     using SFT::Ffi::ScopedHandle;
     using SFT::Ffi::guarded;
+    using SFT::Ffi::resolve_engine;
     using SFT::Ffi::set_error;
 
     /// Forwards `Engine::GameLogic`'s virtual calls to the caller's function pointers.
@@ -143,7 +148,6 @@ namespace {
                 const ScopedHandle engine_handle{HandleKind::Engine, &engine};
                 interface_.on_shutdown(SturdyEngine{engine_handle.token()}, interface_.user_data);
             }
-            SFT::Ffi::release_ui_state();
         }
 
       private:
@@ -152,20 +156,42 @@ namespace {
         std::atomic<bool> &initialized_flag_;
     };
 
-    /// State shared between `sturdy_runtime_run` and the factory function it hands to
-    /// `Runtime::run`.
+    /// Wraps the application's game logic (one module, or a `CompositeGameLogic` of several) to drop the on-screen UI this ABI
+    /// created once, after every module has shut down, since modules may share it.
+    class UiReleasingGameLogic final : public SFT::Engine::GameLogic {
+      public:
+        explicit UiReleasingGameLogic(std::unique_ptr<SFT::Engine::GameLogic> inner) noexcept : inner_(std::move(inner)) {}
+
+        [[nodiscard]] SFT::Engine::GameLogicResult on_engine_initialized(SFT::Engine::Engine &engine) override {
+            return inner_->on_engine_initialized(engine);
+        }
+
+        [[nodiscard]] std::optional<SFT::Engine::RenderFrameParameters> request_render_frame(
+            SFT::Engine::Engine &engine,
+            SFT::Core::RenderSurfaceHandle surface,
+            const SFT::Core::FrameInput &frame) override {
+            return inner_->request_render_frame(engine, surface, frame);
+        }
+
+        void on_shutdown(SFT::Engine::Engine &engine) noexcept override {
+            inner_->on_shutdown(engine);
+            SFT::Ffi::release_ui_state();
+        }
+
+      private:
+        std::unique_ptr<SFT::Engine::GameLogic> inner_;
+    };
+
+    /// State of the one runtime this process may run, shared with the game-logic objects it creates.
     ///
-    /// `Engine::GameLogicFactory` is a bare `unique_ptr<GameLogic>(*)()` with no context
-    /// parameter, so the callback table has to reach the factory through a static. That is only
-    /// sound because `g_runtime_active` below admits exactly one runtime at a time.
+    /// Those objects can outlive the entry point's stack frame on Web (the main loop is asynchronous), so the flags live here
+    /// rather than on the stack. That is only sound because `g_runtime_active` below admits exactly one runtime at a time.
     struct ActiveRuntime {
-        SturdyGameLogic interface_table{};
         std::atomic<bool> callback_failed{false};
         // Whether the engine got far enough to hand game logic a live engine. Distinguishes "the
         // device or window could not be created" from "the application ran and chose to exit
         // nonzero", which Runtime::run collapses into a single exit code.
         std::atomic<bool> engine_initialized{false};
-        bool logic_constructed = false;
     };
 
     ActiveRuntime g_active;
@@ -176,30 +202,15 @@ namespace {
     /// device), neither of which supports two concurrent applications.
     std::atomic<bool> g_runtime_active{false};
 
-    /// Builds the game logic for the runtime described by `g_active`.
-    ///
-    /// @return Returns the newly constructed game logic.
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    [[nodiscard]] std::unique_ptr<SFT::Engine::GameLogic> create_foreign_game_logic() {
-        g_active.logic_constructed = true;
-        return std::make_unique<ForeignGameLogic>(g_active.interface_table, g_active.callback_failed,
-                                                  g_active.engine_initialized);
-    }
-
     /// Releases the runtime claim taken by `sturdy_runtime_run`.
     ///
-    /// Also invokes `destroy` when the factory never ran — otherwise a startup that fails before
-    /// game logic is constructed would leak the caller's user data.
+    /// The caller's `destroy` hooks are not run here: the game-logic objects that own them are destroyed on every path (they
+    /// are built right after the claim and owned by `Runtime::run_logic`), so a failed startup cannot leak user data either.
     ///
     /// @note This function does not throw exceptions.
     void release_runtime() noexcept {
-        if (!g_active.logic_constructed && g_active.interface_table.destroy != nullptr) {
-            g_active.interface_table.destroy(g_active.interface_table.user_data);
-        }
-        g_active.interface_table = SturdyGameLogic{};
         g_active.callback_failed.store(false, std::memory_order_relaxed);
         g_active.engine_initialized.store(false, std::memory_order_relaxed);
-        g_active.logic_constructed = false;
         g_runtime_active.store(false, std::memory_order_release);
     }
 
@@ -434,15 +445,24 @@ SturdyResult STURDY_ABI_CALL sturdy_gpu_enumerate(SturdyGpuInfo *out_gpus,
     });
 }
 
-SturdyResult STURDY_ABI_CALL sturdy_runtime_run(const SturdyRuntimeConfig *config,
-                                                const SturdyGameLogic *game_logic,
-                                                int32_t argc,
-                                                const char *const *argv,
-                                                int32_t *out_exit_code) {
+} // extern "C"
+
+namespace {
+
+    /// Everything `sturdy_runtime_run` and `sturdy_runtime_run_modules` share: validates the configuration, claims the process's
+    /// one runtime, builds the engine configuration, runs, and reports how it ended.
+    ///
+    /// @param make_logic Builds the game logic; called after the arguments are validated and the runtime is claimed, and from
+    ///        then on the returned object owns the caller's `user_data` (its destructor runs each `destroy` hook), so callers
+    ///        that fail validation keep ownership and callers that get this far never leak it.
+    SturdyResult run_runtime(const SturdyRuntimeConfig *config,
+                             int32_t argc,
+                             const char *const *argv,
+                             int32_t *out_exit_code,
+                             const std::function<std::unique_ptr<SFT::Engine::GameLogic>()> &make_logic) {
     return guarded([&]() -> SturdyResult {
-        if (config == nullptr || game_logic == nullptr) {
-            return set_error(STURDY_ERROR_INVALID_ARGUMENT,
-                             "config and game_logic must not be null");
+        if (config == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "config must not be null");
         }
         // Layout history: v0.1 is the only layout of either struct, so these are equality checks
         // today. When fields are appended they become range checks against the oldest supported
@@ -451,10 +471,6 @@ SturdyResult STURDY_ABI_CALL sturdy_runtime_run(const SturdyRuntimeConfig *confi
         if (config->struct_size != sizeof(SturdyRuntimeConfig)) {
             return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
                              "SturdyRuntimeConfig size does not match this engine build");
-        }
-        if (game_logic->struct_size != sizeof(SturdyGameLogic)) {
-            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
-                             "SturdyGameLogic size does not match this engine build");
         }
         if (argc < 0 || (argc > 0 && argv == nullptr)) {
             return set_error(STURDY_ERROR_INVALID_ARGUMENT,
@@ -484,11 +500,10 @@ SturdyResult STURDY_ABI_CALL sturdy_runtime_run(const SturdyRuntimeConfig *confi
                              "a Sturdy runtime is already running in this process");
         }
 
-        g_active.interface_table = *game_logic;
         g_active.callback_failed.store(false, std::memory_order_relaxed);
         g_active.engine_initialized.store(false, std::memory_order_relaxed);
-        g_active.logic_constructed = false;
         const RuntimeClaim claim;
+        std::unique_ptr<SFT::Engine::GameLogic> logic = make_logic();
 
         SFT::Foundation::CliArgs args;
         args.reserve(static_cast<std::size_t>(argc));
@@ -525,7 +540,7 @@ SturdyResult STURDY_ABI_CALL sturdy_runtime_run(const SturdyRuntimeConfig *confi
         runtime_config.primary_window_title = SFT::UString{window_title.c_str()};
 
         const SFT::i32 exit_code =
-            SFT::Runtime::run(args, std::move(runtime_config), &create_foreign_game_logic);
+            SFT::Runtime::run_logic(args, std::move(runtime_config), std::move(logic));
 
         if (out_exit_code != nullptr) {
             *out_exit_code = exit_code;
@@ -545,6 +560,291 @@ SturdyResult STURDY_ABI_CALL sturdy_runtime_run(const SturdyRuntimeConfig *confi
                              "the engine failed to initialize; see the engine log for the cause");
         }
         return STURDY_OK;
+    });
+    }
+
+    /// Builds one module's game logic from the caller's table, wired to the run's shared failure flags.
+    [[nodiscard]] std::unique_ptr<SFT::Engine::GameLogic> make_foreign_logic(const SturdyGameLogic &table) {
+        return std::make_unique<ForeignGameLogic>(table, g_active.callback_failed, g_active.engine_initialized);
+    }
+
+    // ---- live module changes ----
+
+    /// A module loaded or reloaded into a running game reports failure through `sturdy_module_take_failure`, not through the flags
+    /// that make `sturdy_runtime_run` return `STURDY_ERROR_CALLBACK_FAILED`, so it gets flags of its own.
+    std::atomic<bool> g_live_callback_failed{false};
+    std::atomic<bool> g_live_engine_initialized{false};
+
+    [[nodiscard]] std::unique_ptr<SFT::Engine::GameLogic> make_live_foreign_logic(const SturdyGameLogic &table) {
+        return std::make_unique<ForeignGameLogic>(table, g_live_callback_failed, g_live_engine_initialized);
+    }
+
+    std::mutex g_module_failures_mutex;
+    std::map<const SFT::Engine::Engine *, std::vector<std::string>> g_module_failures;
+
+    /// Remembers a failed live change for `sturdy_module_take_failure`.
+    [[nodiscard]] std::function<void(SFT::Engine::GameLogicResult)> record_module_failure(SFT::Engine::Engine &engine) {
+        return [engine = &engine](SFT::Engine::GameLogicResult result) {
+            if (result) {
+                return;
+            }
+            std::string message{std::string_view{result.error().message}};
+            const std::lock_guard<std::mutex> lock{g_module_failures_mutex};
+            g_module_failures[engine].push_back(std::move(message));
+        };
+    }
+
+    /// The composite running on the engine, or sets the error and returns null.
+    [[nodiscard]] SFT::Engine::CompositeGameLogic *running_composite(SturdyEngine engine, SFT::Engine::Engine **out_engine, SturdyResult *out_result) {
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        if (const SturdyResult resolved = resolve_engine(engine, &resolved_engine); resolved != STURDY_OK) {
+            *out_result = resolved;
+            return nullptr;
+        }
+        SFT::Engine::CompositeGameLogic *composite = SFT::Engine::CompositeGameLogic::of(*resolved_engine);
+        if (composite == nullptr) {
+            *out_result = set_error(STURDY_ERROR_NOT_AVAILABLE, "no game is running on this engine; live module changes need sturdy_runtime_run_modules");
+            return nullptr;
+        }
+        *out_engine = resolved_engine;
+        return composite;
+    }
+
+} // namespace
+
+extern "C" {
+
+SturdyResult STURDY_ABI_CALL sturdy_runtime_run(const SturdyRuntimeConfig *config,
+                                                const SturdyGameLogic *game_logic,
+                                                int32_t argc,
+                                                const char *const *argv,
+                                                int32_t *out_exit_code) {
+    return guarded([&]() -> SturdyResult {
+        if (config == nullptr || game_logic == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT,
+                             "config and game_logic must not be null");
+        }
+        // Layout history: see run_runtime. The logic table is validated here, before the runtime is claimed, so a caller
+        // that passes a bad struct keeps ownership of its user_data.
+        if (game_logic->struct_size != sizeof(SturdyGameLogic)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
+                             "SturdyGameLogic size does not match this engine build");
+        }
+        const SturdyGameLogic table = *game_logic;
+        return run_runtime(config, argc, argv, out_exit_code, [&]() -> std::unique_ptr<SFT::Engine::GameLogic> {
+            return std::make_unique<UiReleasingGameLogic>(make_foreign_logic(table));
+        });
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_runtime_run_modules(const SturdyRuntimeConfig *config,
+                                                        const SturdyGameModule *modules,
+                                                        uint32_t module_count,
+                                                        int32_t argc,
+                                                        const char *const *argv,
+                                                        int32_t *out_exit_code) {
+    return guarded([&]() -> SturdyResult {
+        if (config == nullptr || (module_count != 0 && modules == nullptr)) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "config and modules must not be null");
+        }
+        if (module_count == 0) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "at least one game module is required");
+        }
+
+        // Everything about the module list that can be checked without starting the engine is checked now, so the caller keeps
+        // ownership of every user_data on failure. (Unknown dependencies and cycles are found when the modules start.)
+        std::vector<std::string> names;
+        names.reserve(module_count);
+        for (uint32_t i = 0; i < module_count; ++i) {
+            const SturdyGameModule &module = modules[i];
+            if (module.struct_size != sizeof(SturdyGameModule)) {
+                return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyGameModule size does not match this engine build");
+            }
+            if (module.logic.struct_size != sizeof(SturdyGameLogic)) {
+                return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyGameLogic size does not match this engine build");
+            }
+            if (module.name == nullptr || module.name[0] == '\0') {
+                return set_error(STURDY_ERROR_INVALID_ARGUMENT, "every game module needs a non-empty name");
+            }
+            if (module.after_count != 0 && module.after == nullptr) {
+                return set_error(STURDY_ERROR_INVALID_ARGUMENT, "after must not be null when after_count is nonzero");
+            }
+            for (uint32_t d = 0; d < module.after_count; ++d) {
+                if (module.after[d] == nullptr) {
+                    return set_error(STURDY_ERROR_INVALID_ARGUMENT, "after entries must not be null");
+                }
+                if (std::string_view{module.after[d]} == module.name) {
+                    return set_error(STURDY_ERROR_INVALID_ARGUMENT, "a game module cannot start after itself");
+                }
+            }
+            if (std::find(names.begin(), names.end(), std::string{module.name}) != names.end()) {
+                return set_error(STURDY_ERROR_INVALID_ARGUMENT, "two game modules share a name");
+            }
+            names.emplace_back(module.name);
+        }
+
+        // Copied: the caller's array and strings need only outlive this call's validation, not the run.
+        struct Pending {
+            std::string name;
+            std::vector<std::string> after;
+            bool contributes_scene;
+            SturdyGameLogic table;
+        };
+        std::vector<Pending> pending;
+        pending.reserve(module_count);
+        for (uint32_t i = 0; i < module_count; ++i) {
+            Pending entry{modules[i].name, {}, modules[i].contributes_scene != STURDY_FALSE, modules[i].logic};
+            for (uint32_t d = 0; d < modules[i].after_count; ++d) {
+                entry.after.emplace_back(modules[i].after[d]);
+            }
+            pending.push_back(std::move(entry));
+        }
+
+        return run_runtime(config, argc, argv, out_exit_code, [&]() -> std::unique_ptr<SFT::Engine::GameLogic> {
+            // Every module's logic is built before any is added, so a rejected add still destroys the ones not yet added.
+            std::vector<std::unique_ptr<SFT::Engine::GameLogic>> built;
+            built.reserve(pending.size());
+            for (const Pending &entry : pending) {
+                built.push_back(make_foreign_logic(entry.table));
+            }
+            auto composite = std::make_unique<SFT::Engine::CompositeGameLogic>();
+            for (std::size_t i = 0; i < pending.size(); ++i) {
+                SFT::Engine::GameModuleOptions options{.after = pending[i].after, .contributes_scene = pending[i].contributes_scene};
+                if (!composite->add(pending[i].name, std::move(built[i]), std::move(options))) {
+                    return nullptr;
+                }
+            }
+            return std::make_unique<UiReleasingGameLogic>(std::move(composite));
+        });
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_module_request_unload(SturdyEngine engine, const char *name) {
+    return guarded([&]() -> SturdyResult {
+        if (name == nullptr || name[0] == '\0') {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "name must not be empty");
+        }
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        SturdyResult failure = STURDY_OK;
+        SFT::Engine::CompositeGameLogic *composite = running_composite(engine, &resolved_engine, &failure);
+        if (composite == nullptr) {
+            return failure;
+        }
+        composite->request_unload(*resolved_engine, name, record_module_failure(*resolved_engine));
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_module_request_reload(SturdyEngine engine, const char *name, const SturdyGameLogic *logic) {
+    return guarded([&]() -> SturdyResult {
+        if (name == nullptr || name[0] == '\0' || logic == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "name and logic must not be null or empty");
+        }
+        if (logic->struct_size != sizeof(SturdyGameLogic)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyGameLogic size does not match this engine build");
+        }
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        SturdyResult failure = STURDY_OK;
+        SFT::Engine::CompositeGameLogic *composite = running_composite(engine, &resolved_engine, &failure);
+        if (composite == nullptr) {
+            return failure; // the caller keeps ownership of `logic`'s user_data: nothing was taken
+        }
+        composite->request_reload(*resolved_engine, name, make_live_foreign_logic(*logic), record_module_failure(*resolved_engine));
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_module_request_load(SturdyEngine engine, const SturdyGameModule *module) {
+    return guarded([&]() -> SturdyResult {
+        if (module == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "module must not be null");
+        }
+        if (module->struct_size != sizeof(SturdyGameModule) || module->logic.struct_size != sizeof(SturdyGameLogic)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyGameModule or SturdyGameLogic size does not match this engine build");
+        }
+        if (module->name == nullptr || module->name[0] == '\0') {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "the module needs a non-empty name");
+        }
+        if (module->after_count != 0 && module->after == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "after must not be null when after_count is nonzero");
+        }
+        SFT::Engine::GameModuleOptions options;
+        options.contributes_scene = module->contributes_scene != STURDY_FALSE;
+        for (uint32_t i = 0; i < module->after_count; ++i) {
+            if (module->after[i] == nullptr) {
+                return set_error(STURDY_ERROR_INVALID_ARGUMENT, "after entries must not be null");
+            }
+            options.after.emplace_back(module->after[i]);
+        }
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        SturdyResult failure = STURDY_OK;
+        SFT::Engine::CompositeGameLogic *composite = running_composite(engine, &resolved_engine, &failure);
+        if (composite == nullptr) {
+            return failure;
+        }
+        composite->request_load(*resolved_engine, module->name, make_live_foreign_logic(module->logic), std::move(options),
+                                record_module_failure(*resolved_engine));
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_module_count(SturdyEngine engine, uint32_t *out_count) {
+    return guarded([&]() -> SturdyResult {
+        if (out_count == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        SturdyResult failure = STURDY_OK;
+        SFT::Engine::CompositeGameLogic *composite = running_composite(engine, &resolved_engine, &failure);
+        if (composite == nullptr) {
+            return failure;
+        }
+        *out_count = static_cast<uint32_t>(composite->module_count());
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_module_name(SturdyEngine engine, uint32_t index, char *buffer, size_t capacity, size_t *out_length) {
+    return guarded([&]() -> SturdyResult {
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        SturdyResult failure = STURDY_OK;
+        SFT::Engine::CompositeGameLogic *composite = running_composite(engine, &resolved_engine, &failure);
+        if (composite == nullptr) {
+            return failure;
+        }
+        const std::vector<std::string> names = composite->start_order();
+        if (index >= names.size()) {
+            return set_error(STURDY_ERROR_OUT_OF_RANGE, "module index is out of range");
+        }
+        return SFT::Ffi::copy_string_out(names[index], buffer, capacity, out_length);
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_module_take_failure(SturdyEngine engine, char *buffer, size_t capacity, size_t *out_length) {
+    return guarded([&]() -> SturdyResult {
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        if (const SturdyResult resolved = resolve_engine(engine, &resolved_engine); resolved != STURDY_OK) {
+            return resolved;
+        }
+        std::string message;
+        {
+            const std::lock_guard<std::mutex> lock{g_module_failures_mutex};
+            const auto found = g_module_failures.find(resolved_engine);
+            if (found == g_module_failures.end() || found->second.empty()) {
+                return set_error(STURDY_ERROR_NOT_AVAILABLE, "no live module change has failed");
+            }
+            message = found->second.front();
+        }
+        // Removed only once it has been copied out, so a buffer that is too small can be retried with a larger one.
+        const SturdyResult copied = SFT::Ffi::copy_string_out(message, buffer, capacity, out_length);
+        if (copied == STURDY_OK) {
+            const std::lock_guard<std::mutex> lock{g_module_failures_mutex};
+            auto &queue = g_module_failures[resolved_engine];
+            if (!queue.empty()) {
+                queue.erase(queue.begin());
+            }
+        }
+        return copied;
     });
 }
 

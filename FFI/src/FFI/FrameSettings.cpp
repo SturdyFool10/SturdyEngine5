@@ -908,6 +908,127 @@ SturdyResult STURDY_ABI_CALL sturdy_frame_set_reflection_settings(SturdyFrame fr
     });
 }
 
+// ─── Depth of field ─────────────────────────────────────────────────────────
+
+SturdyResult STURDY_ABI_CALL sturdy_depth_of_field_settings_init(SturdyDepthOfFieldSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::RenderSettings::DepthOfFieldSettings d{};
+        *settings = SturdyDepthOfFieldSettings{};
+        settings->struct_size = static_cast<uint32_t>(sizeof(SturdyDepthOfFieldSettings));
+        settings->enabled = d.enabled ? STURDY_TRUE : STURDY_FALSE;
+        settings->from_camera = d.from_camera ? STURDY_TRUE : STURDY_FALSE;
+        settings->near_field = d.near_field ? STURDY_TRUE : STURDY_FALSE;
+        settings->focus_distance = d.focus_distance;
+        settings->aperture_f_stop = d.aperture_f_stop;
+        settings->focal_length_mm = d.focal_length_mm;
+        settings->sensor_height_mm = d.sensor_height_mm;
+        settings->blades = d.blades;
+        settings->blade_rotation_degrees = d.blade_rotation_degrees;
+        settings->max_blur_px = d.max_blur_px;
+        settings->strength = d.strength;
+        settings->quality = d.quality;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_frame_set_depth_of_field_settings(SturdyFrame frame, const SturdyDepthOfFieldSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "settings must not be null");
+        }
+        if (!all_finite({settings->focus_distance, settings->aperture_f_stop, settings->focal_length_mm, settings->sensor_height_mm,
+                         settings->blade_rotation_degrees, settings->max_blur_px, settings->strength})) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "depth of field settings must be finite");
+        }
+        SFT::Engine::RenderFrameParameters *parameters = nullptr;
+        const SturdyResult resolved = resolve_frame(frame, &parameters);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        SFT::RenderSettings::DepthOfFieldSettings &d = parameters->render_graph.depth_of_field();
+        d.enabled = settings->enabled != STURDY_FALSE;
+        d.from_camera = settings->from_camera != STURDY_FALSE;
+        d.near_field = settings->near_field != STURDY_FALSE;
+        d.focus_distance = settings->focus_distance;
+        d.aperture_f_stop = settings->aperture_f_stop;
+        d.focal_length_mm = settings->focal_length_mm;
+        d.sensor_height_mm = settings->sensor_height_mm;
+        d.blades = settings->blades;
+        d.blade_rotation_degrees = settings->blade_rotation_degrees;
+        d.max_blur_px = settings->max_blur_px;
+        d.strength = settings->strength;
+        d.quality = settings->quality;
+        return STURDY_OK;
+    });
+}
+
+// ─── Colour grade ───────────────────────────────────────────────────────────
+
+SturdyResult STURDY_ABI_CALL sturdy_color_grade_settings_init(SturdyColorGradeSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::RenderSettings::ColorGradeSettings d{};
+        *settings = SturdyColorGradeSettings{};
+        settings->struct_size = static_cast<uint32_t>(sizeof(SturdyColorGradeSettings));
+        settings->enabled = d.enabled ? STURDY_TRUE : STURDY_FALSE;
+        settings->temperature = d.temperature;
+        settings->tint = d.tint;
+        settings->exposure_ev = d.exposure_ev;
+        settings->contrast = d.contrast;
+        settings->saturation = d.saturation;
+        std::copy_n(d.lift, 3, settings->lift);
+        std::copy_n(d.gamma, 3, settings->gamma);
+        std::copy_n(d.gain, 3, settings->gain);
+        std::copy_n(d.shadow_tint, 3, settings->shadow_tint);
+        std::copy_n(d.highlight_tint, 3, settings->highlight_tint);
+        settings->split_strength = d.split_strength;
+        settings->lut_texture = d.lut_texture;
+        settings->lut_intensity = d.lut_intensity;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_frame_set_color_grade_settings(SturdyFrame frame, const SturdyColorGradeSettings *settings) {
+    return guarded([&]() -> SturdyResult {
+        if (settings == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "settings must not be null");
+        }
+        const SturdyColorGradeSettings &s = *settings;
+        if (!all_finite({s.temperature, s.tint, s.exposure_ev, s.contrast, s.saturation, s.split_strength, s.lut_intensity,
+                         s.lift[0], s.lift[1], s.lift[2], s.gamma[0], s.gamma[1], s.gamma[2], s.gain[0], s.gain[1], s.gain[2],
+                         s.shadow_tint[0], s.shadow_tint[1], s.shadow_tint[2], s.highlight_tint[0], s.highlight_tint[1],
+                         s.highlight_tint[2]})) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "colour grade settings must be finite");
+        }
+        SFT::Engine::RenderFrameParameters *parameters = nullptr;
+        const SturdyResult resolved = resolve_frame(frame, &parameters);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        SFT::RenderSettings::ColorGradeSettings &g = parameters->render_graph.color_grade();
+        g.enabled = s.enabled != STURDY_FALSE;
+        g.temperature = s.temperature;
+        g.tint = s.tint;
+        g.exposure_ev = s.exposure_ev;
+        g.contrast = s.contrast;
+        g.saturation = s.saturation;
+        std::copy_n(s.lift, 3, g.lift);
+        std::copy_n(s.gamma, 3, g.gamma);
+        std::copy_n(s.gain, 3, g.gain);
+        std::copy_n(s.shadow_tint, 3, g.shadow_tint);
+        std::copy_n(s.highlight_tint, 3, g.highlight_tint);
+        g.split_strength = s.split_strength;
+        g.lut_texture = s.lut_texture;
+        g.lut_intensity = s.lut_intensity;
+        return STURDY_OK;
+    });
+}
+
 // ─── Auto exposure ──────────────────────────────────────────────────────────
 
 SturdyResult STURDY_ABI_CALL sturdy_auto_exposure_settings_init(SturdyAutoExposureSettings *settings) {

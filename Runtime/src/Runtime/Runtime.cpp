@@ -18,9 +18,9 @@ namespace SFT::Runtime {
             /// @param factory `factory` value used by the operation.
             ///
             /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-            RuntimeApplicationClient(RuntimeConfig config, Engine::GameLogicFactory factory)
+            RuntimeApplicationClient(RuntimeConfig config, std::unique_ptr<Engine::GameLogic> game_logic)
                 : config_(std::move(config)),
-                  game_logic_(factory != nullptr ? factory() : nullptr) {}
+                  game_logic_(std::move(game_logic)) {}
 
             /// Reports whether this `RuntimeApplicationClient` has game logic.
             ///
@@ -94,6 +94,42 @@ namespace SFT::Runtime {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    i32 run_logic(
+        const Foundation::CliArgs &args,
+        RuntimeConfig config,
+        std::unique_ptr<Engine::GameLogic> game_logic) {
+        if (game_logic == nullptr) {
+            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
+                .code = "runtime.game_logic.factory_returned_null",
+                .summary = "Runtime cannot start without game logic",
+                .context = "Runtime::run_logic",
+                .cause_code = "engine.game_logic.null",
+                .cause = "the supplied game logic was null",
+                .details = {},
+                .help = "pass a newly constructed GameLogic (or a CompositeGameLogic holding several modules)",
+            });
+            return 1;
+        }
+
+#if defined(STURDY_PLATFORM_WEB)
+        // On Web, ApplicationHost::run() registers a persistent requestAnimationFrame-driven main
+        // loop and returns immediately -- it does not block until the app closes the way the native
+        // path does. A stack-allocated `client` here would therefore be destroyed the instant this
+        // function returns, seconds before the first real frame callback ever fires, leaving the
+        // heap-allocated Application's `client_` pointer dangling: every later call through it reads
+        // a reused stack frame and dispatches through whatever garbage vtable pointer happens to be
+        // sitting there, which is indistinguishable from random corruption until traced. Heap-
+        // allocating and deliberately never freeing it is correct here for the same reason
+        // ApplicationHost::EntryPoint.cpp does the same for `Application` itself: there is no
+        // "process exit" to clean up before on a page the user just navigates away from.
+        auto *client = new RuntimeApplicationClient(std::move(config), std::move(game_logic));
+        return ApplicationHost::run(*client, args);
+#else
+        RuntimeApplicationClient client{std::move(config), std::move(game_logic)};
+        return ApplicationHost::run(client, args);
+#endif
+    }
+
     i32 run(
         const Foundation::CliArgs &args,
         RuntimeConfig config,
@@ -110,50 +146,7 @@ namespace SFT::Runtime {
             });
             return 1;
         }
-
-#if defined(STURDY_PLATFORM_WEB)
-        // On Web, ApplicationHost::run() registers a persistent requestAnimationFrame-driven main
-        // loop and returns immediately -- it does not block until the app closes the way the native
-        // path does. A stack-allocated `client` here would therefore be destroyed the instant this
-        // function returns, seconds before the first real frame callback ever fires, leaving the
-        // heap-allocated Application's `client_` pointer dangling: every later call through it reads
-        // a reused stack frame and dispatches through whatever garbage vtable pointer happens to be
-        // sitting there, which is indistinguishable from random corruption until traced. Heap-
-        // allocating and deliberately never freeing it is correct here for the same reason
-        // ApplicationHost::EntryPoint.cpp does the same for `Application` itself: there is no
-        // "process exit" to clean up before on a page the user just navigates away from.
-        auto *client = new RuntimeApplicationClient(std::move(config), game_logic_factory);
-        if (!client->has_game_logic()) {
-            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
-                .code = "runtime.game_logic.factory_returned_null",
-                .summary = "the GameLogic factory returned no session",
-                .context = "Runtime::run",
-                .cause_code = "engine.game_logic.null",
-                .cause = "the selected factory returned a null unique_ptr",
-                .details = {},
-                .help = "return a newly constructed GameLogic instance from the factory",
-            });
-            return 1;
-        }
-
-        return ApplicationHost::run(*client, args);
-#else
-        RuntimeApplicationClient client{std::move(config), game_logic_factory};
-        if (!client.has_game_logic()) {
-            Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
-                .code = "runtime.game_logic.factory_returned_null",
-                .summary = "the GameLogic factory returned no session",
-                .context = "Runtime::run",
-                .cause_code = "engine.game_logic.null",
-                .cause = "the selected factory returned a null unique_ptr",
-                .details = {},
-                .help = "return a newly constructed GameLogic instance from the factory",
-            });
-            return 1;
-        }
-
-        return ApplicationHost::run(client, args);
-#endif
+        return run_logic(args, std::move(config), game_logic_factory());
     }
 
 } // namespace SFT::Runtime

@@ -30,6 +30,7 @@ using std::span;
 
 namespace SFT::Renderer {
 
+    class RenderGraphBlackboard;
 
     struct CameraView {
         glm::mat4 view{1.0f};
@@ -77,6 +78,8 @@ namespace SFT::Renderer {
     using LightingSettings = RenderSettings::LightingSettings;
     using VolumetricFogSettings = RenderSettings::VolumetricFogSettings;
     using ReflectionSettings = RenderSettings::ReflectionSettings;
+    using DepthOfFieldSettings = RenderSettings::DepthOfFieldSettings;
+    using ColorGradeSettings = RenderSettings::ColorGradeSettings;
 
     enum class PostProcessStage : u8 {
         BeforeBloom,
@@ -182,6 +185,9 @@ namespace SFT::Renderer {
         /// Graph textures the overlay's draw samples. Declared as reads of the overlay pass so the graph keeps
         /// their memory alive (and out of aliasing) until it has run.
         std::vector<RenderGraphTextureHandle> &sampled_textures;
+        /// The frame's semantic resources (`RenderGraphSemantics::*`): how an overlay finds the scene depth or colour to
+        /// sample (empty handles when the frame has no scene). Add what you read to `sampled_textures`.
+        const RenderGraphBlackboard &resources;
     };
 
     /// What an overlay pass draws into: a render pass already targeting the frame (see `OverlayPass`), with
@@ -194,6 +200,8 @@ namespace SFT::Renderer {
         bool hdr_output = false;
         Core::RenderSurfaceHandle surface{};
         u32 frame_slot_index = 0;
+        /// Resolves a graph texture to its view (the ones declared in `OverlayPrepareContext::sampled_textures`).
+        RenderGraphContext &graph;
     };
 
     using OverlayPrepareFn = std::function<Core::RendererResult(OverlayPrepareContext &)>;

@@ -29,12 +29,51 @@ namespace {
         int only_field = 0;
     };
 
+    /// Natural alignment padding between fields is fine: {u8 @0, f32 @4}, 8 bytes.
+    struct Padded {
+        std::uint8_t flag = 0;
+        float value = 0.0f;
+    };
+
+    /// Only one of two members is reflected, so the reflected fields do not account for the whole struct.
+    struct PartlyReflected {
+        int shown = 0;
+        int hidden = 0;
+    };
+
+    struct Inner {
+        float x = 0.0f;
+    };
+
+    /// A non-scalar member: no complete shape can be stated.
+    struct Nested {
+        Inner inner{};
+        int count = 0;
+    };
+
 } // namespace
 
 SFT_ECS_COMPONENT(Health, "test.engine.ecs_reflection.health");
 SFT_REFLECT_TYPE(Health, "test.engine.ecs_reflection.health");
 SFT_REFLECT_FIELD(current);
 SFT_REFLECT_FIELD(max);
+SFT_REFLECT_END();
+
+SFT_ECS_COMPONENT(Padded, "test.engine.ecs_reflection.padded");
+SFT_REFLECT_TYPE(Padded, "test.engine.ecs_reflection.padded");
+SFT_REFLECT_FIELD(flag);
+SFT_REFLECT_FIELD(value);
+SFT_REFLECT_END();
+
+SFT_ECS_COMPONENT(PartlyReflected, "test.engine.ecs_reflection.partly");
+SFT_REFLECT_TYPE(PartlyReflected, "test.engine.ecs_reflection.partly");
+SFT_REFLECT_FIELD(shown);
+SFT_REFLECT_END();
+
+SFT_ECS_COMPONENT(Nested, "test.engine.ecs_reflection.nested");
+SFT_REFLECT_TYPE(Nested, "test.engine.ecs_reflection.nested");
+SFT_REFLECT_FIELD(inner);
+SFT_REFLECT_FIELD(count);
 SFT_REFLECT_END();
 
 SFT_ECS_COMPONENT(Drifted, "test.engine.ecs_reflection.drifted");
@@ -91,6 +130,39 @@ int main() {
     if (type == nullptr) {
         (void)std::fprintf(stderr, "EcsReflectionBridgeTest: %d check(s) failed\n", failures);
         return 1;
+    }
+
+    // ---- layouts derived from reflection (so foreign registrations of the same component are checked against them) ----
+    {
+        const Ecs::ComponentInfo *health_info = components.info(component_id);
+        const std::vector<Ecs::ComponentField> health_fields{{"a", Ecs::FieldKind::I32, 0, 1}, {"b", Ecs::FieldKind::I32, 4, 1}};
+        check(health_info != nullptr && health_info->layout == Ecs::fingerprint_component_layout(8, 4, health_fields),
+              "a reflected component of two ints gets the layout a foreign {i32, i32} would describe");
+
+        const auto padded = Engine::ensure_reflected<Padded>(components);
+        const Ecs::ComponentInfo *padded_info = padded ? components.info(padded->first) : nullptr;
+        const std::vector<Ecs::ComponentField> padded_fields{{"flag", Ecs::FieldKind::U8, 0, 1}, {"value", Ecs::FieldKind::F32, 4, 1}};
+        check(padded_info != nullptr && padded_info->layout == Ecs::fingerprint_component_layout(8, 4, padded_fields),
+              "alignment padding between fields is accepted and does not change the layout");
+
+        const auto partly = Engine::ensure_reflected<PartlyReflected>(components);
+        check(partly.has_value(), "a partly reflected component still registers");
+        const Ecs::ComponentInfo *partly_info = partly ? components.info(partly->first) : nullptr;
+        check(partly_info != nullptr && !partly_info->layout, "reflected fields that do not cover the struct give no shape, rather than a partial one");
+
+        const auto nested = Engine::ensure_reflected<Nested>(components);
+        const Ecs::ComponentInfo *nested_info = nested ? components.info(nested->first) : nullptr;
+        check(nested_info != nullptr && !nested_info->layout, "a non-scalar member gives no shape");
+
+        // A foreign registration that describes the same memory differently is now caught against the C++ definition.
+        const Reflection::TypeInfo &health_type = Reflection::TypeRegistry::instance().type<Health>();
+        const auto derived = Engine::derive_component_schema(health_type);
+        check(derived.has_value() && derived->fields.size() == 2 && derived->fields[1].offset == 4, "derive_component_schema reports each field's offset");
+        auto as_floats = Ecs::Detail::make_component_info<Health>();
+        as_floats.schema.fields = {{"a", Ecs::FieldKind::F32, 0, 1}, {"b", Ecs::FieldKind::F32, 4, 1}};
+        const auto aliased = components.register_component(as_floats);
+        check(!aliased && aliased.error().code == Ecs::ComponentRegistryErrorCode::SchemaMismatch,
+              "registering a reflected C++ component with the same size but float fields is a SchemaMismatch");
     }
 
     const Ecs::Entity entity = world.spawn(Health{.current = 42, .max = 100});

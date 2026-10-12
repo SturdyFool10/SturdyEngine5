@@ -249,6 +249,10 @@ namespace SFT::Runtime {
 
         Text::Font tweak_panel_font_{};
         bool tweak_panel_font_registered_ = false;
+        /// The engine tick the debug shapes were last drawn for (they live until the next update, so once per tick is right).
+        u64 last_debug_draw_tick_ = ~u64{0};
+        /// `TextureHandle::value` of the demo's colour-grade LUT (STURDY_DEMO_GRADE=2), created on first use.
+        u64 demo_grade_lut_ = 0;
     };
 
     /// Creates a runtime demo game logic from the supplied parameters.

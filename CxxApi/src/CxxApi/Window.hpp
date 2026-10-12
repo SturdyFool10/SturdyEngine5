@@ -12,6 +12,9 @@
 
 namespace SFT::CxxApi {
 
+    /// A new window's engine defaults (the Rust `Default` for `WindowDesc`).
+    [[nodiscard]] WindowDesc window_desc_defaults() noexcept;
+
     // ---- the primary window, called synchronously (use from the game-logic thread) ----
     // Every fallible call throws when the engine has no primary window or the platform refuses.
 

@@ -56,6 +56,8 @@ namespace SFT::Engine {
     using LightingSettings = RenderSettings::LightingSettings;
     using VolumetricFogSettings = RenderSettings::VolumetricFogSettings;
     using ReflectionSettings = RenderSettings::ReflectionSettings;
+    using DepthOfFieldSettings = RenderSettings::DepthOfFieldSettings;
+    using ColorGradeSettings = RenderSettings::ColorGradeSettings;
     using MotionBlurSettings = RenderSettings::MotionBlurSettings;
     using FisheyeMode = RenderSettings::FisheyeMode;
     using CameraEmulationSettings = RenderSettings::CameraEmulationSettings;
@@ -221,6 +223,10 @@ namespace SFT::Engine {
         [[nodiscard]] VolumetricFogSettings &volumetric_fog() noexcept;
         [[nodiscard]] const ReflectionSettings &reflections() const noexcept;
         [[nodiscard]] ReflectionSettings &reflections() noexcept;
+        [[nodiscard]] const DepthOfFieldSettings &depth_of_field() const noexcept;
+        [[nodiscard]] DepthOfFieldSettings &depth_of_field() noexcept;
+        [[nodiscard]] const ColorGradeSettings &color_grade() const noexcept;
+        [[nodiscard]] ColorGradeSettings &color_grade() noexcept;
         /// Returns the current or globally available ReSTIR GI value.
         ///
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.

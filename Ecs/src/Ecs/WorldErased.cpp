@@ -523,4 +523,62 @@ namespace SFT::Ecs {
         return visited;
     }
 
+    WorldErasedExpected<usize> World::for_each_erased_chunk(std::span<const ComponentId> component_ids,
+                                                            ErasedChunkVisitFn visit,
+                                                            void *user_data) {
+        ZoneScopedN("World::for_each_erased_chunk");
+        std::shared_lock access{direct_access_mutex_};
+        return for_each_chunk_unlocked(component_ids, visit, user_data);
+    }
+
+    WorldErasedExpected<usize> World::for_each_chunk_unlocked(std::span<const ComponentId> component_ids,
+                                                              ErasedChunkVisitFn visit,
+                                                              void *user_data) {
+        ZoneScopedN("World::for_each_chunk_unlocked");
+
+        if (visit == nullptr) {
+            return erased_error(WorldErasedErrorCode::InvalidArgument, "visitor must not be null");
+        }
+        if (component_ids.empty()) {
+            return erased_error(WorldErasedErrorCode::NoComponents,
+                                "iteration requires at least one component to match on");
+        }
+        if (component_ids.size() > max_erased_visit_components) {
+            return erased_error(WorldErasedErrorCode::InvalidArgument,
+                                "too many components requested for a single visit");
+        }
+        for (const ComponentId component : component_ids) {
+            if (registry_->info(component) == nullptr) {
+                return erased_error(WorldErasedErrorCode::UnknownComponent,
+                                    "no component is registered under one of the supplied ids");
+            }
+        }
+
+        usize visited = 0;
+        std::array<void *, max_erased_visit_components> pointers{};
+
+        for (Archetype &archetype : archetypes_) {
+            bool matches = true;
+            for (usize index = 0; index < component_ids.size(); ++index) {
+                const u32 column = archetype.column_index_of(component_ids[index]);
+                if (column == ~0u) {
+                    matches = false;
+                    break;
+                }
+                pointers[index] = archetype.column_data(column);
+            }
+            if (!matches) {
+                continue;
+            }
+            // As in `for_each_unlocked`, the row count is read once: the visitor may not change the world.
+            const usize row_count = archetype.size();
+            if (row_count == 0) {
+                continue;
+            }
+            visit(archetype.entity_data(), row_count, pointers.data(), user_data);
+            visited += row_count;
+        }
+        return visited;
+    }
+
 } // namespace SFT::Ecs

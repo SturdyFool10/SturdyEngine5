@@ -13,6 +13,8 @@
 #include <Renderer/CameraEmulation.hpp>
 #include <Renderer/AntiAliasing.hpp>
 #include <Renderer/Bloom.hpp>
+#include <Renderer/ColorGrade.hpp>
+#include <Renderer/DepthOfField.hpp>
 #include <Renderer/FramePipeline.hpp>
 #include <Core/Slang/ShaderLibrary.hpp>
 #include <Renderer/MotionBlur.hpp>
@@ -1604,12 +1606,14 @@ namespace SFT::Renderer {
         (void)pipeline->add("reflections_history", [](FrameBuildContext &context) { return build_reflections_history_feature(context); }, FrameStage::Scene);
         (void)pipeline->add("scene_background", [this](FrameBuildContext &context) { return build_frame_feature_scene_background(context); });
         (void)pipeline->add("volumetric_fog", [](FrameBuildContext &context) { return build_volumetric_fog_feature(context); });
+        (void)pipeline->add("depth_of_field", [](FrameBuildContext &context) { return build_depth_of_field_feature(context); });
         (void)pipeline->add("light_indicators", [this](FrameBuildContext &context) { return build_frame_feature_light_indicators(context); });
         (void)pipeline->add("motion_blur", [this](FrameBuildContext &context) { return build_frame_feature_motion_blur(context); });
         (void)pipeline->add("post_process_aa", [this](FrameBuildContext &context) { return build_frame_feature_post_process_aa(context); });
         (void)pipeline->add("effects_before_bloom", [this](FrameBuildContext &context) { return build_frame_feature_effects_before_bloom(context); });
         (void)pipeline->add("bloom", [this](FrameBuildContext &context) { return build_frame_feature_bloom(context); });
         (void)pipeline->add("effects_after_bloom", [this](FrameBuildContext &context) { return build_frame_feature_effects_after_bloom(context); });
+        (void)pipeline->add("color_grade", [](FrameBuildContext &context) { return build_color_grade_feature(context); });
         (void)pipeline->add("temporal_upscale", [](FrameBuildContext &context) { return build_temporal_upscale_feature(context); });
         (void)pipeline->add("auto_exposure", [](FrameBuildContext &context) { return build_auto_exposure_feature(context); });
         (void)pipeline->add("camera_emulation", [](FrameBuildContext &context) { return build_camera_emulation_feature(context); });

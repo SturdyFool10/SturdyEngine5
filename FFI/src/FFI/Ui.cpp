@@ -28,8 +28,7 @@
 #include <glm/vec2.hpp>
 
 #include <Engine/Engine.hpp>
-#include <Engine/ScreenUi.hpp>
-#include <Renderer/Text/Font.hpp>
+#include <Engine/ForeignUi.hpp>
 #include <Renderer/UI/UI.hpp>
 
 #include <FFI/AbiSupport.hpp>
@@ -40,77 +39,44 @@ namespace {
     using SFT::Ffi::resolve_engine;
     using SFT::Ffi::set_error;
 
-    /// The UI frame currently being built, if any.
-    ///
-    /// Thread-local because a layout pass belongs to whichever thread is building it — the engine
-    /// renders windows on their own threads, so a process-wide session would let two windows
-    /// interleave their element stacks.
-    struct UiSession {
-        bool open = false;
-        SFT::UI::Context *context = nullptr;
-        glm::vec2 viewport{0.0f, 0.0f};
-        /// Open element scopes, innermost last. Held by pointer because `ElementScope` closes its
-        /// element on destruction and must not be moved or copied out from under the layout.
-        std::vector<std::unique_ptr<SFT::UI::ElementScope>> open_elements;
-    };
+    // The session itself (the per-thread element stack, the engine's ScreenUi, the font registry and the begin/end orchestration) lives in
+    // `Engine/ForeignUi.hpp`, shared with CxxApi so every binding behaves identically; this file translates ABI structs and result codes.
+    namespace E = SFT::Engine;
 
-    thread_local UiSession g_session;
-
-    /// The on-screen UI this ABI drives. The engine owns none; a host binding is an application, so it keeps its
-    /// own `ScreenUi` (window input + overlay) for the engine it was handed. One engine per process, as elsewhere in
-    /// this ABI; `sturdy_ui_release` (called from the runtime's shutdown) drops it before the engine goes away.
-    struct FfiScreenUi {
-        SFT::Engine::Engine *engine = nullptr;
-        std::unique_ptr<SFT::Engine::ScreenUi> ui;
-    };
-    FfiScreenUi g_screen_ui;
-    std::mutex g_screen_ui_mutex;
-
-    [[nodiscard]] SFT::Engine::ScreenUi &screen_ui_for(SFT::Engine::Engine &engine) {
-        const std::lock_guard<std::mutex> lock{g_screen_ui_mutex};
-        if (g_screen_ui.engine != &engine || !g_screen_ui.ui) {
-            g_screen_ui.ui.reset();
-            g_screen_ui.engine = &engine;
-            g_screen_ui.ui = std::make_unique<SFT::Engine::ScreenUi>(engine);
+    /// Maps the shared UI layer's error class onto this ABI's result codes.
+    [[nodiscard]] SturdyResult to_result(const E::ForeignUiError &failure) {
+        switch (failure.kind) {
+        case E::ForeignUiErrorKind::Busy:
+            return set_error(STURDY_ERROR_BUSY, failure.message);
+        case E::ForeignUiErrorKind::NotAvailable:
+            return set_error(STURDY_ERROR_NOT_AVAILABLE, failure.message);
+        case E::ForeignUiErrorKind::InvalidArgument:
+            break;
         }
-        return *g_screen_ui.ui;
+        return set_error(STURDY_ERROR_INVALID_ARGUMENT, failure.message);
     }
 
-    /// A font loaded through this ABI, kept alongside the id it was registered under.
-    ///
-    /// `Context::register_font` borrows the font, so the storage has to outlive registration. Kept
-    /// for the process lifetime, which matches how long a registered font is usable. The id is
-    /// retained too because a registration does not necessarily survive to the first frame — see
-    /// `apply_font_registrations`.
-    struct FontRegistration {
-        SFT::UI::FontId font_id = 0;
-        std::unique_ptr<SFT::Text::Font> font;
-    };
-
-    /// Fonts loaded through this ABI, process-wide rather than per-thread.
-    ///
-    /// Unlike the layout session, this is shared: a caller may register a font during startup and
-    /// build UI on a window's render thread, and the registration has to be visible there.
-    std::mutex g_font_mutex;
-    std::vector<FontRegistration> g_fonts;
-
-    /// Registers every font this ABI has loaded into `context`.
-    ///
-    /// `Engine::UiContext::ensure_ready` constructs a fresh `UI::Context` and move-assigns it over
-    /// the old one, so any font registered before the UI renderer came up is discarded. The engine's
-    /// own C++ callers avoid that by registering after `ensure_ready` from inside their frame
-    /// callback. A foreign caller cannot be asked to know that ordering rule, so the ABI accepts a
-    /// registration at any time and replays the whole set once the context is live. Re-registering
-    /// an id replaces its entry, so replaying is idempotent.
-    ///
-    /// @param context Context to populate.
-    ///
-    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void apply_font_registrations(SFT::UI::Context &context) {
-        const std::lock_guard<std::mutex> lock{g_font_mutex};
-        for (const FontRegistration &entry : g_fonts) {
-            context.register_font(entry.font_id, *entry.font);
+    /// Copies an ABI element into the shared description.
+    [[nodiscard]] E::ForeignUiElement to_foreign_element(const SturdyUiElement &element) {
+        E::ForeignUiElement out;
+        out.width_kind = static_cast<E::ForeignUiSizing>(element.width_kind);
+        out.width_value = element.width_value;
+        out.height_kind = static_cast<E::ForeignUiSizing>(element.height_kind);
+        out.height_value = element.height_value;
+        out.padding[0] = element.padding_left;
+        out.padding[1] = element.padding_right;
+        out.padding[2] = element.padding_top;
+        out.padding[3] = element.padding_bottom;
+        out.child_gap = element.child_gap;
+        out.top_to_bottom = element.direction == STURDY_UI_DIRECTION_TOP_TO_BOTTOM;
+        for (int i = 0; i < 4; ++i) {
+            out.background[i] = element.background[i];
+            out.corner_radius[i] = element.corner_radius[i];
         }
+        if (element.id != nullptr) {
+            out.id = element.id;
+        }
+        return out;
     }
 
     /// Converts an ABI color to the engine's sRGB color.
@@ -159,25 +125,13 @@ namespace {
     /// @return `STURDY_OK`, or `STURDY_ERROR_BUSY` when no UI frame is open.
     /// @note This function does not throw exceptions.
     [[nodiscard]] SturdyResult require_session(SFT::UI::Context **out_context) noexcept {
-        if (!g_session.open || g_session.context == nullptr) {
+        SFT::UI::Context *context = E::foreign_ui_context();
+        if (context == nullptr) {
             return set_error(STURDY_ERROR_BUSY,
                              "no UI frame is open on this thread; call sturdy_ui_begin first");
         }
-        *out_context = g_session.context;
+        *out_context = context;
         return STURDY_OK;
-    }
-
-    /// Closes the session, discarding any elements the caller left open.
-    ///
-    /// @note This function does not throw exceptions.
-    void reset_session() noexcept {
-        // Destroyed innermost-first so each scope closes the element it opened, which is the order
-        // the layout expects even when the caller got the pairing wrong.
-        while (!g_session.open_elements.empty()) {
-            g_session.open_elements.pop_back();
-        }
-        g_session.open = false;
-        g_session.context = nullptr;
     }
 
 } // namespace
@@ -228,35 +182,8 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_register_font(SturdyEngine engine,
             return resolved;
         }
 
-        const std::optional<std::string> bytes = SFT::Foundation::read_file_to_string(source);
-        if (!bytes) {
-            return set_error(STURDY_ERROR_NOT_AVAILABLE, "could not read the font file");
-        }
-
-        const std::span<const char> chars{bytes->data(), bytes->size()};
-        auto loaded = SFT::Text::Font::load(std::as_bytes(chars));
-        if (!loaded) {
-            return set_error(STURDY_ERROR_NOT_AVAILABLE, loaded.error().message.cpp_string_view());
-        }
-
-        // The context borrows the font, so ownership stays here for the process lifetime.
-        const SFT::UI::FontId id = static_cast<SFT::UI::FontId>(font_id);
-        auto owned = std::make_unique<SFT::Text::Font>(std::move(*loaded));
-        {
-            const std::lock_guard<std::mutex> lock{g_font_mutex};
-            auto existing = std::find_if(g_fonts.begin(), g_fonts.end(),
-                                         [id](const FontRegistration &entry) { return entry.font_id == id; });
-            if (existing != g_fonts.end()) {
-                existing->font = std::move(owned);
-            } else {
-                g_fonts.push_back(FontRegistration{.font_id = id, .font = std::move(owned)});
-            }
-        }
-
-        // Also register into the live context so a font loaded mid-frame is usable immediately;
-        // `sturdy_ui_begin` replays the set for the case where the context did not exist yet.
-        apply_font_registrations(screen_ui_for(*resolved_engine).context());
-        return STURDY_OK;
+        const auto registered = E::register_foreign_ui_font(*resolved_engine, source, font_id);
+        return registered ? STURDY_OK : to_result(registered.error());
     });
 }
 
@@ -265,41 +192,13 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_begin(SturdyEngine engine, const SturdyFr
         if (input == nullptr) {
             return set_error(STURDY_ERROR_INVALID_ARGUMENT, "frame input must not be null");
         }
-        if (g_session.open) {
-            return set_error(STURDY_ERROR_BUSY,
-                             "a UI frame is already open on this thread; call sturdy_ui_end first");
-        }
-
         SFT::Engine::Engine *resolved_engine = nullptr;
         const SturdyResult resolved = resolve_engine(engine, &resolved_engine);
         if (resolved != STURDY_OK) {
             return resolved;
         }
-
-        SFT::RHI::RhiDevice *device = resolved_engine->rhi_device();
-        if (device == nullptr) {
-            return set_error(STURDY_ERROR_NOT_AVAILABLE, "the engine has no active RHI device");
-        }
-
-        // Matches the format the presentation path uses, so the overlay composites without a
-        // conversion the renderer would otherwise have to insert.
-        const SFT::RHI::Format color_format =
-            resolved_engine->config().features.presentation.hdr_enabled ? SFT::RHI::Format::RGBA16Float
-                                                                        : SFT::RHI::Format::BGRA8UnormSrgb;
-        SFT::Engine::ScreenUi &screen_ui = screen_ui_for(*resolved_engine);
-        if (!screen_ui.ensure_ready(color_format)) {
-            return set_error(STURDY_ERROR_NOT_AVAILABLE, "the UI renderer is not ready");
-        }
-        apply_font_registrations(screen_ui.context());
-
-        const glm::vec2 viewport{static_cast<SFT::f32>(input->framebuffer_width),
-                                 static_cast<SFT::f32>(input->framebuffer_height)};
-        screen_ui.begin_frame(viewport, static_cast<SFT::f32>(input->delta_seconds));
-
-        g_session.open = true;
-        g_session.context = &screen_ui.context();
-        g_session.viewport = viewport;
-        return STURDY_OK;
+        const auto begun = E::begin_foreign_ui_frame(*resolved_engine, input->framebuffer_width, input->framebuffer_height, input->delta_seconds);
+        return begun ? STURDY_OK : to_result(begun.error());
     });
 }
 
@@ -311,44 +210,29 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_end(SturdyEngine engine, SturdyFrame fram
             return session;
         }
 
-        if (!g_session.open_elements.empty()) {
-            const auto leaked = g_session.open_elements.size();
-            reset_session();
-            return set_error(STURDY_ERROR_INVALID_ARGUMENT,
-                             leaked == 1 ? "one element was left open; every begin_element needs an "
-                                           "end_element"
-                                         : "elements were left open; every begin_element needs an "
-                                           "end_element");
-        }
-
         SFT::Engine::Engine *resolved_engine = nullptr;
-        const SturdyResult resolved = resolve_engine(engine, &resolved_engine);
-        if (resolved != STURDY_OK) {
-            reset_session();
+        if (const SturdyResult resolved = resolve_engine(engine, &resolved_engine); resolved != STURDY_OK) {
+            // The handle is bad but a frame is open: finish and discard it so the next frame starts clean.
+            E::discard_foreign_ui_frame();
             return resolved;
         }
 
-        auto snapshot = std::make_shared<SFT::UI::FrameSnapshot>(context->finish_frame(g_session.viewport));
-        const glm::vec2 viewport = g_session.viewport;
-        (void)viewport;
-
         // A zeroed frame handle means "discard": the layout is still finished, so the next frame
         // starts clean, but nothing is attached.
+        SFT::Engine::RenderFrameParameters *parameters = nullptr;
         if (frame.token != 0) {
             void *pointer = nullptr;
             const SturdyResult frame_resolved =
                 SFT::Ffi::resolve_handle(frame.token, SFT::Ffi::HandleKind::Frame, &pointer);
             if (frame_resolved != STURDY_OK) {
-                reset_session();
+                E::discard_foreign_ui_frame();
                 return frame_resolved;
             }
-            auto *parameters = static_cast<SFT::Engine::RenderFrameParameters *>(pointer);
-            parameters->overlay_passes.push_back(
-                screen_ui_for(*resolved_engine).surface().overlay_for_snapshot(std::move(snapshot), resolved_engine->renderer()));
+            parameters = static_cast<SFT::Engine::RenderFrameParameters *>(pointer);
         }
 
-        reset_session();
-        return STURDY_OK;
+        const auto ended = E::end_foreign_ui_frame(*resolved_engine, parameters);
+        return ended ? STURDY_OK : to_result(ended.error());
     });
 }
 
@@ -364,56 +248,16 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_begin_element(SturdyEngine engine,
                              "SturdyUiElement size does not match this engine build");
         }
 
-        SFT::UI::Context *context = nullptr;
-        const SturdyResult session = require_session(&context);
-        if (session != STURDY_OK) {
-            return session;
-        }
-
-        SFT::UI::SizingAxis width{};
-        SFT::UI::SizingAxis height{};
-        if (!to_engine_axis(element->width_kind, element->width_value, &width) ||
-            !to_engine_axis(element->height_kind, element->height_value, &height)) {
-            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized sizing mode");
-        }
-
-        SFT::UI::ElementDecl decl{};
-        decl.sizing = SFT::UI::Sizing{width, height};
-        decl.padding = SFT::UI::Padding{
-            static_cast<SFT::u16>(element->padding_left), static_cast<SFT::u16>(element->padding_right),
-            static_cast<SFT::u16>(element->padding_top), static_cast<SFT::u16>(element->padding_bottom)};
-        decl.child_gap = static_cast<SFT::u16>(element->child_gap);
-        decl.direction = element->direction == STURDY_UI_DIRECTION_TOP_TO_BOTTOM
-                             ? SFT::UI::LayoutDirection::TopToBottom
-                             : SFT::UI::LayoutDirection::LeftToRight;
-        decl.background_color = to_engine_color(element->background);
-        decl.corner_radius = SFT::UI::CornerRadius{
-            element->corner_radius[0], element->corner_radius[1], element->corner_radius[2],
-            element->corner_radius[3]};
-        if (element->id != nullptr) {
-            decl.id = SFT::UString{element->id};
-        }
-
-        g_session.open_elements.push_back(
-            std::make_unique<SFT::UI::ElementScope>(context->element(decl)));
-        return STURDY_OK;
+        const auto begun = E::begin_foreign_ui_element(to_foreign_element(*element));
+        return begun ? STURDY_OK : to_result(begun.error());
     });
 }
 
 SturdyResult STURDY_ABI_CALL sturdy_ui_end_element(SturdyEngine engine) {
     return guarded([&]() -> SturdyResult {
         (void)engine;
-        SFT::UI::Context *context = nullptr;
-        const SturdyResult session = require_session(&context);
-        if (session != STURDY_OK) {
-            return session;
-        }
-        if (g_session.open_elements.empty()) {
-            return set_error(STURDY_ERROR_INVALID_ARGUMENT,
-                             "no element is open; end_element has no matching begin_element");
-        }
-        g_session.open_elements.pop_back();
-        return STURDY_OK;
+        const auto ended = E::end_foreign_ui_element();
+        return ended ? STURDY_OK : to_result(ended.error());
     });
 }
 
@@ -430,18 +274,14 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_text(SturdyEngine engine,
                              "SturdyUiTextStyle size does not match this engine build");
         }
 
-        SFT::UI::Context *context = nullptr;
-        const SturdyResult session = require_session(&context);
-        if (session != STURDY_OK) {
-            return session;
+        E::ForeignUiTextStyle foreign_style;
+        foreign_style.font_id = style->font_id;
+        foreign_style.font_size = style->font_size;
+        for (int i = 0; i < 4; ++i) {
+            foreign_style.color[i] = style->color[i];
         }
-
-        SFT::UI::TextStyle engine_style{};
-        engine_style.color = to_engine_color(style->color);
-        engine_style.font_id = static_cast<SFT::UI::FontId>(style->font_id);
-        engine_style.font_size = static_cast<SFT::u16>(style->font_size);
-        context->text(SFT::ustr{std::string_view{text}}, engine_style);
-        return STURDY_OK;
+        const auto drawn = E::foreign_ui_text(text, foreign_style);
+        return drawn ? STURDY_OK : to_result(drawn.error());
     });
 }
 
@@ -453,12 +293,11 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_hovered(SturdyEngine engine,
         if (id == nullptr || out_hovered == nullptr) {
             return set_error(STURDY_ERROR_INVALID_ARGUMENT, "id and output pointer must not be null");
         }
-        SFT::UI::Context *context = nullptr;
-        const SturdyResult session = require_session(&context);
-        if (session != STURDY_OK) {
-            return session;
+        const auto hovered = E::foreign_ui_hovered(id);
+        if (!hovered) {
+            return to_result(hovered.error());
         }
-        *out_hovered = context->hovered(SFT::UString{id}) ? STURDY_TRUE : STURDY_FALSE;
+        *out_hovered = *hovered ? STURDY_TRUE : STURDY_FALSE;
         return STURDY_OK;
     });
 }
@@ -471,25 +310,24 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_clicked(SturdyEngine engine,
         if (id == nullptr || out_clicked == nullptr) {
             return set_error(STURDY_ERROR_INVALID_ARGUMENT, "id and output pointer must not be null");
         }
-        SFT::UI::Context *context = nullptr;
-        const SturdyResult session = require_session(&context);
-        if (session != STURDY_OK) {
-            return session;
+        const auto clicked = E::foreign_ui_clicked(id);
+        if (!clicked) {
+            return to_result(clicked.error());
         }
-        *out_clicked = context->clicked(SFT::UString{id}) ? STURDY_TRUE : STURDY_FALSE;
+        *out_clicked = *clicked ? STURDY_TRUE : STURDY_FALSE;
         return STURDY_OK;
     });
 }
 
 SturdyResult STURDY_ABI_CALL sturdy_ui_set_scale_mode(SturdyEngine engine, SturdyUiScaleMode mode) {
     return guarded([&]() -> SturdyResult {
-        SFT::UI::UiScaleMode engine_mode{};
+        E::ForeignUiScaleMode engine_mode{};
         switch (mode) {
         case STURDY_UI_SCALE_MODE_CONTENT_SCALE:
-            engine_mode = SFT::UI::UiScaleMode::ContentScale;
+            engine_mode = E::ForeignUiScaleMode::ContentScale;
             break;
         case STURDY_UI_SCALE_MODE_RAW_PIXELS:
-            engine_mode = SFT::UI::UiScaleMode::RawPixels;
+            engine_mode = E::ForeignUiScaleMode::RawPixels;
             break;
         case STURDY_UI_SCALE_MODE_FORCE_U32:
         default:
@@ -501,8 +339,8 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_set_scale_mode(SturdyEngine engine, Sturd
         if (resolved != STURDY_OK) {
             return resolved;
         }
-        screen_ui_for(*resolved_engine).set_scale_mode(engine_mode);
-        return STURDY_OK;
+        const auto set = E::set_foreign_ui_scale_mode(*resolved_engine, engine_mode);
+        return set ? STURDY_OK : to_result(set.error());
     });
 }
 
@@ -511,17 +349,15 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_pointer_position(SturdyEngine engine,
                                                         float *out_y) {
     return guarded([&]() -> SturdyResult {
         (void)engine;
-        SFT::UI::Context *context = nullptr;
-        const SturdyResult session = require_session(&context);
-        if (session != STURDY_OK) {
-            return session;
+        const auto position = E::foreign_ui_pointer_position();
+        if (!position) {
+            return to_result(position.error());
         }
-        const glm::vec2 position = context->pointer_position();
         if (out_x != nullptr) {
-            *out_x = position.x;
+            *out_x = position->x;
         }
         if (out_y != nullptr) {
-            *out_y = position.y;
+            *out_y = position->y;
         }
         return STURDY_OK;
     });
@@ -787,12 +623,11 @@ SturdyResult STURDY_ABI_CALL sturdy_ui_pointer_down(SturdyEngine engine, SturdyB
         if (out_down == nullptr) {
             return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
         }
-        SFT::UI::Context *context = nullptr;
-        const SturdyResult session = require_session(&context);
-        if (session != STURDY_OK) {
-            return session;
+        const auto down = E::foreign_ui_pointer_down();
+        if (!down) {
+            return to_result(down.error());
         }
-        *out_down = context->pointer_is_down() ? STURDY_TRUE : STURDY_FALSE;
+        *out_down = *down ? STURDY_TRUE : STURDY_FALSE;
         return STURDY_OK;
     });
 }
@@ -803,10 +638,6 @@ namespace SFT::Ffi {
 
     /// Drops the on-screen UI this ABI created. Called from the runtime's shutdown, before the engine is destroyed
     /// (the UI holds a system in the engine's schedule and GPU objects on its device).
-    void release_ui_state() noexcept {
-        const std::lock_guard<std::mutex> lock{g_screen_ui_mutex};
-        g_screen_ui.ui.reset();
-        g_screen_ui.engine = nullptr;
-    }
+    void release_ui_state() noexcept { SFT::Engine::release_foreign_ui(); }
 
 } // namespace SFT::Ffi

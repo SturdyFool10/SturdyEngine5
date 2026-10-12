@@ -2,6 +2,7 @@
 
 #include <Ecs/Entity.hpp>
 #include <Ecs/Resource.hpp>
+#include <Renderer/DebugDraw.hpp>
 #include <Renderer/Scene.hpp>
 
 #include <Engine/Asset.hpp>
@@ -188,6 +189,12 @@ namespace SFT::Engine {
         Core::RenderSurfaceHandle surface{};
         Core::FrameInput frame{};
         SFT::Renderer::CameraView camera{};
+        /// The camera's view-projection without the temporal upscaler's sub-pixel jitter (what debug drawing projects with, so
+        /// lines do not shimmer).
+        glm::mat4 steady_view_projection{1.0f};
+        /// The debug shapes alive when the frame was prepared (taken then, on the game thread: by the time the render thread
+        /// runs, the next update may already have expired this-frame-only shapes). Null when there are none.
+        std::shared_ptr<const std::vector<SFT::Renderer::DebugLine>> debug_lines;
         SFT::Renderer::SceneLighting lighting{};
         SFT::Renderer::DeferredTargetFormats deferred_formats{};
         std::shared_ptr<const RenderFrameRequests::RenderableList> renderables;

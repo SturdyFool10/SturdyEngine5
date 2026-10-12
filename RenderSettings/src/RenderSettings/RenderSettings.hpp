@@ -393,7 +393,73 @@ namespace SFT::RenderSettings {
         float wind[3] = {0.4f, 0.0f, 0.2f};
     };
 
-    // ---- post: motion, camera, exposure, upscaling ------------------------------------------------------------------
+    // ---- post: colour grade, depth of field, motion, camera, exposure, upscaling ------------------------------------------
+
+    /// Colour grading, applied to the scene-linear image just before tone mapping (so the tone mapper's curve still shapes the
+    /// result and nothing clips): the camcorder / film / bodycam look. One compute pass; every control is neutral at its default.
+    ///
+    /// Order: white balance -> contrast (hue-preserving, pivot at middle grey 0.18) -> lift / gamma / gain (per channel, gamma
+    /// pivoted at middle grey so it is HDR-safe) -> split toning -> saturation -> optional 3D LUT.
+    ///
+    /// The LUT works in a *log* domain: its input is `log2(scene-linear / 0.18)` mapped from -8..+8 stops to 0..1 per channel
+    /// (and its output is read back the same way), the convention of film-grading LUTs, so it covers the whole dynamic range
+    /// and the tone mapper still sees HDR. `Engine::make_identity_color_lut` and `Engine::load_cube_lut` build one.
+    struct ColorGradeSettings {
+        bool enabled = false;
+        /// White balance, -1..1: temperature cool (blue) to warm (orange), tint green to magenta.
+        float temperature = 0.0f;
+        float tint = 0.0f;
+        /// Exposure offset in stops, applied first.
+        float exposure_ev = 0.0f;
+        /// 1 = unchanged, > 1 more contrast, < 1 flatter; pivots at middle grey.
+        float contrast = 1.0f;
+        float saturation = 1.0f;
+        /// Added to shadows (scaled out towards highlights), per channel.
+        float lift[3] = {0.0f, 0.0f, 0.0f};
+        /// Midtone power per channel (1 = unchanged, > 1 brighter midtones).
+        float gamma[3] = {1.0f, 1.0f, 1.0f};
+        /// Multiplies everything, per channel (1 = unchanged).
+        float gain[3] = {1.0f, 1.0f, 1.0f};
+        /// Colours the darkest / brightest parts (1,1,1 = no tint); `split_strength` 0 turns split toning off.
+        float shadow_tint[3] = {1.0f, 1.0f, 1.0f};
+        float highlight_tint[3] = {1.0f, 1.0f, 1.0f};
+        float split_strength = 1.0f;
+        /// Renderer texture handle value (`TextureHandle::value`) of a LUT made by `Engine::create_color_lut`; 0 = none.
+        std::uint64_t lut_texture = 0;
+        /// 0 = ignore the LUT, 1 = fully apply it.
+        float lut_intensity = 1.0f;
+    };
+
+    // ---- post: depth of field, motion, camera, exposure, upscaling ------------------------------------------------------
+
+    /// Depth of field: the blur of everything away from the focal plane, shaped like the lens's aperture.
+    ///
+    /// The circle of confusion is physical (thin lens): `f^2 / (N (d - f)) * |d - z| / z` on the sensor, scaled to pixels by
+    /// the sensor height. With `from_camera` the engine fills the lens fields from the camera every frame (focal length,
+    /// f-stop, focus distance, sensor height, blade count), so changing the camera's aperture or focus is all a game does.
+    /// Far blur (behind the focus) and near blur (in front, bleeding over sharp surfaces) are gathered separately at half
+    /// resolution with polygonal bokeh; nothing is random across frames, so the image is stable.
+    struct DepthOfFieldSettings {
+        bool enabled = false;
+        /// Take the lens fields below from the camera each frame (the engine overwrites them).
+        bool from_camera = true;
+        /// Distance, in world units (metres), that is perfectly sharp.
+        float focus_distance = 10.0f;
+        float aperture_f_stop = 2.8f;
+        float focal_length_mm = 35.0f;
+        float sensor_height_mm = 24.0f;
+        /// Aperture blades (3..32): the bokeh is a regular polygon of this many sides, rotated by `blade_rotation_degrees`.
+        std::uint32_t blades = 7;
+        float blade_rotation_degrees = 0.0f;
+        /// Cap on the blur diameter, in output pixels (bounds the cost of the gather).
+        float max_blur_px = 24.0f;
+        /// Scales the blur (1 = the lens as set; > 1 exaggerates it, miniature-photography style).
+        float strength = 1.0f;
+        /// Whether things in front of the focus blur too (and bleed over what is behind them).
+        bool near_field = true;
+        /// Samples per pixel in the gather: 0 = 24, 1 = 40, 2 = 64.
+        std::uint32_t quality = 1;
+    };
 
     struct MotionBlurSettings {
         bool enabled = false;
@@ -499,6 +565,8 @@ namespace SFT::RenderSettings {
         LightingSettings lighting{};
         VolumetricFogSettings volumetric_fog{};
         ReflectionSettings reflections{};
+        DepthOfFieldSettings depth_of_field{};
+        ColorGradeSettings color_grade{};
         MotionBlurSettings motion_blur{};
         CameraEmulationSettings camera_emulation{};
         AutoExposureSettings auto_exposure{};

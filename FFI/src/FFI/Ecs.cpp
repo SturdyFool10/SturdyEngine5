@@ -18,11 +18,14 @@
 #include <Foundation/Foundation.hpp>
 
 #include <cstring>
+#include <format>
 #include <string_view>
 #include <vector>
 
 #include <Ecs/World.hpp>
+#include <Engine/EcsReflection.hpp>
 #include <Engine/Engine.hpp>
+#include <Engine/ForeignEcs.hpp>
 
 #include <FFI/AbiSupport.hpp>
 
@@ -167,6 +170,58 @@ namespace {
         void *user_data;
     };
 
+    /// Registers a plain-data component, optionally with its field layout. Shared by `sturdy_ecs_register_component` (no
+    /// layout) and `sturdy_ecs_register_component_ex`.
+    ///
+    /// @param schema The fields, or null / empty when the caller did not describe them. When both this registration and an
+    ///        earlier one of the same name carry fields, they must describe the same layout.
+    [[nodiscard]] SturdyResult register_component_with_schema(SturdyEngine engine,
+                                                              const char *name,
+                                                              uint32_t size,
+                                                              uint32_t align,
+                                                              const SFT::Ecs::ComponentSchema *schema,
+                                                              SturdyComponentId *out_component) {
+    return guarded([&]() -> SturdyResult {
+        if (name == nullptr || out_component == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "name and output pointer must not be null");
+        }
+        // Bad arguments are reported before the engine handle is consulted.
+        if (const auto invalid = SFT::Engine::validate_foreign_component(name, size, align, schema)) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, *invalid);
+        }
+        SFT::Ecs::World *world = nullptr;
+        const SturdyResult resolved = resolve_world(engine, &world);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+
+        // The registration rules (checks, idempotence, layout comparison, reflection fallback) are shared with every other
+        // binding: see `Engine::register_foreign_component`.
+        const auto registered = SFT::Engine::register_foreign_component(world->registry(), name, size, align, schema);
+        if (!registered) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, registered.error());
+        }
+        *out_component = *registered;
+        return STURDY_OK;
+    });
+    }
+
+    /// Reads one component's registered info, or reports why it cannot be.
+    [[nodiscard]] SturdyResult resolve_component_info(SturdyEngine engine,
+                                                      SturdyComponentId component,
+                                                      const SFT::Ecs::ComponentInfo **out_info) noexcept {
+        SFT::Ecs::World *world = nullptr;
+        const SturdyResult resolved = resolve_world(engine, &world);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        *out_info = world->registry().info(component);
+        if (*out_info == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "no component is registered under that id");
+        }
+        return STURDY_OK;
+    }
+
 } // namespace
 
 extern "C" {
@@ -176,78 +231,111 @@ SturdyResult STURDY_ABI_CALL sturdy_ecs_register_component(SturdyEngine engine,
                                                            uint32_t size,
                                                            uint32_t align,
                                                            SturdyComponentId *out_component) {
-    return guarded([&]() -> SturdyResult {
-        if (name == nullptr || out_component == nullptr) {
-            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "name and output pointer must not be null");
-        }
-        const std::string_view canonical_name{name};
-        if (canonical_name.empty()) {
-            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "component name must not be empty");
-        }
-        // Zero-sized components would need archetype columns with no storage, a shape the rest of
-        // the ECS does not currently produce. Refusing is better than being the first to create it.
-        if (size == 0) {
-            return set_error(STURDY_ERROR_INVALID_ARGUMENT,
-                             "component size must be nonzero; tag components are not supported yet");
-        }
-        if (align == 0 || (align & (align - 1)) != 0 || align > 64) {
-            return set_error(STURDY_ERROR_INVALID_ARGUMENT,
-                             "component alignment must be a power of two no greater than 64");
-        }
+    return register_component_with_schema(engine, name, size, align, nullptr, out_component);
+}
 
-        SFT::Ecs::World *world = nullptr;
-        const SturdyResult resolved = resolve_world(engine, &world);
-        if (resolved != STURDY_OK) {
+SturdyResult STURDY_ABI_CALL sturdy_ecs_register_component_ex(SturdyEngine engine,
+                                                              const SturdyComponentDesc *desc,
+                                                              SturdyComponentId *out_component) {
+    return guarded([&]() -> SturdyResult {
+        if (desc == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "desc must not be null");
+        }
+        if (desc->struct_size != sizeof(SturdyComponentDesc)) {
+            return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyComponentDesc size does not match this engine build");
+        }
+        if (desc->field_count != 0 && desc->fields == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "fields must not be null when field_count is nonzero");
+        }
+        SFT::Ecs::ComponentSchema schema;
+        schema.fields.reserve(desc->field_count);
+        for (uint32_t i = 0; i < desc->field_count; ++i) {
+            const SturdyComponentField &field = desc->fields[i];
+            if (field.struct_size != sizeof(SturdyComponentField)) {
+                return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyComponentField size does not match this engine build");
+            }
+            schema.fields.push_back(SFT::Ecs::ComponentField{.name = field.name != nullptr ? field.name : "",
+                                                             .kind = static_cast<SFT::Ecs::FieldKind>(field.kind),
+                                                             .offset = field.offset,
+                                                             .count = field.count});
+        }
+        return register_component_with_schema(engine, desc->name, desc->size, desc->align, &schema, out_component);
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ecs_component_field_count(SturdyEngine engine,
+                                                              SturdyComponentId component,
+                                                              uint32_t *out_count) {
+    return guarded([&]() -> SturdyResult {
+        if (out_count == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::Ecs::ComponentInfo *descriptor = nullptr;
+        if (const SturdyResult resolved = resolve_component_info(engine, component, &descriptor); resolved != STURDY_OK) {
             return resolved;
         }
+        *out_count = static_cast<uint32_t>(descriptor->schema.fields.size());
+        return STURDY_OK;
+    });
+}
 
-        SFT::Ecs::ComponentRegistry &registry = world->registry();
-
-        // Registering the same component twice is expected — a binding will call this on every run,
-        // and possibly from more than one place. Returning the existing id keeps that idempotent,
-        // but only when the layout matches: a different size or alignment under the same name means
-        // live entities are already laid out the other way.
-        if (const auto existing = registry.find(SFT::ustr{canonical_name})) {
-            const SFT::Ecs::ComponentInfo *descriptor = registry.info(*existing);
-            if (descriptor != nullptr &&
-                (descriptor->size != size || descriptor->align != align)) {
-                return set_error(STURDY_ERROR_INVALID_ARGUMENT,
-                                 "a component with this name is already registered with a different layout");
-            }
-            *out_component = *existing;
-            return STURDY_OK;
+SturdyResult STURDY_ABI_CALL sturdy_ecs_component_field(SturdyEngine engine,
+                                                        SturdyComponentId component,
+                                                        uint32_t index,
+                                                        SturdyComponentFieldInfo *out_field) {
+    return guarded([&]() -> SturdyResult {
+        if (out_field == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
         }
-
-        SFT::Ecs::ComponentInfo info{};
-        info.key = SFT::Ecs::ComponentKey::from_name(canonical_name);
-        info.canonical_name = SFT::UString{std::string{canonical_name}};
-        info.schema_version = 1;
-        info.size = size;
-        info.align = align;
-        // FfiBlittable records where this component came from; the trivially-* flags are what the
-        // erased World API actually checks before copying bytes.
-        info.flags = SFT::Ecs::ComponentFlags::TriviallyCopyable |
-                     SFT::Ecs::ComponentFlags::TriviallyDestructible |
-                     SFT::Ecs::ComponentFlags::FfiBlittable;
-        info.default_construct = [](void *destination, void *user_data) noexcept {
-            // Size travels through user_data because these are plain function pointers with no
-            // capture; zeroing gives a foreign component a defined initial value.
-            std::memset(destination, 0, reinterpret_cast<usize>(user_data));
-        };
-        info.copy_construct = [](void *destination, const void *source, void *user_data) noexcept {
-            std::memcpy(destination, source, reinterpret_cast<usize>(user_data));
-        };
-        info.move_construct = [](void *destination, void *source, void *user_data) noexcept {
-            std::memcpy(destination, source, reinterpret_cast<usize>(user_data));
-        };
-        info.destroy = [](void *, void *) noexcept {};
-        info.user_data = reinterpret_cast<void *>(static_cast<usize>(size));
-
-        auto registered = registry.register_component(std::move(info));
-        if (!registered) {
-            return set_error(STURDY_ERROR_INVALID_ARGUMENT, registered.error().message.cpp_string_view());
+        const SFT::Ecs::ComponentInfo *descriptor = nullptr;
+        if (const SturdyResult resolved = resolve_component_info(engine, component, &descriptor); resolved != STURDY_OK) {
+            return resolved;
         }
-        *out_component = *registered;
+        if (index >= descriptor->schema.fields.size()) {
+            return set_error(STURDY_ERROR_OUT_OF_RANGE, "field index is out of range");
+        }
+        const SFT::Ecs::ComponentField &field = descriptor->schema.fields[index];
+        *out_field = SturdyComponentFieldInfo{};
+        out_field->struct_size = static_cast<uint32_t>(sizeof(SturdyComponentFieldInfo));
+        out_field->kind = static_cast<SturdyFieldKind>(field.kind);
+        out_field->offset = field.offset;
+        out_field->count = field.count;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ecs_component_field_name(SturdyEngine engine,
+                                                             SturdyComponentId component,
+                                                             uint32_t index,
+                                                             char *buffer,
+                                                             size_t capacity,
+                                                             size_t *out_length) {
+    return guarded([&]() -> SturdyResult {
+        const SFT::Ecs::ComponentInfo *descriptor = nullptr;
+        if (const SturdyResult resolved = resolve_component_info(engine, component, &descriptor); resolved != STURDY_OK) {
+            return resolved;
+        }
+        if (index >= descriptor->schema.fields.size()) {
+            return set_error(STURDY_ERROR_OUT_OF_RANGE, "field index is out of range");
+        }
+        return copy_string_out(descriptor->schema.fields[index].name, buffer, capacity, out_length);
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_ecs_component_layout_fingerprint(SturdyEngine engine,
+                                                                     SturdyComponentId component,
+                                                                     uint64_t *out_high,
+                                                                     uint64_t *out_low) {
+    return guarded([&]() -> SturdyResult {
+        if (out_high == nullptr || out_low == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointers must not be null");
+        }
+        const SFT::Ecs::ComponentInfo *descriptor = nullptr;
+        if (const SturdyResult resolved = resolve_component_info(engine, component, &descriptor); resolved != STURDY_OK) {
+            return resolved;
+        }
+        *out_high = descriptor->layout.high;
+        *out_low = descriptor->layout.low;
         return STURDY_OK;
     });
 }

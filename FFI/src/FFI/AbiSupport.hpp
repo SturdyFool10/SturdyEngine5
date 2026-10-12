@@ -79,6 +79,8 @@ namespace SFT::Ffi {
         AudioStream = 15,
         AudioSink = 16,
         AudioCapture = 17,
+        /// Also owned: a native plugin library and the modules it added. Lives until `sturdy_plugin_release`.
+        Plugin = 18,
     };
 
     /// Mints a token referring to `pointer`, valid until `revoke_handle`.

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Ecs/ComponentSchema.hpp>
 #include <Ecs/Contract.hpp>
 
 #include <Foundation/Foundation.hpp>
@@ -124,6 +125,12 @@ namespace SFT::Ecs {
         ComponentCopyConstructFn copy_construct = nullptr;
         ComponentMoveConstructFn move_construct = nullptr;
         ComponentDestroyFn destroy = nullptr;
+        /// The component's field layout, when its registrant supplied one (foreign languages do; see `ComponentSchema.hpp`).
+        /// `layout` is its fingerprint, all zero when no shape was given. Two registrations of one component that both carry a
+        /// shape must agree on it, which is how a Rust and a C# definition of the same component are kept from silently
+        /// aliasing different memory.
+        ComponentSchema schema;
+        LayoutFingerprint layout{};
     };
 
     enum class ComponentRegistryErrorCode : u32 {
@@ -132,6 +139,8 @@ namespace SFT::Ecs {
         StableKeyCollision,
         CanonicalNameCollision,
         ComponentLimitReached,
+        /// Appended after the original values: same component name, size and alignment, but a different field layout.
+        SchemaMismatch,
     };
 
     struct ComponentRegistryError {
@@ -236,6 +245,8 @@ namespace SFT::Ecs {
                 .flags = component_flags<ComponentT>(),
                 .move_construct = [](void *destination, void *source, void *) noexcept { ::new (destination) ComponentT(std::move(*static_cast<ComponentT *>(source))); },
                 .destroy = [](void *object, void *) noexcept { static_cast<ComponentT *>(object)->~ComponentT(); },
+                .schema = {},
+                .layout = {},
             };
             if constexpr (std::is_nothrow_default_constructible_v<ComponentT>) {
                 info.default_construct = [](void *destination, void *) noexcept {
@@ -300,6 +311,15 @@ namespace SFT::Ecs {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note Error/status alternatives explicitly produced by this implementation include `ComponentRegistryErrorCode::InvalidDescriptor`, `ComponentRegistryErrorCode::UnsupportedStoragePolicy`, `ComponentRegistryErrorCode::StableKeyCollision`, `ComponentRegistryErrorCode::CanonicalNameCollision`, `ComponentRegistryErrorCode::ComponentLimitReached`.
         [[nodiscard]] ComponentRegistryExpected<ComponentId> register_component(ComponentInfo info);
+
+        /// Attaches a field layout to an already registered component (a C++ component learns its shape from reflection after the
+        /// fact, since `Ecs` cannot see `Reflection`). Does nothing when the component already has an identical layout.
+        ///
+        /// Call it during startup, before other threads read `info(id)->schema`: it rewrites that record once.
+        ///
+        /// @return `SchemaMismatch` when the component already has a different layout, `InvalidDescriptor` for an unknown id or
+        ///         fields that do not fit the component.
+        [[nodiscard]] ComponentRegistryExpected<void> describe_layout(ComponentId id, ComponentSchema schema);
 
         /// Attempts to register without requiring normal failure to be exceptional.
         ///

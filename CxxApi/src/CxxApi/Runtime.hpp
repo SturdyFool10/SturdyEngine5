@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <Engine/Camera.hpp>
+#include <Engine/CompositeGameLogic.hpp>
 #include <Engine/Engine.hpp>
 #include <Runtime/Runtime.hpp>
 
@@ -74,14 +75,60 @@ namespace SFT::CxxApi {
     /// Every RHI feature name the two functions above accept.
     [[nodiscard]] std::unique_ptr<std::vector<std::string>> rhi_feature_names();
 
+    /// The game-logic modules of one application, to be run together by `runtime_run_modules`. Each module is a
+    /// `GameLogicCallbacks`, so each can be written in a different language; see `Engine::CompositeGameLogic` for how their
+    /// start order, shutdown and frames combine.
+    class RuntimeModules {
+      public:
+        Engine::CompositeGameLogic composite;
+    };
+
+    /// An empty module set.
+    [[nodiscard]] std::unique_ptr<RuntimeModules> runtime_modules_new();
+    /// Adds a module. Throws when the name is empty, taken or starts with `sturdy.` (reserved), or `logic` is null.
+    ///
+    /// @param name Unique module name; `after` lists refer to it.
+    /// @param after Names of modules that must start before this one (and shut down after it). Unknown names and cycles are
+    ///        reported by `runtime_run_modules`.
+    /// @param contributes_scene False makes the module overlay-only: its overlay passes are drawn but it never supplies the
+    ///        scene (camera, lighting, render graph).
+    /// @param logic The module's callbacks.
+    void runtime_modules_add(RuntimeModules &modules, const std::string &name, const std::vector<std::string> &after, bool contributes_scene,
+                             std::unique_ptr<GameLogicCallbacks> logic);
+    /// Like `runtime_run`, for several modules. A module that fails to start is logged by name and the status is
+    /// nonzero; every module that had started is shut down first.
+    [[nodiscard]] std::int32_t runtime_run_modules(std::unique_ptr<RuntimeConfig> config, const std::vector<std::string> &args,
+                                                   std::unique_ptr<RuntimeModules> modules);
+
+    // ---- changing modules while the game runs ----
+    //
+    // Each request is carried out at the start of the next engine update, when nothing is running, and returns immediately; a
+    // failure is reported through `module_take_failures`. What a module registered while it started (systems, resources, event
+    // channels created through this API) goes away with it; components stay. Frames wait for a change in progress. Safe to call from
+    // any thread, including from inside the module being replaced. All throw when no game is running on `engine`.
+
+    /// Unloads the module: its `on_shutdown` runs, what it registered is removed, and it is destroyed. Refused (and reported) when
+    /// another module names it in `after`.
+    void module_request_unload(Engine::Engine &engine, const std::string &name);
+    /// Adds and starts a module in the running game, after the modules it names in `after` (which must be loaded).
+    void module_request_load(Engine::Engine &engine, const std::string &name, const std::vector<std::string> &after, bool contributes_scene,
+                             std::unique_ptr<GameLogicCallbacks> logic);
+    /// Replaces the module with `logic` in the same place in the start order with the same options. The old module is shut down
+    /// and its registrations removed first; if the replacement fails to start the module stays unloaded and a failure is reported.
+    void module_request_reload(Engine::Engine &engine, const std::string &name, std::unique_ptr<GameLogicCallbacks> logic);
+    /// The loaded modules in start order.
+    [[nodiscard]] std::unique_ptr<std::vector<std::string>> module_names(Engine::Engine &engine);
+    /// Messages of the live changes that failed since the last call, oldest first, and clears them.
+    [[nodiscard]] std::unique_ptr<std::vector<std::string>> module_take_failures(Engine::Engine &engine);
+
     /// Runs the whole application on the calling thread and returns the process exit status. Only one
-    /// runtime may run per process at a time; a second concurrent call throws.
+    /// runtime may run per process at a time; a second concurrent call throws. A single module named `main`.
     [[nodiscard]] std::int32_t runtime_run(std::unique_ptr<RuntimeConfig> config, const std::vector<std::string> &args,
                                            std::unique_ptr<GameLogicCallbacks> logic);
 
-    /// Registers the ECS -> renderer extraction systems (models, gizmos, directional/spot/point
-    /// lights) on `engine`'s extraction schedule. `runtime_run` does this before
-    /// `on_engine_initialized`; call it yourself only when driving the engine another way.
+    /// Does nothing: the engine registers the ECS -> renderer extraction systems (models, gizmos, directional/spot/point lights)
+    /// itself when it is constructed. Kept so existing callers still link; registering them again would submit every model and
+    /// light twice.
     void engine_configure_default_render_extraction(Engine::Engine &engine);
 
     // ---- per-frame description ----
@@ -94,6 +141,8 @@ namespace SFT::CxxApi {
     /// (`camera_commit_frame`).
     void frame_set_camera_object(FrameBuilder &frame, const Engine::Camera &camera);
     void frame_set_lighting(FrameBuilder &frame, const SceneLightingDesc &lighting) noexcept;
+    /// The engine's default scene lighting (the Rust `Default` for `SceneLightingDesc`).
+    [[nodiscard]] SceneLightingDesc scene_lighting_defaults() noexcept;
     void frame_set_debug_label(FrameBuilder &frame, const std::string &label);
 
 } // namespace SFT::CxxApi

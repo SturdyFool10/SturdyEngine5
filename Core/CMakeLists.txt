@@ -69,9 +69,16 @@ if(STURDY_OS STREQUAL "Windows")
     list(APPEND _sturdy_core_windows_private_deps Sturdy::D3D12MA dcomp)
 endif()
 
+# The archive guard wraps static-library archive steps; sturdy_add_package rejects it for a shared build, so a shared configuration
+# (STURDY_BUILD_SHARED_LIBS=ON) would never configure with the default timeout. 0 disables it.
+set(_sturdy_core_archive_timeout ${STURDY_STATIC_ARCHIVE_TIMEOUT_SECONDS})
+if(STURDY_BUILD_SHARED_LIBS)
+    set(_sturdy_core_archive_timeout 0)
+endif()
+
 sturdy_add_package(Core
     ENGINE_OPTIMIZED
-    ARCHIVE_TIMEOUT_SECONDS ${STURDY_STATIC_ARCHIVE_TIMEOUT_SECONDS}
+    ARCHIVE_TIMEOUT_SECONDS ${_sturdy_core_archive_timeout}
 
     SOURCES
         "${STURDY_LICENSES_EMBED_CPP}"

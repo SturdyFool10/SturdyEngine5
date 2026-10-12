@@ -11,7 +11,11 @@
 #include <stdexcept>
 
 #include <Async/Scheduler.hpp>
+#include <Ecs/Component.hpp>
+#include <Engine/CompositeGameLogic.hpp>
+#include <Engine/EcsReflection.hpp>
 #include <Engine/Engine.hpp>
+#include <Reflection/Reflection.hpp>
 
 #include <FFI/AbiSupport.hpp>
 
@@ -42,6 +46,12 @@ namespace {
     struct Health {
         int32_t current;
         int32_t maximum;
+    };
+
+    /// A C++-defined, reflected component that a foreign language will also register by name.
+    struct Mass {
+        float kilograms = 0.0f;
+        std::uint32_t flags = 0;
     };
 
     struct VisitTally {
@@ -214,7 +224,62 @@ namespace {
         throw std::runtime_error("deliberate");
     }
 
+    /// A "foreign" module for the live-change test: C callbacks that register a resource and a chunk system when they start.
+    struct Foreign {
+        static inline int started = 0;
+        static inline int shut_down = 0;
+        static inline int destroyed = 0;
+        static inline int system_runs = 0;
+        static inline SturdyComponentId component = 0;
+        static inline const char *resource_name = "test.ffi.live.resource";
+
+        static void STURDY_ABI_CALL chunk(const SturdyEntity *, uint32_t, void *const *, SturdyCommands, void *) { ++system_runs; }
+
+        static SturdyBool STURDY_ABI_CALL init(SturdyEngine engine, void *) {
+            ++started;
+            SturdyResourceId id{};
+            (void)sturdy_ecs_create_resource(engine, resource_name, 4, nullptr, &id);
+            SturdySystemAccess access[1];
+            access[0].component = component;
+            access[0].mode = STURDY_ACCESS_READ;
+            SturdySystem system{};
+            (void)sturdy_ecs_add_chunk_system_ex(engine, access, 1, nullptr, 0, chunk, nullptr, &system);
+            return STURDY_TRUE;
+        }
+        static SturdyBool STURDY_ABI_CALL init_fails(SturdyEngine engine, void *) {
+            ++started;
+            SturdyResourceId id{};
+            (void)sturdy_ecs_create_resource(engine, "test.ffi.live.partial", 4, nullptr, &id);
+            return STURDY_FALSE;
+        }
+        static void STURDY_ABI_CALL shutdown(SturdyEngine, void *) { ++shut_down; }
+        static void STURDY_ABI_CALL destroy(void *) { ++destroyed; }
+
+        static SturdyGameLogic table(SturdyBool(STURDY_ABI_CALL *init_fn)(SturdyEngine, void *)) {
+            SturdyGameLogic t{};
+            t.struct_size = static_cast<uint32_t>(sizeof(SturdyGameLogic));
+            t.on_engine_initialized = init_fn;
+            t.on_shutdown = shutdown;
+            t.destroy = destroy;
+            return t;
+        }
+    };
+
+    struct Host final : SFT::Engine::GameLogic {
+        SFT::Engine::GameLogicResult on_engine_initialized(SFT::Engine::Engine &) override { return {}; }
+        std::optional<SFT::Engine::RenderFrameParameters> request_render_frame(SFT::Engine::Engine &, SFT::Core::RenderSurfaceHandle,
+                                                                               const SFT::Core::FrameInput &) override {
+            return std::nullopt;
+        }
+    };
+
 } // namespace
+
+SFT_ECS_COMPONENT(Mass, "test.ffi.mass");
+SFT_REFLECT_TYPE(Mass, "test.ffi.mass");
+SFT_REFLECT_FIELD(kilograms);
+SFT_REFLECT_FIELD(flags);
+SFT_REFLECT_END();
 
 /// Runs the executable entry point and returns its process exit status.
 ///
@@ -261,6 +326,142 @@ int main() {
           "a non-power-of-two alignment must be rejected");
     check(sturdy_ecs_register_component(engine, "", 8, 8, &conflicting) == STURDY_ERROR_INVALID_ARGUMENT,
           "an empty component name must be rejected");
+
+    // ── Field layouts ──────────────────────────────────────────────────────────────────────────
+    // Same size and alignment is not the same component: two languages that both say "8 bytes, align 4" must also agree on
+    // what is in them.
+    {
+        const auto field = [](const char *name, SturdyFieldKind kind, uint32_t offset, uint32_t count) {
+            SturdyComponentField f{};
+            f.struct_size = static_cast<uint32_t>(sizeof(SturdyComponentField));
+            f.kind = kind;
+            f.offset = offset;
+            f.count = count;
+            f.name = name;
+            return f;
+        };
+        const auto describe = [](const char *name, uint32_t size, uint32_t align, const SturdyComponentField *fields, uint32_t count) {
+            SturdyComponentDesc d{};
+            d.struct_size = static_cast<uint32_t>(sizeof(SturdyComponentDesc));
+            d.name = name;
+            d.size = size;
+            d.align = align;
+            d.fields = fields;
+            d.field_count = count;
+            return d;
+        };
+
+        const SturdyComponentField as_floats[2] = {field("x", STURDY_FIELD_F32, 0, 1), field("y", STURDY_FIELD_F32, 4, 1)};
+        const SturdyComponentField as_floats_renamed[2] = {field("U", STURDY_FIELD_F32, 0, 1), field("V", STURDY_FIELD_F32, 4, 1)};
+        const SturdyComponentField as_ints[2] = {field("x", STURDY_FIELD_U32, 0, 1), field("y", STURDY_FIELD_U32, 4, 1)};
+        const SturdyComponentField overlapping[2] = {field("a", STURDY_FIELD_F64, 0, 1), field("b", STURDY_FIELD_F32, 4, 1)};
+        const SturdyComponentField too_long[1] = {field("a", STURDY_FIELD_F32, 0, 3)};
+
+        SturdyComponentId uv = 0;
+        SturdyComponentDesc uv_desc = describe("test.ffi.uv", 8, 4, as_floats, 2);
+        check(sturdy_ecs_register_component_ex(engine, &uv_desc, &uv) == STURDY_OK, "registering a component with fields must succeed");
+
+        uint32_t field_count = 0;
+        check(sturdy_ecs_component_field_count(engine, uv, &field_count) == STURDY_OK && field_count == 2, "the registered fields read back");
+        SturdyComponentFieldInfo second{};
+        check(sturdy_ecs_component_field(engine, uv, 1, &second) == STURDY_OK && second.kind == STURDY_FIELD_F32 && second.offset == 4 &&
+                  second.count == 1,
+              "a field's kind, offset and count read back");
+        char field_name[16] = {};
+        size_t field_name_length = 0;
+        check(sturdy_ecs_component_field_name(engine, uv, 1, field_name, sizeof(field_name), &field_name_length) == STURDY_OK &&
+                  std::strcmp(field_name, "y") == 0,
+              "a field's name reads back");
+        check(sturdy_ecs_component_field(engine, uv, 2, &second) == STURDY_ERROR_OUT_OF_RANGE, "a field index past the end is out of range");
+
+        uint64_t high = 0;
+        uint64_t low = 0;
+        check(sturdy_ecs_component_layout_fingerprint(engine, uv, &high, &low) == STURDY_OK && (high != 0 || low != 0),
+              "a described component has a nonzero layout fingerprint");
+
+        SturdyComponentId again = 0;
+        SturdyComponentDesc renamed = describe("test.ffi.uv", 8, 4, as_floats_renamed, 2);
+        check(sturdy_ecs_register_component_ex(engine, &renamed, &again) == STURDY_OK && again == uv,
+              "the same layout under other field names is the same component");
+
+        SturdyComponentDesc aliased = describe("test.ffi.uv", 8, 4, as_ints, 2);
+        check(sturdy_ecs_register_component_ex(engine, &aliased, &again) == STURDY_ERROR_INVALID_ARGUMENT,
+              "the same size with different field kinds must be rejected");
+        check(std::strstr(sturdy_last_error_message(), "test.ffi.uv") != nullptr &&
+                  std::strstr(sturdy_last_error_message(), "u32") != nullptr,
+              "the rejection names the component and the differing kind");
+
+        check(sturdy_ecs_register_component(engine, "test.ffi.uv", 8, 4, &again) == STURDY_OK && again == uv,
+              "registering without fields is still accepted against a described component");
+
+        uint32_t no_fields = 99;
+        check(sturdy_ecs_component_field_count(engine, position, &no_fields) == STURDY_OK && no_fields == 0,
+              "a component registered without fields reports zero fields");
+        check(sturdy_ecs_component_layout_fingerprint(engine, position, &high, &low) == STURDY_OK && high == 0 && low == 0,
+              "a component registered without fields has no fingerprint");
+
+        // A component defined in C++ and reflected is checked against a foreign definition of the same name, without anyone
+        // describing the C++ shape by hand: the engine derives it from the reflection type.
+        // Event channels and resources are how two modules in different languages talk: same size must also mean same payload.
+        {
+            const SturdyComponentField damage[2] = {field("target", STURDY_FIELD_U32, 0, 1), field("amount", STURDY_FIELD_F32, 4, 1)};
+            const SturdyComponentField damage_renamed[2] = {field("who", STURDY_FIELD_U32, 0, 1), field("hp", STURDY_FIELD_F32, 4, 1)};
+            const SturdyComponentField damage_wrong[2] = {field("amount", STURDY_FIELD_F32, 0, 1), field("target", STURDY_FIELD_U32, 4, 1)};
+            SturdyResourceId channel{};
+            SturdyResourceId channel_again{};
+            SturdyComponentDesc damage_desc = describe("test.ffi.damage_event", 8, 4, damage, 2);
+            check(sturdy_ecs_create_event_channel_ex(engine, &damage_desc, &channel) == STURDY_OK, "creating an event channel with a payload layout must succeed");
+            SturdyComponentDesc damage_again = describe("test.ffi.damage_event", 8, 4, damage_renamed, 2);
+            check(sturdy_ecs_create_event_channel_ex(engine, &damage_again, &channel_again) == STURDY_OK &&
+                      channel_again.high == channel.high && channel_again.low == channel.low,
+                  "another module describing the same payload under other field names shares the channel");
+            SturdyComponentDesc damage_swapped = describe("test.ffi.damage_event", 8, 4, damage_wrong, 2);
+            check(sturdy_ecs_create_event_channel_ex(engine, &damage_swapped, &channel_again) == STURDY_ERROR_INVALID_ARGUMENT,
+                  "a module that reads the same 8 bytes in a different order must be rejected");
+            check(std::strstr(sturdy_last_error_message(), "test.ffi.damage_event") != nullptr, "the rejection names the channel");
+            check(sturdy_ecs_create_event_channel(engine, "test.ffi.damage_event", 8, &channel_again) == STURDY_OK,
+                  "creating the channel without a layout is still accepted");
+            SturdyComponentDesc damage_bad_fit = describe("test.ffi.damage_toolong", 4, 4, damage, 2);
+            check(sturdy_ecs_create_event_channel_ex(engine, &damage_bad_fit, &channel_again) == STURDY_ERROR_INVALID_ARGUMENT,
+                  "an event layout that does not fit the event size must be rejected");
+
+            SturdyResourceId score{};
+            SturdyResourceId score_again{};
+            SturdyComponentDesc score_desc = describe("test.ffi.score_block", 8, 4, as_floats, 2);
+            check(sturdy_ecs_create_resource_ex(engine, &score_desc, nullptr, &score) == STURDY_OK, "creating a resource with a layout must succeed");
+            check(sturdy_ecs_create_resource_ex(engine, &score_desc, nullptr, &score_again) == STURDY_OK, "re-creating it with the same layout is a no-op");
+            SturdyComponentDesc score_ints = describe("test.ffi.score_block", 8, 4, as_ints, 2);
+            check(sturdy_ecs_create_resource_ex(engine, &score_ints, nullptr, &score_again) == STURDY_ERROR_INVALID_ARGUMENT,
+                  "re-creating a resource with float fields as unsigned ints must be rejected");
+        }
+
+        // `ensure_reflected` is how a C++ module makes its component's shape known (reflection types register on first use).
+        const auto mass_reflected = SFT::Engine::ensure_reflected<Mass>(engine_object.ecs_world().registry());
+        check(mass_reflected.has_value(), "ensure_reflected must succeed for the reflected C++ component");
+        const SFT::Ecs::ComponentId mass_id = mass_reflected ? mass_reflected->first : SFT::Ecs::invalid_component_id;
+        const SturdyComponentField mass_right[2] = {field("kg", STURDY_FIELD_F32, 0, 1), field("bits", STURDY_FIELD_U32, 4, 1)};
+        const SturdyComponentField mass_wrong[2] = {field("kg", STURDY_FIELD_F32, 0, 1), field("bits", STURDY_FIELD_F32, 4, 1)};
+        SturdyComponentId mass_foreign = 0;
+        SturdyComponentDesc mass_wrong_desc = describe("test.ffi.mass", sizeof(Mass), alignof(Mass), mass_wrong, 2);
+        check(sturdy_ecs_register_component_ex(engine, &mass_wrong_desc, &mass_foreign) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a foreign definition of a reflected C++ component with a different field kind must be rejected");
+        check(std::strstr(sturdy_last_error_message(), "test.ffi.mass") != nullptr, "the rejection names the C++ component");
+        SturdyComponentDesc mass_right_desc = describe("test.ffi.mass", sizeof(Mass), alignof(Mass), mass_right, 2);
+        check(sturdy_ecs_register_component_ex(engine, &mass_right_desc, &mass_foreign) == STURDY_OK && mass_foreign == mass_id,
+              "a foreign definition that matches the reflected C++ layout resolves to the same component");
+
+        SturdyComponentDesc bad_overlap = describe("test.ffi.overlap", 8, 8, overlapping, 2);
+        check(sturdy_ecs_register_component_ex(engine, &bad_overlap, &again) == STURDY_ERROR_INVALID_ARGUMENT, "overlapping fields must be rejected");
+        SturdyComponentDesc bad_fit = describe("test.ffi.toolong", 8, 4, too_long, 1);
+        check(sturdy_ecs_register_component_ex(engine, &bad_fit, &again) == STURDY_ERROR_INVALID_ARGUMENT, "fields past the size must be rejected");
+
+        SturdyComponentDesc bad_struct = describe("test.ffi.size", 8, 4, as_floats, 2);
+        bad_struct.struct_size = 1;
+        check(sturdy_ecs_register_component_ex(engine, &bad_struct, &again) == STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "a wrong desc struct size must be rejected");
+        SturdyComponentDesc null_fields = describe("test.ffi.nullfields", 8, 4, nullptr, 2);
+        check(sturdy_ecs_register_component_ex(engine, &null_fields, &again) == STURDY_ERROR_INVALID_ARGUMENT, "a null field array with a count must be rejected");
+        check(sturdy_ecs_register_component_ex(engine, nullptr, &again) == STURDY_ERROR_INVALID_ARGUMENT, "a null desc must be rejected");
+    }
 
     // ── Lookup and introspection ───────────────────────────────────────────────────────────────
     SturdyComponentId found = 0;
@@ -776,6 +977,177 @@ int main() {
         engine_object.update_schedule().run(engine_object.ecs_world());
         check(runs == 2, "a removed system must not run");
         check(sturdy_ecs_remove_system(engine, handle) == STURDY_ERROR_INVALID_HANDLE, "removing twice must report an invalid handle");
+    }
+
+    // ── Chunk systems ──────────────────────────────────────────────────────────────────────────
+    // One callback per archetype with contiguous columns, so a foreign language crosses the boundary once per archetype.
+    {
+        struct Body {
+            struct Tally {
+                int calls = 0;
+                uint32_t rows = 0;
+                uint32_t spawn_result = 99;
+            };
+            static void STURDY_ABI_CALL run(const SturdyEntity *entities, uint32_t count, void *const *columns, SturdyCommands, void *user_data) {
+                auto *tally = static_cast<Tally *>(user_data);
+                ++tally->calls;
+                tally->rows += count;
+                auto *position_column = static_cast<Position *>(columns[0]);
+                for (uint32_t i = 0; i < count; ++i) {
+                    // entities[i] must be the owner of row i of every column.
+                    position_column[i].x += static_cast<float>(entities[i].index) * 0.0f + 1.0f;
+                }
+            }
+        };
+
+        SturdyComponentId chunk_position = 0;
+        SturdyComponentId chunk_extra = 0;
+        check(sturdy_ecs_register_component(engine, "test.ffi.chunk_position", sizeof(Position), alignof(Position), &chunk_position) == STURDY_OK,
+              "registering the chunk test's position must succeed");
+        check(sturdy_ecs_register_component(engine, "test.ffi.chunk_extra", sizeof(Health), alignof(Health), &chunk_extra) == STURDY_OK,
+              "registering the chunk test's second component must succeed");
+
+        // Three entities with {position}, two with {position, extra}: two archetypes.
+        SturdyEntity plain[3]{};
+        SturdyEntity extra[2]{};
+        for (int i = 0; i < 3; ++i) {
+            const Position value{static_cast<float>(i), 0.0f, 0.0f};
+            SturdyComponentInit init{};
+            init.component = chunk_position;
+            init.size = sizeof(Position);
+            init.data = &value;
+            check(sturdy_ecs_spawn(engine, &init, 1, &plain[i]) == STURDY_OK, "spawning a chunk-test entity must succeed");
+        }
+        for (int i = 0; i < 2; ++i) {
+            const Position value{10.0f + static_cast<float>(i), 0.0f, 0.0f};
+            const Health health{1, 1};
+            SturdyComponentInit init[2]{};
+            init[0].component = chunk_position;
+            init[0].size = sizeof(Position);
+            init[0].data = &value;
+            init[1].component = chunk_extra;
+            init[1].size = sizeof(Health);
+            init[1].data = &health;
+            check(sturdy_ecs_spawn(engine, init, 2, &extra[i]) == STURDY_OK, "spawning a two-component chunk-test entity must succeed");
+        }
+
+        Body::Tally tally;
+        SturdySystemAccess access[1];
+        access[0].component = chunk_position;
+        access[0].mode = STURDY_ACCESS_WRITE;
+        SturdySystem chunk_system{};
+        check(sturdy_ecs_add_chunk_system_ex(engine, access, 1, nullptr, 0, Body::run, &tally, &chunk_system) == STURDY_OK && chunk_system.token != 0,
+              "registering a chunk system must return a handle");
+        engine_object.update_schedule().run(engine_object.ecs_world());
+        check(tally.rows == 5, "the chunk system saw all five entities");
+        check(tally.calls == 2, "...in two calls (one per archetype), not five");
+
+        Position back{};
+        check(sturdy_ecs_get_component(engine, plain[2], chunk_position, &back, sizeof(back)) == STURDY_OK && back.x == 3.0f,
+              "a write through the column reaches the live component");
+        check(sturdy_ecs_get_component(engine, extra[1], chunk_position, &back, sizeof(back)) == STURDY_OK && back.x == 12.0f,
+              "...in the other archetype too");
+
+        check(sturdy_ecs_add_chunk_system_ex(engine, access, 1, nullptr, 0, nullptr, &tally, &chunk_system) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a chunk system needs a body");
+        check(sturdy_ecs_add_chunk_system_ex(engine, nullptr, 0, nullptr, 0, Body::run, &tally, &chunk_system) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a chunk system needs at least one component");
+        check(sturdy_ecs_add_chunk_system_ex(engine, access, 1, nullptr, 0, Body::run, &tally, nullptr) == STURDY_ERROR_INVALID_ARGUMENT,
+              "a chunk system needs an output handle");
+
+        SturdySystem again{};
+        check(sturdy_ecs_add_chunk_system_ex(engine, access, 1, nullptr, 0, Body::run, &tally, &again) == STURDY_OK, "a second chunk system registers");
+        check(sturdy_ecs_remove_system(engine, again) == STURDY_OK, "...and can be removed");
+        check(sturdy_ecs_remove_system(engine, chunk_system) == STURDY_OK, "the first can be removed");
+        const int calls_before = tally.calls;
+        engine_object.update_schedule().run(engine_object.ecs_world());
+        check(tally.calls == calls_before, "a removed chunk system no longer runs");
+    }
+
+    // ── Live module changes ────────────────────────────────────────────────────────────────────
+    // A game hosted by a composite can load, reload and unload a foreign module through the C ABI; what the module registered
+    // while it started (a resource, a chunk system) goes away with it, at the next update boundary.
+    {
+        // A component with an entity, so the foreign chunk system has something to iterate.
+        SturdyComponentId live_component = 0;
+        check(sturdy_ecs_register_component(engine, "test.ffi.live.component", sizeof(Position), alignof(Position), &live_component) == STURDY_OK,
+              "registering the live-module test's component must succeed");
+        const Position live_value{};
+        SturdyComponentInit live_init{};
+        live_init.component = live_component;
+        live_init.size = sizeof(Position);
+        live_init.data = &live_value;
+        SturdyEntity live_entity{};
+        check(sturdy_ecs_spawn(engine, &live_init, 1, &live_entity) == STURDY_OK, "spawning an entity for the foreign system to iterate");
+        Foreign::component = live_component;
+
+        char message[256];
+        size_t length = 0;
+        uint32_t module_count = 99;
+        SturdyGameLogic table = Foreign::table(Foreign::init);
+        check(sturdy_module_count(engine, &module_count) == STURDY_ERROR_NOT_AVAILABLE, "live module calls report that no game is running");
+        check(sturdy_module_request_reload(engine, "x", &table) == STURDY_ERROR_NOT_AVAILABLE && Foreign::destroyed == 0,
+              "a refused request takes no ownership (destroy was not called)");
+
+        SFT::Engine::CompositeGameLogic composite;
+        check(composite.add("host", std::make_unique<Host>()).has_value(), "add the C++ host module");
+        check(composite.on_engine_initialized(engine_object).has_value(), "the composite starts");
+        check(sturdy_module_count(engine, &module_count) == STURDY_OK && module_count == 1, "one module is loaded");
+        check(sturdy_module_name(engine, 0, message, sizeof(message), &length) == STURDY_OK && std::strcmp(message, "host") == 0, "its name reads back");
+        check(sturdy_module_name(engine, 5, message, sizeof(message), &length) == STURDY_ERROR_OUT_OF_RANGE, "a module index past the end is out of range");
+
+        SturdyGameModule module{};
+        module.struct_size = static_cast<uint32_t>(sizeof(SturdyGameModule));
+        module.name = "foreign";
+        module.contributes_scene = STURDY_FALSE;
+        module.logic = table;
+        const char *after[1] = {"host"};
+        module.after = after;
+        module.after_count = 1;
+        check(sturdy_module_request_load(engine, &module) == STURDY_OK, "requesting a load succeeds");
+        check(Foreign::started == 0, "nothing happens until the update boundary");
+        engine_object.update(0.016);
+        check(Foreign::started == 1 && sturdy_module_count(engine, &module_count) == STURDY_OK && module_count == 2, "the module was loaded and started");
+        check(engine_object.ecs_world().has_resource_erased(SFT::Ecs::ResourceKey::from_name(Foreign::resource_name)), "it registered a resource");
+        check(Foreign::system_runs >= 1, "and its chunk system runs");
+
+        // Reload: the old module goes (shutdown, resource, system, destroy) and the new one starts in its place.
+        const int runs_before = Foreign::system_runs;
+        SturdyGameLogic table2 = Foreign::table(Foreign::init);
+        check(sturdy_module_request_reload(engine, "foreign", &table2) == STURDY_OK, "requesting a reload succeeds");
+        engine_object.update(0.016);
+        check(Foreign::shut_down == 1 && Foreign::destroyed == 1 && Foreign::started == 2, "the old module shut down and was destroyed, the new one started");
+        check(engine_object.ecs_world().has_resource_erased(SFT::Ecs::ResourceKey::from_name(Foreign::resource_name)), "the resource exists again");
+        check(Foreign::system_runs == runs_before + 1, "exactly one chunk system runs after the reload (the old one is gone)");
+
+        // A refused unload and a failing reload are reported, not lost.
+        check(sturdy_module_request_unload(engine, "nope") == STURDY_OK, "requesting an unload of an unknown module is accepted");
+        engine_object.update(0.016);
+        check(sturdy_module_take_failure(engine, message, sizeof(message), &length) == STURDY_OK && std::strstr(message, "nope") != nullptr,
+              "its failure is reported with the module name");
+        check(sturdy_module_take_failure(engine, message, sizeof(message), &length) == STURDY_ERROR_NOT_AVAILABLE, "once taken it is gone");
+
+        SturdyGameLogic failing = Foreign::table(Foreign::init_fails);
+        check(sturdy_module_request_reload(engine, "foreign", &failing) == STURDY_OK, "requesting a reload to a module that will fail to start is accepted");
+        engine_object.update(0.016);
+        check(sturdy_module_count(engine, &module_count) == STURDY_OK && module_count == 1, "the module stays unloaded after a failed reload");
+        check(!engine_object.ecs_world().has_resource_erased(SFT::Ecs::ResourceKey::from_name("test.ffi.live.partial")),
+              "what the failing module registered before it failed was removed");
+        check(sturdy_module_take_failure(engine, message, 4, &length) == STURDY_ERROR_BUFFER_TOO_SMALL || length > 4,
+              "a too-small buffer reports the needed length without discarding the failure");
+        check(sturdy_module_take_failure(engine, message, sizeof(message), &length) == STURDY_OK && std::strstr(message, "failed to initialize") != nullptr,
+              "and the failure is still there to read");
+        check(Foreign::destroyed == 3, "every module that was destroyed ran its destroy hook exactly once (old, replaced, failed)");
+
+        // Validation: bad arguments are rejected and take no ownership.
+        SturdyGameLogic bad_size = table;
+        bad_size.struct_size = 1;
+        check(sturdy_module_request_reload(engine, "foreign", &bad_size) == STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "a wrong logic struct size is rejected");
+        check(sturdy_module_request_unload(engine, "") == STURDY_ERROR_INVALID_ARGUMENT, "an empty name is rejected");
+        check(sturdy_module_request_load(engine, nullptr) == STURDY_ERROR_INVALID_ARGUMENT, "a null module is rejected");
+
+        composite.on_shutdown(engine_object);
+        check(sturdy_module_count(engine, &module_count) == STURDY_ERROR_NOT_AVAILABLE, "after shutdown live module calls report no game is running");
     }
 
     // ── Tag components ─────────────────────────────────────────────────────────────────────────

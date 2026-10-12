@@ -67,6 +67,12 @@ namespace SFT::Ecs {
         /// @note This function does not throw exceptions.
         [[nodiscard]] Entity entity_at(u32 row) const noexcept;
 
+        /// The archetype's entities as one contiguous array, `size()` long, parallel to every column. Valid until the archetype
+        /// next changes.
+        [[nodiscard]] const Entity *entity_data() const noexcept { return entities_.data(); }
+        /// The first element of `column_index`'s contiguous array of components (`size()` of them, each `info.size` bytes).
+        [[nodiscard]] void *column_data(u32 column_index) noexcept { return columns_[column_index].data; }
+
 
         /// Performs the column index of operation for `Archetype` using the supplied arguments.
         ///

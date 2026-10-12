@@ -119,6 +119,10 @@ option(STURDY_ENABLE_GPU_TESTS "Register GPU-backed FFI probe tests with CTest (
 
 if(NOT STURDY_BUILD_SHARED_LIBS)
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build third-party dependencies as shared libraries." FORCE)
+else()
+    # A shared engine links third-party static libraries (FLAC, Opus, Ogg, ...) into its shared objects, which fails on x86-64 unless
+    # they were compiled position-independent. Set before any dependency is configured so every one of them inherits it.
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 
 if(STURDY_FETCH_UPDATES_DISCONNECTED)
