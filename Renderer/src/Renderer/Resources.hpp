@@ -78,6 +78,8 @@ namespace SFT::Renderer {
                                                                               
         vector<RHI::QueueClass> concurrent_queue_classes;
         bool alive = false;
+        /// Point sampling for magnification and minification (pixel art); otherwise trilinear with anisotropy.
+        bool nearest_sampling = false;
                                                                                                     
                                                                                                    
                                                   

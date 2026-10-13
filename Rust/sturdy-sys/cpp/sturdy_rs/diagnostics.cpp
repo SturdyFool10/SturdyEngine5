@@ -1,4 +1,8 @@
 #include "sturdy_rs/diagnostics.hpp"
+#if defined(__APPLE__)
+#include <objc/message.h>
+#include <objc/runtime.h>
+#endif
 
 #include <cstdint>
 #include <memory>
@@ -300,6 +304,15 @@ namespace sturdy_rs::diagnostics {
         out.system = static_cast<NativeWindowSystem>(static_cast<std::uint8_t>(handle->system));
         out.display = reinterpret_cast<std::uintptr_t>(handle->display);
         out.window = reinterpret_cast<std::uintptr_t>(handle->window);
+        out.view = 0;
+#if defined(__APPLE__)
+        if (handle->window != nullptr && out.system == NativeWindowSystem::Cocoa) {
+            // `-[NSWindow contentView]` through the Objective-C runtime, so this stays a plain C++ file.
+            using ContentViewFn = void *(*)(void *, SEL);
+            out.view = reinterpret_cast<std::uintptr_t>(
+                reinterpret_cast<ContentViewFn>(objc_msgSend)(handle->window, sel_registerName("contentView")));
+        }
+#endif
         out.canvas_selector = handle->canvas_selector != nullptr ? rust::String(handle->canvas_selector) : rust::String();
         return true;
     }
@@ -335,6 +348,12 @@ namespace sturdy_rs::diagnostics {
     void log_remove_sink(std::uint64_t id) noexcept {
         SFT::Foundation::remove_log_sink(SFT::Foundation::LogSinkId{id});
     }
+
+    void log_set_level(std::uint8_t level) noexcept {
+        SFT::Foundation::set_log_level(static_cast<SFT::Foundation::LogLevel>(level > 5 ? 5 : level));
+    }
+
+    void log_set_console_enabled(bool enabled) noexcept { SFT::Foundation::set_console_logging_enabled(enabled); }
 
     // -- Process-wide task scheduler --------------------------------------------------------------
 

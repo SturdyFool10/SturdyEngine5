@@ -662,6 +662,14 @@ impl<'a> Ui<'a> {
         }
     }
 
+    /// Drops every cached SVG rasterisation and unloads its texture. Use it when the sizes you ask for change for good
+    /// (a UI-scale or SVG anti-aliasing setting): anti-aliasing is just rasterising at a multiple of the drawn size, so
+    /// pass `target_px * supersample` to [`Ui::load_svg`] and draw it at `target_px`. Texture handles from earlier
+    /// [`Ui::load_svg`] calls become invalid; call it again when the next frame draws an icon.
+    pub fn clear_svg_cache(&mut self) {
+        ffi::ui_clear_svg_cache(self.view.as_mut());
+    }
+
     /// Adds an SVG leaf (from [`Ui::load_svg`]) as a child of the currently open element, same
     /// shape as [`Ui::image`].
     pub fn svg(&mut self, desc: &ElementDesc, texture: RendererTextureHandle) {

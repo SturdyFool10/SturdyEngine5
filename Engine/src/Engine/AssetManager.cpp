@@ -590,7 +590,8 @@ namespace SFT::Engine {
             upload_bytes,
             desc.label.c_str(),
             {},
-            mip_chain.mip_levels);
+            mip_chain.mip_levels,
+            desc.nearest_sampling);
         if (!texture) {
             return std::unexpected(backend_error(texture.error()));
         }

@@ -148,6 +148,8 @@ pub mod ffi {
         system: NativeWindowSystem,
         display: u64,
         window: u64,
+        /// Cocoa only: the window's content `NSView*` (what AppKit handle consumers want); `0` elsewhere.
+        view: u64,
         canvas_selector: String,
     }
 
@@ -225,6 +227,10 @@ pub mod ffi {
         fn log_add_sink(sink: Box<LogSink>) -> u64;
         /// Unregisters a sink added by `log_add_sink`; an unknown/already-removed id is a no-op.
         fn log_remove_sink(id: u64);
+        /// Minimum severity the engine logs (`LogLevel` ordinal), effective immediately for every sink.
+        fn log_set_level(level: u8);
+        /// Turns the engine's own console output on/off; file log and registered sinks are untouched.
+        fn log_set_console_enabled(enabled: bool);
 
         // -- Process-wide task scheduler ------------------------------------------------------------
 

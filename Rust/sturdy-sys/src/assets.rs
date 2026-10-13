@@ -342,6 +342,7 @@ pub mod ffi {
             label: &str,
             allow_compression: bool,
             generate_mipmaps: bool,
+            nearest_sampling: bool,
         ) -> AssetOutcome;
 
         /// Packs a separate occlusion (RGBA8) buffer and metallic-roughness (RGBA8) buffer into a

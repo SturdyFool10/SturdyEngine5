@@ -566,6 +566,158 @@ pub fn visible_rows_for(scrolled: f32, viewport: f32, row_height: f32, row_count
     }
 }
 
+/// Row heights for a long list whose rows differ in height (wrapped text, mixed content). The app keeps one across
+/// frames: rows start at an `estimate`, and each row that gets built reports its real height with
+/// [`VariableRows::measure`], so offsets converge to the truth as the user scrolls. A scrollbar over unmeasured rows
+/// is therefore approximate until they have been seen once, which is inherent to virtualising without laying out
+/// everything.
+///
+/// ```ignore
+/// rows.set_len(items.len());
+/// let _list = ui.element(&ElementDesc::new().id("feed".into()).height(Sizing::Grow).clip(Clip::vertical())
+///     .direction(Direction::TopToBottom));
+/// let range = rows.visible(ui, "feed", 3);
+/// spacer(ui, range.before);
+/// for index in range.rows.clone() {
+///     let id = format!("feed-row-{index}");
+///     { let _row = ui.element(&ElementDesc::new().id(id.as_str().into()) /* ... */); /* row contents */ }
+///     rows.measure(ui, index, &id);
+/// }
+/// spacer(ui, range.after);
+/// ```
+#[derive(Debug, Clone)]
+pub struct VariableRows {
+    estimate: f32,
+    /// Measured height per row; `0.0` = not measured yet (the estimate applies).
+    measured: Vec<f32>,
+    /// `starts[i]` = top of row `i`; one extra entry holds the total. Rebuilt lazily after a change.
+    starts: Vec<f32>,
+    dirty: bool,
+}
+
+impl VariableRows {
+    /// A list with every row assumed `estimate` pixels tall until measured.
+    pub fn new(estimate: f32) -> Self {
+        Self { estimate: estimate.max(1.0), measured: Vec::new(), starts: vec![0.0], dirty: false }
+    }
+
+    /// Number of rows. Growing keeps what is measured; shrinking drops the tail.
+    pub fn set_len(&mut self, len: usize) {
+        if self.measured.len() != len {
+            self.measured.resize(len, 0.0);
+            self.dirty = true;
+        }
+    }
+
+    /// Forgets every measurement (the width changed and text re-wraps, the data was replaced).
+    pub fn invalidate(&mut self) {
+        self.measured.iter_mut().for_each(|h| *h = 0.0);
+        self.dirty = true;
+    }
+
+    pub fn len(&self) -> usize {
+        self.measured.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.measured.is_empty()
+    }
+
+    /// Records the real height of row `index`; ignores non-positive or non-finite values.
+    pub fn set_height(&mut self, index: usize, height: f32) {
+        if let Some(slot) = self.measured.get_mut(index) {
+            if height.is_finite() && height > 0.0 && (*slot - height).abs() > 0.25 {
+                *slot = height;
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// Reads row `index`'s height from the element with `element_id` (as of the last finished layout) and records it.
+    pub fn measure(&mut self, ui: &Ui<'_>, index: usize, element_id: &str) {
+        if let Some((_, size)) = ui.element_bounds(element_id) {
+            self.set_height(index, size.y);
+        }
+    }
+
+    /// Height of row `index` (its measurement, else the estimate).
+    pub fn height(&self, index: usize) -> f32 {
+        match self.measured.get(index) {
+            Some(&h) if h > 0.0 => h,
+            _ => self.estimate,
+        }
+    }
+
+    fn rebuild(&mut self) {
+        if !self.dirty && self.starts.len() == self.measured.len() + 1 {
+            return;
+        }
+        self.starts.clear();
+        self.starts.reserve(self.measured.len() + 1);
+        let mut y = 0.0;
+        for &h in &self.measured {
+            self.starts.push(y);
+            y += if h > 0.0 { h } else { self.estimate };
+        }
+        self.starts.push(y);
+        self.dirty = false;
+    }
+
+    /// Total content height.
+    pub fn total_height(&mut self) -> f32 {
+        self.rebuild();
+        *self.starts.last().unwrap_or(&0.0)
+    }
+
+    /// Top of row `index` (the total height for `index == len`).
+    pub fn offset_of(&mut self, index: usize) -> f32 {
+        self.rebuild();
+        self.starts[index.min(self.measured.len())]
+    }
+
+    /// The row containing vertical offset `y` (clamped to the last row).
+    pub fn index_at(&mut self, y: f32) -> usize {
+        self.rebuild();
+        if self.measured.is_empty() {
+            return 0;
+        }
+        let count = self.measured.len();
+        // Last row whose start is <= y.
+        let after = self.starts[..count].partition_point(|&start| start <= y);
+        after.saturating_sub(1).min(count - 1)
+    }
+
+    /// Which rows to build for a known scroll position and viewport height. Pure given the measurements.
+    pub fn visible_for(&mut self, scrolled: f32, viewport: f32, overscan: usize) -> VisibleRows {
+        let count = self.measured.len();
+        if count == 0 {
+            return VisibleRows { rows: 0..0, before: 0.0, after: 0.0 };
+        }
+        let scrolled = scrolled.max(0.0);
+        let total = self.total_height();
+        if scrolled >= total {
+            // Scrolled past the end (rows shrank): show the tail so the list is never empty.
+            let first = count.saturating_sub(1 + overscan);
+            return VisibleRows { rows: first..count, before: self.offset_of(first), after: 0.0 };
+        }
+        let first_visible = self.index_at(scrolled);
+        let last_visible = self.index_at(scrolled + viewport.max(0.0));
+        let first = first_visible.saturating_sub(overscan);
+        let last = (last_visible + 1 + overscan).min(count);
+        VisibleRows { rows: first..last, before: self.offset_of(first), after: total - self.offset_of(last) }
+    }
+
+    /// [`VariableRows::visible_for`] for the scroll position and viewport of the container with `container_id`. The
+    /// first frame (no layout yet) uses the window height.
+    pub fn visible(&mut self, ui: &Ui<'_>, container_id: &str, overscan: usize) -> VisibleRows {
+        let (scrolled, viewport) = match ui.scroll_metrics(container_id) {
+            Some(metrics) => ((-metrics.offset.y).max(0.0), metrics.container_size.y),
+            None => (0.0, ui.viewport_size().y),
+        };
+        self.visible_for(scrolled, viewport, overscan)
+    }
+}
+
 /// An empty element of `height` pixels (the before/after padding of a virtualised list).
 pub fn spacer(ui: &mut Ui<'_>, height: f32) {
     if height > 0.0 {
@@ -593,6 +745,57 @@ mod tests {
         let viewport = Vec2::new(800.0, 600.0);
         assert_eq!(clamp_to_viewport(Vec2::new(790.0, 590.0), Vec2::new(100.0, 50.0), viewport), Vec2::new(700.0, 550.0));
         assert_eq!(clamp_to_viewport(Vec2::new(-5.0, -5.0), Vec2::new(10.0, 10.0), viewport), Vec2::ZERO);
+    }
+
+    #[test]
+    fn variable_rows_use_estimates_then_measurements() {
+        let mut rows = VariableRows::new(20.0);
+        rows.set_len(100);
+        assert_eq!(rows.total_height(), 2000.0);
+        assert_eq!(rows.offset_of(10), 200.0);
+        rows.set_height(0, 100.0);
+        rows.set_height(1, 40.0);
+        assert_eq!(rows.offset_of(2), 140.0);
+        assert_eq!(rows.total_height(), 2000.0 - 40.0 + 140.0);
+        assert_eq!(rows.index_at(0.0), 0);
+        assert_eq!(rows.index_at(99.9), 0);
+        assert_eq!(rows.index_at(100.0), 1);
+        assert_eq!(rows.index_at(140.0), 2);
+        assert_eq!(rows.index_at(1.0e9), 99);
+    }
+
+    #[test]
+    fn variable_rows_visible_range_is_consistent() {
+        let mut rows = VariableRows::new(20.0);
+        rows.set_len(1000);
+        rows.set_height(50, 300.0);
+        let total = rows.total_height();
+        for scrolled in [0.0, 500.0, 1000.0, 5000.0, 19_000.0] {
+            let r = rows.visible_for(scrolled, 200.0, 2);
+            assert!(!r.rows.is_empty());
+            let built: f32 = r.rows.clone().map(|i| rows.height(i)).sum();
+            assert!((r.before + built + r.after - total).abs() < 0.5, "scrolled {scrolled}");
+            assert!(r.before <= scrolled.max(0.0));
+        }
+        let past = rows.visible_for(1.0e9, 200.0, 2);
+        assert_eq!(past.rows.end, 1000);
+        assert_eq!(past.after, 0.0);
+        assert_eq!(VariableRows::new(10.0).visible_for(0.0, 100.0, 2).rows, 0..0);
+    }
+
+    #[test]
+    fn variable_rows_ignore_bad_measurements_and_keep_them_on_growth() {
+        let mut rows = VariableRows::new(10.0);
+        rows.set_len(5);
+        rows.set_height(1, f32::NAN);
+        rows.set_height(2, -3.0);
+        rows.set_height(9, 50.0);
+        assert_eq!(rows.total_height(), 50.0);
+        rows.set_height(3, 30.0);
+        rows.set_len(8);
+        assert_eq!(rows.height(3), 30.0);
+        rows.invalidate();
+        assert_eq!(rows.height(3), 10.0);
     }
 
     #[test]

@@ -345,6 +345,11 @@ namespace SFT::UI {
         /// OpenType features for all text in `font_id` (`kern,liga,-calt,onum`); see `TextBridge::set_font_features`.
         void set_font_features(FontId font_id, string_view comma_separated_features);
 
+        /// Forces SDF or MSDF glyph rasterisation for all non-colour UI text, or lets the size decide (`Auto`). Takes
+        /// effect from the next frame; the formats have separate atlases so nothing is invalidated.
+        void set_text_raster_preference(Text::RasterPreference preference) noexcept { text_raster_preference_ = preference; }
+        [[nodiscard]] Text::RasterPreference text_raster_preference() const noexcept { return text_raster_preference_; }
+
 
         /// Starts a layout frame.
         ///
@@ -776,6 +781,7 @@ namespace SFT::UI {
         /// Logical-unit size Clay lays out in: `layout_extent_ / pixel_scale_`.
         glm::vec2 layout_size_{1.0f};
         f32 pixel_scale_ = 1.0f;
+        Text::RasterPreference text_raster_preference_ = Text::RasterPreference::Auto;
 
 
         glm::vec2 pointer_position_{0.0f};

@@ -599,6 +599,10 @@ pub mod ffi {
         type LatencyMode = crate::ffi::LatencyMode;
         #[namespace = "sturdy_rs"]
         type PresentationPreference = crate::ffi::PresentationPreference;
+        #[namespace = "sturdy_rs"]
+        type CameraDesc = crate::ffi::CameraDesc;
+        #[namespace = "sturdy_rs"]
+        type SceneLightingDesc = crate::ffi::SceneLightingDesc;
 
         // -- windows --
 
@@ -691,6 +695,18 @@ pub mod ffi {
         /// Returns the target's backing `Renderer::TextureHandle::value`; `0` if `handle` is
         /// unknown.
         fn offscreen_target_texture(engine: &EngineView, handle: u64) -> u64;
+        /// Renders the ECS scene through `camera` into the offscreen target, synchronously, using the render graph
+        /// `settings`/`stages` describe (empty `stages` = the standard graph). Only renderables whose
+        /// `visibility_mask` intersects the camera's `culling_mask` appear, which is how a viewer scene stays out
+        /// of the window's own view. The target keeps per-handle camera history for motion vectors/blur.
+        fn offscreen_render_view(
+            engine: Pin<&mut EngineView>,
+            handle: u64,
+            camera: &CameraDesc,
+            lighting: &SceneLightingDesc,
+            settings: &RenderGraphSettings,
+            stages: &[GraphStage],
+        ) -> Status;
 
         // -- presentation --
 

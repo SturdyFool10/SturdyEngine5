@@ -582,6 +582,41 @@ impl Default for MasonryConfig {
     }
 }
 
+/// How UI glyphs are rasterised into their atlases. Colour glyphs (emoji) always use their own format.
+///
+/// There is no plain alpha-mask atlas: `Sdf` is the single-channel equivalent (sharp at small sizes, smooth when
+/// scaled), so an app that offers "Alpha Mask" should map it to `Sdf`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextRasterMode {
+    /// SDF for small text, MSDF for large text.
+    #[default]
+    Auto,
+    Sdf,
+    Msdf,
+}
+
+impl<'a> Ui<'a> {
+    /// Switches the glyph raster format live; applies from the next frame without rebuilding any atlas.
+    pub fn set_text_raster_mode(&mut self, mode: TextRasterMode) {
+        ffi::ui_set_text_raster_mode(
+            self.view_pin(),
+            match mode {
+                TextRasterMode::Auto => 0,
+                TextRasterMode::Sdf => 1,
+                TextRasterMode::Msdf => 2,
+            },
+        );
+    }
+
+    pub fn text_raster_mode(&self) -> TextRasterMode {
+        match ffi::ui_text_raster_mode(self.view_shared()) {
+            1 => TextRasterMode::Sdf,
+            2 => TextRasterMode::Msdf,
+            _ => TextRasterMode::Auto,
+        }
+    }
+}
+
 /// Scroll behaviour of the UI context.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScrollSettings {

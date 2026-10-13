@@ -59,4 +59,12 @@ namespace SFT::Foundation {
     /// @note This function does not throw exceptions.
     void remove_log_sink(LogSinkId id) noexcept;
 
+    /// Sets the minimum severity the engine logs, for every sink at once. Takes effect immediately, from any thread
+    /// (a settings screen's "verbose logging" switch needs no relaunch).
+    void set_log_level(LogLevel level) noexcept;
+
+    /// Turns the engine's own console (stdout) output on or off without touching the file log or registered sinks, for
+    /// hosts that route engine messages into their own logger through `add_log_sink` and would otherwise print twice.
+    void set_console_logging_enabled(bool enabled) noexcept;
+
 } // namespace SFT::Foundation

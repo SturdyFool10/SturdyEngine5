@@ -220,7 +220,7 @@ namespace SFT::Renderer {
     Core::RendererExpected<TextureHandle> Renderer::create_texture(u32 width, u32 height, RHI::Format format,
                                                                    span<const std::byte> data, const char *label,
                                                                    span<const RHI::QueueClass> concurrent_queue_classes,
-                                                                   u32 mip_levels) {
+                                                                   u32 mip_levels, bool nearest_sampling) {
         ZoneScopedN("Renderer::create_texture");
         RHI::RhiDevice *device = rhi_device();
         if (device == nullptr) {
@@ -250,6 +250,7 @@ namespace SFT::Renderer {
         resource.format = format;
         resource.pixel_data.assign(data.begin(), data.end());
         resource.concurrent_queue_classes.assign(concurrent_queue_classes.begin(), concurrent_queue_classes.end());
+        resource.nearest_sampling = nearest_sampling;
         resource.alive = true;
 
         if (Core::RendererResult created = create_owned_texture_gpu(resource, concurrent_queue_classes); !created.has_value()) {
@@ -315,10 +316,13 @@ namespace SFT::Renderer {
         }
         resource.view = *view;
 
+        const RHI::Filter filter = resource.nearest_sampling ? RHI::Filter::Nearest : RHI::Filter::Linear;
         auto sampler = device->create_sampler(RHI::SamplerDesc{
+            .min_filter = filter,
+            .mag_filter = filter,
             .mipmap_mode = RHI::MipmapMode::Linear,
             .max_lod = static_cast<f32>(resource.mip_levels - 1u),
-            .max_anisotropy = 8.0f,
+            .max_anisotropy = resource.nearest_sampling ? 0.0f : 8.0f,
             .label = "renderer texture sampler",
         });
         if (!sampler) {

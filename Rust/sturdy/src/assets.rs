@@ -677,6 +677,39 @@ impl<'a> Assets<'a> {
         allow_compression: bool,
         generate_mipmaps: bool,
     ) -> AssetResult<Asset> {
+        self.create_texture_sampled(
+            pixels,
+            width,
+            height,
+            format,
+            color_space,
+            kind,
+            label,
+            allow_compression,
+            generate_mipmaps,
+            false,
+        )
+    }
+
+    /// [`create_texture`](Self::create_texture) with a choice of filtering: `nearest_sampling = true` point-samples the
+    /// texture so magnified texels stay crisp (pixel-art skins, sprites) instead of blurring under trilinear.
+    ///
+    /// The filter is fixed when the texture is created. To change it live, create the texture again with the other
+    /// setting, rebind it with [`set_model_texture`](Self::set_model_texture) and unload the old one.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_texture_sampled(
+        &mut self,
+        pixels: &[u8],
+        width: u32,
+        height: u32,
+        format: TexturePixelFormat,
+        color_space: TextureColorSpace,
+        kind: TextureKind,
+        label: impl AsRef<str>,
+        allow_compression: bool,
+        generate_mipmaps: bool,
+        nearest_sampling: bool,
+    ) -> AssetResult<Asset> {
         let out = sys::assets_create_texture(
             self.view.as_mut(),
             pixels,
@@ -688,6 +721,7 @@ impl<'a> Assets<'a> {
             label.as_ref(),
             allow_compression,
             generate_mipmaps,
+            nearest_sampling,
         );
         match outcome_error(out.ok, out.error, out.message) {
             Some(err) => Err(err),

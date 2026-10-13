@@ -283,6 +283,9 @@ namespace SFT::Engine {
         /// @return Returns the current selected render target value.
         /// @note This function does not throw exceptions.
         [[nodiscard]] RenderTargetHandle selected_render_target() const noexcept;
+        /// Directs the graph's single Present pass at `target` (an offscreen render target) instead of the window
+        /// surface. Returns false, leaving the graph unchanged, unless there is exactly one Present pass.
+        [[nodiscard]] bool set_present_target(RenderTargetHandle target) noexcept;
         /// Reports whether pass holds for this `RenderGraph`.
         ///
         /// @param kind `kind` value used by the operation.

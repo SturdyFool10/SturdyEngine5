@@ -70,6 +70,8 @@ namespace sturdy_rs::ui_widgets {
                     rust::Slice<const float> extents, rust::Box<MasonryContent> content);
     ScrollSettingsDesc ui_scroll_settings(const EngineView &engine);
     void ui_set_scroll_settings(EngineView &engine, const ScrollSettingsDesc &settings);
+    void ui_set_text_raster_mode(EngineView &engine, std::uint8_t mode);
+    std::uint8_t ui_text_raster_mode(const EngineView &engine);
     std::uint8_t ui_desired_cursor(const EngineView &engine);
     void ui_force_cursor(EngineView &engine, std::uint8_t icon);
     bool ui_cursor_management_enabled(const EngineView &engine);

@@ -63,6 +63,8 @@ namespace sturdy_rs::diagnostics {
 
     std::uint64_t log_add_sink(rust::Box<LogSink> sink);
     void log_remove_sink(std::uint64_t id) noexcept;
+    void log_set_level(std::uint8_t level) noexcept;
+    void log_set_console_enabled(bool enabled) noexcept;
 
     // -- Process-wide task scheduler --------------------------------------------------------------
 

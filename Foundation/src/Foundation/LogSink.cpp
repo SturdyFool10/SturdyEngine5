@@ -1,6 +1,7 @@
 #include <Foundation/LogSink.hpp>
 
 #include <spdlog/sinks/base_sink.h>
+#include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/spdlog.h>
 
 #include <memory>
@@ -130,6 +131,31 @@ namespace SFT::Foundation {
             return;
         }
         fanout_sink()->remove(id.value);
+    }
+
+    void set_log_level(LogLevel level) noexcept {
+        try {
+            spdlog::set_level(static_cast<spdlog::level::level_enum>(static_cast<int>(level)));
+        } catch (...) {
+        }
+    }
+
+    void set_console_logging_enabled(bool enabled) noexcept {
+        try {
+            const auto logger = spdlog::default_logger();
+            if (!logger) {
+                return;
+            }
+            // The console sink is whatever default-logger sink is neither the rotating file nor the callback fan-out.
+            for (const auto &sink : logger->sinks()) {
+                if (dynamic_cast<spdlog::sinks::rotating_file_sink_mt *>(sink.get()) != nullptr ||
+                    dynamic_cast<CallbackFanoutSink *>(sink.get()) != nullptr) {
+                    continue;
+                }
+                sink->set_level(enabled ? spdlog::level::trace : spdlog::level::off);
+            }
+        } catch (...) {
+        }
     }
 
 } // namespace SFT::Foundation

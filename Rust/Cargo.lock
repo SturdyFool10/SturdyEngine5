@@ -228,6 +228,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "offscreen_view"
+version = "0.1.0"
+dependencies = [
+ "sturdy",
+]
+
+[[package]]
 name = "plugin_demo"
 version = "0.1.0"
 dependencies = [
@@ -269,6 +276,12 @@ checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "raw-window-handle"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "scratch"
@@ -334,6 +347,7 @@ dependencies = [
  "cxx",
  "glam",
  "pulldown-cmark",
+ "raw-window-handle",
  "sturdy-macros",
  "sturdy-sys",
 ]

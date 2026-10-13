@@ -234,6 +234,20 @@ namespace sturdy_rs::ui_widgets {
         s.wheel_multiplier = settings.wheel_multiplier;
         ui::screen(engine).context().set_scroll_settings(s);
     }
+    void ui_set_text_raster_mode(EngineView &engine, std::uint8_t mode) {
+        const auto preference = mode == 1   ? SFT::Text::RasterPreference::Sdf
+                                : mode == 2 ? SFT::Text::RasterPreference::Msdf
+                                            : SFT::Text::RasterPreference::Auto;
+        ui::screen(engine).context().set_text_raster_preference(preference);
+    }
+    std::uint8_t ui_text_raster_mode(const EngineView &engine) {
+        switch (ui::screen(engine).context().text_raster_preference()) {
+            case SFT::Text::RasterPreference::Sdf: return 1;
+            case SFT::Text::RasterPreference::Msdf: return 2;
+            case SFT::Text::RasterPreference::Auto: break;
+        }
+        return 0;
+    }
     std::uint8_t ui_desired_cursor(const EngineView &engine) {
         return static_cast<std::uint8_t>(ui::screen(engine).context().desired_cursor());
     }

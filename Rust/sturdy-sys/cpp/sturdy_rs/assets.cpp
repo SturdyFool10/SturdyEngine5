@@ -232,7 +232,8 @@ namespace sturdy_rs::assets {
                                        TextureKind kind,
                                        rust::Str label,
                                        bool allow_compression,
-                                       bool generate_mipmaps) {
+                                       bool generate_mipmaps,
+                                       bool nearest_sampling) {
         try {
             E::TextureAssetDesc desc{};
             desc.width = width;
@@ -244,6 +245,7 @@ namespace sturdy_rs::assets {
             desc.kind = map(kind);
             desc.allow_compression = allow_compression;
             desc.generate_mipmaps = generate_mipmaps;
+            desc.nearest_sampling = nearest_sampling;
             return asset_outcome(engine.assets().create_texture(std::move(desc)));
         } catch (const std::exception &) {
             return make_exception_failure<AssetOutcome>();

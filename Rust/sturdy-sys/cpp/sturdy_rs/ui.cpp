@@ -656,6 +656,8 @@ namespace sturdy_rs::ui {
         }
     }
 
+    void ui_clear_svg_cache(EngineView &engine) { engine.ui_svg_cache().clear_and_unload(engine.assets()); }
+
     UiSvgOutcome ui_load_svg(EngineView &engine, rust::Str path, float target_px) {
         UiSvgOutcome outcome{};
         try {

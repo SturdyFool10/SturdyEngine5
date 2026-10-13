@@ -117,6 +117,10 @@ namespace SFT::Engine {
 
 
         bool generate_mipmaps = true;
+
+        /// Point-sample the texture (crisp texels when magnified: pixel-art skins, sprites) instead of trilinear.
+        /// Fixed at creation; to change it live, create the texture again and rebind it on the model.
+        bool nearest_sampling = false;
     };
 
     struct TextureAssetInfo {

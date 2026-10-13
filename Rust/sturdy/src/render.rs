@@ -628,6 +628,35 @@ impl Engine<'_> {
         if result.ok { Ok(()) } else { Err(Error::new(result.message)) }
     }
 
+    /// Renders a 3D view into an offscreen target, synchronously, ahead of the window's own frame: the way to embed a
+    /// scene (a skin or model viewer) in the UI by showing [`Engine::offscreen_target_texture`] as an image.
+    ///
+    /// `description` supplies the camera, lighting, render-graph settings (MSAA, FXAA, motion blur, bloom, ... all
+    /// per view, so a viewer can differ from the main window) and optional custom stages; its `overlay_only` flag is
+    /// ignored. The camera's aspect ratio comes from the target's size.
+    ///
+    /// Which entities appear: those whose `ModelRenderer::visibility_mask` shares a bit with the camera's
+    /// `culling_mask`. Give viewer entities their own bit (say `1 << 31`) and the viewer camera `1 << 31`, and give
+    /// the window's camera every other bit, so neither view shows the other's scene.
+    ///
+    /// Call it from the frame callback or UI draw hook (engine thread), once per frame the viewer needs
+    /// redrawing; with [`crate::app::FrameMode::OnDemand`] only when the viewer's content changed.
+    pub fn render_offscreen_view(&mut self, handle: OffscreenTargetHandle, description: &crate::FrameDescription) -> Result<(), Error> {
+        let Some(target) = self.offscreen_target_description(handle) else {
+            return Err(Error::new("unknown offscreen render target".to_string()));
+        };
+        let aspect = target.size.x as f32 / target.size.y.max(1) as f32;
+        let result = ffi::offscreen_render_view(
+            self.view_mut(),
+            handle.value,
+            &description.camera.to_ffi(aspect),
+            &description.lighting.to_ffi(),
+            &description.render_graph.to_ffi(),
+            &stages_to_ffi(&description.stages),
+        );
+        if result.ok { Ok(()) } else { Err(Error::new(result.message)) }
+    }
+
     pub fn destroy_offscreen_target(&mut self, handle: OffscreenTargetHandle) {
         ffi::offscreen_target_destroy(self.view_mut(), handle.value);
     }

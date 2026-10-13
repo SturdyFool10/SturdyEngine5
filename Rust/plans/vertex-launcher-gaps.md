@@ -307,3 +307,86 @@ AnimationKeepAlive}`, and a fix for a latent bug found by reading the shim: the 
 *startup* config, so a live HDR toggle left it in the wrong format; it now follows the surface's current HDR state and
 rebuilds when that flips. Differences from UI Workbench worth knowing: the Rust UI is a single engine-owned context (no
 per-window contexts / tear-off windows), and dock workspaces are available but not used by the demo.
+
+## Fourth pass: a read of Vertex's own settings and dependencies (2026-10-12, written, NOT compiled)
+
+Method: walked `../vertexlauncher/crates/config` (every `Config` field), `crates/vertexlauncher/Cargo.toml` and the
+launcher/skin-viewer crates, and checked each engine-facing item against `Rust/sturdy`. Nothing here was built (the
+machine was being used for something else), so the first build will likely show small errors; the pure-Rust URI-list
+helpers were compiled standalone and their tests pass.
+
+**Settings that were *not* engine work** (Vertex-side): `ui_opacity_percent` (scales theme background alpha), notification
+easing/expiry, streamer/OBS modes (UI hiding only, no capture exclusion), Discord, sync, download limits,
+`linux_set_opengl_driver`/`linux_use_zink_driver` (GL path; SE5 is Vulkan/D3D12/Metal, drop them), gamepad
+calibration (Vertex keeps `gilrs` and feeds `ui_kit::FocusNavigator` and `Ui::add_pointer_scroll_delta`).
+
+**New in this pass**
+
+| Need | API | Notes |
+|---|---|---|
+| Parent `rfd` dialogs / `wry` webview to the engine window | `NativeWindowHandle: HasWindowHandle + HasDisplayHandle`, Cargo feature `raw-window-handle` | Win32, X11, Wayland. Cocoa reports `NotSupported` (engine stores `NSWindow*`; AppKit handles want the content `NSView*`). Compiled standalone against raw-window-handle 0.6.2. |
+| Live "text rendering path" setting (Auto/Alpha/SDF/MSDF) | `Ui::set_text_raster_mode(TextRasterMode::{Auto,Sdf,Msdf})` | Per-format atlases, so it takes effect next frame. There is no plain alpha-mask atlas: map "Alpha Mask" to `Sdf`. |
+| Live SVG anti-aliasing / UI-scale change without leaking textures | `Ui::clear_svg_cache()` | AA = rasterise at `target_px * supersample`, draw at `target_px`. The cache used to keep every size's texture forever. |
+| Typed clipboard (images, file lists) | `Window::{clipboard_has, clipboard_data, set_clipboard_data, clipboard_files, set_clipboard_files}` | SDL3 only; GLFW reports none. |
+| Engine log level / duplicate console lines with `tracing` | `diagnostics::{set_log_level, set_console_logging}` | Effective immediately from any thread. Pair with `add_log_sink` to forward engine logs into `tracing`. |
+| **3D skin viewer in the UI** | `Engine::render_offscreen_view(handle, &FrameDescription)` | There was *no* way to render a 3D scene into an offscreen target from Rust (only the window frame). Per-view camera, lighting, render-graph settings (MSAA, FXAA, motion blur, ...) and stages. Scene separation by `ModelRenderer::visibility_mask` vs `Camera::culling_mask`. Synchronous, call from the frame callback / draw hook. Not run on a GPU; thread-safety against the window's render thread relies on the Renderer's own locking (the offscreen path is exercised by C++ GPU tests, the concurrent case is not). |
+| Pixel-art (nearest) texture sampling on 3D models | `Assets::create_texture_sampled(..., nearest_sampling)`; `TextureAssetDesc::nearest_sampling` | Fixed at creation (sampler is part of the texture record and survives device recovery). To change live, create again, `set_model_texture`, unload the old one. |
+| Failing Rust test `path_tracing_scene_settings_reach_engine_validation` | fixed earlier | Shim never set `use_background_color`. |
+
+**Vertex skin-preview settings mapped to SE5**
+
+| Vertex setting | SE5 | Status |
+|---|---|---|
+| MSAA samples 1–8 | `AntiAliasingSettings::msaa_samples` (1/2/4/8, deferred MSAA) | Per view via `render_offscreen_view`. 3, 5, 6, 7 are not valid: round to 2/4/8. |
+| AA mode Off / MSAA / FXAA | `PostProcessAntiAliasing::{None, Fxaa}` + `msaa_samples` | exists |
+| AA mode SMAA | `PostProcessAntiAliasing::ConservativeMorphological` | closest (a morphological filter, not SMAA proper); label it so |
+| AA mode **TAA / FXAA+TAA** | none | **missing**. The engine has a temporal *upscaler* (jittered) but no temporal AA resolve. Fall back to FXAA+MSAA with a notice, or implement TAA as a stage. |
+| Texel AA (`TexelBoundary`) | none | Needs a custom shader on the skin material (Slang via `load_shader_with`); the engine only provides the sampler choice above. |
+| Motion blur (amount, shutter, samples) | `MotionBlurSettings` | exists (`intensity`, `shutter_angle_degrees` = shutter frames × 360, `sample_count`). Needs real motion vectors from the viewer's animation. |
+| Hat/jacket thin layers (alpha mask/blend) | custom Slang material, `discard` for cutout | **Alpha-blended** thin layers have no forward transparent pass in the deferred graph: cutout works, true blending does not. |
+| BC-compressed skin textures | `allow_compression` | exists |
+
+**Still open after this pass** (unchanged unless listed): TAA; forward/transparent pass for alpha-blended geometry;
+adapter presentability per surface; cross-API switch and rollback never exercised; Windows/macOS engine build and the
+Cocoa `NSView` handle; per-window UI contexts; variable-height virtual lists.
+
+### Fifth pass: closing generic gaps (2026-10-12, written, NOT compiled except where noted)
+
+Direction from the user: no Vertex-specific features in the engine; remove anything that could block Vertex from
+depending on SE5 out-of-tree and running as an **immediate-mode** application (one draw hook builds the whole UI every
+frame; state in plain structs; `FrameMode::OnDemand` + `AnimationKeepAlive`). Nothing below is retained-mode state.
+
+* **Variable-height virtual lists:** `ui_kit::VariableRows` (estimate + per-row measured heights kept by the app across
+  frames; `set_len`, `measure(ui, index, element_id)`, `visible(ui, container_id, overscan)`, `offset_of`, `index_at`,
+  `invalidate`). The scrollbar is approximate until rows have been seen once. The arithmetic was compiled standalone with
+  a stub `Ui` and its three tests pass.
+* **macOS:** `build.rs` now forwards `-framework X` pairs as `framework=X`, treats `.dylib` names, accepts `/usr/lib`
+  system dylibs, and links `libc++` instead of bundling `libstdc++` (UNTESTED, no Mac). The Cocoa native handle gained
+  `NativeWindowHandle::view` (the content `NSView*`, fetched through the Objective-C runtime) and the `raw-window-handle`
+  adapter returns an AppKit handle from it. The raw-handle module compiles standalone against raw-window-handle 0.6.2.
+* Reclassified as **not engine work** (Vertex-specific; build only if Vertex asks): TAA / FXAA+TAA, texel-boundary AA,
+  alpha-blended skin layers. Everything the engine added is generic.
+
+### What would still stop Vertex (honest list)
+
+1. Nothing from the third pass onward has been through a full build + `ctest` on this repo state since the fourth/fifth
+   passes (the third pass was). The first build will likely have small errors in: SDL3 clipboard callback lambda,
+   `offscreen_render_view` (cxx aliases of the root bridge's `CameraDesc`/`SceneLightingDesc` in `render.rs`),
+   `create_texture` signature changes, `diagnostics.cpp` Apple block.
+2. `render_offscreen_view` has never rendered a frame; run it with a model scene and check the target's texture.
+3. Windows/macOS have never built or run the engine; Cross-API device switch and rollback never exercised.
+
+### Verification run (2026-10-12, after the user released the machine)
+
+* `cargo build --workspace --all-targets --features sturdy/raw-window-handle`: clean, no errors (the fourth/fifth-pass
+  C++/bridge code compiled first time). `cargo test --workspace`: 31 + 7 doctests pass.
+* Full C++ build (`build/x86-64/linux/debug`, with the ninja dyndep workaround): no failures. `ctest -j1`: 154/155; the one
+  failure is the old `RendererUIWidgetTest` shift-click assertion (A/B verified earlier against HEAD).
+* **`Engine::render_offscreen_view` ran on the GPU** (new `examples/offscreen_view`, nested Xwayland): 450 renders, no
+  errors, and a screenshot shows the 3D scene (sky, ground, the cube) inside a UI image. It found a real bug: the renderer
+  needs a registered surface even for an offscreen target, so the shim now borrows the primary window's surface (fixed).
+  The cube is dark because the example adds no light. Layer separation (viewer vs window camera) is by the documented
+  masks but was not exercised with a second 3D camera; the example's window is UI-only.
+* `ui_idle` still passes (9 frames in 4.4 s, 1.6% CPU).
+* Still never run: clipboard (typed), nearest sampling, raster-mode switch, SVG cache clear, log controls, raw-handle
+  adapter with a real dialog, `VariableRows` inside a live UI, Windows/macOS, cross-API switch/rollback.

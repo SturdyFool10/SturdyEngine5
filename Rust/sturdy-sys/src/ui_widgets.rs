@@ -316,6 +316,9 @@ pub mod ffi {
         /// Scroll behaviour of the whole UI context (wheel speed, smoothing, drag-to-scroll).
         fn ui_scroll_settings(engine: &EngineView) -> ScrollSettingsDesc;
         fn ui_set_scroll_settings(engine: Pin<&mut EngineView>, settings: &ScrollSettingsDesc);
+        /// 0 = Auto (size-based), 1 = SDF, 2 = MSDF. Applies from the next frame.
+        fn ui_set_text_raster_mode(engine: Pin<&mut EngineView>, mode: u8);
+        fn ui_text_raster_mode(engine: &EngineView) -> u8;
         /// The cursor icon the UI wants this frame, as the numeric value of `ui::Cursor`.
         fn ui_desired_cursor(engine: &EngineView) -> u8;
         /// Overrides the cursor icon (numeric `ui::Cursor`) regardless of hover.

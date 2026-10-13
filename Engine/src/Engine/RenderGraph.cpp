@@ -313,6 +313,23 @@ namespace SFT::Engine {
         return present != passes_.end() ? present->target : RenderTargetHandle{};
     }
 
+    bool RenderGraph::set_present_target(RenderTargetHandle target) noexcept {
+        RenderGraphPassDescription *present = nullptr;
+        for (RenderGraphPassDescription &pass : passes_) {
+            if (pass.kind == RenderGraphPassKind::Present) {
+                if (present != nullptr) {
+                    return false;
+                }
+                present = &pass;
+            }
+        }
+        if (present == nullptr) {
+            return false;
+        }
+        present->target = target;
+        return true;
+    }
+
     /// Reports whether pass holds for this `Engine`.
     ///
     /// @param kind `kind` value used by the operation.

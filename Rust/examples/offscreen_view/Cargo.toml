@@ -1,0 +1,10 @@
+[package]
+name = "offscreen_view"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# Renders a 3D cube into an offscreen target with `Engine::render_offscreen_view` and shows it as a UI image in an
+# otherwise UI-only window (the shape of an embedded model/skin viewer). Run under a real (nested) display.
+[dependencies]
+sturdy = { path = "../../sturdy" }

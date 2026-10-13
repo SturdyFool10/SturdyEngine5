@@ -317,8 +317,22 @@ fn emit_link_directives(build_dir: &Path) {
     let mut seen_names: HashMap<String, PathBuf> = HashMap::new();
     let mut searched = Vec::new();
     let mut system_libs = Vec::new();
+    // macOS: `-framework Cocoa` arrives as two tokens. UNTESTED (no Mac available): written from the ld64 conventions.
+    let mut frameworks: Vec<String> = Vec::new();
+    let mut take_framework = false;
 
     for token in tokens(link_line, build_dir) {
+        if take_framework {
+            take_framework = false;
+            if !frameworks.contains(&token) {
+                frameworks.push(token);
+            }
+            continue;
+        }
+        if token == "-framework" {
+            take_framework = true;
+            continue;
+        }
         // Windows (MSVC ABI): archives are `Name.lib` (no `lib` prefix); a `.lib` that is not one of the engine's own
         // build outputs is a system import library (`kernel32.lib`, `dwmapi.lib`, ...). UNTESTED: written from the
         // MSVC conventions without a Windows machine; see `Rust/plans/vertex-launcher-gaps.md`.
@@ -365,7 +379,9 @@ fn emit_link_directives(build_dir: &Path) {
                 continue;
             }
             assert!(
-                ALLOWED_SYSTEM_LIBS.contains(&name.as_str()),
+                ALLOWED_SYSTEM_LIBS.contains(&name.as_str())
+                    // macOS ships libc++/libSystem/... under /usr/lib; they are part of the OS.
+                    || (cfg!(target_os = "macos") && token.starts_with("/usr/lib/")),
                 "the engine link line pulls in system shared library `{token}`, which would make the \
                  executable depend on the build machine. Disable its find_package in \
                  HERMETIC_CMAKE_ARGS (build.rs) or add it to ALLOWED_SYSTEM_LIBS if it is part of the OS."
@@ -393,8 +409,17 @@ fn emit_link_directives(build_dir: &Path) {
         println!("cargo:rustc-link-lib={lib}");
     }
 
+    for framework in frameworks {
+        println!("cargo:rustc-link-lib=framework={framework}");
+    }
+
     if cfg!(windows) {
         return; // the MSVC C++ runtime is pulled in by the object files' default-library directives
+    }
+    if cfg!(target_os = "macos") {
+        // The platform C++ runtime is libc++ (part of the OS); there is no libstdc++ to bundle.
+        println!("cargo:rustc-link-lib=c++");
+        return;
     }
 
     // The engine is C++26 and is built against a very recent libstdc++; a target machine's copy is
@@ -418,6 +443,7 @@ fn emit_link_directives(build_dir: &Path) {
 fn shared_library_name(token: &str) -> Option<String> {
     let file = Path::new(token).file_name()?.to_str()?;
     let stem = file.strip_prefix("lib")?;
-    let end = stem.find(".so")?;
+    // `libfoo.so.1`, or macOS `libfoo.1.dylib` / `libfoo.dylib`.
+    let end = stem.find(".so").or_else(|| stem.ends_with(".dylib").then(|| stem.find('.')).flatten())?;
     Some(stem[..end].to_owned())
 }

@@ -35,6 +35,23 @@ namespace SFT::Text {
     [[nodiscard]] RasterFormat select_raster_format(f32 long_side_px, RasterFormat previous = RasterFormat::SDF) noexcept;
 
 
+    /// A user-facing override for glyph rasterisation. `Auto` picks SDF or MSDF by size; the others force one format
+    /// for every non-colour glyph. Each format has its own atlas, so changing it at any time takes effect next frame.
+    enum class RasterPreference {
+        Auto,
+        Sdf,
+        Msdf,
+    };
+
+    [[nodiscard]] inline RasterFormat select_raster_format(f32 long_side_px, RasterPreference preference) noexcept {
+        switch (preference) {
+            case RasterPreference::Sdf: return RasterFormat::SDF;
+            case RasterPreference::Msdf: return RasterFormat::MSDF;
+            case RasterPreference::Auto: break;
+        }
+        return select_raster_format(long_side_px);
+    }
+
     struct RasterizedGlyph {
         u32 width = 0;
         u32 height = 0;

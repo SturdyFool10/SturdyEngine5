@@ -417,7 +417,8 @@ namespace SFT::Renderer {
                                                                            span<const std::byte> data,
                                                                            const char *label = nullptr,
                                                                            span<const RHI::QueueClass> concurrent_queue_classes = {},
-                                                                           u32 mip_levels = 1);
+                                                                           u32 mip_levels = 1,
+                                                                           bool nearest_sampling = false);
         /// Destroys the texture identified by the supplied parameters.
         ///
         /// @param handle Handle identifying the target object or resource.

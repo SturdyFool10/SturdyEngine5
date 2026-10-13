@@ -18,6 +18,8 @@ namespace sturdy_rs {
     // namespace's `map(WindowMode)` helper -- this header just needs it visible for
     // `window_set_mode`'s declaration.
     enum class WindowMode : std::uint8_t;
+    struct CameraDesc;
+    struct SceneLightingDesc;
 } // namespace sturdy_rs
 
 namespace sturdy_rs::render {
@@ -79,6 +81,9 @@ namespace sturdy_rs::render {
     Status offscreen_target_resize(EngineView &engine, std::uint64_t handle, std::uint32_t width, std::uint32_t height);
     bool offscreen_target_description(const EngineView &engine, std::uint64_t handle, OffscreenTargetDesc &out);
     std::uint64_t offscreen_target_texture(const EngineView &engine, std::uint64_t handle) noexcept;
+    Status offscreen_render_view(EngineView &engine, std::uint64_t handle, const ::sturdy_rs::CameraDesc &camera,
+                                 const ::sturdy_rs::SceneLightingDesc &lighting, const RenderGraphSettings &settings,
+                                 rust::Slice<const GraphStage> stages);
 
     // -- presentation --
 

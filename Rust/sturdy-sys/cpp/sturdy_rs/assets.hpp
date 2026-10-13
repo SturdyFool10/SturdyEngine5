@@ -70,7 +70,8 @@ namespace sturdy_rs::assets {
                                        TextureKind kind,
                                        rust::Str label,
                                        bool allow_compression,
-                                       bool generate_mipmaps);
+                                       bool generate_mipmaps,
+                                       bool nearest_sampling);
 
     AssetOutcome assets_create_orm_texture(EngineView &engine,
                                            rust::Slice<const ::std::uint8_t> occlusion_rgba8,

@@ -147,8 +147,17 @@ namespace SFT::Engine {
         /// @note This function does not throw exceptions.
         void clear() noexcept;
 
+        /// Forgets every cached rasterisation and unloads its texture. Callers re-resolve on their next draw (the
+        /// cache makes that cheap), so a live scale or anti-aliasing change does not accumulate stale textures.
+        /// Handles returned earlier become invalid.
+        void clear_and_unload(AssetManager &assets) noexcept;
+
       private:
-        std::unordered_map<std::string, Renderer::TextureHandle> by_key_;
+        struct Entry {
+            Asset asset{};
+            Renderer::TextureHandle handle{};
+        };
+        std::unordered_map<std::string, Entry> by_key_;
     };
 
 } // namespace SFT::Engine

@@ -416,6 +416,7 @@ namespace SFT::UI {
             layout_extent_ = other.layout_extent_;
             layout_size_ = other.layout_size_;
             pixel_scale_ = other.pixel_scale_;
+            text_raster_preference_ = other.text_raster_preference_;
             pointer_position_ = other.pointer_position_;
             pointer_press_position_ = other.pointer_press_position_;
             pointer_down_ = other.pointer_down_;
@@ -1279,7 +1280,8 @@ namespace SFT::UI {
         void append_glyph_placements(vector<Renderer::GlyphPlacement> &out, vector<RHI::Rect2D> &out_scissors,
                                      vector<PaintKey> &out_paint, const RHI::Rect2D &scissor, const PaintKey &paint,
                                      const CachedShape &shape, u16 font_size, glm::vec4 color, glm::vec2 origin,
-                                     unordered_map<OutlineCacheKey, Text::GlyphOutline, OutlineCacheKeyHash> &outline_cache) {
+                                     unordered_map<OutlineCacheKey, Text::GlyphOutline, OutlineCacheKeyHash> &outline_cache,
+                                     Text::RasterPreference raster_preference) {
             if (shape.fonts == nullptr || shape.fonts->primary == nullptr) {
                 return;
             }
@@ -1317,7 +1319,7 @@ namespace SFT::UI {
                         .glyph_id = glyph.glyph_id,
                         .units_per_em = run.units_per_em,
                         .pixel_size = static_cast<f32>(font_size),
-                        .format = glyph.is_color ? Text::RasterFormat::Color : Text::select_raster_format(static_cast<f32>(font_size)),
+                        .format = glyph.is_color ? Text::RasterFormat::Color : Text::select_raster_format(static_cast<f32>(font_size), raster_preference),
                         .outline = outline,
                         .font = glyph_font,
                     });
@@ -1482,7 +1484,8 @@ namespace SFT::UI {
                         append_glyph_placements(snapshot.glyphs_, snapshot.glyph_scissors_, snapshot.glyph_paint_,
                                                active_scissor, paint, *shape, data.fontSize,
                                                clay_color_to_linear(data.textColor),
-                                               glm::vec2{command.boundingBox.x, command.boundingBox.y}, outline_cache_);
+                                               glm::vec2{command.boundingBox.x, command.boundingBox.y}, outline_cache_,
+                                               text_raster_preference_);
                     }
                     break;
                 }
@@ -1693,7 +1696,7 @@ namespace SFT::UI {
             glyph.size *= s;
             glyph.pixel_size *= s;
             if (glyph.format != Text::RasterFormat::Color) {
-                glyph.format = Text::select_raster_format(glyph.pixel_size);
+                glyph.format = Text::select_raster_format(glyph.pixel_size, text_raster_preference_);
             }
         }
     }

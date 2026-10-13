@@ -49,7 +49,7 @@ namespace SFT::Engine {
         AssetManager &assets, const std::filesystem::path &path, f32 target_px) {
         const std::string key = path.string() + "|" + std::to_string(target_px);
         if (auto cached = by_key_.find(key); cached != by_key_.end()) {
-            return cached->second;
+            return cached->second.handle;
         }
 
         std::optional<UI::Svg::RasterizedSvg> rasterized = UI::Svg::rasterize_svg_file(path, target_px);
@@ -77,7 +77,7 @@ namespace SFT::Engine {
         if (!handle) {
             return std::unexpected(handle.error());
         }
-        by_key_.emplace(key, *handle);
+        by_key_.emplace(key, Entry{.asset = *asset, .handle = *handle});
         return *handle;
     }
 
@@ -86,6 +86,13 @@ namespace SFT::Engine {
     /// @return Returns the current clear value.
     /// @note This function does not throw exceptions.
     void UiSvgCache::clear() noexcept { by_key_.clear(); }
+
+    void UiSvgCache::clear_and_unload(AssetManager &assets) noexcept {
+        for (auto &[key, entry] : by_key_) {
+            (void)assets.unload(entry.asset);
+        }
+        by_key_.clear();
+    }
 
 } // namespace SFT::Engine
 

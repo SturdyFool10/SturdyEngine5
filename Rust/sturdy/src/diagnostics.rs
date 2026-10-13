@@ -163,6 +163,7 @@ impl<'a> Diagnostics<'a> {
             },
             display: out.display,
             window: out.window,
+            view: out.view,
             canvas_selector: (!out.canvas_selector.is_empty()).then_some(out.canvas_selector),
         })
     }
@@ -219,6 +220,8 @@ pub struct NativeWindowHandle {
     pub system: NativeWindowSystem,
     pub display: u64,
     pub window: u64,
+    /// Cocoa only: the content `NSView*` of the window (`0` elsewhere). AppKit handle consumers want this, not `window`.
+    pub view: u64,
     pub canvas_selector: Option<String>,
 }
 
@@ -352,6 +355,25 @@ pub fn add_log_sink(callback: impl Fn(LogLevel, &str) + Send + Sync + 'static) -
     LogSinkHandle(ffi::log_add_sink(sink))
 }
 
+/// Sets the minimum severity the engine logs, effective immediately for every sink (including ones added with
+/// [`add_log_sink`]). Callable from any thread at any time.
+pub fn set_log_level(level: LogLevel) {
+    ffi::log_set_level(match level {
+        LogLevel::Trace => 0,
+        LogLevel::Debug => 1,
+        LogLevel::Info => 2,
+        LogLevel::Warn => 3,
+        LogLevel::Error => 4,
+        _ => 5,
+    });
+}
+
+/// Turns the engine's own console output on or off, leaving the file log and [`add_log_sink`] sinks alone. Use it when
+/// the host forwards engine messages into its own logger and would otherwise print every line twice.
+pub fn set_console_logging(enabled: bool) {
+    ffi::log_set_console_enabled(enabled);
+}
+
 /// Handle returned by [`add_log_sink`]; unregisters the sink when [`remove`](Self::remove) is
 /// called. Dropping the handle without calling `remove` leaves the sink installed for the rest of
 /// the process's life.
@@ -427,5 +449,67 @@ impl TaskHandle {
     /// Blocks the calling thread until the task completes.
     pub fn wait(&self) {
         ffi::task_handle_wait(&self.0);
+    }
+}
+
+/// With the `raw-window-handle` feature a [`NativeWindowHandle`] can parent native dialogs and
+/// webviews (`rfd`, `wry`, `tao`). The handles are borrowed from the engine window: do not keep
+/// the adapter past the window's lifetime. Cocoa uses `NativeWindowHandle::view`: the engine
+/// stores the `NSWindow*`; the AppKit handle uses `view`, the content `NSView*`.
+#[cfg(feature = "raw-window-handle")]
+mod raw_handles {
+    use super::{NativeWindowHandle, NativeWindowSystem};
+    use raw_window_handle as rwh;
+    use std::ffi::c_void;
+    use std::num::NonZeroIsize;
+    use std::ptr::NonNull;
+
+    impl rwh::HasWindowHandle for NativeWindowHandle {
+        fn window_handle(&self) -> Result<rwh::WindowHandle<'_>, rwh::HandleError> {
+            let raw = match self.system {
+                NativeWindowSystem::Win32 => {
+                    let hwnd = NonZeroIsize::new(self.window as isize).ok_or(rwh::HandleError::Unavailable)?;
+                    let mut handle = rwh::Win32WindowHandle::new(hwnd);
+                    handle.hinstance = NonZeroIsize::new(self.display as isize);
+                    rwh::RawWindowHandle::Win32(handle)
+                }
+                NativeWindowSystem::X11 => {
+                    if self.window == 0 {
+                        return Err(rwh::HandleError::Unavailable);
+                    }
+                    rwh::RawWindowHandle::Xlib(rwh::XlibWindowHandle::new(self.window as std::ffi::c_ulong))
+                }
+                NativeWindowSystem::Wayland => {
+                    let surface = NonNull::new(self.window as usize as *mut c_void).ok_or(rwh::HandleError::Unavailable)?;
+                    rwh::RawWindowHandle::Wayland(rwh::WaylandWindowHandle::new(surface))
+                }
+                NativeWindowSystem::Cocoa => {
+                    let view = NonNull::new(self.view as usize as *mut c_void).ok_or(rwh::HandleError::Unavailable)?;
+                    rwh::RawWindowHandle::AppKit(rwh::AppKitWindowHandle::new(view))
+                }
+                _ => return Err(rwh::HandleError::NotSupported),
+            };
+            // SAFETY: the pointers come from the live engine window; the borrow ties the handle to `self`.
+            Ok(unsafe { rwh::WindowHandle::borrow_raw(raw) })
+        }
+    }
+
+    impl rwh::HasDisplayHandle for NativeWindowHandle {
+        fn display_handle(&self) -> Result<rwh::DisplayHandle<'_>, rwh::HandleError> {
+            let raw = match self.system {
+                NativeWindowSystem::Win32 => rwh::RawDisplayHandle::Windows(rwh::WindowsDisplayHandle::new()),
+                NativeWindowSystem::Cocoa => rwh::RawDisplayHandle::AppKit(rwh::AppKitDisplayHandle::new()),
+                NativeWindowSystem::X11 => {
+                    rwh::RawDisplayHandle::Xlib(rwh::XlibDisplayHandle::new(NonNull::new(self.display as usize as *mut c_void), 0))
+                }
+                NativeWindowSystem::Wayland => {
+                    let display = NonNull::new(self.display as usize as *mut c_void).ok_or(rwh::HandleError::Unavailable)?;
+                    rwh::RawDisplayHandle::Wayland(rwh::WaylandDisplayHandle::new(display))
+                }
+                _ => return Err(rwh::HandleError::NotSupported),
+            };
+            // SAFETY: see `window_handle`.
+            Ok(unsafe { rwh::DisplayHandle::borrow_raw(raw) })
+        }
     }
 }

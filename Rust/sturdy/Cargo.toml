@@ -31,6 +31,9 @@ bytemuck = { version = "1", features = ["derive"] }
 glam = { version = "0.33", features = ["bytemuck", "scalar-math"] }
 # Backs `sturdy::markdown` (CommonMark parsing for the UI Markdown view).
 pulldown-cmark = { version = "0.13", default-features = false }
+# Optional (feature `raw-window-handle`): lets `NativeWindowHandle` be passed to crates that parent
+# native dialogs / webviews to the engine window (`rfd::FileDialog::set_parent`, `wry`, `tao`).
+raw-window-handle = { version = "0.6", optional = true }
 
 # Passthrough: an application picks its engine build configuration here instead of ever touching
 # sturdy-sys or CMake directly. See sturdy-sys/Cargo.toml for what each one maps to.
