@@ -83,6 +83,10 @@ expected<void, WindowError> Window::unlock_mouse() noexcept {
 /// @note This function does not throw exceptions.
 void Window::set_live_resize_callback(std::function<void(WindowExtent)>             ) noexcept {}
 
+bool Window::wait_for_native_events(std::chrono::microseconds) noexcept { return false; }
+
+void (*Window::native_event_waker() const noexcept)() noexcept { return nullptr; }
+
 bool Window::clipboard_has_mime(std::string_view) const noexcept { return false; }
 
 std::vector<std::byte> Window::clipboard_data(std::string_view) const noexcept { return {}; }

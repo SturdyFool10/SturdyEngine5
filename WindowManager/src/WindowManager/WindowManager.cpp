@@ -4,6 +4,7 @@
 #include <Async/SpscRingBuffer.hpp>
 
 #include <chrono>
+#include <cstdlib>
 
 #include <tracy/Tracy.hpp>
 
@@ -424,6 +425,33 @@ namespace SFT::WindowManager {
                 continue;
             }
 
+            if (!windows_.empty()) {
+                native_waker_.store(windows_.front()->native_event_waker(), std::memory_order_release);
+            }
+
+            // STURDY_WM_FORCE_POLLING=1 restores the old interval polling (an A/B switch for idle-CPU measurements).
+            static const bool force_polling = std::getenv("STURDY_WM_FORCE_POLLING") != nullptr;
+            if (!force_polling && drained_events == 0 && low_power_polling_.load(std::memory_order_acquire) &&
+                !windows_.empty()) {
+                // Nothing is happening and the app asked for low power: block in the platform's event wait instead of
+                // polling. Input wakes it at once; `wake_poll_loop` (queued ops, shutdown, mode changes) pushes a wake
+                // event; the timeout is only a safety net.
+                constexpr auto safety_timeout = std::chrono::milliseconds(250);
+                // An op or shutdown request posted before the waker was published would not have woken anything.
+                bool work_waiting = !running_.load(std::memory_order_acquire);
+                if (!work_waiting) {
+                    auto guard = pending_ops_.lock();
+                    work_waiting = !guard->empty();
+                }
+                if (work_waiting) {
+                    continue;
+                }
+                if (windows_.front()->wait_for_native_events(safety_timeout)) {
+                    current_idle_interval = idle_interval;
+                    continue;
+                }
+            }
+
             if (drained_events > 0 || !low_power_polling_.load(std::memory_order_acquire)) {
                 current_idle_interval = idle_interval;
             } else {
@@ -471,6 +499,10 @@ namespace SFT::WindowManager {
             std::lock_guard<std::mutex> wake_lock(wake_mutex_);
         }
         wake_cv_.notify_all();
+        // The poll thread may be blocked in the platform's event wait rather than on `wake_cv_`.
+        if (auto *waker = native_waker_.load(std::memory_order_acquire)) {
+            waker();
+        }
     }
 
     /// Pumps the supplied or associated value/state using the supplied arguments and current state.

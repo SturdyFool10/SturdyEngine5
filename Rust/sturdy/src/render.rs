@@ -609,7 +609,35 @@ impl OffscreenTargetDesc {
     }
 }
 
+/// What frame rendering has done since startup; see [`Engine::render_health`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RenderHealth {
+    /// Window frames and offscreen views that rendered.
+    pub frames_rendered: u64,
+    pub frames_failed: u64,
+    /// Failures since the last frame that rendered; `0` means the latest frame drew.
+    pub consecutive_failures: u64,
+    /// Message of the latest failure (empty until one happens).
+    pub last_error: String,
+}
+
 impl Engine<'_> {
+    /// Whether frames are actually being drawn. The frame callback keeps running when a frame fails to render (a device
+    /// that switched "successfully" but cannot present, a lost surface), so a settings applier that just called
+    /// [`Engine::switch_device`] should watch this for a few frames: `consecutive_failures` rising while
+    /// `frames_rendered` stands still means the new device is broken, and the app should switch back.
+    ///
+    /// Counts window frames and [`Engine::render_offscreen_view`] calls together; the latter also returns its own error.
+    pub fn render_health(&self) -> RenderHealth {
+        let h = ffi::render_health(self.view());
+        RenderHealth {
+            frames_rendered: h.frames_rendered,
+            frames_failed: h.frames_failed,
+            consecutive_failures: h.consecutive_failures,
+            last_error: h.last_error,
+        }
+    }
+
     pub fn create_offscreen_target(&mut self, desc: &OffscreenTargetDesc) -> Result<OffscreenTargetHandle, Error> {
         let ffi_desc = ffi::OffscreenTargetDesc { width: desc.size.x, height: desc.size.y, label: desc.label.clone() };
         let result = ffi::offscreen_target_create(self.view_mut(), &ffi_desc);

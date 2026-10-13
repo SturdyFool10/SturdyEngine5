@@ -128,6 +128,9 @@ namespace SFT::Engine {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note This function does not throw exceptions.
     void Application::report_frame_result(const Core::RendererResult &result) noexcept {
+        if (engine_) {
+            engine_->record_frame_result(result);
+        }
         if (!result) {
             ++consecutive_render_errors_;
             if (consecutive_render_errors_ == 1 || consecutive_render_errors_ % 120 == 0) {

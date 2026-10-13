@@ -676,6 +676,34 @@ namespace SFT::WindowManager::SDL3 {
         return {};
     }
 
+    namespace {
+        /// SDL event type used only to wake `SDL_WaitEventTimeout`; registered once, ignored by `pump_events`.
+        [[nodiscard]] u32 wake_event_type() noexcept {
+            static const u32 type = SDL_RegisterEvents(1);
+            return type;
+        }
+
+        void push_wake_event() noexcept {
+            const u32 type = wake_event_type();
+            if (type == static_cast<u32>(-1)) {
+                return;
+            }
+            SDL_Event event{};
+            event.type = type;
+            (void)SDL_PushEvent(&event);
+        }
+    } // namespace
+
+    bool SDL3Window::wait_for_native_events(std::chrono::microseconds timeout) noexcept {
+        ZoneScopedN("SDL3Window::wait_for_native_events");
+        // A null event pointer waits for an event without removing it, so `pump_events` still sees everything.
+        const auto millis = std::max<std::int64_t>(1, (timeout.count() + 999) / 1000);
+        (void)SDL_WaitEventTimeout(nullptr, static_cast<Sint32>(std::min<std::int64_t>(millis, 1000)));
+        return true;
+    }
+
+    void (*SDL3Window::native_event_waker() const noexcept)() noexcept { return &push_wake_event; }
+
     bool SDL3Window::clipboard_has_mime(std::string_view mime_type) const noexcept {
         const std::string owned(mime_type);
         return SDL_HasClipboardData(owned.c_str());

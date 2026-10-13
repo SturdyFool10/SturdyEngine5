@@ -823,32 +823,24 @@ impl App {
         let title = self.text_style(theme, 1.3);
         let body = self.text_style(theme, 1.0);
         let accent = theme.accent;
+        let button_state = &mut self.modal_button;
+        let mut ok_clicked = false;
         let response = ui_kit::modal(ui, "about-modal", &style, true, |ui| {
             ui.text("A modal dialog", &title);
             ui.text("The scrim blocks everything behind it. Esc or a click outside dismisses it.", &body);
+            let (ok, scope) = ui.button(
+                &ElementDesc::new().id("modal-ok".into()).width(Sizing::Fixed(120.0)).height(Sizing::Fixed(32.0)).align(ChildAlignment::center()),
+                button_state,
+                &ButtonStyle { idle: accent, corner_radius: 6.0, ..ButtonStyle::default() },
+                true,
+            );
+            if let Some(scope) = scope {
+                ui.text("OK", &body);
+                drop(scope);
+            }
+            ok_clicked = ok.clicked;
         });
-        // The dialog's button lives outside the closure so it can borrow the button state.
-        let _footer = ui.element(
-            &ElementDesc::new().id("modal-footer".into()).width(Sizing::Fit).height(Sizing::Fit).floating(Some({
-                let mut floating = ui::Floating::new(ui::FloatTarget::Root);
-                floating.element_attach_point = ui::AttachPoint::CenterBottom;
-                floating.parent_attach_point = ui::AttachPoint::CenterCenter;
-                floating.offset = Vec2::new(0.0, 80.0);
-                floating.z_index = 2100;
-                floating
-            })),
-        );
-        let (ok, scope) = ui.button(
-            &ElementDesc::new().id("modal-ok".into()).width(Sizing::Fixed(120.0)).height(Sizing::Fixed(32.0)).align(ChildAlignment::center()),
-            &mut self.modal_button,
-            &ButtonStyle { idle: accent, corner_radius: 6.0, ..ButtonStyle::default() },
-            true,
-        );
-        if let Some(scope) = scope {
-            ui.text("OK", &body);
-            drop(scope);
-        }
-        if response.dismissed || ok.clicked {
+        if response.dismissed || ok_clicked {
             self.show_modal = false;
         }
     }

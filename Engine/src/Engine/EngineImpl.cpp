@@ -1064,6 +1064,26 @@ namespace SFT::Engine {
         return renderer_.render_frame(desc);
     }
 
+    Engine::RenderHealth Engine::render_health() const {
+        auto health = render_health_.lock();
+        return *health;
+    }
+
+    void Engine::record_frame_result(const Core::RendererResult &result) noexcept {
+        try {
+            auto health = render_health_.lock();
+            if (result) {
+                ++health->frames_rendered;
+                health->consecutive_failures = 0;
+            } else {
+                ++health->frames_failed;
+                ++health->consecutive_failures;
+                health->last_error = result.error().message;
+            }
+        } catch (...) {
+        }
+    }
+
     /// Waits for idle to complete.
     ///
     /// @return Returns the current wait idle value.

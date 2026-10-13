@@ -933,6 +933,10 @@ impl<'a> Assets<'a> {
     /// e.g. to bind a loaded texture asset in your own [`crate::rhi`] pipeline. `None` before the
     /// renderer exists or for a dead handle. The handles stay owned by the Renderer: valid only
     /// while the asset stays loaded, and never to be destroyed through [`crate::rhi::Rhi`].
+    ///
+    /// The handles belong to the *current device*: after a device switch they are replaced, so fetch them again
+    /// (compare [`Engine::device_generation`]) rather than caching them across one. Anything you built from them,
+    /// such as bind groups, must be rebuilt too.
     pub fn rhi_texture(&mut self, texture: RendererTextureHandle) -> Option<crate::rhi::RendererTextureResources> {
         let mut out = sturdy_sys::rhi::ffi::RendererTextureResources::default();
         sturdy_sys::rhi::ffi::renderer_texture_resources(self.view.as_mut(), texture.0, &mut out)

@@ -596,6 +596,22 @@ namespace SFT::Engine {
         /// Number of times the graphics device has been replaced (a switch, a rollback, a device-loss recovery).
         [[nodiscard]] u64 device_generation() const noexcept { return renderer_.device_generation(); }
 
+        /// What frame rendering has done since startup (window frames and offscreen views). The frame callback keeps
+        /// running when a frame fails to render, so an app that just switched device compares two snapshots (or watches
+        /// `consecutive_failures`) to learn that the switch "succeeded" but nothing is being drawn, and rolls back.
+        struct RenderHealth {
+            u64 frames_rendered = 0;
+            u64 frames_failed = 0;
+            /// Failures since the last successful frame; 0 means the latest frame rendered.
+            u64 consecutive_failures = 0;
+            /// Message of the most recent failure ("" until one happens).
+            std::string last_error;
+        };
+        [[nodiscard]] RenderHealth render_health() const;
+        /// Records one frame's outcome. Called by the application loop for window frames and by offscreen views; safe
+        /// from any thread.
+        void record_frame_result(const Core::RendererResult &result) noexcept;
+
         /// Drains the queue of device changes (switches, rollbacks, automatic device-loss recoveries) since the
         /// last call. Safe from any thread.
         [[nodiscard]] vector<DeviceChangeEvent> take_device_change_events();
@@ -672,6 +688,7 @@ namespace SFT::Engine {
         Async::Mutex<std::unordered_map<usize, glm::mat4>> camera_history_;
         /// Per surface: the temporal upscaler's jitter (scene UV shift) applied last frame.
         Async::Mutex<std::unordered_map<usize, glm::vec2>> jitter_history_;
+        mutable Async::Mutex<RenderHealth> render_health_;
         Ecs::Schedule render_extraction_schedule_{Ecs::ScheduleConfig{.clear_events_on_run = false}};
         Core::RendererCapabilities capabilities_{};
         Core::Slang::ShaderCompiler shader_compiler_;

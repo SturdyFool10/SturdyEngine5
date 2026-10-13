@@ -194,6 +194,15 @@ pub mod ffi {
         label: String,
     }
 
+    /// What frame rendering has done so far (`Engine::RenderHealth`).
+    #[derive(Debug, Clone, Default)]
+    struct RenderHealthInfo {
+        frames_rendered: u64,
+        frames_failed: u64,
+        consecutive_failures: u64,
+        last_error: String,
+    }
+
     #[derive(Debug, Clone)]
     struct OffscreenTargetCreateResult {
         ok: bool,
@@ -681,6 +690,10 @@ pub mod ffi {
         fn window_effect_status(engine: Pin<&mut EngineView>, surface: SurfaceHandle, kind: WindowEffectKind) -> WindowEffectStatusInfo;
         /// Whether this build's platform implements `kind` at all (an upper bound; see the status for the real answer).
         fn window_effect_supported(kind: WindowEffectKind) -> bool;
+
+        // -- frame health --
+
+        fn render_health(engine: &EngineView) -> RenderHealthInfo;
 
         // -- offscreen render targets --
 

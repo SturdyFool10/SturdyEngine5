@@ -316,6 +316,13 @@ impl TextRenderer {
 
     /// Registers the target as a Renderer texture so [`crate::ui::Ui::image`] can draw it. The
     /// handle is valid until the target is destroyed.
+    ///
+    /// **Device switches:** the engine does not own an adopted texture's GPU memory, so it cannot rebuild it. After
+    /// [`Engine::switch_device`] (or any device recovery, see [`Engine::device_generation`]) the target and the
+    /// adopted handle point at objects of the old device: the handle still looks valid but draws nothing. Rebuild the
+    /// [`TextTarget`], re-render into it and `adopt` it again when `device_generation()` changes. Textures made with
+    /// [`crate::assets::Assets`] and offscreen targets from [`Engine::create_offscreen_target`] are rebuilt by the
+    /// engine and need none of this.
     pub fn adopt(&self, engine: &mut Engine<'_>, target: &TextTarget) -> Option<RendererTextureHandle> {
         let raw = ffi::text_target_adopt(&self.inner, engine.view_mut(), target.id);
         (raw != 0).then_some(RendererTextureHandle(raw))

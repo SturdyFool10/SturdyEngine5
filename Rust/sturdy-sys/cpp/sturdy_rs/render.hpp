@@ -39,6 +39,7 @@ namespace sturdy_rs::render {
     struct EffectRouteInfo;
     struct OffscreenTargetDesc;
     struct OffscreenTargetCreateResult;
+    struct RenderHealthInfo;
     struct PresentationSettings;
     struct Status;
     struct PresentationResolution;
@@ -73,6 +74,8 @@ namespace sturdy_rs::render {
     WindowEffectSupportInfo window_effect_support(const EngineView &engine, SurfaceHandle surface, WindowEffectKind kind);
     WindowEffectStatusInfo window_effect_status(EngineView &engine, SurfaceHandle surface, WindowEffectKind kind);
     bool window_effect_supported(WindowEffectKind kind) noexcept;
+
+    RenderHealthInfo render_health(const EngineView &engine);
 
     // -- offscreen render targets --
 

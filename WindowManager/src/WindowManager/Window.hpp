@@ -5,6 +5,7 @@
 #pragma region Imports
 #include <atomic>
 #include <concepts>
+#include <chrono>
 #include <expected>
 #include <functional>
 #include <memory>
@@ -667,6 +668,16 @@ namespace SFT::WindowManager {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept = 0;
+
+        /// Blocks the calling thread (the one that pumps this window's events) until the platform has an event for the
+        /// process, `wake_native_event_wait` is called, or `timeout` passes. Returns false at once when the provider has
+        /// no blocking wait, in which case the caller polls instead. Events are left queued for `pump_events`.
+        [[nodiscard]] virtual bool wait_for_native_events(std::chrono::microseconds timeout) noexcept;
+
+        /// Interrupts a `wait_for_native_events` in progress or about to start, from any thread (an event wait entered
+        /// afterwards returns at once). Must not touch `this`: the returned function is cached by the window manager and
+        /// may run after the window is gone. Null when the provider has no blocking wait.
+        [[nodiscard]] virtual void (*native_event_waker() const noexcept)() noexcept;
 
         /// True when the clipboard currently offers `mime_type` (e.g. "image/png", "text/uri-list").
         ///

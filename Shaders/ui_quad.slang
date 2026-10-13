@@ -131,8 +131,8 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
             (input.borderWidth.x + input.borderWidth.y) * 0.5,
             (input.borderWidth.z + input.borderWidth.w) * 0.5);
         float2 innerCenter = centerPos - float2(
-            (input.borderWidth.y - input.borderWidth.x) * 0.5,
-            (input.borderWidth.w - input.borderWidth.z) * 0.5);
+            (input.borderWidth.x - input.borderWidth.y) * 0.5,
+            (input.borderWidth.z - input.borderWidth.w) * 0.5);
         float maxBorder = max(max(input.borderWidth.x, input.borderWidth.y),
                               max(input.borderWidth.z, input.borderWidth.w));
         float4 innerRadius = max(input.cornerRadius - maxBorder, 0.0);

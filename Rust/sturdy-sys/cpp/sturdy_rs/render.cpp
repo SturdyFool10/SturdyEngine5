@@ -839,10 +839,17 @@ namespace sturdy_rs::render {
         const E::PreparedRenderFrame prepared =
             engine.prepare_render_frame(C::RenderSurfaceHandle{primary->id()}, frame, params);
         const C::RendererResult result = engine.render(prepared);
+        engine.record_frame_result(result);
         if (!result) {
             return Status{false, to_rust_string(result.error().message)};
         }
         return Status{true, rust::String()};
+    }
+
+    RenderHealthInfo render_health(const EngineView &engine) {
+        const E::Engine::RenderHealth health = engine.render_health();
+        return RenderHealthInfo{health.frames_rendered, health.frames_failed, health.consecutive_failures,
+                                to_rust_string(health.last_error)};
     }
 
     PresentationSettings presentation_settings_get(const EngineView &engine, SurfaceHandle surface) noexcept {

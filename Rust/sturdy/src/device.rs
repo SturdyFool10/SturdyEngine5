@@ -26,7 +26,9 @@
 //! engine handed out stay valid.
 //!
 //! What does **not** survive: GPU objects *you* created through [`crate::rhi`] (buffers, textures,
-//! pipelines, bind groups). Compare [`Engine::device_generation`] against the value you built them at,
+//! pipelines, bind groups), and textures the engine only *adopted* rather than created
+//! ([`TextRenderer::adopt`](crate::text_render::TextRenderer::adopt)): an adopted handle keeps looking
+//! valid but draws nothing until you adopt a rebuilt texture. Compare [`Engine::device_generation`] against the value you built them at,
 //! or watch [`Engine::take_device_change_events`], and rebuild them when it moves.
 //!
 //! ## Failure

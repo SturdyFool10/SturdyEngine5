@@ -420,6 +420,9 @@ namespace SFT::WindowManager::SDL3 {
         /// @note This function does not throw exceptions.
         void set_live_resize_callback(std::function<void(WindowExtent)> callback) noexcept override;
 
+        [[nodiscard]] bool wait_for_native_events(std::chrono::microseconds timeout) noexcept override;
+        [[nodiscard]] void (*native_event_waker() const noexcept)() noexcept override;
+
         /// Returns the current or globally available clipboard text value.
         ///
         /// @return Returns the current clipboard text value.

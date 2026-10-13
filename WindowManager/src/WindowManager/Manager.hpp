@@ -371,6 +371,8 @@ namespace SFT::WindowManager {
         std::atomic<u64> activity_epoch_{0};
         std::atomic<bool> wait_interrupted_{false};
         std::atomic<bool> low_power_polling_{false};
+        /// Wakes the poll thread out of the platform's blocking event wait (see `Window::native_event_waker`).
+        std::atomic<void (*)() noexcept> native_waker_{nullptr};
         std::atomic<i64> max_idle_interval_us_{8000};
         std::mutex activity_mutex_;
         std::condition_variable activity_cv_;
