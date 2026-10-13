@@ -500,6 +500,13 @@ impl<'a> Ui<'a> {
         &self.view
     }
 
+    /// The engine, from inside the UI hook. The hook runs on the same thread as `GameLogic::frame`, right after it,
+    /// so everything `frame` may do is allowed here (window controls from a custom title bar, loading textures,
+    /// requesting a redraw). Borrows the `Ui`; finish the engine calls before drawing more elements.
+    pub fn engine(&mut self) -> crate::Engine<'_> {
+        crate::Engine::new(self.view.as_mut())
+    }
+
     /// Records that a widget call left an element open (a button's content scope), so the caller
     /// closes it with the returned guard.
     pub(crate) fn open_scope() -> ElementScope {
@@ -511,6 +518,16 @@ impl<'a> Ui<'a> {
     /// once at startup; returns `false` on read/parse failure.
     pub fn register_font(&mut self, path: &str, font_id: u16) -> bool {
         ffi::ui_register_font(self.view.as_mut(), path, font_id)
+    }
+
+    /// Registers, or replaces live, UI font `font_id` as a [`FontStack`]. See [`Engine::register_ui_font_stack`].
+    pub fn register_font_stack(&mut self, font_id: u16, stack: &FontStack) -> Result<(), String> {
+        register_font_stack(self.view.as_mut(), font_id, stack)
+    }
+
+    /// Forgets UI font `font_id`.
+    pub fn unregister_font(&mut self, font_id: u16) {
+        ffi::ui_unregister_font(self.view.as_mut(), font_id);
     }
 
     /// Opens a new element as a child of whichever element is currently open (the layout root, if
@@ -619,8 +636,17 @@ impl<'a> Ui<'a> {
     /// same as [`Ui::element`]. `texture` comes from
     /// [`crate::assets::Assets::texture_handle`] on a texture asset already loaded through
     /// [`crate::assets::Assets`].
+    ///
+    /// `desc.corner_radius` clips the image to rounded corners. A non-transparent `desc.background` tints it
+    /// (multiplies the pixels, so a white SVG icon takes any colour), and the tint's alpha scales the image's opacity.
     pub fn image(&mut self, desc: &ElementDesc, texture: RendererTextureHandle) {
         ffi::ui_image(&desc.to_ffi(), ffi::UiTexture { value: texture.0 });
+    }
+
+    /// [`Ui::image`] with an explicit filter: [`ImageSampling::Nearest`] keeps pixel art (skins, item icons) crisp
+    /// when scaled up.
+    pub fn image_sampled(&mut self, desc: &ElementDesc, texture: RendererTextureHandle, sampling: ImageSampling) {
+        ffi::ui_image_sampled(&desc.to_ffi(), ffi::UiTexture { value: texture.0 }, sampling == ImageSampling::Nearest);
     }
 
     /// Loads (or returns the cached rasterization of) an SVG file, rendered at `target_px` (its
@@ -640,6 +666,19 @@ impl<'a> Ui<'a> {
     /// shape as [`Ui::image`].
     pub fn svg(&mut self, desc: &ElementDesc, texture: RendererTextureHandle) {
         ffi::ui_svg(&desc.to_ffi(), ffi::UiTexture { value: texture.0 });
+    }
+
+    /// Natural single-line size (width, height) of `content` drawn with `style`, in layout pixels, before any
+    /// wrapping. Works at any point inside the draw hook, so a widget can size itself or decide to truncate before
+    /// laying out. Zero for empty text.
+    pub fn measure_text(&self, style: &TextStyle, content: &str) -> glam::Vec2 {
+        ffi::ui_measure_text(&style.to_ffi(), content).into()
+    }
+
+    /// `content` shortened with an ellipsis (`…`) so it is no wider than `max_width` pixels when drawn with `style`;
+    /// unchanged when it already fits. Cuts on character boundaries.
+    pub fn ellipsize(&self, style: &TextStyle, content: &str, max_width: f32) -> String {
+        ellipsize_with(content, max_width, |candidate| self.measure_text(style, candidate).x)
     }
 
     /// Byte offset into `content` of the character boundary nearest `local_x` pixels from the left
@@ -1195,6 +1234,176 @@ impl Drop for ElementScope {
     }
 }
 
+/// How a UI image samples its texture. See [`Ui::image_sampled`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImageSampling {
+    #[default]
+    Linear,
+    Nearest,
+}
+
+/// Where a UI font comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FontSource {
+    /// A font file (TTF/OTF/TTC first face).
+    File(std::path::PathBuf),
+    /// Font file bytes already in memory (an embedded font).
+    Bytes(Vec<u8>),
+    /// An installed font by family name (see [`system_font_families`]).
+    System { family: String, bold: bool, italic: bool },
+}
+
+impl FontSource {
+    /// An installed family, regular weight.
+    pub fn system(family: impl Into<String>) -> Self {
+        Self::System { family: family.into(), bold: false, italic: false }
+    }
+
+    fn to_ffi(&self, variations: &[FontVariation]) -> ffi::FontSource {
+        let variations: Vec<ffi::FontVariation> =
+            variations.iter().map(|v| ffi::FontVariation { tag: v.tag.clone(), value: v.value }).collect();
+        match self {
+            Self::File(path) => {
+                ffi::FontSource { kind: 0, path: path.to_string_lossy().into_owned(), variations, ..Default::default() }
+            }
+            Self::Bytes(bytes) => ffi::FontSource { kind: 1, bytes: bytes.clone(), variations, ..Default::default() },
+            Self::System { family, bold, italic } => ffi::FontSource {
+                kind: 2,
+                family: family.clone(),
+                bold: *bold,
+                italic: *italic,
+                variations,
+                ..Default::default()
+            },
+        }
+    }
+}
+
+/// A UI font: the primary face, an optional colour emoji face, and fallbacks tried in order for codepoints the
+/// primary lacks (CJK, symbols). Register it under a font id with [`Engine::register_ui_font_stack`]; registering a
+/// different stack under an id that is on screen is a live font change (text re-shapes on the next frame).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FontStack {
+    pub primary: FontSource,
+    pub emoji: Option<FontSource>,
+    pub fallbacks: Vec<FontSource>,
+    /// Variable-font axis values applied to the primary and fallback faces (not the emoji face), e.g.
+    /// `FontVariation::weight(600.0)`. Ignored by static fonts.
+    pub variations: Vec<FontVariation>,
+    /// OpenType features for all text in this font, comma separated: `kern,liga,-calt,onum,ss01`. Empty = the
+    /// font's defaults.
+    pub features: String,
+}
+
+/// One variable-font axis value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FontVariation {
+    /// Four-character axis tag (`wght`, `wdth`, `slnt`, `opsz`, `ital`, or a custom axis).
+    pub tag: String,
+    pub value: f32,
+}
+
+impl FontVariation {
+    /// The `wght` axis (100 thin .. 400 regular .. 700 bold .. 900 black).
+    pub fn weight(value: f32) -> Self {
+        Self { tag: "wght".into(), value }
+    }
+    /// The `wdth` axis, percent of normal width.
+    pub fn width(percent: f32) -> Self {
+        Self { tag: "wdth".into(), value: percent }
+    }
+    /// The `slnt` axis, degrees (negative leans right).
+    pub fn slant(degrees: f32) -> Self {
+        Self { tag: "slnt".into(), value: degrees }
+    }
+    /// The `opsz` axis, in points.
+    pub fn optical_size(points: f32) -> Self {
+        Self { tag: "opsz".into(), value: points }
+    }
+}
+
+/// An axis a variable font declares. See [`font_variation_axes`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct FontAxis {
+    pub tag: String,
+    pub min: f32,
+    pub default: f32,
+    pub max: f32,
+}
+
+/// The variation axes of a font (empty for a static font), so a settings screen knows whether a weight slider applies
+/// and its range.
+pub fn font_variation_axes(source: &FontSource) -> Result<Vec<FontAxis>, String> {
+    let mut error = String::new();
+    let axes = ffi::ui_font_variation_axes(&source.to_ffi(&[]), &mut error);
+    if !error.is_empty() {
+        return Err(error);
+    }
+    Ok(axes.into_iter().map(|a| FontAxis { tag: a.tag, min: a.min_value, default: a.default_value, max: a.max_value }).collect())
+}
+
+impl FontStack {
+    pub fn new(primary: FontSource) -> Self {
+        Self { primary, emoji: None, fallbacks: Vec::new(), variations: Vec::new(), features: String::new() }
+    }
+
+    #[must_use]
+    pub fn variation(mut self, variation: FontVariation) -> Self {
+        self.variations.push(variation);
+        self
+    }
+
+    #[must_use]
+    pub fn emoji(mut self, emoji: FontSource) -> Self {
+        self.emoji = Some(emoji);
+        self
+    }
+
+    #[must_use]
+    pub fn fallback(mut self, fallback: FontSource) -> Self {
+        self.fallbacks.push(fallback);
+        self
+    }
+}
+
+fn register_font_stack(view: Pin<&mut EngineView>, font_id: u16, stack: &FontStack) -> Result<(), String> {
+    let none = ffi::FontSource { kind: 255, ..Default::default() };
+    let emoji = stack.emoji.as_ref().map_or(none, |source| source.to_ffi(&[]));
+    let fallbacks: Vec<ffi::FontSource> = stack.fallbacks.iter().map(|source| source.to_ffi(&stack.variations)).collect();
+    let error =
+        ffi::ui_register_font_stack(view, font_id, &stack.primary.to_ffi(&stack.variations), &emoji, &fallbacks, &stack.features);
+    if error.is_empty() { Ok(()) } else { Err(error) }
+}
+
+/// Every installed font family name, sorted. The first call scans the system font directories (slow-ish; cache it).
+pub fn system_font_families() -> Vec<String> {
+    ffi::ui_system_font_families()
+}
+
+impl crate::Engine<'_> {
+    /// Registers, or replaces live, UI font `font_id`. Font id 0 is the engine's embedded default until replaced.
+    pub fn register_ui_font_stack(&mut self, font_id: u16, stack: &FontStack) -> Result<(), String> {
+        register_font_stack(self.view_mut(), font_id, stack)
+    }
+
+    /// Forgets UI font `font_id` (id 0 falls back to the embedded default font).
+    pub fn unregister_ui_font(&mut self, font_id: u16) {
+        ffi::ui_unregister_font(self.view_mut(), font_id);
+    }
+}
+
+/// HDR displays: scales the reference white the UI is composed at (1.0 = the display's SDR white; raise it to make UI
+/// brighter against HDR content). Takes effect on the next frame.
+pub fn set_hdr_reference_white(scale: f32) {
+    ffi::ui_set_hdr_reference_white(scale);
+}
+
+/// `true` lays the UI out in framebuffer pixels (pixel-art or design-size UI); `false`, the default, lays it out in
+/// logical units that follow the window's content scale (DPI), which is what an application UI wants.
+pub fn set_raw_pixel_layout(raw: bool) {
+    ffi::ui_set_raw_pixel_layout(raw);
+}
+
 /// Installs (or replaces) the process-wide per-frame UI draw closure. Called once per frame once
 /// the engine-loop wiring described in this module's doc comment exists; `draw` builds the whole
 /// UI tree for that frame through the [`Ui`] it's given.
@@ -1368,5 +1577,73 @@ impl DockWorkspace {
                 .collect(),
             close_requests: events.close_requests,
         }
+    }
+}
+
+/// Shortens `content` with a trailing ellipsis until `width_of(candidate) <= max_width`, keeping as much text as
+/// fits. Binary search over character boundaries, so a long string costs O(log n) measurements. Pure apart from
+/// `width_of`, so it is unit tested without an engine.
+pub fn ellipsize_with(content: &str, max_width: f32, width_of: impl Fn(&str) -> f32) -> String {
+    if width_of(content) <= max_width {
+        return content.to_owned();
+    }
+    const ELLIPSIS: char = '\u{2026}';
+    let boundaries: Vec<usize> = content.char_indices().map(|(i, _)| i).collect();
+    let build = |keep: usize| -> String {
+        let cut = boundaries.get(keep).copied().unwrap_or(content.len());
+        let mut out = content[..cut].trim_end().to_owned();
+        out.push(ELLIPSIS);
+        out
+    };
+    // Largest `keep` (characters kept before the ellipsis) that fits; `keep == 0` is just the ellipsis.
+    let (mut low, mut high) = (0usize, boundaries.len());
+    while low < high {
+        let mid = (low + high).div_ceil(2);
+        if width_of(&build(mid)) <= max_width {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    build(low)
+}
+
+#[cfg(test)]
+mod ellipsize_tests {
+    use super::ellipsize_with;
+
+    // A monospace stand-in: every char is 10 px wide.
+    fn width(text: &str) -> f32 {
+        text.chars().count() as f32 * 10.0
+    }
+
+    #[test]
+    fn fitting_text_is_unchanged() {
+        assert_eq!(ellipsize_with("hello", 50.0, width), "hello");
+    }
+
+    #[test]
+    fn long_text_is_cut_to_the_width_with_an_ellipsis() {
+        let cut = ellipsize_with("hello world", 60.0, width);
+        assert_eq!(cut, "hello\u{2026}");
+        assert!(width(&cut) <= 60.0);
+    }
+
+    #[test]
+    fn degenerate_widths_still_produce_something_sane() {
+        assert_eq!(ellipsize_with("hello", 10.0, width), "\u{2026}");
+        assert_eq!(ellipsize_with("hello", 0.0, width), "\u{2026}");
+        assert_eq!(ellipsize_with("", 0.0, width), "");
+    }
+
+    #[test]
+    fn cuts_on_character_boundaries() {
+        let cut = ellipsize_with("ééééééé", 40.0, width);
+        assert_eq!(cut, "ééé\u{2026}");
+    }
+
+    #[test]
+    fn trailing_space_before_the_ellipsis_is_dropped() {
+        assert_eq!(ellipsize_with("ab cd ef", 40.0, width), "ab\u{2026}");
     }
 }

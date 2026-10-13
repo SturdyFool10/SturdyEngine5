@@ -533,3 +533,31 @@ See `Rust/plans/vertex-launcher-gaps.md` for the full verification report.
       `sturdy-sys/src/device.rs`, shim `cpp/sturdy_rs/device.cpp`.
 - [ ] Per-adapter, per-surface presentability: reported `Presentability::Unknown` except for the running device.
 - [ ] Rust access to `WindowEffect::linux_blur_protocol` and the `WindowEffectResult` readback (both exist in C++).
+
+## Window effects (2026-10-12)
+
+See `Rust/plans/vertex-launcher-gaps.md` ("Window effects, full pass").
+
+- [x] Rust: `Engine::set_window_effect_with` + `WindowEffectParams`/`WindowEffectOptions` (blur region, corner radius, accent
+      tint/borders, Windows corner preference, macOS material/blending/state/emphasis/appearance), `window_effect_status`
+      (verdict readback), `window_effect_supported` (compile-time bound) and `window_effect_support` (per-route report).
+- [x] Linux: ext-background-effect-v1 → org_kde_kwin_blur fallback, X11 `_KDE_NET_WM_BLUR_BEHIND_REGION`, rounded-corner
+      regions that follow resize. Verified live on a headless KWin 6.7.5 (ext route) and Xwayland (X11 route call).
+- [ ] The `org_kde_kwin_blur` route has not applied on any compositor yet (the test KWin did not advertise it).
+- [ ] Windows (all new kinds) and macOS `NSVisualEffectView` are written but have never run; Windows is only
+      syntax-checked against mingw headers, macOS against stub headers.
+- [ ] Linux opaque→transparent window at runtime (creation-time flag), flash-free toggle.
+
+## Vertex app-shell groundwork (2026-10-12) — written, NOT compiled
+
+Details and the full API table: `Rust/plans/vertex-launcher-gaps.md` ("Third pass"). All of it needs a first build.
+
+- [x] `sturdy::app` on-demand rendering (`FrameMode`, `request_redraw[_after]`, `RedrawHandle`) — **verified live** (`examples/ui_idle`); `FrameDescription::ui_only()` verified with it.
+- [ ] Custom title bar: `PrimaryWindow::{set_hit_test_regions, show_system_menu, toggle_maximized, set_icon, request_attention, set_taskbar_progress, system_theme, displays}`, `RuntimeConfig::app_id`, `Engine::take_drop_events`, window state in `Diagnostics::window`.
+- [ ] Fonts: `register_ui_font_stack` (file/bytes/system family, emoji + fallbacks, variable axes, OpenType features), `unregister_ui_font`, `system_font_families`, `font_variation_axes`.
+- [ ] UI kit: `ui_kit::{popup, context_menu, tooltip, modal, tabs, progress_bar, visible_rows, FocusNavigator, AnimatedImage}`, `markdown::MarkdownView`, `Ui::{rich_text, measure_text, ellipsize, image_sampled}`, read-only text inputs, text undo/redo.
+- [ ] Textures/targets: `Assets::update_texture`, `Engine::resize_offscreen_target`, nearest-sampling UI images.
+- [ ] Packaging: `STURDY_RS_DEPS_DIR`, `STURDY_RS_OFFLINE`, `tools/prefetch-deps.sh`, Windows `.lib` branch in `build.rs` (untested; macOS link handling absent).
+- [ ] Still absent: MSAA/motion blur on offscreen targets, variable-height virtual lists, clipboard images/files, raster-mode (SDF/MSDF) user switch, Linux live opaque→transparent.
+
+- [ ] `examples/shell_demo` (reference immediate-mode app), `ui_kit::{pressed, Shortcut, AnimationKeepAlive}`, `ui::{set_hdr_reference_white, set_raw_pixel_layout}`, UI colour format follows the surface's live HDR state — written, not compiled.

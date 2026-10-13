@@ -241,6 +241,9 @@ namespace SFT::Engine {
                 managed->window_snapshot.framebuffer_size = *framebuffer;
             }
             managed->window_snapshot.content_scale = window.content_scale();
+            managed->window_snapshot.maximized = window.maximized();
+            managed->window_snapshot.minimized = window.minimized();
+            managed->window_snapshot.system_theme = window.system_theme();
             return true;
         });
         managed->live_resize = make_shared<LiveResizeState>();
@@ -653,7 +656,8 @@ namespace SFT::Engine {
         managed.last_frame_time = now;
         managed.last_delta_seconds = delta_seconds;
 
-        if (delta_seconds >= hitch_log_threshold_seconds) {
+        // In on-demand mode the gap since the last frame is idle time by design, not a hitch.
+        if (delta_seconds >= hitch_log_threshold_seconds && engine_->frame_mode() != FrameMode::OnDemand) {
             Foundation::log_warn("Long frame detected: {}", Foundation::human_readable_time(delta_seconds));
         }
 
@@ -759,6 +763,34 @@ namespace SFT::Engine {
                     case WindowEventKind::ContentScaleChanged:
                         snapshot.content_scale = event.content_scale;
                         break;
+                    case WindowEventKind::Maximized:
+                        snapshot.maximized = true;
+                        snapshot.minimized = false;
+                        break;
+                    case WindowEventKind::Minimized:
+                        snapshot.minimized = true;
+                        break;
+                    case WindowEventKind::Restored:
+                        // Restored from minimized can land back in a maximized state; ask the window rather than guess.
+                        snapshot.minimized = false;
+                        window_manager_.with_window(events.window_id, [&snapshot](Window &window) -> bool {
+                            snapshot.maximized = window.maximized();
+                            return true;
+                        });
+                        break;
+                    case WindowEventKind::SystemThemeChanged:
+                        window_manager_.with_window(events.window_id, [&snapshot](Window &window) -> bool {
+                            snapshot.system_theme = window.system_theme();
+                            return true;
+                        });
+                        break;
+                    case WindowEventKind::DropBegin:
+                    case WindowEventKind::DropPosition:
+                    case WindowEventKind::DropFile:
+                    case WindowEventKind::DropText:
+                    case WindowEventKind::DropComplete:
+                        engine_->queue_drop_event(events.window_id, event);
+                        break;
                     default:
                         break;
                 }
@@ -788,6 +820,9 @@ namespace SFT::Engine {
         client_initialized_ = false;
         client_shutdown_ = false;
         engine_ = make_unique<Engine>();
+        // Redraw requests and main-thread jobs posted from any thread wake an idle on-demand loop.
+        *engine_->redraw_handle().state()->wake.lock() = [this]() noexcept { window_manager_.interrupt_wait(); };
+        Async::set_main_thread_wake_hook([this]() noexcept { window_manager_.interrupt_wait(); });
 
 
         const ApplicationConfig &config = client_->application_config();
@@ -867,6 +902,10 @@ namespace SFT::Engine {
 
         {
 
+
+            // Read before pumping: activity that lands after the pump makes the idle wait below return at once
+            // instead of sleeping through it.
+            u64 activity_epoch = window_manager_.activity_epoch();
 
             Async::pump_main_thread();
 
@@ -967,7 +1006,42 @@ namespace SFT::Engine {
             engine_->update(tick_delta_seconds);
             process_window_requests();
 
+            // On-demand mode: a frame is due only for window activity, an explicit request, or a deadline that has
+            // come. Anything else leaves the screen as it is and the loop goes back to sleep below.
+            const bool on_demand = engine_->frame_mode() == FrameMode::OnDemand;
+            if (on_demand != low_power_polling_) {
+                window_manager_.set_low_power_polling(on_demand);
+                low_power_polling_ = on_demand;
+            }
+            const std::shared_ptr<RedrawHandle::State> &redraw = engine_->redraw_handle().state();
+            bool frame_due = true;
+            if (on_demand) {
+                const bool window_activity = std::ranges::any_of(window_events, [](const ManagedWindowEvents &events) {
+                    return !events.events.empty() || events.resized || events.close_requested;
+                });
+                const i64 now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                       std::chrono::steady_clock::now().time_since_epoch())
+                                       .count();
+                i64 deadline_ns = redraw->deadline_ns.load(std::memory_order_acquire);
+                const bool deadline_reached = deadline_ns <= now_ns;
+                if (deadline_reached) {
+                    redraw->deadline_ns.compare_exchange_strong(deadline_ns, std::numeric_limits<i64>::max(),
+                                                                std::memory_order_acq_rel);
+                }
+                const bool requested = redraw->requested.exchange(false, std::memory_order_acq_rel);
+                const bool resizing = std::ranges::any_of(windows_, [](const auto &managed) {
+                    return managed->live_resize_active || managed->pending_live_resize.has_value();
+                });
+                frame_due = window_activity || requested || deadline_reached || resizing;
+            } else {
+                redraw->requested.store(false, std::memory_order_relaxed);
+            }
+
             for (const ManagedWindowEvents &events : window_events) {
+
+                if (!frame_due && !events.close_requested) {
+                    continue;
+                }
 
                 if (events.close_requested) {
                     if (ManagedWindow *managed = find_managed_window(events.window_id)) {
@@ -1107,6 +1181,18 @@ namespace SFT::Engine {
             }
 
             FrameMark;
+
+            // Idle: sleep in the window system's wait until input, a redraw request, a main-thread job or the next
+            // scheduled redraw. Closing windows still need the loop to spin until their frames drain.
+            const bool closing = std::ranges::any_of(windows_, [](const auto &managed) { return managed->closing; });
+            if (on_demand && !frame_due && !closing && !windows_.empty()) {
+                const i64 deadline_ns = redraw->deadline_ns.load(std::memory_order_acquire);
+                const auto max_sleep = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+                const auto scheduled = deadline_ns == std::numeric_limits<i64>::max()
+                                           ? max_sleep
+                                           : std::chrono::steady_clock::time_point{std::chrono::nanoseconds{deadline_ns}};
+                (void)window_manager_.wait_for_activity(activity_epoch, std::min(scheduled, max_sleep));
+            }
         }
         return true;
     }
@@ -1188,6 +1274,10 @@ namespace SFT::Engine {
             managed->surface.reset();
         }
         shutdown_client();
+        Async::set_main_thread_wake_hook({});
+        if (engine_) {
+            *engine_->redraw_handle().state()->wake.lock() = {};
+        }
         engine_.reset();
         Async::Scheduler::shutdown();
 #endif

@@ -9,7 +9,7 @@
 
 namespace SFT::UI {
 
-    enum class UiQuadKind : u32 { Rect = 0, Image = 1 };
+    enum class UiQuadKind : u32 { Rect = 0, Image = 1, ImageNearest = 2 };
 
                                                                                                        
                                                                                                 

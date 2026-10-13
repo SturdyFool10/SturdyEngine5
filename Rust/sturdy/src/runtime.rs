@@ -98,6 +98,7 @@ fn into_handle<L: GameLogic>(logic: L) -> Box<LogicHandle> {
                         );
                         ffi::FrameRequest {
                             present: true,
+                            overlay_only: description.overlay_only,
                             camera: description.camera.to_ffi(frame.aspect_ratio()),
                             lighting: description.lighting.to_ffi(),
                             debug_label: description.debug_label,
@@ -105,6 +106,7 @@ fn into_handle<L: GameLogic>(logic: L) -> Box<LogicHandle> {
                     }
                     None => ffi::FrameRequest {
                         present: false,
+                        overlay_only: false,
                         camera: crate::camera::Camera::default().to_ffi(1.0),
                         lighting: crate::engine::SceneLighting::default().to_ffi(),
                         debug_label: String::new(),

@@ -511,6 +511,12 @@ namespace SFT::UI {
         text_bridge_.register_font(font_id, font, emoji_fallback, fallbacks);
     }
 
+    void Context::unregister_font(FontId font_id) { text_bridge_.unregister_font(font_id); }
+
+    void Context::set_font_features(FontId font_id, string_view comma_separated_features) {
+        text_bridge_.set_font_features(font_id, comma_separated_features);
+    }
+
     /// Performs the begin layout operation for `UI` using the supplied arguments.
     ///
     /// @param viewport_size Requested or available size for the operation.
@@ -678,6 +684,14 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    glm::vec2 Context::measure_text(const TextStyle &style, string_view utf8_content) {
+        if (utf8_content.empty()) {
+            return glm::vec2{0.0f};
+        }
+        const CachedShape *shape = text_bridge_.shape_and_cache(style, utf8_content);
+        return shape != nullptr ? glm::vec2{shape->width_px, shape->height_px} : glm::vec2{0.0f};
+    }
+
     usize Context::hit_test_text_byte_offset(const TextStyle &style, string_view utf8_content, f32 local_x) {
         if (utf8_content.empty()) {
             return 0;
@@ -736,13 +750,13 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void Context::image(const ElementDecl &decl, Renderer::TextureHandle texture) {
+    void Context::image(const ElementDecl &decl, Renderer::TextureHandle texture, ImageSampling sampling) {
         set_current();
         if (!decl.id.empty()) {
             current_frame_ids_.push_back(decl.id.cpp_string());
         }
         update_desired_cursor(decl);
-        image_storage_.push_back(ImageRef{.texture = texture});
+        image_storage_.push_back(ImageRef{.texture = texture, .sampling = sampling});
         ImageRef *stored = &image_storage_.back();
         const i32 effective_z = decl.z != 0 ? decl.z : z_stack_.back();
         Clay_ElementDeclaration declaration = to_clay_declaration(decl, effective_z);
@@ -1448,7 +1462,9 @@ namespace SFT::UI {
                             .fill_color = clay_color_to_linear(data.backgroundColor),
                             .uv_min = {0.0f, 0.0f},
                             .uv_max = {1.0f, 1.0f},
-                            .kind = static_cast<f32>(UiQuadKind::Image),
+                            .kind = static_cast<f32>(image_ref != nullptr && image_ref->sampling == ImageSampling::Nearest
+                                                                  ? UiQuadKind::ImageNearest
+                                                                  : UiQuadKind::Image),
                         },
                         .image_ref = image_ref,
                         .scissor = active_scissor,

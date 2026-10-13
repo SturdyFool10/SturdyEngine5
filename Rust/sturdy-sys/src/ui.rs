@@ -40,6 +40,36 @@
 
 #[cxx::bridge(namespace = "sturdy_rs::ui")]
 pub mod ffi {
+    /// Where a font comes from: `kind` 0 = file `path`, 1 = in-memory `bytes`, 2 = installed `family` (with
+    /// `bold`/`italic`), 255 = none (an absent optional font).
+    #[derive(Debug, Clone, Default)]
+    struct FontSource {
+        kind: u8,
+        path: String,
+        bytes: Vec<u8>,
+        family: String,
+        bold: bool,
+        italic: bool,
+        /// Variable-font axis settings applied after loading (`wght` 100..900, `wdth`, `slnt`, `opsz`, ...).
+        variations: Vec<FontVariation>,
+    }
+
+    /// One variation axis value (`tag` is four ASCII characters).
+    #[derive(Debug, Clone, Default)]
+    struct FontVariation {
+        tag: String,
+        value: f32,
+    }
+
+    /// An axis a variable font declares.
+    #[derive(Debug, Clone, Default)]
+    struct FontAxisInfo {
+        tag: String,
+        min_value: f32,
+        default_value: f32,
+        max_value: f32,
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum UiSizing {
         /// Shrinks to its content, within `[min, max]`.
@@ -525,6 +555,22 @@ pub mod ffi {
         /// without copying it. The font must stay loaded while the UI runs.
         fn ui_register_text_font(registry_font_id: u64, font_id: u16) -> bool;
         fn ui_register_font(engine: Pin<&mut EngineView>, path: &str, font_id: u16) -> bool;
+        /// Registers (or replaces, live) UI font `font_id` as a stack: a primary font, an optional colour emoji
+        /// font (`kind == 255` = none) and fallbacks tried in order for missing codepoints. Returns an empty string
+        /// on success, else the reason. Text using the id re-shapes on the next frame.
+        fn ui_register_font_stack(
+            engine: Pin<&mut EngineView>,
+            font_id: u16,
+            primary: &FontSource,
+            emoji: &FontSource,
+            fallbacks: &Vec<FontSource>,
+            features: &str,
+        ) -> String;
+        fn ui_unregister_font(engine: Pin<&mut EngineView>, font_id: u16);
+        /// Every installed font family name (sorted, unique). The first call scans the system font directories.
+        fn ui_system_font_families() -> Vec<String>;
+        /// The variation axes of the font `source` names (empty for a static font); `error` is set on load failure.
+        fn ui_font_variation_axes(source: &FontSource, error: &mut String) -> Vec<FontAxisInfo>;
 
         /// Builds one overlay UI frame: readies the UI renderer, opens a layout sized to
         /// `framebuffer_width` x `framebuffer_height`, invokes the registered draw hook (if any),
@@ -535,6 +581,8 @@ pub mod ffi {
             framebuffer_width: u32,
             framebuffer_height: u32,
             delta_seconds: f64,
+            /// The surface's current HDR state (not the startup config), so a live toggle rebuilds the UI renderer.
+            hdr_output: bool,
         ) -> bool;
 
         /// Opens a new element scope as a child of whichever element is currently open (the layout
@@ -553,6 +601,8 @@ pub mod ffi {
         /// the currently open element, sized/positioned by `desc` same as `ui_begin_element`.
         /// Mirrors `SFT::UI::Context::image`. Returns `false` if there is no open frame.
         fn ui_image(desc: &UiElementDesc, texture: UiTexture) -> bool;
+        /// `ui_image` with nearest-neighbour sampling when `nearest` (pixel art scales crisply).
+        fn ui_image_sampled(desc: &UiElementDesc, texture: UiTexture, nearest: bool) -> bool;
 
         /// Loads (or returns the cached rasterization of) an SVG file at `path`, rendered at
         /// `target_px` (the SVG's largest dimension, in logical UI pixels -- re-rasterized at a new
@@ -609,6 +659,13 @@ pub mod ffi {
         /// Byte offset into `content` of the character boundary nearest `local_x` (pixels from the
         /// text's left edge) when drawn with `style` — for placing carets and picking text.
         fn ui_hit_test_text(style: &UiTextStyle, content: &str, local_x: f32) -> usize;
+        /// Natural single-line size (width, height) in layout pixels of `content` drawn with `style`.
+        fn ui_measure_text(style: &UiTextStyle, content: &str) -> [f32; 2];
+        /// HDR displays: scales the reference white the UI is composed at (1.0 = the display's SDR white).
+        fn ui_set_hdr_reference_white(scale: f32);
+        /// `true` lays the UI out in framebuffer pixels (pixel-art / design-size UI); `false` (default) in logical
+        /// units that follow the window's content scale.
+        fn ui_set_raw_pixel_layout(raw: bool);
         /// Bounds (position and size, in layout pixels) of the element with this id as of the last
         /// finished layout; `found == false` if no such element was laid out.
         fn ui_element_bounds(id: &str) -> UiBounds;

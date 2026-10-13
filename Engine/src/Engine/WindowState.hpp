@@ -27,6 +27,10 @@ namespace SFT::Engine {
 
 
         bool focused = false;
+        bool maximized = false;
+        bool minimized = false;
+        /// The OS light/dark preference, refreshed when it changes.
+        WindowManager::SystemTheme system_theme = WindowManager::SystemTheme::Unknown;
         /// The window's OS-level handle, captured when the window is created. Empty when the
         /// platform could not provide one.
         std::optional<WindowManager::NativeWindowHandle> native_handle;

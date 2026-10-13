@@ -59,6 +59,7 @@ mirrored_enum!(
 pub struct RuntimeConfig {
     pub(crate) window_title: String,
     pub(crate) app_name: String,
+    pub(crate) app_id: String,
     pub(crate) shaders_directory: String,
     pub(crate) size: (u32, u32),
     pub(crate) resizable: bool,
@@ -94,6 +95,7 @@ impl RuntimeConfig {
         let title = title.into();
         Self {
             app_name: title.clone(),
+            app_id: String::new(),
             window_title: title,
             shaders_directory: "Shaders".into(),
             size: (1280, 720),
@@ -139,6 +141,13 @@ impl RuntimeConfig {
     #[must_use]
     pub fn resizable(mut self, on: bool) -> Self {
         self.resizable = on;
+        self
+    }
+    /// Reverse-DNS application id (`org.example.App`): the Wayland `app_id` / X11 `WM_CLASS` that desktop files and
+    /// Flatpak match the window to. The window system reads it once, at startup.
+    #[must_use]
+    pub fn app_id(mut self, id: impl Into<String>) -> Self {
+        self.app_id = id.into();
         self
     }
     #[must_use]
@@ -301,6 +310,7 @@ impl RuntimeConfig {
         ffi::RuntimeOptions {
             window_title: self.window_title.clone(),
             app_name: self.app_name.clone(),
+            app_id: self.app_id.clone(),
             shaders_directory: self.shaders_directory.clone(),
             width: self.size.0,
             height: self.size.1,

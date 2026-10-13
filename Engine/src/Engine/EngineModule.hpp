@@ -5,7 +5,12 @@
 #pragma region Imports
 #include <filesystem>
 #include <optional>
+#include <atomic>
+#include <chrono>
+#include <deque>
 #include <functional>
+#include <limits>
+#include <memory>
 #include <unordered_map>
 #include <string_view>
 #include <vector>
@@ -41,6 +46,40 @@ using std::optional;
 using std::vector;
 
 namespace SFT::Engine {
+
+    /// How the application loop decides when to render.
+    enum class FrameMode : u8 {
+        /// Render every loop iteration, paced by the presentation settings (games, anything always animating).
+        Continuous,
+        /// Render only when something asks: window input/resize/close, `request_redraw()`, a due
+        /// `request_redraw_after()`, or a device change. Otherwise the loop blocks in the OS event wait, so an idle app
+        /// costs ~0% CPU and GPU. For tools, launchers and editors.
+        OnDemand,
+    };
+
+    /// Shared redraw state. Copy a `RedrawHandle` to any thread (a download worker, a timer) to wake the UI.
+    class RedrawHandle {
+      public:
+        RedrawHandle() = default;
+
+        /// Render a frame as soon as possible. Safe from any thread.
+        void request_redraw() const noexcept;
+        /// Render a frame no later than `delay` from now (the earliest of all pending requests wins). Any thread.
+        void request_redraw_after(std::chrono::nanoseconds delay) const noexcept;
+
+        struct State {
+            std::atomic<bool> requested{true};
+            /// steady_clock nanoseconds of the earliest scheduled redraw; max = none.
+            std::atomic<i64> deadline_ns{std::numeric_limits<i64>::max()};
+            /// Wakes the blocked loop (installed by the Application).
+            mutable Async::Mutex<std::function<void()>> wake;
+        };
+        explicit RedrawHandle(std::shared_ptr<State> state) noexcept : state_(std::move(state)) {}
+        [[nodiscard]] const std::shared_ptr<State> &state() const noexcept { return state_; }
+
+      private:
+        std::shared_ptr<State> state_;
+    };
 
     struct EngineConfig {
         RHI::BackendType graphics_backend = RHI::BackendType::Vulkan;
@@ -122,6 +161,8 @@ namespace SFT::Engine {
         ///
         /// @note This function does not throw exceptions.
         void destroy_offscreen_render_target(RenderTargetHandle target) noexcept;
+        /// Resizes an off-screen render target in place; see `Renderer::resize_offscreen_render_target`.
+        [[nodiscard]] Core::RendererResult resize_offscreen_render_target(RenderTargetHandle target, u32 width, u32 height);
 
 
         /// Performs the offscreen render target description operation for `Engine` using the supplied arguments.
@@ -294,6 +335,22 @@ namespace SFT::Engine {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void queue_window_event(WindowManager::WindowId window,
                                 const WindowManager::WindowEvent &event);
+
+        /// One step of a drag-and-drop onto a window, with the dropped path or text attached.
+        struct DropEvent {
+            enum class Kind : u8 { Begin, Hover, File, Text, Complete };
+            WindowManager::WindowId window{};
+            Kind kind = Kind::Begin;
+            /// Pointer position in window coordinates (`Hover`; best effort for the others).
+            WindowManager::WindowPosition position{};
+            /// The file path (`File`) or text (`Text`).
+            std::string data;
+        };
+
+        /// Called by the application for each drop-related window event; pairs `DropFile`/`DropText` with its string.
+        void queue_drop_event(WindowManager::WindowId window, const WindowManager::WindowEvent &event);
+        /// Drains the drag-and-drop steps since the last call, in order. Any thread.
+        [[nodiscard]] std::vector<DropEvent> take_drop_events();
 
         /// Synthetic input: each of these builds a platform-shaped event and queues it through
         /// `queue_window_event`, so it takes exactly the path a real device event takes -- the ECS event
@@ -526,6 +583,16 @@ namespace SFT::Engine {
         /// frames (not from inside a render callback).
         [[nodiscard]] DeviceSwitchResult switch_device(const DeviceRequest &request);
 
+        /// See `FrameMode`. Takes effect on the next loop iteration.
+        void set_frame_mode(FrameMode mode) noexcept;
+        [[nodiscard]] FrameMode frame_mode() const noexcept { return frame_mode_.load(std::memory_order_acquire); }
+        /// Render a frame as soon as possible (`FrameMode::OnDemand`); a no-op in continuous mode. Any thread.
+        void request_redraw() noexcept { redraw_.request_redraw(); }
+        /// Render a frame within `delay` (an animation's next tick, a countdown); any thread.
+        void request_redraw_after(std::chrono::nanoseconds delay) noexcept { redraw_.request_redraw_after(delay); }
+        /// A copyable handle for other threads to wake the UI with.
+        [[nodiscard]] RedrawHandle redraw_handle() const noexcept { return redraw_; }
+
         /// Number of times the graphics device has been replaced (a switch, a rollback, a device-loss recovery).
         [[nodiscard]] u64 device_generation() const noexcept { return renderer_.device_generation(); }
 
@@ -592,6 +659,14 @@ namespace SFT::Engine {
             usize next_token = 1;
         };
         Async::Mutex<DeviceObservers> device_observers_;
+        std::atomic<FrameMode> frame_mode_{FrameMode::Continuous};
+        struct DropQueue {
+            std::vector<DropEvent> events;
+            /// Strings fetched from the window manager's drop store but not yet paired with their event.
+            std::unordered_map<WindowManager::WindowId, std::deque<WindowManager::DroppedItem>> unpaired;
+        };
+        Async::Mutex<DropQueue> drops_;
+        RedrawHandle redraw_{std::make_shared<RedrawHandle::State>()};
         void dispatch_device_change(const Core::DeviceChangeNotice &notice);
         Async::Mutex<std::vector<std::function<void()>>> deferred_actions_;
         Async::Mutex<std::unordered_map<usize, glm::mat4>> camera_history_;

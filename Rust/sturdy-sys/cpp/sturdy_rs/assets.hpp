@@ -111,6 +111,7 @@ namespace sturdy_rs::assets {
     SoundInfoOutcome assets_sound_info(const EngineView &engine, AssetHandle asset);
 
     RendererTextureHandleOutcome assets_texture_handle(const EngineView &engine, AssetHandle asset);
+    rust::String assets_update_texture(EngineView &engine, AssetHandle asset, rust::Slice<const std::uint8_t> pixels);
     BytesOutcome assets_file_bytes(const EngineView &engine, AssetHandle asset);
     SamplesOutcome assets_sound_samples(const EngineView &engine, AssetHandle asset);
 

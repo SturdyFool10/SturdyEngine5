@@ -225,6 +225,39 @@ Font &Font::operator=(Font &&other) noexcept {
 /// @note This function does not throw exceptions.
 [[nodiscard]] hb_face_t *Font::face_handle() const noexcept { return face_; }
 
+vector<Font::VariationAxis> Font::variation_axes() const {
+    vector<VariationAxis> out;
+    if (face_ == nullptr) {
+        return out;
+    }
+    const unsigned int count = hb_ot_var_get_axis_count(face_);
+    vector<hb_ot_var_axis_info_t> infos(count);
+    unsigned int returned = count;
+    hb_ot_var_get_axis_infos(face_, 0, &returned, infos.data());
+    for (unsigned int i = 0; i < returned; ++i) {
+        VariationAxis axis;
+        hb_tag_to_string(infos[i].tag, axis.tag);
+        axis.tag[4] = '\0';
+        axis.min_value = infos[i].min_value;
+        axis.default_value = infos[i].default_value;
+        axis.max_value = infos[i].max_value;
+        out.push_back(axis);
+    }
+    return out;
+}
+
+void Font::set_variations(span<const Variation> variations) noexcept {
+    if (font_ == nullptr || ft_face_ != nullptr) {
+        return;
+    }
+    vector<hb_variation_t> hb_variations;
+    hb_variations.reserve(variations.size());
+    for (const Variation &variation : variations) {
+        hb_variations.push_back(hb_variation_t{hb_tag_from_string(variation.tag, 4), variation.value});
+    }
+    hb_font_set_variations(font_, hb_variations.data(), static_cast<unsigned int>(hb_variations.size()));
+}
+
 /// Resets the object to its baseline state.
 ///
 /// @return Returns the current reset value.

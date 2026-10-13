@@ -25,6 +25,22 @@ namespace SFT::WindowManager {
 Window::Window(ConstructorKey) noexcept
             : id_(Detail::allocate_window_id()) {}
 
+namespace {
+    [[nodiscard]] unexpected<WindowError> chrome_unsupported() noexcept {
+        return unexpected(WindowError{WindowErrorCode::Unsupported, "This window provider does not implement window chrome control."});
+    }
+} // namespace
+
+expected<void, WindowError> Window::set_hit_test_regions(HitTestRegions) noexcept { return chrome_unsupported(); }
+expected<void, WindowError> Window::show_system_menu(WindowPosition) noexcept { return chrome_unsupported(); }
+bool Window::maximized() const noexcept { return false; }
+bool Window::minimized() const noexcept { return false; }
+expected<void, WindowError> Window::set_icon(u32, u32, std::span<const std::byte>) noexcept { return chrome_unsupported(); }
+expected<void, WindowError> Window::request_attention(AttentionRequest) noexcept { return chrome_unsupported(); }
+expected<void, WindowError> Window::set_taskbar_progress(TaskbarProgress, f32) noexcept { return chrome_unsupported(); }
+SystemTheme Window::system_theme() const noexcept { return SystemTheme::Unknown; }
+std::vector<DisplayInfo> Window::displays() const noexcept { return {}; }
+
 WindowEffectSupport Window::window_effect_support(WindowEffectKind kind) const noexcept {
     const auto handle = native_window_handle();
     if (!handle) {
@@ -66,6 +82,14 @@ expected<void, WindowError> Window::unlock_mouse() noexcept {
 /// @return Returns the value produced by the operation.
 /// @note This function does not throw exceptions.
 void Window::set_live_resize_callback(std::function<void(WindowExtent)>             ) noexcept {}
+
+bool Window::clipboard_has_mime(std::string_view) const noexcept { return false; }
+
+std::vector<std::byte> Window::clipboard_data(std::string_view) const noexcept { return {}; }
+
+expected<void, WindowError> Window::set_clipboard_data(std::string_view, std::span<const std::byte>) noexcept {
+    return unexpected(WindowError{WindowErrorCode::Unsupported, "This window provider does not implement typed clipboard data."});
+}
 
 } // namespace SFT::WindowManager
 

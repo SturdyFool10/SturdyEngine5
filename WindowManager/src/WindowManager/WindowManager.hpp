@@ -3,6 +3,7 @@
 #include <WindowManager/Keyboard.hpp>
 #include <WindowManager/Manager.hpp>
 #include <WindowManager/Window.hpp>
+#include <WindowManager/WindowChrome.hpp>
 #include <WindowManager/WindowConfig.hpp>
 #include <WindowManager/WindowEffect.hpp>
 #include <WindowManager/WindowEffects.hpp>

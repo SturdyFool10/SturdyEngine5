@@ -328,6 +328,8 @@ namespace SFT::Engine {
 
 
         bool use_render_threading_ = false;
+        /// Whether the window manager's low-power polling is on (tracks `FrameMode::OnDemand`).
+        bool low_power_polling_ = false;
         u32 max_frames_in_flight_ = 2;
         u32 consecutive_render_errors_ = 0;
     };

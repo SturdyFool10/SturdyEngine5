@@ -204,6 +204,7 @@ namespace SFT::UI {
         pipeline.instances_binding_ = resolve("instances");
         pipeline.texture_binding_ = resolve("quadTexture");
         pipeline.sampler_binding_ = resolve("quadSampler");
+        pipeline.nearest_sampler_binding_ = resolve("quadSamplerNearest");
         if (!pipeline.instances_binding_.found || !pipeline.texture_binding_.found || !pipeline.sampler_binding_.found) {
             pipeline.destroy(device);
             return unexpected(ui_quad_error(
@@ -241,6 +242,22 @@ namespace SFT::UI {
             return unexpected(Renderer::graphics_error_from_rhi(sampler.error(), "create ui quad sampler"));
         }
         pipeline.sampler_ = *sampler;
+
+        auto nearest_sampler = device.create_sampler(RHI::SamplerDesc{
+            .min_filter = RHI::Filter::Nearest,
+            .mag_filter = RHI::Filter::Nearest,
+            .mipmap_mode = RHI::MipmapMode::Nearest,
+            .address_u = RHI::AddressMode::ClampToEdge,
+            .address_v = RHI::AddressMode::ClampToEdge,
+            .address_w = RHI::AddressMode::ClampToEdge,
+            .max_lod = 0.0f,
+            .label = "ui quad nearest sampler",
+        });
+        if (!nearest_sampler) {
+            pipeline.destroy(device);
+            return unexpected(Renderer::graphics_error_from_rhi(nearest_sampler.error(), "create ui quad nearest sampler"));
+        }
+        pipeline.nearest_sampler_ = *nearest_sampler;
 
         const RHI::ColorTargetState color_target{
             .format = color_format,
@@ -418,6 +435,9 @@ namespace SFT::UI {
                                               });
                 add_entry(texture_binding_, RHI::BindGroupEntry{.texture_view = batch.texture_view});
                 add_entry(sampler_binding_, RHI::BindGroupEntry{.sampler = sampler_});
+                if (nearest_sampler_binding_.found) {
+                    add_entry(nearest_sampler_binding_, RHI::BindGroupEntry{.sampler = nearest_sampler_});
+                }
                 for (const Group &group : groups) {
                     auto bind_group = device.create_bind_group(RHI::BindGroupDesc{
                         .layout = bind_group_layouts_[group.layout_index],
@@ -506,6 +526,10 @@ namespace SFT::UI {
         }
         if (additive_pipeline_) {
             device.destroy_render_pipeline(additive_pipeline_);
+        }
+        if (nearest_sampler_) {
+            device.destroy_sampler(nearest_sampler_);
+            nearest_sampler_ = {};
         }
         if (sampler_) {
             device.destroy_sampler(sampler_);

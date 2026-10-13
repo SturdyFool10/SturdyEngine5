@@ -1,6 +1,7 @@
 #include "sturdy_rs/ui.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -24,6 +25,8 @@
 #include <Renderer/Text/EmbeddedFont.hpp>
 #include "sturdy_rs/text.hpp"
 #include <Renderer/Text/Font.hpp>
+#include <Renderer/Text/FontDatabase.hpp>
+#include <Renderer/Text/PlatformFonts.hpp>
 #include <Renderer/UI/TextEdit.hpp>
 #include <Renderer/UI/Graph.hpp>
 #include <Renderer/UI/UI.hpp>
@@ -56,6 +59,10 @@ namespace sturdy_rs::ui {
         /// thread, same rationale `run_runtime`'s `g_pending_logic` documents in shim.cpp.
         std::optional<rust::Box<UiDrawHandle>> g_draw_hook;
 
+        /// Process-wide UI composition options (see `ui_set_hdr_reference_white` / `ui_set_raw_pixel_layout`).
+        std::atomic<float> g_hdr_reference_white{1.0f};
+        std::atomic<bool> g_raw_pixel_layout{false};
+
         /// A font loaded through `ui_register_font`, kept alongside the id it was registered under.
         /// See `FFI/src/FFI/Ui.cpp`'s `FontRegistration` -- same rationale: `Context::register_font`
         /// borrows the font, so storage has to outlive registration, and a context re-created by
@@ -66,10 +73,18 @@ namespace sturdy_rs::ui {
             std::unique_ptr<SFT::Text::Font> font;
             /// A font owned by the text registry (`ui_register_text_font`); must outlive the UI.
             const SFT::Text::Font *borrowed = nullptr;
+            /// Colour emoji font consulted for emoji codepoints (`ui_register_font_stack`).
+            std::unique_ptr<SFT::Text::Font> emoji;
+            /// Tried in order for codepoints the primary font lacks (CJK, symbols, ...).
+            std::vector<std::unique_ptr<SFT::Text::Font>> fallbacks;
+            /// OpenType features for all text in this font (`kern,liga,-calt`).
+            std::string features;
         };
 
         std::mutex g_font_mutex;
         std::vector<FontRegistration> g_fonts;
+        /// Ids removed since the last replay; the live context forgets them on the next `apply_font_registrations`.
+        std::vector<SFT::UI::FontId> g_unregistered_fonts;
 
         /// The engine's embedded default font, loaded once. Registered as font id 0 before any
         /// user-registered font so UI text renders without the caller supplying a font file; a
@@ -88,9 +103,88 @@ namespace sturdy_rs::ui {
                 context.register_font(0, *font);
             }
             const std::lock_guard<std::mutex> lock{g_font_mutex};
-            for (const FontRegistration &entry : g_fonts) {
-                context.register_font(entry.font_id, entry.font ? *entry.font : *entry.borrowed);
+            for (const SFT::UI::FontId id : g_unregistered_fonts) {
+                context.unregister_font(id);
             }
+            g_unregistered_fonts.clear();
+            for (const FontRegistration &entry : g_fonts) {
+                std::vector<const SFT::Text::Font *> fallbacks;
+                fallbacks.reserve(entry.fallbacks.size());
+                for (const auto &fallback : entry.fallbacks) {
+                    fallbacks.push_back(fallback.get());
+                }
+                context.register_font(entry.font_id, entry.font ? *entry.font : *entry.borrowed, entry.emoji.get(), fallbacks);
+                context.set_font_features(entry.font_id, entry.features);
+            }
+        }
+
+        /// Installed system fonts, scanned once on first use (the scan reads every font file's name table).
+        const SFT::Text::FontDatabase &system_fonts() {
+            static const SFT::Text::FontDatabase database = [] {
+                const std::vector<std::string> directories = SFT::Text::font_search_directories();
+                return SFT::Text::FontDatabase::create(directories);
+            }();
+            return database;
+        }
+
+        /// Loads one font described by a Rust `FontSource`; the error says which source failed and why.
+        std::unique_ptr<SFT::Text::Font> load_font_source(const FontSource &source, std::string &error) {
+            std::optional<std::string> file_bytes;
+            std::span<const std::byte> bytes;
+            std::string described;
+            switch (source.kind) {
+            case 0: { // file
+                described = std::string(source.path);
+                file_bytes = SFT::Foundation::read_file_to_string(described);
+                if (!file_bytes) {
+                    error = "cannot read font file '" + described + "'";
+                    return nullptr;
+                }
+                bytes = std::as_bytes(std::span<const char>{file_bytes->data(), file_bytes->size()});
+                break;
+            }
+            case 1: // bytes
+                described = "font bytes";
+                bytes = std::as_bytes(std::span<const std::uint8_t>{source.bytes.data(), source.bytes.size()});
+                break;
+            case 2: { // installed family
+                described = "system font family '" + std::string(source.family) + "'";
+                const SFT::UString family{std::string(source.family)};
+                const std::optional<std::string> path = system_fonts().find(family.as_ustr(), source.bold, source.italic);
+                if (!path) {
+                    error = "no installed font matches " + described;
+                    return nullptr;
+                }
+                file_bytes = SFT::Foundation::read_file_to_string(*path);
+                if (!file_bytes) {
+                    error = "cannot read '" + *path + "' for " + described;
+                    return nullptr;
+                }
+                bytes = std::as_bytes(std::span<const char>{file_bytes->data(), file_bytes->size()});
+                break;
+            }
+            default:
+                error = "unknown font source kind";
+                return nullptr;
+            }
+            auto loaded = SFT::Text::Font::load(bytes);
+            if (!loaded) {
+                error = described + " is not a usable font: " + loaded.error().message.cpp_string();
+                return nullptr;
+            }
+            auto font = std::make_unique<SFT::Text::Font>(std::move(*loaded));
+            if (!source.variations.empty()) {
+                std::vector<SFT::Text::Font::Variation> variations;
+                for (const FontVariation &requested : source.variations) {
+                    SFT::Text::Font::Variation variation{};
+                    const std::string tag{requested.tag};
+                    std::memcpy(variation.tag, tag.data(), std::min<std::size_t>(tag.size(), 4));
+                    variation.value = requested.value;
+                    variations.push_back(variation);
+                }
+                font->set_variations(variations);
+            }
+            return font;
         }
 
         /// The most recently finished frame's overlay, awaiting `ui_take_pending_overlay`.
@@ -215,6 +309,103 @@ namespace sturdy_rs::ui {
         return true;
     }
 
+    rust::String ui_register_font_stack(EngineView &engine, std::uint16_t font_id, const FontSource &primary,
+                                        const FontSource &emoji, const rust::Vec<FontSource> &fallbacks,
+                                        rust::Str features) {
+        try {
+            std::string error;
+            FontRegistration entry{};
+            entry.font_id = static_cast<SFT::UI::FontId>(font_id);
+            entry.features = std::string(features);
+            entry.font = load_font_source(primary, error);
+            if (!entry.font) {
+                return rust::String(error);
+            }
+            if (emoji.kind != 255) {
+                entry.emoji = load_font_source(emoji, error);
+                if (!entry.emoji) {
+                    return rust::String(error);
+                }
+            }
+            for (const FontSource &source : fallbacks) {
+                auto fallback = load_font_source(source, error);
+                if (!fallback) {
+                    return rust::String(error);
+                }
+                entry.fallbacks.push_back(std::move(fallback));
+            }
+            {
+                const std::lock_guard<std::mutex> lock{g_font_mutex};
+                auto existing = std::find_if(g_fonts.begin(), g_fonts.end(),
+                                             [&](const FontRegistration &e) { return e.font_id == entry.font_id; });
+                // Re-register before the old fonts are destroyed: the context switches to the new stack (and drops
+                // the old one's caches) in `apply_font_registrations` below, so it never points at a freed font.
+                if (existing != g_fonts.end()) {
+                    std::swap(*existing, entry);
+                } else {
+                    g_fonts.push_back(std::move(entry));
+                }
+            }
+            apply_font_registrations(screen(engine).context());
+            return rust::String();
+        } catch (const std::exception &e) {
+            return rust::String(e.what());
+        } catch (...) {
+            return rust::String("font registration failed");
+        }
+    }
+
+    void ui_unregister_font(EngineView &engine, std::uint16_t font_id) {
+        std::vector<FontRegistration> removed;
+        {
+            const std::lock_guard<std::mutex> lock{g_font_mutex};
+            const SFT::UI::FontId id = static_cast<SFT::UI::FontId>(font_id);
+            for (auto it = g_fonts.begin(); it != g_fonts.end();) {
+                if (it->font_id == id) {
+                    removed.push_back(std::move(*it));
+                    it = g_fonts.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            g_unregistered_fonts.push_back(id);
+        }
+        // The context lets go of the fonts first; only then are they destroyed (when `removed` goes out of scope).
+        apply_font_registrations(screen(engine).context());
+    }
+
+    rust::Vec<FontAxisInfo> ui_font_variation_axes(const FontSource &source, rust::String &error) {
+        rust::Vec<FontAxisInfo> out;
+        try {
+            std::string message;
+            const auto font = load_font_source(source, message);
+            if (!font) {
+                error = rust::String(message);
+                return out;
+            }
+            for (const SFT::Text::Font::VariationAxis &axis : font->variation_axes()) {
+                out.push_back(FontAxisInfo{rust::String(axis.tag), axis.min_value, axis.default_value, axis.max_value});
+            }
+        } catch (const std::exception &e) {
+            error = rust::String(e.what());
+        }
+        return out;
+    }
+
+    rust::Vec<rust::String> ui_system_font_families() {
+        std::vector<std::string> families;
+        for (const SFT::Text::FontFaceInfo &face : system_fonts().faces()) {
+            families.push_back(face.family.cpp_string());
+        }
+        std::sort(families.begin(), families.end());
+        families.erase(std::unique(families.begin(), families.end()), families.end());
+        rust::Vec<rust::String> out;
+        for (const std::string &family : families) {
+            out.push_back(rust::String::lossy(family));
+        }
+        return out;
+    }
+
     bool ui_register_font(EngineView &engine, rust::Str path, std::uint16_t font_id) {
         try {
             const std::string source{path.data(), path.size()};
@@ -234,7 +425,8 @@ namespace sturdy_rs::ui {
                 auto existing = std::find_if(g_fonts.begin(), g_fonts.end(),
                                              [id](const FontRegistration &entry) { return entry.font_id == id; });
                 if (existing != g_fonts.end()) {
-                    existing->font = std::move(owned);
+                    // Keep the old font alive (in `owned`) until the context has switched to the new one below.
+                    std::swap(existing->font, owned);
                 } else {
                     g_fonts.push_back(FontRegistration{.font_id = id, .font = std::move(owned)});
                 }
@@ -247,7 +439,7 @@ namespace sturdy_rs::ui {
     }
 
     bool ui_run_frame(EngineView &engine, std::uint32_t framebuffer_width,
-                      std::uint32_t framebuffer_height, double delta_seconds) {
+                      std::uint32_t framebuffer_height, double delta_seconds, bool hdr_output) {
         if (!g_draw_hook.has_value()) {
             return false;
         }
@@ -258,10 +450,16 @@ namespace sturdy_rs::ui {
             }
             // Matches the format the presentation path uses, so the overlay composites without a
             // conversion the renderer would otherwise have to insert (see FFI/src/FFI/Ui.cpp).
-            const SFT::RHI::Format color_format = engine.config().features.presentation.hdr_enabled
-                                                       ? SFT::RHI::Format::RGBA16Float
-                                                       : SFT::RHI::Format::BGRA8UnormSrgb;
+            const SFT::RHI::Format color_format =
+                hdr_output ? SFT::RHI::Format::RGBA16Float : SFT::RHI::Format::BGRA8UnormSrgb;
             SFT::Engine::ScreenUi &ui = screen(engine);
+            // The renderer is built for one colour format; when the surface's HDR state flips, drop it (the layout
+            // context and fonts stay) and let `ensure_ready` rebuild it in the new format.
+            static std::optional<SFT::RHI::Format> g_ui_color_format;
+            if (g_ui_color_format && *g_ui_color_format != color_format) {
+                ui.release_gpu_objects();
+            }
+            g_ui_color_format = color_format;
             if (!ui.ensure_ready(color_format)) {
                 return false;
             }
@@ -275,6 +473,7 @@ namespace sturdy_rs::ui {
                     g_injected_pointer.reset();
                 }
             }
+            ui.set_scale_mode(g_raw_pixel_layout.load() ? SFT::UI::UiScaleMode::RawPixels : SFT::UI::UiScaleMode::ContentScale);
             ui.begin_frame(viewport, static_cast<float>(delta_seconds));
 
             g_session.open = true;
@@ -287,7 +486,8 @@ namespace sturdy_rs::ui {
 
             auto snapshot = std::make_shared<SFT::UI::FrameSnapshot>(ui.context().finish_frame(viewport));
             SFT::Renderer::OverlayPass overlay =
-                ui.surface().overlay_for_snapshot(std::move(snapshot), engine.renderer());
+                ui.surface().overlay_for_snapshot(std::move(snapshot), engine.renderer(),
+                                                  SFT::UI::UiOverlayOptions{.hdr_reference_white_scale = g_hdr_reference_white.load()});
             {
                 const std::lock_guard<std::mutex> lock{g_pending_mutex};
                 g_pending_overlay = std::move(overlay);
@@ -368,6 +568,23 @@ namespace sturdy_rs::ui {
                                                             local_x);
     }
 
+    void ui_set_hdr_reference_white(float scale) noexcept { g_hdr_reference_white.store(scale > 0.0f ? scale : 1.0f); }
+    void ui_set_raw_pixel_layout(bool raw) noexcept { g_raw_pixel_layout.store(raw); }
+
+    std::array<float, 2> ui_measure_text(const UiTextStyle &style, rust::Str content) {
+        if (!g_session.open) {
+            return {0.0f, 0.0f};
+        }
+        SFT::UI::TextStyle engine_style{};
+        engine_style.font_id = static_cast<SFT::UI::FontId>(style.font_id);
+        engine_style.font_size = style.font_size;
+        engine_style.letter_spacing = style.letter_spacing;
+        engine_style.line_height = style.line_height;
+        const glm::vec2 size =
+            g_session.context->measure_text(engine_style, std::string_view{content.data(), content.size()});
+        return {size.x, size.y};
+    }
+
     bool ui_begin_element(const UiElementDesc &desc) {
         if (!g_session.open) {
             return false;
@@ -420,6 +637,19 @@ namespace sturdy_rs::ui {
         }
         try {
             g_session.context->image(to_element_decl(desc), to_texture_handle(texture));
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    bool ui_image_sampled(const UiElementDesc &desc, UiTexture texture, bool nearest) {
+        if (!g_session.open) {
+            return false;
+        }
+        try {
+            g_session.context->image(to_element_decl(desc), to_texture_handle(texture),
+                                     nearest ? SFT::UI::ImageSampling::Nearest : SFT::UI::ImageSampling::Linear);
             return true;
         } catch (...) {
             return false;

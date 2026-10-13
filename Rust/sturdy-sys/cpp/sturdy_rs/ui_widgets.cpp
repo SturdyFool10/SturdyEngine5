@@ -78,6 +78,12 @@ namespace sturdy_rs::ui_widgets {
             out.font_size = s.font_size;
             out.caret_blink_seconds = s.caret_blink_seconds;
             out.mask_characters = s.mask_characters;
+            if (s.read_only) {
+                out.features.typing = false;
+                out.features.deletion = false;
+                out.features.submission = false;
+                out.features.ime_enabled = false;
+            }
             out.wrap_lines = s.wrap_lines;
             return out;
         }
@@ -466,6 +472,57 @@ namespace sturdy_rs::ui_widgets {
         } catch (...) {
             return TextEditOutcome{};
         }
+    }
+
+    RichTextOutcome ui_rich_text(EngineView &engine, const UiElementDesc &desc, const TextEditStyleDesc &style,
+                                 const ScrollbarStyleDesc &scrollbar, TextEditStateBox &state,
+                                 ScrollAreaStateBox &scroll_state, const rust::Vec<RichSpanDesc> &spans) {
+        RichTextOutcome out{};
+        out.clicked_scalar = -1;
+        U::Context *ctx = ui::ui_session_context();
+        if (ctx == nullptr) {
+            return out;
+        }
+        try {
+            U::TextEditStyle engine_style = to_engine(style);
+            // Read-only and wrapped: selectable and copyable text, not an editor.
+            engine_style.features.typing = false;
+            engine_style.features.deletion = false;
+            engine_style.features.submission = false;
+            engine_style.features.ime_enabled = false;
+            engine_style.wrap_lines = true;
+            std::vector<U::RichTextSpan> rich;
+            rich.reserve(spans.size());
+            for (const RichSpanDesc &span : spans) {
+                U::RichTextSpan converted{};
+                converted.scalar_start = span.start;
+                converted.scalar_length = span.length;
+                if (span.has_color) {
+                    converted.color = color_of(span.color);
+                } else {
+                    converted.color = engine_style.text_color;
+                }
+                converted.font_id = static_cast<U::FontId>(span.font_id);
+                converted.use_font_id = span.has_font;
+                converted.font_size_scale = span.size_scale > 0.0f ? span.size_scale : 1.0f;
+                converted.underline = span.underline;
+                converted.strikethrough = span.strikethrough;
+                rich.push_back(converted);
+            }
+            engine_style.highlighter = [rich = std::move(rich)](const SFT::UString &) { return rich; };
+
+            const U::TextEditInput input = frame_input(engine);
+            const U::TextAreaResult r = U::text_area(*ctx, ui::ui_session_element_decl(desc), engine_style, state, input,
+                                                     static_cast<float>(delta_seconds(engine)), to_engine(scrollbar),
+                                                     scroll_state, SFT::UString{}, true);
+            out.ok = true;
+            out.focused = r.focused;
+            if (ctx->clicked(ustring_of(rust::Str{desc.id.data(), desc.id.size()}))) {
+                out.clicked_scalar = static_cast<std::int64_t>(state.caret());
+            }
+        } catch (...) {
+        }
+        return out;
     }
 
     ScrollAreaOutcome ui_scroll_area(EngineView &engine, rust::Str id, const UiElementDesc &desc,

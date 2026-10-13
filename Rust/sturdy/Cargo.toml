@@ -29,6 +29,8 @@ bytemuck = { version = "1", features = ["derive"] }
 # required for byte-exact parity with the engine's tightly-packed (non-GLM-aligned) C++ structs;
 # see `scene.rs`'s module doc comment for why that parity matters.
 glam = { version = "0.33", features = ["bytemuck", "scalar-math"] }
+# Backs `sturdy::markdown` (CommonMark parsing for the UI Markdown view).
+pulldown-cmark = { version = "0.13", default-features = false }
 
 # Passthrough: an application picks its engine build configuration here instead of ever touching
 # sturdy-sys or CMake directly. See sturdy-sys/Cargo.toml for what each one maps to.

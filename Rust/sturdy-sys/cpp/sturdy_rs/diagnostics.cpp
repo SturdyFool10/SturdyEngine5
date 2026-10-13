@@ -234,6 +234,10 @@ namespace sturdy_rs::diagnostics {
             out.opacity = snapshot.opacity;
             out.mouse_locked = snapshot.mouse_locked;
             out.focused = snapshot.focused;
+            out.maximized = snapshot.maximized;
+            out.minimized = snapshot.minimized;
+            out.content_scale = snapshot.content_scale;
+            out.system_theme = static_cast<std::uint8_t>(snapshot.system_theme);
         }
     } // namespace
 

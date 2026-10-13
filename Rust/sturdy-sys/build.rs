@@ -18,6 +18,9 @@
 //!                          `native`, which would make the binary crash on other machines)
 //!   STURDY_RS_CMAKE_ARGS   extra whitespace-separated arguments for the CMake configure step
 //!   STURDY_RS_BUILD_TYPE   CMake build type for the engine (default: Release)
+//!   STURDY_RS_DEPS_DIR     directory for the engine's third-party sources (default: a per-build `OUT_DIR/deps`);
+//!                          share one between profiles, or prepare it with `Rust/tools/prefetch-deps.sh`
+//!   STURDY_RS_OFFLINE      `1` forbids network access during the build (needs a populated STURDY_RS_DEPS_DIR)
 //!
 //! Cargo feature flags reach the engine's own `STURDY_*` CMake options (see `feature_cmake_args`
 //! and `sturdy-sys/Cargo.toml`'s `[features]` doc comments) — this is how a downstream Rust
@@ -88,7 +91,14 @@ fn main() {
     ] {
         println!("cargo:rerun-if-changed={}", engine_src.join(dir).display());
     }
-    for var in ["STURDY_RS_TARGET_CPU", "STURDY_RS_CMAKE_ARGS", "STURDY_RS_BUILD_TYPE", "STURDY_RS_ENGINE_DIR"] {
+    for var in [
+        "STURDY_RS_TARGET_CPU",
+        "STURDY_RS_CMAKE_ARGS",
+        "STURDY_RS_BUILD_TYPE",
+        "STURDY_RS_ENGINE_DIR",
+        "STURDY_RS_DEPS_DIR",
+        "STURDY_RS_OFFLINE",
+    ] {
         println!("cargo:rerun-if-env-changed={var}");
     }
 
@@ -244,18 +254,29 @@ fn configure(
         .args(HERMETIC_CMAKE_ARGS)
         // Cargo feature flags -> engine CMake options; see `feature_cmake_args`.
         .args(feature_cmake_args())
-        // Keep the source tree pristine: the dependency cache lives in OUT_DIR.
-        .arg(format!("-DSTURDY_DEPS_CACHE_DIR={}", out.join("deps").display()))
+        // Keep the source tree pristine: the dependency cache lives in OUT_DIR, unless STURDY_RS_DEPS_DIR points at a
+        // shared (or pre-populated, for offline builds) directory.
+        .arg(format!("-DSTURDY_DEPS_CACHE_DIR={}", deps_dir(out).display()))
         .arg(format!("-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES={}", manifest.join("cmake/hook.cmake").display()))
         .arg(format!("-DSTURDY_RS_SHIM_CMAKE={}", manifest.join("cmake/shim.cmake").display()))
         .arg(format!("-DSTURDY_RS_SHIM_SOURCES={shim_sources}"))
         .arg(format!("-DSTURDY_RS_SHIM_INCLUDE_DIRS={include_dirs}"));
+    if env::var_os("STURDY_RS_OFFLINE").is_some_and(|v| v != "0") {
+        // Never touch the network: every dependency must already be in the deps directory (see tools/prefetch-deps.sh).
+        cmd.arg("-DFETCHCONTENT_FULLY_DISCONNECTED=ON");
+    }
     if let Ok(extra) = env::var("STURDY_RS_CMAKE_ARGS") {
         cmd.args(extra.split_whitespace());
     }
     // Configure-time compiler flags come only from the -D arguments above.
     cmd.env_remove("CFLAGS").env_remove("CXXFLAGS").env_remove("LDFLAGS");
     run(&mut cmd);
+}
+
+/// Where the engine's third-party sources live: `STURDY_RS_DEPS_DIR` when set (shared between profiles and
+/// checkouts, or prepared ahead of an offline build), else a per-build `OUT_DIR/deps`.
+fn deps_dir(out: &Path) -> PathBuf {
+    env::var_os("STURDY_RS_DEPS_DIR").map(PathBuf::from).unwrap_or_else(|| out.join("deps"))
 }
 
 fn run(cmd: &mut Command) {
@@ -298,6 +319,27 @@ fn emit_link_directives(build_dir: &Path) {
     let mut system_libs = Vec::new();
 
     for token in tokens(link_line, build_dir) {
+        // Windows (MSVC ABI): archives are `Name.lib` (no `lib` prefix); a `.lib` that is not one of the engine's own
+        // build outputs is a system import library (`kernel32.lib`, `dwmapi.lib`, ...). UNTESTED: written from the
+        // MSVC conventions without a Windows machine; see `Rust/plans/vertex-launcher-gaps.md`.
+        if let Some(stem) = token.strip_suffix(".lib").or_else(|| token.strip_suffix(".LIB")) {
+            let file = Path::new(stem).file_name().unwrap().to_string_lossy().into_owned();
+            let own_archive = build_dir.join(&token).is_file() || Path::new(&token).is_file();
+            if own_archive {
+                let path = if Path::new(&token).is_absolute() { PathBuf::from(&token) } else { build_dir.join(&token) };
+                let dir = path.parent().unwrap().to_path_buf();
+                if seen_names.insert(file.clone(), dir.clone()).is_none() {
+                    if !searched.contains(&dir) {
+                        println!("cargo:rustc-link-search=native={}", dir.display());
+                        searched.push(dir);
+                    }
+                    println!("cargo:rustc-link-lib=static={file}");
+                }
+            } else if !system_libs.contains(&file) {
+                system_libs.push(file);
+            }
+            continue;
+        }
         if let Some(lib) = token.strip_suffix(".a") {
             let path = build_dir.join(&token);
             let file = Path::new(lib).file_name().unwrap().to_string_lossy().into_owned();
@@ -338,10 +380,10 @@ fn emit_link_directives(build_dir: &Path) {
         }
     }
 
-    // Threading/dl are always needed by SDL3/volk/spdlog even when the link line omits them.
-    for lib in ["pthread", "dl", "m"] {
+    // Threading/dl are always needed by SDL3/volk/spdlog even when the link line omits them (not a Windows concept).
+    for lib in if cfg!(windows) { &[][..] } else { &["pthread", "dl", "m"][..] } {
         if !system_libs.iter().any(|l| l == lib) {
-            system_libs.push(lib.into());
+            system_libs.push((*lib).into());
         }
     }
     for lib in system_libs {
@@ -349,6 +391,10 @@ fn emit_link_directives(build_dir: &Path) {
             continue; // handled below
         }
         println!("cargo:rustc-link-lib={lib}");
+    }
+
+    if cfg!(windows) {
+        return; // the MSVC C++ runtime is pulled in by the object files' default-library directives
     }
 
     // The engine is C++26 and is built against a very recent libstdc++; a target machine's copy is

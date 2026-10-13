@@ -35,6 +35,7 @@ mod runtime;
 // flattening it all into the crate root would bury the small core API above. Reach it as
 // `sturdy::ecs::World`, `sturdy::rhi::BufferDesc`, etc. — each accessible from `Engine` via the
 // matching method (`Engine::ecs()`, `Engine::rhi()`, ...).
+pub mod app;
 pub mod assets;
 pub mod device;
 pub mod diagnostics;
@@ -56,6 +57,8 @@ pub mod text;
 pub mod text_render;
 pub mod time;
 pub mod ui;
+pub mod ui_kit;
+pub mod markdown;
 pub mod window;
 pub mod widgets;
 

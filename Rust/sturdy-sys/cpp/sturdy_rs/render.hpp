@@ -76,6 +76,7 @@ namespace sturdy_rs::render {
 
     OffscreenTargetCreateResult offscreen_target_create(EngineView &engine, const OffscreenTargetDesc &desc);
     void offscreen_target_destroy(EngineView &engine, std::uint64_t handle) noexcept;
+    Status offscreen_target_resize(EngineView &engine, std::uint64_t handle, std::uint32_t width, std::uint32_t height);
     bool offscreen_target_description(const EngineView &engine, std::uint64_t handle, OffscreenTargetDesc &out);
     std::uint64_t offscreen_target_texture(const EngineView &engine, std::uint64_t handle) noexcept;
 

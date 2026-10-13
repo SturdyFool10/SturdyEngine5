@@ -290,9 +290,8 @@ pub struct PhysicalGpu {
 
 /// Diagnostic snapshot of one window. See [`Diagnostics::window`].
 ///
-/// Deliberately does not include monitor/refresh-rate or minimized state: the vendored engine
-/// does not expose either past its window-provider internals (see the `sturdy` crate's
-/// integration notes for `diagnostics.rs`).
+/// Monitor details (refresh rate, scale, HDR per display) are in
+/// [`PrimaryWindow::displays`](crate::window::PrimaryWindow::displays); this snapshot carries the window's own state.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WindowInfo {
     pub window_id: u64,
@@ -305,6 +304,14 @@ pub struct WindowInfo {
     pub opacity: f32,
     pub mouse_locked: bool,
     pub focused: bool,
+    /// Updated from window events; reads true right after the user (or the OS) maximizes the window.
+    pub maximized: bool,
+    pub minimized: bool,
+    /// Window-system UI scale (1.0 = 100%); changes when the window moves to a display with another scale, so a UI
+    /// that lays out in logical pixels re-reads it each frame.
+    pub content_scale: f32,
+    /// The OS light/dark preference.
+    pub system_theme: crate::window::SystemTheme,
 }
 
 impl WindowInfo {
@@ -317,6 +324,14 @@ impl WindowInfo {
             opacity: info.opacity,
             mouse_locked: info.mouse_locked,
             focused: info.focused,
+            maximized: info.maximized,
+            minimized: info.minimized,
+            content_scale: info.content_scale,
+            system_theme: match info.system_theme {
+                1 => crate::window::SystemTheme::Light,
+                2 => crate::window::SystemTheme::Dark,
+                _ => crate::window::SystemTheme::Unknown,
+            },
         }
     }
 }

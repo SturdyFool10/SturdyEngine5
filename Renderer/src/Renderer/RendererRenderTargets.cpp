@@ -164,6 +164,61 @@ namespace SFT::Renderer {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
+    Core::RendererResult Renderer::resize_offscreen_render_target(OffscreenRenderTargetHandle handle,
+                                                                  Core::Extent2D extent) {
+        ZoneScopedN("Renderer::resize_offscreen_render_target");
+        if (!handle) {
+            return unexpected(offscreen_target_error("Cannot resize an invalid off-screen render target."));
+        }
+        if (Core::is_zero(extent)) {
+            return unexpected(offscreen_target_error("Off-screen render targets require a non-zero absolute extent."));
+        }
+
+        // The old texture may still be referenced by frames in flight; settle them before replacing it.
+        wait_idle();
+
+        auto targets = offscreen_render_targets_.lock();
+        if (handle.value > targets->size()) {
+            return unexpected(offscreen_target_error("Cannot resize an unknown off-screen render target."));
+        }
+        OffscreenRenderTargetRecord &target = (*targets)[static_cast<usize>(handle.value - 1)];
+        if (!target.alive) {
+            return unexpected(offscreen_target_error("Cannot resize a destroyed off-screen render target."));
+        }
+        if (target.description.extent == extent) {
+            return {};
+        }
+        if (!target.sampled_texture || target.sampled_texture.value > textures_.size()) {
+            return unexpected(offscreen_target_error("Cannot resize an off-screen target whose sampling wrapper is missing."));
+        }
+
+        OffscreenRenderTargetDescription resized = target.description;
+        resized.extent = extent;
+        auto gpu = create_offscreen_render_target_gpu_resources(resized);
+        if (!gpu) {
+            return unexpected(gpu.error());
+        }
+
+        TextureResource &sampled = textures_[static_cast<usize>(target.sampled_texture.value - 1)];
+        if (RHI::RhiDevice *device = rhi_device()) {
+            if (target.sampler) device->destroy_sampler(target.sampler);
+            if (target.view) device->destroy_texture_view(target.view);
+            if (target.texture) device->destroy_texture(target.texture);
+        }
+        target.description = resized;
+        target.texture = gpu->texture;
+        target.view = gpu->view;
+        target.sampler = gpu->sampler;
+        target.initialized = false;
+        // Everything holding the sampling wrapper's handle (UI images, materials) now sees the new GPU objects.
+        sampled.texture = gpu->texture;
+        sampled.view = gpu->view;
+        sampled.sampler = gpu->sampler;
+        sampled.width = extent.x;
+        sampled.height = extent.y;
+        return {};
+    }
+
     void Renderer::destroy_offscreen_render_target(OffscreenRenderTargetHandle handle) noexcept {
         ZoneScopedN("Renderer::destroy_offscreen_render_target");
         if (!handle) {

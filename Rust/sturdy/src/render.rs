@@ -616,6 +616,18 @@ impl Engine<'_> {
         if result.ok { Ok(OffscreenTargetHandle { value: result.handle }) } else { Err(Error::new(result.message)) }
     }
 
+    /// Gives an offscreen target a new size in place (the UI element showing it was resized). The handle and its
+    /// sampling texture ([`Engine::offscreen_target_texture`]) stay valid, so a UI image using it keeps working; the
+    /// contents are cleared and the next frame re-renders into it. A no-op when the size is unchanged.
+    ///
+    /// The engine waits for the GPU to finish with the old size first, so resize once the size has settled (a few
+    /// frames after the drag stops, or when it changes by a visible amount), not on every pixel of a drag.
+    pub fn resize_offscreen_target(&mut self, handle: OffscreenTargetHandle, size: impl Into<glam::UVec2>) -> Result<(), Error> {
+        let size = size.into();
+        let result = ffi::offscreen_target_resize(self.view_mut(), handle.value, size.x, size.y);
+        if result.ok { Ok(()) } else { Err(Error::new(result.message)) }
+    }
+
     pub fn destroy_offscreen_target(&mut self, handle: OffscreenTargetHandle) {
         ffi::offscreen_target_destroy(self.view_mut(), handle.value);
     }
@@ -683,11 +695,25 @@ pub struct PresentationSettings {
     /// `0` lets the engine choose the swapchain image count.
     pub swapchain_image_count: u32,
     pub allow_present_from_compute: bool,
+    /// A cap on the render rate on top of whatever vsync does. Applies on the next frame, no surface recreation.
+    pub frame_rate_limit: FrameRateLimit,
+}
+
+/// The frame limiter. See [`PresentationSettings::frame_rate_limit`].
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum FrameRateLimit {
+    #[default]
+    Unlimited,
+    /// At most this many frames per second.
+    Fps(f64),
+    /// The refresh rate of the display the window is on (re-read as the window moves between displays).
+    MatchDisplay,
 }
 
 impl Default for PresentationSettings {
     fn default() -> Self {
         Self {
+            frame_rate_limit: FrameRateLimit::Unlimited,
             vsync: VSync::On,
             variable_refresh: VariableRefresh::Disabled,
             latency: LatencyMode::Normal,
@@ -712,10 +738,18 @@ impl PresentationSettings {
         transparent_composition: bool,
         swapchain_image_count: u32,
         allow_present_from_compute: bool,
+        frame_rate_limit: FrameRateLimit,
     }
 
     fn to_ffi(self) -> ffi::PresentationSettings {
+        let (frame_rate_limit_mode, frame_rate_limit_fps) = match self.frame_rate_limit {
+            FrameRateLimit::Unlimited => (0, 0.0),
+            FrameRateLimit::Fps(fps) => (1, fps),
+            FrameRateLimit::MatchDisplay => (2, 0.0),
+        };
         ffi::PresentationSettings {
+            frame_rate_limit_mode,
+            frame_rate_limit_fps,
             vsync: self.vsync.into(),
             variable_refresh: self.variable_refresh.into(),
             latency: self.latency.into(),
@@ -730,6 +764,11 @@ impl PresentationSettings {
 
     fn from_ffi(settings: ffi::PresentationSettings) -> Self {
         Self {
+            frame_rate_limit: match settings.frame_rate_limit_mode {
+                1 => FrameRateLimit::Fps(settings.frame_rate_limit_fps),
+                2 => FrameRateLimit::MatchDisplay,
+                _ => FrameRateLimit::Unlimited,
+            },
             vsync: settings.vsync.into(),
             variable_refresh: settings.variable_refresh.into(),
             latency: settings.latency.into(),

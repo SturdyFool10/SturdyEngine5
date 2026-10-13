@@ -738,6 +738,30 @@ namespace SFT::Renderer {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
+    Core::RendererResult Renderer::update_texture(TextureHandle handle, span<const std::byte> data) {
+        ZoneScopedN("Renderer::update_texture");
+        TextureResource *resource = texture(handle);
+        if (resource == nullptr || !resource->alive) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot update an unknown texture.");
+        }
+        if (!resource->owns_gpu_resources) {
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
+                                                "Cannot update an adopted texture; its owner writes it.");
+        }
+        if (data.size() != resource->pixel_data.size()) {
+            return Core::graphics_backend_error(
+                Core::GraphicsBackendErrorCode::OperationFailed,
+                "Texture update size mismatch: the new pixels must match the texture's size, format and mip chain.");
+        }
+        resource->pixel_data.assign(data.begin(), data.end());
+        if (!resource->texture) {
+            return {}; // no GPU copy right now (mid device switch); the replay picks up the new pixels
+        }
+        return upload_texture_rgba(*resource, resource->width, resource->height, resource->format,
+                                   span<const std::byte>{resource->pixel_data.data(), resource->pixel_data.size()});
+    }
+
     void Renderer::destroy_texture(TextureHandle handle) noexcept {
         ZoneScopedN("Renderer::destroy_texture");
         TextureResource *resource = texture(handle);

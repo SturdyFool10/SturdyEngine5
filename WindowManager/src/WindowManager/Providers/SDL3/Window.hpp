@@ -379,6 +379,19 @@ namespace SFT::WindowManager::SDL3 {
         /// @note This function does not throw exceptions.
         expected<void, WindowError> set_transparent(bool enabled) noexcept override;
 
+        expected<void, WindowError> set_hit_test_regions(HitTestRegions regions) noexcept override;
+        expected<void, WindowError> show_system_menu(WindowPosition position) noexcept override;
+        [[nodiscard]] bool maximized() const noexcept override;
+        [[nodiscard]] bool minimized() const noexcept override;
+        expected<void, WindowError> set_icon(u32 width, u32 height, std::span<const std::byte> rgba) noexcept override;
+        expected<void, WindowError> request_attention(AttentionRequest request) noexcept override;
+        expected<void, WindowError> set_taskbar_progress(TaskbarProgress state, f32 value) noexcept override;
+        [[nodiscard]] SystemTheme system_theme() const noexcept override;
+        [[nodiscard]] std::vector<DisplayInfo> displays() const noexcept override;
+
+        /// The hit-test callback SDL calls (on its event thread) for every pointer position; reads `hit_test_`.
+        [[nodiscard]] HitTestResult hit_test(WindowPosition point) noexcept;
+
         /// Returns the current or globally available required vulkan instance extensions value.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
@@ -420,6 +433,10 @@ namespace SFT::WindowManager::SDL3 {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note This function does not throw exceptions.
         expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept override;
+        [[nodiscard]] bool clipboard_has_mime(std::string_view mime_type) const noexcept override;
+        [[nodiscard]] std::vector<std::byte> clipboard_data(std::string_view mime_type) const noexcept override;
+        expected<void, WindowError> set_clipboard_data(std::string_view mime_type,
+                                                       std::span<const std::byte> bytes) noexcept override;
 
         /// Starts text input using the supplied arguments and current state.
         ///
@@ -490,6 +507,9 @@ namespace SFT::WindowManager::SDL3 {
 
 
         optional<WindowEffect> active_blur_effect_;
+        /// Custom title bar regions. Own lock: the OS calls the hit test while SDL pumps events, outside
+        /// `sdl_window_mutex()`.
+        Async::Mutex<HitTestRegions> hit_test_;
         optional<NativeWindowHandle> native_effect_handle_;
 
 

@@ -886,6 +886,15 @@ impl<'a> Assets<'a> {
         }
     }
 
+    /// Replaces the pixels of a texture asset in place: an animated GIF/WebP frame, a live preview, a re-rendered
+    /// thumbnail. `pixels` must have exactly the layout the texture was created with, so create per-frame textures
+    /// with [`create_texture`](Self::create_texture) and `allow_compression = false, generate_mipmaps = false`. The
+    /// asset and every UI image showing it stay valid; the new pixels are also what a device switch restores.
+    pub fn update_texture(&mut self, asset: Asset, pixels: &[u8]) -> Result<(), String> {
+        let error = sys::assets_update_texture(self.view.as_mut(), asset.inner, pixels);
+        if error.is_empty() { Ok(()) } else { Err(error) }
+    }
+
     /// The RHI texture, view, and sampler (plus size/mips/format) behind a Renderer texture —
     /// e.g. to bind a loaded texture asset in your own [`crate::rhi`] pipeline. `None` before the
     /// renderer exists or for a dead handle. The handles stay owned by the Renderer: valid only

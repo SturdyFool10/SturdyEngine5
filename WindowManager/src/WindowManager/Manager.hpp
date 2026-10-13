@@ -5,6 +5,7 @@
 
 #pragma region Imports
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <expected>
@@ -232,6 +233,23 @@ namespace SFT::WindowManager {
         /// @note This function does not throw exceptions.
         [[nodiscard]] expected<void, WindowError> pump(vector<ManagedWindowEvents> &out_events) noexcept;
 
+        /// Counts batches of window activity (input, resize, close, focus...) the background poller has delivered.
+        /// Pass the last value you saw to `wait_for_activity`.
+        [[nodiscard]] u64 activity_epoch() const noexcept { return activity_epoch_.load(std::memory_order_acquire); }
+
+        /// Blocks the calling thread until window activity newer than `seen_epoch` arrives, `interrupt_wait()` is called,
+        /// or `deadline` passes, whichever is first. Returns `true` if woken by activity or an interrupt, `false` on
+        /// timeout. Updates `seen_epoch`. Without a background poller (single-threaded mode) it returns immediately.
+        bool wait_for_activity(u64 &seen_epoch, std::chrono::steady_clock::time_point deadline) noexcept;
+
+        /// Wakes a `wait_for_activity` in progress (or makes the next one return at once). Safe from any thread.
+        void interrupt_wait() noexcept;
+
+        /// Low-power polling: when the window system has been quiet for a while, the background poller backs off from
+        /// its 0.5 ms interval to `max_idle_interval` (and returns to 0.5 ms on the next event). Off by default because a
+        /// game wants the lowest input latency; an event-driven app turns it on to idle near 0% CPU.
+        void set_low_power_polling(bool enabled, std::chrono::microseconds max_idle_interval = std::chrono::milliseconds(8)) noexcept;
+
       private:
 
 
@@ -349,6 +367,14 @@ namespace SFT::WindowManager {
         std::atomic<bool> running_{false};
         std::mutex wake_mutex_;
         std::condition_variable wake_cv_;
+
+        std::atomic<u64> activity_epoch_{0};
+        std::atomic<bool> wait_interrupted_{false};
+        std::atomic<bool> low_power_polling_{false};
+        std::atomic<i64> max_idle_interval_us_{8000};
+        std::mutex activity_mutex_;
+        std::condition_variable activity_cv_;
+        void signal_activity() noexcept;
 
 
         bool accumulator_overflow_warned_ = false;

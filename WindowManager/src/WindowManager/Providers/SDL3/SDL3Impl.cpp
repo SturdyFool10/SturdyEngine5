@@ -676,6 +676,57 @@ namespace SFT::WindowManager::SDL3 {
         return {};
     }
 
+    bool SDL3Window::clipboard_has_mime(std::string_view mime_type) const noexcept {
+        const std::string owned(mime_type);
+        return SDL_HasClipboardData(owned.c_str());
+    }
+
+    std::vector<std::byte> SDL3Window::clipboard_data(std::string_view mime_type) const noexcept {
+        const std::string owned(mime_type);
+        if (!SDL_HasClipboardData(owned.c_str())) {
+            return {};
+        }
+        std::size_t size = 0;
+        void *data = SDL_GetClipboardData(owned.c_str(), &size);
+        if (data == nullptr) {
+            return {};
+        }
+        std::vector<std::byte> result(static_cast<const std::byte *>(data), static_cast<const std::byte *>(data) + size);
+        SDL_free(data);
+        return result;
+    }
+
+    expected<void, WindowError> SDL3Window::set_clipboard_data(std::string_view mime_type,
+                                                               std::span<const std::byte> bytes) noexcept {
+        // SDL owns the callback userdata until cleanup runs, so the payload lives in one heap block.
+        struct Payload {
+            std::string mime;
+            std::vector<std::byte> bytes;
+        };
+        auto *payload = new (std::nothrow) Payload{std::string(mime_type), std::vector<std::byte>(bytes.begin(), bytes.end())};
+        if (payload == nullptr) {
+            return unexpected(WindowError{WindowErrorCode::OperationFailed, "Out of memory copying clipboard data."});
+        }
+        const char *mime_list[1] = {payload->mime.c_str()};
+        const bool ok = SDL_SetClipboardData(
+            [](void *userdata, const char *mime, std::size_t *size) -> const void * {
+                const auto *held = static_cast<const Payload *>(userdata);
+                if (mime == nullptr || held->mime != mime) {
+                    *size = 0;
+                    return nullptr;
+                }
+                *size = held->bytes.size();
+                return held->bytes.data();
+            },
+            [](void *userdata) { delete static_cast<Payload *>(userdata); }, payload, mime_list, 1);
+        if (!ok) {
+            // SDL does not run cleanup when the call itself fails.
+            delete payload;
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL_SetClipboardData failed."));
+        }
+        return {};
+    }
+
     /// Starts text input using the supplied arguments and current state.
     ///
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
@@ -764,6 +815,13 @@ namespace SFT::WindowManager::SDL3 {
 
 
         SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
+
+        // The app id names the Wayland app_id / X11 WM_CLASS; SDL reads it when the video subsystem first starts, so
+        // only the first window's value matters.
+        if (config.app_id != nullptr && config.app_id[0] != '\0') {
+            SDL_SetHint(SDL_HINT_APP_ID, config.app_id);
+            SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_IDENTIFIER_STRING, config.app_id);
+        }
 
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) [[unlikely]] {
             const WindowError error = sdl_error(WindowErrorCode::BackendUnavailable, "SDL3 video subsystem initialization failed.");
@@ -1105,6 +1163,47 @@ namespace SFT::WindowManager::SDL3 {
                     state_event.timestamp_ns = event_timestamp_ns;
                     found->second->events_.push_back(state_event);
                     ++queued_event_count;
+                }
+            } else if (event.type == SDL_EVENT_WINDOW_MAXIMIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED ||
+                       event.type == SDL_EVENT_WINDOW_RESTORED) {
+                if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
+                    WindowEvent state_event{event.type == SDL_EVENT_WINDOW_MAXIMIZED   ? WindowEventKind::Maximized
+                                            : event.type == SDL_EVENT_WINDOW_MINIMIZED ? WindowEventKind::Minimized
+                                                                                       : WindowEventKind::Restored};
+                    state_event.timestamp_ns = event_timestamp_ns;
+                    found->second->events_.push_back(state_event);
+                    ++queued_event_count;
+                }
+            } else if (event.type == SDL_EVENT_DROP_BEGIN || event.type == SDL_EVENT_DROP_FILE || event.type == SDL_EVENT_DROP_TEXT ||
+                       event.type == SDL_EVENT_DROP_POSITION || event.type == SDL_EVENT_DROP_COMPLETE) {
+                if (auto found = sdl_window_registry().find(event.drop.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
+                    WindowEventKind kind = WindowEventKind::DropBegin;
+                    switch (event.type) {
+                        case SDL_EVENT_DROP_FILE: kind = WindowEventKind::DropFile; break;
+                        case SDL_EVENT_DROP_TEXT: kind = WindowEventKind::DropText; break;
+                        case SDL_EVENT_DROP_POSITION: kind = WindowEventKind::DropPosition; break;
+                        case SDL_EVENT_DROP_COMPLETE: kind = WindowEventKind::DropComplete; break;
+                        default: break;
+                    }
+                    // Strings travel in the drop store, not in the (fixed-size) event; the event says one arrived.
+                    if ((kind == WindowEventKind::DropFile || kind == WindowEventKind::DropText) && event.drop.data != nullptr) {
+                        push_dropped_item(found->second->id(), DroppedItem{kind == WindowEventKind::DropText, event.drop.data});
+                    }
+                    WindowEvent drop_event{kind};
+                    drop_event.timestamp_ns = event_timestamp_ns;
+                    drop_event.position = WindowPosition{static_cast<i32>(event.drop.x), static_cast<i32>(event.drop.y)};
+                    found->second->events_.push_back(drop_event);
+                    ++queued_event_count;
+                }
+            } else if (event.type == SDL_EVENT_SYSTEM_THEME_CHANGED) {
+                for (auto &[id, target] : sdl_window_registry()) {
+                    (void)id;
+                    if (target != nullptr) {
+                        WindowEvent theme_event{WindowEventKind::SystemThemeChanged};
+                        theme_event.timestamp_ns = event_timestamp_ns;
+                        target->events_.push_back(theme_event);
+                        ++queued_event_count;
+                    }
                 }
             } else if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) {
                 if (auto found = sdl_window_registry().find(event.key.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
@@ -2036,6 +2135,185 @@ namespace SFT::WindowManager::SDL3 {
     expected<void, WindowError> SDL3Window::set_transparent(bool enabled) noexcept {
         ZoneScopedN("SDL3Window::set_transparent");
         return set_effect(WindowEffect::transparent(enabled));
+    }
+
+    namespace {
+
+        SDL_HitTestResult sdl_hit_test_callback(SDL_Window *, const SDL_Point *area, void *data) {
+            auto *window = static_cast<SDL3Window *>(data);
+            switch (window->hit_test(WindowPosition{area->x, area->y})) {
+                case HitTestResult::Normal: return SDL_HITTEST_NORMAL;
+                case HitTestResult::Draggable: return SDL_HITTEST_DRAGGABLE;
+                case HitTestResult::ResizeTopLeft: return SDL_HITTEST_RESIZE_TOPLEFT;
+                case HitTestResult::ResizeTop: return SDL_HITTEST_RESIZE_TOP;
+                case HitTestResult::ResizeTopRight: return SDL_HITTEST_RESIZE_TOPRIGHT;
+                case HitTestResult::ResizeRight: return SDL_HITTEST_RESIZE_RIGHT;
+                case HitTestResult::ResizeBottomRight: return SDL_HITTEST_RESIZE_BOTTOMRIGHT;
+                case HitTestResult::ResizeBottom: return SDL_HITTEST_RESIZE_BOTTOM;
+                case HitTestResult::ResizeBottomLeft: return SDL_HITTEST_RESIZE_BOTTOMLEFT;
+                case HitTestResult::ResizeLeft: return SDL_HITTEST_RESIZE_LEFT;
+            }
+            return SDL_HITTEST_NORMAL;
+        }
+
+        WindowRect rect_from_sdl(const SDL_Rect &rect) noexcept { return WindowRect{rect.x, rect.y, rect.w, rect.h}; }
+
+    } // namespace
+
+    HitTestResult SDL3Window::hit_test(WindowPosition point) noexcept {
+        HitTestRegions regions;
+        {
+            auto guard = hit_test_.lock();
+            if (!guard->enabled) {
+                return HitTestResult::Normal;
+            }
+            regions = *guard;
+        }
+        int width = 0;
+        int height = 0;
+        bool resizable = true;
+        if (window_ != nullptr) {
+            SDL_GetWindowSize(window_, &width, &height);
+            const SDL_WindowFlags flags = SDL_GetWindowFlags(window_);
+            resizable = (flags & (SDL_WINDOW_MAXIMIZED | SDL_WINDOW_FULLSCREEN)) == 0 && (flags & SDL_WINDOW_RESIZABLE) != 0;
+        }
+        return classify_hit(regions, WindowExtent{static_cast<u32>(std::max(width, 0)), static_cast<u32>(std::max(height, 0))},
+                            point, resizable);
+    }
+
+    expected<void, WindowError> SDL3Window::set_hit_test_regions(HitTestRegions regions) noexcept {
+        ZoneScopedN("SDL3Window::set_hit_test_regions");
+        const bool enabled = regions.enabled;
+        bool was_enabled = false;
+        {
+            auto guard = hit_test_.lock();
+            was_enabled = guard->enabled;
+            *guard = std::move(regions);
+        }
+        if (enabled == was_enabled) {
+            return {}; // only the rectangles changed; the installed callback reads them live
+        }
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_hit_test_regions"); !live) [[unlikely]] {
+            return live;
+        }
+        return sdl_bool_result(SDL_SetWindowHitTest(window_, enabled ? sdl_hit_test_callback : nullptr, enabled ? this : nullptr),
+                               WindowErrorCode::Unsupported, "SDL3 could not install the window hit test.");
+    }
+
+    expected<void, WindowError> SDL3Window::show_system_menu(WindowPosition position) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "show_system_menu"); !live) [[unlikely]] {
+            return live;
+        }
+        return sdl_bool_result(SDL_ShowWindowSystemMenu(window_, position.x, position.y), WindowErrorCode::Unsupported,
+                               "The window system has no window menu.");
+    }
+
+    bool SDL3Window::maximized() const noexcept {
+        auto lock = sdl_window_mutex().lock();
+        return window_ != nullptr && (SDL_GetWindowFlags(window_) & SDL_WINDOW_MAXIMIZED) != 0;
+    }
+
+    bool SDL3Window::minimized() const noexcept {
+        auto lock = sdl_window_mutex().lock();
+        return window_ != nullptr && (SDL_GetWindowFlags(window_) & SDL_WINDOW_MINIMIZED) != 0;
+    }
+
+    expected<void, WindowError> SDL3Window::set_icon(u32 width, u32 height, std::span<const std::byte> rgba) noexcept {
+        if (width == 0 || height == 0 || rgba.size() < static_cast<usize>(width) * height * 4) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window icon needs width * height * 4 bytes of RGBA8."});
+        }
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_icon"); !live) [[unlikely]] {
+            return live;
+        }
+        // SDL_PIXELFORMAT_RGBA32 is byte order R, G, B, A on every endianness, matching the caller's bytes.
+        SDL_Surface *surface = SDL_CreateSurfaceFrom(static_cast<int>(width), static_cast<int>(height), SDL_PIXELFORMAT_RGBA32,
+                                                     const_cast<std::byte *>(rgba.data()), static_cast<int>(width * 4));
+        if (surface == nullptr) {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL3 could not wrap the icon pixels."));
+        }
+        const bool ok = SDL_SetWindowIcon(window_, surface);
+        SDL_DestroySurface(surface);
+        return sdl_bool_result(ok, WindowErrorCode::Unsupported, "The window system rejected the window icon.");
+    }
+
+    expected<void, WindowError> SDL3Window::request_attention(AttentionRequest request) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "request_attention"); !live) [[unlikely]] {
+            return live;
+        }
+        const SDL_FlashOperation operation = request == AttentionRequest::Cancel     ? SDL_FLASH_CANCEL
+                                             : request == AttentionRequest::Briefly ? SDL_FLASH_BRIEFLY
+                                                                                    : SDL_FLASH_UNTIL_FOCUSED;
+        return sdl_bool_result(SDL_FlashWindow(window_, operation), WindowErrorCode::Unsupported,
+                               "The window system cannot request attention.");
+    }
+
+    expected<void, WindowError> SDL3Window::set_taskbar_progress(TaskbarProgress state, f32 value) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_taskbar_progress"); !live) [[unlikely]] {
+            return live;
+        }
+        SDL_ProgressState sdl_state = SDL_PROGRESS_STATE_NONE;
+        switch (state) {
+            case TaskbarProgress::None: sdl_state = SDL_PROGRESS_STATE_NONE; break;
+            case TaskbarProgress::Indeterminate: sdl_state = SDL_PROGRESS_STATE_INDETERMINATE; break;
+            case TaskbarProgress::Normal: sdl_state = SDL_PROGRESS_STATE_NORMAL; break;
+            case TaskbarProgress::Paused: sdl_state = SDL_PROGRESS_STATE_PAUSED; break;
+            case TaskbarProgress::Error: sdl_state = SDL_PROGRESS_STATE_ERROR; break;
+        }
+        if (!SDL_SetWindowProgressState(window_, sdl_state)) {
+            return unexpected(sdl_error(WindowErrorCode::Unsupported, "The window system has no taskbar progress."));
+        }
+        if (state == TaskbarProgress::Normal || state == TaskbarProgress::Paused || state == TaskbarProgress::Error) {
+            return sdl_bool_result(SDL_SetWindowProgressValue(window_, std::clamp(value, 0.0f, 1.0f)),
+                                   WindowErrorCode::Unsupported, "The window system rejected the progress value.");
+        }
+        return {};
+    }
+
+    SystemTheme SDL3Window::system_theme() const noexcept {
+        switch (SDL_GetSystemTheme()) {
+            case SDL_SYSTEM_THEME_LIGHT: return SystemTheme::Light;
+            case SDL_SYSTEM_THEME_DARK: return SystemTheme::Dark;
+            default: return SystemTheme::Unknown;
+        }
+    }
+
+    std::vector<DisplayInfo> SDL3Window::displays() const noexcept {
+        std::vector<DisplayInfo> out;
+        int count = 0;
+        SDL_DisplayID *ids = SDL_GetDisplays(&count);
+        if (ids == nullptr) {
+            return out;
+        }
+        const SDL_DisplayID primary = SDL_GetPrimaryDisplay();
+        for (int i = 0; i < count; ++i) {
+            DisplayInfo info;
+            info.id = ids[i];
+            if (const char *name = SDL_GetDisplayName(ids[i])) {
+                info.name = name;
+            }
+            SDL_Rect bounds{};
+            if (SDL_GetDisplayBounds(ids[i], &bounds)) {
+                info.bounds = rect_from_sdl(bounds);
+            }
+            SDL_Rect usable{};
+            if (SDL_GetDisplayUsableBounds(ids[i], &usable)) {
+                info.usable_bounds = rect_from_sdl(usable);
+            }
+            info.content_scale = SDL_GetDisplayContentScale(ids[i]);
+            if (const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(ids[i])) {
+                info.refresh_rate_hz = mode->refresh_rate;
+            }
+            info.hdr_enabled = SDL_GetBooleanProperty(SDL_GetDisplayProperties(ids[i]), SDL_PROP_DISPLAY_HDR_ENABLED_BOOLEAN, false);
+            info.primary = ids[i] == primary;
+            out.push_back(std::move(info));
+        }
+        SDL_free(ids);
+        return out;
     }
 
     /// Returns the current or globally available required vulkan instance extensions value.

@@ -197,6 +197,8 @@ pub struct FrameDescription {
     /// Explicit render-graph chain with custom passes; empty means the standard graph. See
     /// [`crate::render::GraphStage`].
     pub stages: Vec<crate::render::GraphStage>,
+    /// See [`FrameDescription::ui_only`].
+    pub overlay_only: bool,
 }
 
 impl FrameDescription {
@@ -207,7 +209,15 @@ impl FrameDescription {
             lighting: SceneLighting::default(),
             render_graph: crate::render::RenderGraphSettings::default(),
             stages: Vec::new(),
+            overlay_only: false,
         }
+    }
+
+    /// A frame with no 3D scene: the window is cleared and only the UI overlay is drawn. What a tool or launcher
+    /// window wants; skips the G-buffer, lighting, bloom and tone mapping entirely. (Clears to transparent when the
+    /// surface uses transparent composition.)
+    pub fn ui_only() -> Self {
+        Self { overlay_only: true, ..Self::new(Camera::default()) }
     }
 
     #[must_use]

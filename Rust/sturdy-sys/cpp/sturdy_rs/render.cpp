@@ -437,6 +437,7 @@ namespace sturdy_rs::render {
             out.caustic_gather_radius = s.caustic_gather_radius;
             out.wavelength_min_nm = s.wavelength_min_nm;
             out.wavelength_max_nm = s.wavelength_max_nm;
+            out.use_background_color = s.has_background_color;
             if (s.has_background_color) {
                 for (std::size_t i = 0; i < 4; ++i) {
                     out.background_color[i] = s.background_color[i];
@@ -760,6 +761,14 @@ namespace sturdy_rs::render {
         engine.destroy_offscreen_render_target(E::RenderTargetHandle{handle});
     }
 
+    Status offscreen_target_resize(EngineView &engine, std::uint64_t handle, std::uint32_t width, std::uint32_t height) {
+        const C::RendererResult result = engine.resize_offscreen_render_target(E::RenderTargetHandle{handle}, width, height);
+        if (!result) {
+            return Status{false, to_rust_string(result.error().message)};
+        }
+        return Status{true, rust::String()};
+    }
+
     bool offscreen_target_description(const EngineView &engine, std::uint64_t handle, OffscreenTargetDesc &out) {
         const auto description = engine.offscreen_render_target_description(E::RenderTargetHandle{handle});
         if (!description) {
@@ -816,11 +825,17 @@ namespace sturdy_rs::render {
         out.transparent_composition = static_cast<bool>(settings.transparent_composition);
         out.swapchain_image_count = settings.swapchain_image_count;
         out.allow_present_from_compute = static_cast<bool>(settings.allow_present_from_compute);
+        out.frame_rate_limit_mode = settings.frame_rate_limit_mode == C::FrameRateLimitMode::Custom                ? 1
+                                    : settings.frame_rate_limit_mode == C::FrameRateLimitMode::MatchDisplayRefresh ? 2
+                                                                                                                   : 0;
+        out.frame_rate_limit_fps = settings.frame_rate_limit_fps;
         return out;
     }
 
     Status presentation_settings_set(EngineView &engine, SurfaceHandle surface, const PresentationSettings &settings) {
-        C::PresentationSettings native{};
+        // Start from the surface's current policy: fields this binding does not carry (VRR headroom, latency
+        // tuning, ...) must keep their values instead of silently resetting to defaults on every call.
+        C::PresentationSettings native = engine.presentation_settings(to_surface(surface));
         native.vsync = map(settings.vsync);
         native.variable_refresh = map(settings.variable_refresh);
         native.latency = map(settings.latency);
@@ -830,6 +845,10 @@ namespace sturdy_rs::render {
         native.transparent_composition = settings.transparent_composition;
         native.swapchain_image_count = settings.swapchain_image_count;
         native.allow_present_from_compute = settings.allow_present_from_compute;
+        native.frame_rate_limit_mode = settings.frame_rate_limit_mode == 1   ? C::FrameRateLimitMode::Custom
+                                       : settings.frame_rate_limit_mode == 2 ? C::FrameRateLimitMode::MatchDisplayRefresh
+                                                                             : C::FrameRateLimitMode::Unlimited;
+        native.frame_rate_limit_fps = settings.frame_rate_limit_fps;
 
         const C::RendererResult result = engine.set_presentation_settings(to_surface(surface), native);
         if (!result) {

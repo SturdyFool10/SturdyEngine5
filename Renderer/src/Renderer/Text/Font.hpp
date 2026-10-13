@@ -126,6 +126,30 @@ namespace SFT::Text {
         /// @note This function does not throw exceptions.
         [[nodiscard]] hb_face_t *face_handle() const noexcept;
 
+        /// One OpenType variation axis of a variable font (`wght`, `wdth`, `slnt`, `opsz`, `ital`, ...).
+        struct VariationAxis {
+            /// Four-character tag, e.g. "wght".
+            char tag[5] = {};
+            f32 min_value = 0.0f;
+            f32 default_value = 0.0f;
+            f32 max_value = 0.0f;
+        };
+
+        /// A requested axis value.
+        struct Variation {
+            char tag[5] = {};
+            f32 value = 0.0f;
+        };
+
+        /// The variation axes this face declares (empty for a static font).
+        [[nodiscard]] vector<VariationAxis> variation_axes() const;
+
+        /// Sets this font's position on its variation axes (values outside an axis are clamped by HarfBuzz; unknown
+        /// axes are ignored). Affects shaping and outlines alike. Glyphs are cached per font instance, so for another
+        /// weight load a separate `Font` and register it under its own UI font id instead of mutating a font whose
+        /// glyphs are already cached. Hinted (FreeType) fonts ignore variations.
+        void set_variations(span<const Variation> variations) noexcept;
+
       private:
         /// Resets the object to its baseline state.
         ///

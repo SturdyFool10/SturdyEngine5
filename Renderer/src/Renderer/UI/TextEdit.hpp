@@ -46,6 +46,8 @@ namespace SFT::UI {
         Copy,
         Cut,
         Paste,
+        Undo,
+        Redo,
     };
 
 
@@ -419,6 +421,20 @@ namespace SFT::UI {
 
         mutable UString highlight_cache_key_;
         mutable vector<RichTextSpan> highlight_cache_spans_;
+
+        /// Undo history. Consecutive typing coalesces into one step (broken by whitespace, a deletion, navigation, a
+        /// paste or anything else), the usual text-editor granularity.
+        struct EditSnapshot {
+            UString text;
+            usize caret = 0;
+            usize selection_anchor = 0;
+        };
+        static constexpr usize max_undo_steps = 200;
+        vector<EditSnapshot> undo_stack_;
+        vector<EditSnapshot> redo_stack_;
+        bool coalescing_typing_ = false;
+        void restore(const EditSnapshot &snapshot);
+        [[nodiscard]] EditSnapshot snapshot() const;
     };
 
     namespace Detail {

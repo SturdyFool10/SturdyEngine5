@@ -78,6 +78,10 @@ namespace SFT::WindowManager {
         bool transparent = false;
         WindowMode mode = WindowMode::Windowed;
         WindowGraphicsApi graphics_api = WindowGraphicsApi::None;
+        /// Reverse-DNS application id (`org.example.App`): the Wayland `app_id`, X11 `WM_CLASS` and what desktop
+        /// files / Flatpak match the window to. Process-wide and read when the window system is first initialised, so
+        /// set it on the first window. Null = the window system's default.
+        const char *app_id = nullptr;
     };
 
 } // namespace SFT::WindowManager

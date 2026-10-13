@@ -40,8 +40,17 @@ struct Clay_Context;
 namespace SFT::UI {
 
 
+    /// How an image element samples its texture.
+    enum class ImageSampling : u8 {
+        /// Bilinear (photos, scaled thumbnails).
+        Linear,
+        /// Nearest-neighbour: crisp pixels when scaled up (pixel art, Minecraft skins and item icons).
+        Nearest,
+    };
+
     struct ImageRef {
         Renderer::TextureHandle texture{};
+        ImageSampling sampling = ImageSampling::Linear;
     };
 
 
@@ -329,6 +338,13 @@ namespace SFT::UI {
         void register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback = nullptr,
                            std::span<const Text::Font *const> fallbacks = {});
 
+        /// Forgets `font_id`. Registering a different font under an id that is in use is also fine at any time: the
+        /// text caches start over for that id, so a live font change re-shapes on the next frame.
+        void unregister_font(FontId font_id);
+
+        /// OpenType features for all text in `font_id` (`kern,liga,-calt,onum`); see `TextBridge::set_font_features`.
+        void set_font_features(FontId font_id, string_view comma_separated_features);
+
 
         /// Starts a layout frame.
         ///
@@ -424,7 +440,7 @@ namespace SFT::UI {
         /// @param texture Texture used or affected by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void image(const ElementDecl &decl, Renderer::TextureHandle texture);
+        void image(const ElementDecl &decl, Renderer::TextureHandle texture, ImageSampling sampling = ImageSampling::Linear);
 
 
         /// Computes the hit test text byte offset required by the supplied values.
@@ -436,6 +452,11 @@ namespace SFT::UI {
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] usize hit_test_text_byte_offset(const TextStyle &style, string_view utf8_content, f32 local_x);
+
+        /// Width and height in logical pixels of `utf8_content` laid out on one line with `style`, before any wrapping
+        /// (the shaped line's natural size). Zero for empty text or an unregistered font. Usable before layout, for
+        /// truncation and sizing decisions.
+        [[nodiscard]] glm::vec2 measure_text(const TextStyle &style, string_view utf8_content);
 
 
         /// Performs the svg operation for `Context` using the supplied arguments.

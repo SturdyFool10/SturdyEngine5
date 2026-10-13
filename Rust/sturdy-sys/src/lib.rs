@@ -9,6 +9,7 @@
 //! under `#[namespace = "sturdy_rs"]` (required — see any of those modules' own comment on it, e.g.
 //! `ecs::ffi`, for why the override matters).
 
+pub mod app;
 pub mod assets;
 pub mod camera;
 pub mod color;
@@ -80,6 +81,8 @@ pub mod ffi {
     struct RuntimeOptions {
         window_title: String,
         app_name: String,
+        /// Reverse-DNS application id (Wayland app_id / X11 WM_CLASS); empty = the window system's default.
+        app_id: String,
         shaders_directory: String,
         width: u32,
         height: u32,
@@ -185,6 +188,8 @@ pub mod ffi {
     #[derive(Debug, Clone)]
     struct FrameRequest {
         present: bool,
+        /// Skip the 3D scene entirely: clear, draw the UI overlay, present (`RenderGraph::overlay_only`).
+        overlay_only: bool,
         camera: CameraDesc,
         lighting: SceneLightingDesc,
         debug_label: String,

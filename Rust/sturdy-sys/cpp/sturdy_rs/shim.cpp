@@ -140,14 +140,19 @@ namespace sturdy_rs {
                 params.lighting = build_lighting(request.lighting);
                 params.debug_label = to_ustring(request.debug_label);
                 params.render_graph = sturdy_rs::render::consume_pending_render_graph();
+                if (request.overlay_only) {
+                    // A UI-only window: no G-buffer, lighting, bloom or tone mapping, just the overlay passes.
+                    params.render_graph = E::RenderGraph::overlay_only();
+                }
 
                 // Builds this frame's UI overlay (a no-op if no draw hook is registered / the UI
                 // renderer isn't ready yet) and attaches whatever it produced. See ui.rs's module
                 // doc comment: this is the "remaining integration step" that doc used to describe as
                 // future work -- it now lives here, right where a hand-written C++ caller would put
                 // the `sturdy_ui_begin`/`sturdy_ui_end` pair FFI/Ui.cpp documents.
+                const bool hdr_output = static_cast<bool>(engine.presentation_settings(surface).hdr_enabled);
                 if (sturdy_rs::ui::ui_run_frame(engine, frame.framebuffer_width, frame.framebuffer_height,
-                                                frame.delta_seconds)) {
+                                                frame.delta_seconds, hdr_output)) {
                     if (auto overlay = sturdy_rs::ui::ui_take_pending_overlay()) {
                         params.overlay_passes.push_back(std::move(*overlay));
                     }
@@ -239,10 +244,12 @@ namespace sturdy_rs {
         // Strings referenced by pointer inside the engine config must outlive Runtime::run.
         const std::string window_title{options.window_title};
         const std::string app_name{options.app_name};
+        const std::string app_id{options.app_id};
 
         SFT::Runtime::RuntimeConfig config{};
         auto &app = config.application;
         app.primary_window.title = window_title.c_str();
+        app.primary_window.app_id = app_id.empty() ? nullptr : app_id.c_str();
         app.primary_window.extent = {options.width, options.height};
         app.primary_window.resizable = options.resizable;
         app.primary_window.decorated = options.decorated;

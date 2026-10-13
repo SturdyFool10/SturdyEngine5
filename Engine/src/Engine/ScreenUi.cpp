@@ -44,6 +44,8 @@ namespace SFT::Engine {
                 case KeyboardKey::C: input.press_key(UI::EditKey::Copy); break;
                 case KeyboardKey::X: input.press_key(UI::EditKey::Cut); break;
                 case KeyboardKey::V: input.press_key(UI::EditKey::Paste); break;
+                case KeyboardKey::Z: input.press_key(input.shift_held() ? UI::EditKey::Redo : UI::EditKey::Undo); break;
+                case KeyboardKey::Y: input.press_key(UI::EditKey::Redo); break;
                 default: break;
             }
         }

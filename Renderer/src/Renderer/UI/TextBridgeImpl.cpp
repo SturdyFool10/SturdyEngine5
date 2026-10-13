@@ -21,43 +21,68 @@ namespace SFT::UI {
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void TextBridge::register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback,
                                    span<const Text::Font *const> fallbacks) {
-
-
-        vector<Text::FallbackFont> owned_fallbacks;
-        owned_fallbacks.reserve(fallbacks.size());
-        for (usize i = 0; i < fallbacks.size(); ++i) {
-            owned_fallbacks.push_back(Text::FallbackFont{
-                .font = fallbacks[i],
-                .font_id = static_cast<u64>(font_id) | (u64{2 + i} << 32),
-                .is_color = false,
-            });
-        }
+        // 64-bit cache font id: the UI font id, the slot within its stack (0 primary, 1 emoji, 2+ fallbacks) at bit 32,
+        // and the registration generation at bit 48.
+        const auto cache_id = [font_id](u16 generation, u64 slot) {
+            return static_cast<u64>(font_id) | (slot << 32) | (u64{generation} << 48);
+        };
+        const auto build = [&](FontEntry &entry) {
+            entry.owned_fallbacks.clear();
+            entry.owned_fallbacks.reserve(fallbacks.size());
+            for (usize i = 0; i < fallbacks.size(); ++i) {
+                entry.owned_fallbacks.push_back(Text::FallbackFont{
+                    .font = fallbacks[i],
+                    .font_id = cache_id(entry.generation, u64{2 + i}),
+                    .is_color = false,
+                });
+            }
+            entry.stack = Text::FontStack{
+                .primary = &font,
+                .emoji = emoji_fallback,
+                .primary_font_id = cache_id(entry.generation, 0),
+                .emoji_font_id = cache_id(entry.generation, 1),
+                .fallbacks = entry.owned_fallbacks,
+                .emoji_is_color = true,
+            };
+        };
 
         for (FontEntry &entry : fonts_) {
-            if (entry.id == font_id) {
-                entry.owned_fallbacks = std::move(owned_fallbacks);
-                entry.stack = Text::FontStack{
-                    .primary = &font,
-                    .emoji = emoji_fallback,
-                    .primary_font_id = static_cast<u64>(font_id),
-                    .emoji_font_id = static_cast<u64>(font_id) | (u64{1} << 32),
-                    .fallbacks = entry.owned_fallbacks,
-                    .emoji_is_color = true,
-                };
+            if (entry.id != font_id) {
+                continue;
+            }
+            // Re-registering the same fonts (the per-frame replay) keeps every cache warm; a different font behind the
+            // id (a live font change) starts a new generation and drops the shapes measured with the old one.
+            bool same = entry.stack.primary == &font && entry.stack.emoji == emoji_fallback &&
+                        entry.owned_fallbacks.size() == fallbacks.size();
+            for (usize i = 0; same && i < fallbacks.size(); ++i) {
+                same = entry.owned_fallbacks[i].font == fallbacks[i];
+            }
+            if (same) {
                 return;
             }
+            ++entry.generation;
+            std::erase_if(cache_, [font_id](const auto &cached) { return cached.first.font_id == font_id; });
+            build(entry);
+            return;
         }
 
-        FontEntry new_entry{.id = font_id, .owned_fallbacks = std::move(owned_fallbacks)};
-        new_entry.stack = Text::FontStack{
-            .primary = &font,
-            .emoji = emoji_fallback,
-            .primary_font_id = static_cast<u64>(font_id),
-            .emoji_font_id = static_cast<u64>(font_id) | (u64{1} << 32),
-            .fallbacks = new_entry.owned_fallbacks,
-            .emoji_is_color = true,
-        };
+        FontEntry new_entry{.id = font_id};
+        build(new_entry);
         fonts_.push_back(std::move(new_entry));
+    }
+
+    void TextBridge::set_font_features(FontId font_id, string_view comma_separated_features) {
+        for (FontEntry &entry : fonts_) {
+            if (entry.id == font_id && entry.features != comma_separated_features) {
+                entry.features = string{comma_separated_features};
+                std::erase_if(cache_, [font_id](const auto &cached) { return cached.first.font_id == font_id; });
+            }
+        }
+    }
+
+    void TextBridge::unregister_font(FontId font_id) {
+        std::erase_if(cache_, [font_id](const auto &cached) { return cached.first.font_id == font_id; });
+        std::erase_if(fonts_, [font_id](const FontEntry &entry) { return entry.id == font_id; });
     }
 
     /// Finds font in the available state.
@@ -139,7 +164,10 @@ namespace SFT::UI {
         }
 
         const UString content{utf8_content.data(), utf8_content.size()};
-        auto shaped = Text::shape_line_with_fallback(entry->stack, content.as_ustr());
+        const UString features{entry->features};
+        auto shaped = entry->features.empty()
+                          ? Text::shape_line_with_fallback(entry->stack, content.as_ustr())
+                          : Text::shape_line_with_fallback(entry->stack, content.as_ustr(), features.as_ustr());
         if (!shaped) {
             return nullptr;
         }

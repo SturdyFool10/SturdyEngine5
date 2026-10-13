@@ -118,6 +118,12 @@ pub mod ffi {
         opacity: f32,
         mouse_locked: bool,
         focused: bool,
+        maximized: bool,
+        minimized: bool,
+        /// Window-system UI scale (1.0 = 100%); changes when the window moves between displays.
+        content_scale: f32,
+        /// 0 unknown, 1 light, 2 dark.
+        system_theme: u8,
     }
 
     /// Mirrors `SFT::WindowManager::NativeWindowSystem`.

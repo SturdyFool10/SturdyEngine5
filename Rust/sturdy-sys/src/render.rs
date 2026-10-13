@@ -216,6 +216,9 @@ pub mod ffi {
         /// `0` lets the engine choose the swapchain image count.
         swapchain_image_count: u32,
         allow_present_from_compute: bool,
+        /// 0 unlimited, 1 custom (`frame_rate_limit_fps`), 2 match the display's refresh rate.
+        frame_rate_limit_mode: u8,
+        frame_rate_limit_fps: f64,
     }
 
     #[derive(Debug, Clone)]
@@ -682,6 +685,8 @@ pub mod ffi {
             desc: &OffscreenTargetDesc,
         ) -> OffscreenTargetCreateResult;
         fn offscreen_target_destroy(engine: Pin<&mut EngineView>, handle: u64);
+        /// Gives the target a new size in place; its handle and sampling texture stay valid, contents are cleared.
+        fn offscreen_target_resize(engine: Pin<&mut EngineView>, handle: u64, width: u32, height: u32) -> Status;
         fn offscreen_target_description(engine: &EngineView, handle: u64, out: &mut OffscreenTargetDesc) -> bool;
         /// Returns the target's backing `Renderer::TextureHandle::value`; `0` if `handle` is
         /// unknown.

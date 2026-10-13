@@ -440,6 +440,11 @@ pub mod ffi {
         /// with `sturdy_rs::rhi`'s `TextureHandle`. Mirrors `AssetManager::texture_handle`.
         fn assets_texture_handle(engine: &EngineView, asset: AssetHandle) -> RendererTextureHandleOutcome;
 
+        /// Replaces the pixels of a texture asset in place (an animated image frame, a live preview). The pixels must
+        /// have exactly the layout the texture was created with (same size and format, created without compression
+        /// or mipmaps for per-frame updates). Returns an empty string on success, else the reason.
+        fn assets_update_texture(engine: Pin<&mut EngineView>, asset: AssetHandle, pixels: &[u8]) -> String;
+
         /// Raw bytes of a `File`-kind asset, read back into Rust. Mirrors
         /// `AssetManager::file_bytes`.
         fn assets_file_bytes(engine: &EngineView, asset: AssetHandle) -> BytesOutcome;

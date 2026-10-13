@@ -124,6 +124,8 @@ pub mod ffi {
         caret_blink_seconds: f32,
         mask_characters: bool,
         wrap_lines: bool,
+        /// Selectable, copyable, not editable (typing, deletion, cut and paste off).
+        read_only: bool,
     }
 
     /// `SFT::UI::TextInputResult` / `TextAreaResult`.
@@ -133,6 +135,29 @@ pub mod ffi {
         changed: bool,
         submitted: bool,
         focused: bool,
+    }
+
+    /// One styled run of a rich text block (`SFT::UI::RichTextSpan`). `start`/`length` count Unicode scalars.
+    #[derive(Debug, Clone, Copy, Default)]
+    struct RichSpanDesc {
+        start: usize,
+        length: usize,
+        has_color: bool,
+        color: [f32; 4],
+        has_font: bool,
+        font_id: u16,
+        size_scale: f32,
+        underline: bool,
+        strikethrough: bool,
+    }
+
+    /// What a `ui_rich_text` block did this frame.
+    #[derive(Debug, Clone, Copy, Default)]
+    struct RichTextOutcome {
+        ok: bool,
+        focused: bool,
+        /// Scalar index of the character a click landed on this frame; -1 when there was no click.
+        clicked_scalar: i64,
     }
 
     /// `SFT::UI::ScrollbarStyle`.
@@ -396,6 +421,17 @@ pub mod ffi {
             placeholder: &str,
             enabled: bool,
         ) -> TextEditOutcome;
+        /// A read-only, wrapping, selectable block of rich text: the text in `state` drawn with `spans` (colour, font,
+        /// size, underline, strikethrough). Reports the character a click landed on (link hit-testing).
+        fn ui_rich_text(
+            engine: Pin<&mut EngineView>,
+            desc: &UiElementDesc,
+            style: &TextEditStyleDesc,
+            scrollbar: &ScrollbarStyleDesc,
+            state: Pin<&mut TextEditStateBox>,
+            scroll_state: Pin<&mut ScrollAreaStateBox>,
+            spans: &Vec<RichSpanDesc>,
+        ) -> RichTextOutcome;
         fn ui_scroll_area(
             engine: Pin<&mut EngineView>,
             id: &str,

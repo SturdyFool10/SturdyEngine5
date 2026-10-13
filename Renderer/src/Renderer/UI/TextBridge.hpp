@@ -49,6 +49,14 @@ namespace SFT::UI {
         void register_font(FontId font_id, const Text::Font &font, const Text::Font *emoji_fallback = nullptr,
                            span<const Text::Font *const> fallbacks = {});
 
+        /// OpenType features for every run shaped with `font_id`, as a comma-separated list (`kern,liga,-calt,onum`,
+        /// `ss01=1`; same syntax as `Text::shape_line_with_fallback`). Empty = the font's defaults. A change re-shapes
+        /// text using the id on the next frame.
+        void set_font_features(FontId font_id, string_view comma_separated_features);
+
+        /// Forgets `font_id` and its cached shapes. Text still using it reports a missing font until re-registered.
+        void unregister_font(FontId font_id);
+
         /// Performs the font stack operation for `TextBridge` using the supplied arguments.
         ///
         /// @param font_id Identifier of the target object or resource.
@@ -101,6 +109,11 @@ namespace SFT::UI {
 
         struct FontEntry {
             FontId id = 0;
+            /// Bumped whenever a re-registration changes the fonts behind `id`. It is folded into the 64-bit font ids the
+            /// glyph/outline caches key on, so glyphs rasterised from the old font can never be served for the new one.
+            u16 generation = 0;
+            /// See `set_font_features`.
+            string features;
             Text::FontStack stack{};
 
 

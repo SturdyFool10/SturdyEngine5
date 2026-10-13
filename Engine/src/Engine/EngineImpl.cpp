@@ -414,6 +414,11 @@ namespace SFT::Engine {
         renderer_.destroy_offscreen_render_target(RendererApi::OffscreenRenderTargetHandle{.value = target.value});
     }
 
+    Core::RendererResult Engine::resize_offscreen_render_target(RenderTargetHandle target, u32 width, u32 height) {
+        return renderer_.resize_offscreen_render_target(RendererApi::OffscreenRenderTargetHandle{.value = target.value},
+                                                        Core::Extent2D{width, height});
+    }
+
     /// Performs the offscreen render target description operation for `Engine` using the supplied arguments.
     ///
     /// @param target `target` value used by the operation.
@@ -1098,6 +1103,85 @@ namespace SFT::Engine {
         return renderer_.rhi_device();
     }
 
+    namespace {
+        void wake_redraw(const RedrawHandle::State &state) noexcept {
+            std::function<void()> wake;
+            {
+                auto guard = state.wake.lock();
+                wake = *guard;
+            }
+            if (wake) {
+                wake();
+            }
+        }
+    } // namespace
+
+    void RedrawHandle::request_redraw() const noexcept {
+        if (!state_) {
+            return;
+        }
+        state_->requested.store(true, std::memory_order_release);
+        wake_redraw(*state_);
+    }
+
+    void RedrawHandle::request_redraw_after(std::chrono::nanoseconds delay) const noexcept {
+        if (!state_) {
+            return;
+        }
+        const i64 when = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                             std::chrono::steady_clock::now().time_since_epoch() + std::max(delay, std::chrono::nanoseconds{0}))
+                             .count();
+        i64 current = state_->deadline_ns.load(std::memory_order_acquire);
+        while (when < current && !state_->deadline_ns.compare_exchange_weak(current, when, std::memory_order_acq_rel)) {
+        }
+        // The loop may already be asleep with a later deadline; wake it so it re-reads this one.
+        wake_redraw(*state_);
+    }
+
+    void Engine::queue_drop_event(WindowManager::WindowId window, const WindowManager::WindowEvent &event) {
+        using WindowManager::WindowEventKind;
+        DropEvent drop;
+        drop.window = window;
+        drop.position = event.position;
+        auto guard = drops_.lock();
+        switch (event.kind) {
+            case WindowEventKind::DropBegin: drop.kind = DropEvent::Kind::Begin; break;
+            case WindowEventKind::DropPosition: drop.kind = DropEvent::Kind::Hover; break;
+            case WindowEventKind::DropComplete: drop.kind = DropEvent::Kind::Complete; break;
+            case WindowEventKind::DropFile:
+            case WindowEventKind::DropText: {
+                drop.kind = event.kind == WindowEventKind::DropFile ? DropEvent::Kind::File : DropEvent::Kind::Text;
+                std::deque<WindowManager::DroppedItem> &pending = guard->unpaired[window];
+                if (pending.empty()) {
+                    for (WindowManager::DroppedItem &item : WindowManager::take_dropped_items(window)) {
+                        pending.push_back(std::move(item));
+                    }
+                }
+                if (pending.empty()) {
+                    return; // the string was lost; drop the step rather than report an empty path
+                }
+                drop.data = std::move(pending.front().data);
+                pending.pop_front();
+                break;
+            }
+            default: return;
+        }
+        guard->events.push_back(std::move(drop));
+        redraw_.request_redraw(); // a drop is user input: an on-demand app must react to it
+    }
+
+    std::vector<Engine::DropEvent> Engine::take_drop_events() {
+        auto guard = drops_.lock();
+        std::vector<DropEvent> out;
+        out.swap(guard->events);
+        return out;
+    }
+
+    void Engine::set_frame_mode(FrameMode mode) noexcept {
+        frame_mode_.store(mode, std::memory_order_release);
+        redraw_.request_redraw();
+    }
+
     vector<RHI::BackendType> Engine::available_backends() const {
         return ::SFT::Engine::available_backends(gpu_inventory_);
     }
@@ -1216,6 +1300,9 @@ namespace SFT::Engine {
         }
         for (const auto &observer : to_call) {
             observer(event);
+        }
+        if (event.kind != DeviceChangeKind::Switching) {
+            redraw_.request_redraw(); // the new device has nothing on screen yet
         }
     }
 

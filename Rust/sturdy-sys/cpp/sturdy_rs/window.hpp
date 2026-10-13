@@ -14,6 +14,20 @@ namespace sturdy_rs::window {
     struct WindowStatus;
     struct Int2Result;
     struct HdrProperties;
+    struct HitTestRegionsInfo;
+    struct DisplayInfoBridge;
+    struct DropEventInfo;
+
+    WindowStatus window_set_hit_test_regions(EngineView &engine, const HitTestRegionsInfo &regions);
+    WindowStatus window_show_system_menu(EngineView &engine, std::int32_t x, std::int32_t y);
+    bool window_is_maximized(EngineView &engine) noexcept;
+    bool window_is_minimized(EngineView &engine) noexcept;
+    WindowStatus window_set_icon(EngineView &engine, std::uint32_t width, std::uint32_t height, rust::Slice<const std::uint8_t> rgba);
+    WindowStatus window_request_attention(EngineView &engine, std::uint8_t request);
+    WindowStatus window_set_taskbar_progress(EngineView &engine, std::uint8_t state, float value);
+    std::uint8_t window_system_theme(EngineView &engine) noexcept;
+    rust::Vec<DisplayInfoBridge> window_displays(EngineView &engine);
+    rust::Vec<DropEventInfo> take_drop_events(EngineView &engine);
 
     bool window_has_primary(EngineView &engine) noexcept;
     bool window_close_requested(EngineView &engine) noexcept;
@@ -40,6 +54,9 @@ namespace sturdy_rs::window {
     WindowStatus window_set_cursor_visible(EngineView &engine, bool visible);
     rust::String window_clipboard_text(EngineView &engine);
     WindowStatus window_set_clipboard_text(EngineView &engine, rust::Str text);
+    bool window_clipboard_has_mime(EngineView &engine, rust::Str mime);
+    rust::Vec<std::uint8_t> window_clipboard_data(EngineView &engine, rust::Str mime);
+    WindowStatus window_set_clipboard_data(EngineView &engine, rust::Str mime, rust::Slice<const std::uint8_t> bytes);
     HdrProperties window_hdr_properties(EngineView &engine);
 
 } // namespace sturdy_rs::window

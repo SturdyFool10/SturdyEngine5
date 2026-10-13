@@ -1,0 +1,10 @@
+[package]
+name = "ui_idle"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# Checks on-demand rendering for event-driven apps: an idle UI-only window must render only when asked and burn
+# almost no CPU. Exits non-zero if either is violated. Run it under a real (nested) display.
+[dependencies]
+sturdy = { path = "../../sturdy" }

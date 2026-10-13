@@ -158,6 +158,7 @@ namespace SFT::WindowManager {
 
             running_.store(false, std::memory_order_release);
             wake_poll_loop();
+            interrupt_wait();
         } else {
             windows_.clear();
         }
@@ -312,10 +313,52 @@ namespace SFT::WindowManager {
     ///
     /// @return Returns the current poll loop value.
     /// @note This function does not throw exceptions.
+    void WindowManager::signal_activity() noexcept {
+        activity_epoch_.fetch_add(1, std::memory_order_acq_rel);
+        {
+            std::lock_guard<std::mutex> lock(activity_mutex_);
+        }
+        activity_cv_.notify_all();
+    }
+
+    bool WindowManager::wait_for_activity(u64 &seen_epoch, std::chrono::steady_clock::time_point deadline) noexcept {
+        ZoneScopedN("WindowManager::wait_for_activity");
+        if (!event_thread_) {
+            seen_epoch = activity_epoch_.load(std::memory_order_acquire);
+            return true;
+        }
+        std::unique_lock<std::mutex> lock(activity_mutex_);
+        const bool woken = activity_cv_.wait_until(lock, deadline, [&]() noexcept {
+            return activity_epoch_.load(std::memory_order_acquire) != seen_epoch ||
+                   wait_interrupted_.load(std::memory_order_acquire) || !running_.load(std::memory_order_acquire);
+        });
+        wait_interrupted_.store(false, std::memory_order_release);
+        seen_epoch = activity_epoch_.load(std::memory_order_acquire);
+        return woken;
+    }
+
+    void WindowManager::interrupt_wait() noexcept {
+        wait_interrupted_.store(true, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(activity_mutex_);
+        }
+        activity_cv_.notify_all();
+    }
+
+    void WindowManager::set_low_power_polling(bool enabled, std::chrono::microseconds max_idle_interval) noexcept {
+        max_idle_interval_us_.store(std::max<i64>(max_idle_interval.count(), 500), std::memory_order_relaxed);
+        low_power_polling_.store(enabled, std::memory_order_release);
+        wake_poll_loop();
+    }
+
     void WindowManager::poll_loop() noexcept {
 
 
         constexpr auto idle_interval = std::chrono::microseconds(500);
+        // Low-power polling doubles the idle interval after each quiet iteration up to the configured cap, so a
+        // still window costs a few hundred wakeups a second at most, and the first event after a lull still lands
+        // within one interval.
+        auto current_idle_interval = idle_interval;
 
 
         constexpr usize backlog_threshold = 64;
@@ -372,12 +415,24 @@ namespace SFT::WindowManager {
             }
 
 
+            if (drained_events > 0) {
+                signal_activity();
+            }
+
             if (ran_ops || drained_events >= backlog_threshold) {
+                current_idle_interval = idle_interval;
                 continue;
             }
 
+            if (drained_events > 0 || !low_power_polling_.load(std::memory_order_acquire)) {
+                current_idle_interval = idle_interval;
+            } else {
+                const auto cap = std::chrono::microseconds(max_idle_interval_us_.load(std::memory_order_relaxed));
+                current_idle_interval = std::min(current_idle_interval * 2, cap);
+            }
+
             std::unique_lock<std::mutex> idle_lock(wake_mutex_);
-            wake_cv_.wait_for(idle_lock, idle_interval, [this]() noexcept {
+            wake_cv_.wait_for(idle_lock, current_idle_interval, [this]() noexcept {
 
 
                 if (!running_.load(std::memory_order_acquire)) {

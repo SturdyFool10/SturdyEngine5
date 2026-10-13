@@ -25,6 +25,11 @@ namespace SFT::Async {
             return queue;
         }
 
+        Mutex<function<void()>> &main_thread_wake_hook() noexcept {
+            static Mutex<function<void()>> hook;
+            return hook;
+        }
+
     } // namespace
 
     /// Runs on main thread.
@@ -33,8 +38,23 @@ namespace SFT::Async {
     ///
     /// @note This function does not throw exceptions.
     void run_on_main_thread(function<void()> fn) noexcept {
-        auto guard = main_thread_queue().lock();
-        guard->push_back(std::move(fn));
+        {
+            auto guard = main_thread_queue().lock();
+            guard->push_back(std::move(fn));
+        }
+        function<void()> hook;
+        {
+            auto guard = main_thread_wake_hook().lock();
+            hook = *guard;
+        }
+        if (hook) {
+            hook();
+        }
+    }
+
+    void set_main_thread_wake_hook(function<void()> hook) noexcept {
+        auto guard = main_thread_wake_hook().lock();
+        *guard = std::move(hook);
     }
 
     /// Pumps main thread using the supplied arguments and current state.

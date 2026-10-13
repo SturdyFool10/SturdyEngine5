@@ -1,0 +1,13 @@
+[package]
+name = "shell_demo"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# A launcher-shaped immediate-mode application on SE5, and the reference for porting Vertex: custom title bar, tabs,
+# virtualised list, Markdown, progress bars, popups/context menus/tooltips/modals, file drop, and a settings page
+# whose every control applies live (graphics device, vsync, frame limiter, HDR, window effect, fonts, theme).
+# Idle cost is ~0% (on-demand rendering). Run it under a real or nested display.
+[dependencies]
+sturdy = { path = "../../sturdy" }
+glam = { version = "0.33", features = ["scalar-math"] }

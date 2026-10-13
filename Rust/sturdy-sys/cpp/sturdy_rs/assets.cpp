@@ -600,6 +600,26 @@ namespace sturdy_rs::assets {
         }
     }
 
+    rust::String assets_update_texture(EngineView &engine, AssetHandle asset, rust::Slice<const std::uint8_t> pixels) {
+        try {
+            const auto handle = engine.assets().texture_handle(to_engine_asset(asset));
+            if (!handle) {
+                return to_rust_string(handle.error().message);
+            }
+            SFT::Renderer::Renderer *renderer = engine.renderer();
+            if (renderer == nullptr) {
+                return rust::String("the renderer is not running");
+            }
+            const std::span<const std::byte> bytes{reinterpret_cast<const std::byte *>(pixels.data()), pixels.size()};
+            if (const auto updated = renderer->update_texture(*handle, bytes); !updated) {
+                return rust::String::lossy(updated.error().message);
+            }
+            return rust::String();
+        } catch (const std::exception &e) {
+            return rust::String(e.what());
+        }
+    }
+
     RendererTextureHandleOutcome assets_texture_handle(const EngineView &engine, AssetHandle asset) {
         try {
             const auto result = engine.assets().texture_handle(to_engine_asset(asset));

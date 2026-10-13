@@ -125,6 +125,10 @@ namespace SFT::Async {
 
             std::atomic<u32> queued_count{0};
             std::atomic<u32> waiting_worker_count{0};
+            /// Workers in the long idle wait. Enqueue takes `wake_mutex` before notifying only when this is non-zero,
+            /// which is what makes the long wait safe: a parked worker checks the queue under the mutex, so the notify
+            /// cannot slip in between its check and its sleep.
+            std::atomic<u32> parked_worker_count{0};
             std::mutex wake_mutex;
             condition_variable wake_cv;
             SchedulerConfig config{};
@@ -218,11 +222,17 @@ namespace SFT::Async {
             Pool &p = pool();
             u32 idle_spins = 0;
             u32 idle_yields = 0;
+            // Short timed sleeps keep latency low while work is flowing. After this many in a row with nothing to do
+            // (a few milliseconds), the worker parks until an enqueue wakes it, so an idle process does not wake every
+            // worker tens of thousands of times a second.
+            constexpr u32 short_sleeps_before_parking = 64;
+            u32 idle_short_sleeps = 0;
 
             while (p.running.load(std::memory_order_acquire)) {
                 if (execute_one_task(p, index)) {
                     idle_spins = 0;
                     idle_yields = 0;
+                    idle_short_sleeps = 0;
                     continue;
                 }
 
@@ -240,9 +250,18 @@ namespace SFT::Async {
 
 
                 unique_lock<std::mutex> idle_lock(p.wake_mutex);
-                p.wake_cv.wait_for(idle_lock, std::chrono::microseconds(config.idle_sleep_microseconds), [&p]() {
-                    return !p.running.load(std::memory_order_acquire) || p.queued_count.load(std::memory_order_acquire) > 0;
-                });
+                const auto has_work = [&p]() {
+                    return !p.running.load(std::memory_order_seq_cst) || p.queued_count.load(std::memory_order_seq_cst) > 0;
+                };
+                if (idle_short_sleeps < short_sleeps_before_parking) {
+                    ++idle_short_sleeps;
+                    p.wake_cv.wait_for(idle_lock, std::chrono::microseconds(config.idle_sleep_microseconds), has_work);
+                } else {
+                    // Parked. The timeout is only a backstop; an enqueue normally wakes the worker at once.
+                    p.parked_worker_count.fetch_add(1, std::memory_order_seq_cst);
+                    p.wake_cv.wait_for(idle_lock, std::chrono::milliseconds(250), has_work);
+                    p.parked_worker_count.fetch_sub(1, std::memory_order_seq_cst);
+                }
                 idle_spins = 0;
                 idle_yields = 0;
             }
@@ -492,7 +511,7 @@ namespace SFT::Async {
         return;
 #endif
 
-        p.queued_count.fetch_add(1, std::memory_order_acq_rel);
+        p.queued_count.fetch_add(1, std::memory_order_seq_cst);
 
 
         if (weight == TaskWeight::Heavy && p.heavy_worker_count > 0) {
@@ -505,6 +524,10 @@ namespace SFT::Async {
             p.injector.push_back(std::move(task));
         }
 
+        if (p.parked_worker_count.load(std::memory_order_seq_cst) > 0) {
+            // A parked worker checked the queue under the mutex; taking it here orders this notify after that check.
+            { std::lock_guard<std::mutex> wake_lock(p.wake_mutex); }
+        }
         if (p.config.notify_all_on_enqueue) {
             p.wake_cv.notify_all();
         } else {

@@ -11,6 +11,7 @@
 #include <new>
 #include <optional>
 #include <string>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -20,6 +21,7 @@
 #include <WindowManager/WindowGeometry.hpp>
 #include <WindowManager/WindowEvent.hpp>
 #include <WindowManager/WindowEffect.hpp>
+#include <WindowManager/WindowChrome.hpp>
 #include <WindowManager/WindowConfig.hpp>
 
 using std::bad_alloc;
@@ -568,6 +570,26 @@ namespace SFT::WindowManager {
         /// default asks the platform layer through `native_window_handle()`.
         [[nodiscard]] virtual WindowEffectSupport window_effect_support(WindowEffectKind kind) const noexcept;
 
+        // -- Custom title bar / window chrome. Defaults report `Unsupported`; the SDL3 provider implements them. --
+
+        /// Installs the drag/resize regions of a custom (undecorated) title bar; see `HitTestRegions`.
+        virtual expected<void, WindowError> set_hit_test_regions(HitTestRegions regions) noexcept;
+        /// Opens the OS window menu (move/size/minimize/close) at `position` in window coordinates, as a right-click on
+        /// a native title bar would. Windows and some Linux window managers.
+        virtual expected<void, WindowError> show_system_menu(WindowPosition position) noexcept;
+        [[nodiscard]] virtual bool maximized() const noexcept;
+        [[nodiscard]] virtual bool minimized() const noexcept;
+        /// Window icon from tightly packed RGBA8 pixels (`width * height * 4` bytes). On Wayland the compositor uses the
+        /// desktop file matching `WindowConfig::app_id` instead where it does not support per-window icons.
+        virtual expected<void, WindowError> set_icon(u32 width, u32 height, std::span<const std::byte> rgba) noexcept;
+        virtual expected<void, WindowError> request_attention(AttentionRequest request) noexcept;
+        /// Taskbar/dock progress. `value` is 0..1 and only used by `Normal`, `Paused` and `Error`.
+        virtual expected<void, WindowError> set_taskbar_progress(TaskbarProgress state, f32 value) noexcept;
+        /// The OS light/dark preference (`WindowEventKind::SystemThemeChanged` reports changes).
+        [[nodiscard]] virtual SystemTheme system_theme() const noexcept;
+        /// Every connected monitor.
+        [[nodiscard]] virtual std::vector<DisplayInfo> displays() const noexcept;
+
 
         /// Sets the effect for this `Window`.
         ///
@@ -645,6 +667,19 @@ namespace SFT::WindowManager {
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_clipboard_text(std::string_view text) noexcept = 0;
+
+        /// True when the clipboard currently offers `mime_type` (e.g. "image/png", "text/uri-list").
+        ///
+        /// Backends without typed clipboard support report false.
+        [[nodiscard]] virtual bool clipboard_has_mime(std::string_view mime_type) const noexcept;
+
+        /// Reads the clipboard payload offered under `mime_type`; empty when absent or unsupported.
+        [[nodiscard]] virtual std::vector<std::byte> clipboard_data(std::string_view mime_type) const noexcept;
+
+        /// Replaces the clipboard with one payload under `mime_type` (e.g. PNG bytes under "image/png", or
+        /// newline-separated `file://` URIs under "text/uri-list"). The bytes are copied.
+        virtual expected<void, WindowError> set_clipboard_data(std::string_view mime_type,
+                                                               std::span<const std::byte> bytes) noexcept;
 
 
         /// Starts text input using the supplied arguments and current state.

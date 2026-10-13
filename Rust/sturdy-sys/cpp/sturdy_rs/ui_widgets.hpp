@@ -113,6 +113,11 @@ namespace sturdy_rs::ui_widgets {
     TextEditOutcome ui_text_area(EngineView &engine, const UiElementDesc &desc, const TextEditStyleDesc &style,
                                  const ScrollbarStyleDesc &scrollbar, TextEditStateBox &state,
                                  ScrollAreaStateBox &scroll_state, rust::Str placeholder, bool enabled);
+    struct RichSpanDesc;
+    struct RichTextOutcome;
+    RichTextOutcome ui_rich_text(EngineView &engine, const UiElementDesc &desc, const TextEditStyleDesc &style,
+                                 const ScrollbarStyleDesc &scrollbar, TextEditStateBox &state,
+                                 ScrollAreaStateBox &scroll_state, const rust::Vec<RichSpanDesc> &spans);
     ScrollAreaOutcome ui_scroll_area(EngineView &engine, rust::Str id, const UiElementDesc &desc,
                                      const ScrollbarStyleDesc &style, ScrollAreaStateBox &state, bool enabled,
                                      rust::Box<ScrollContent> content);

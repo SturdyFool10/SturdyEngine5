@@ -36,6 +36,22 @@ namespace SFT::WindowManager {
         /// The window's content scale (see `Window::content_scale()`) changed, e.g. it moved to a
         /// monitor with a different UI scale. The new value is in `WindowEvent::content_scale`.
         ContentScaleChanged,
+
+        /// The window was maximized / minimized / restored from either (by the user, the OS, or a request).
+        Maximized,
+        Minimized,
+        Restored,
+        /// Drag and drop onto the window. `DropBegin` starts a drag over the window; `DropPosition` tracks the pointer
+        /// (`WindowEvent::position`, window coordinates); each `DropFile`/`DropText` is one dropped item, whose path or
+        /// text is taken from `take_dropped_items` (events carry no strings); `DropComplete` ends the drop (or the drag
+        /// left the window).
+        DropBegin,
+        DropPosition,
+        DropFile,
+        DropText,
+        DropComplete,
+        /// The OS light/dark preference changed; read it with `Window::system_theme()`.
+        SystemThemeChanged,
     };
 
     struct WindowKeyboardEvent {

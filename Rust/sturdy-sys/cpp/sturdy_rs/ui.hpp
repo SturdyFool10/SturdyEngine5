@@ -61,10 +61,20 @@ namespace sturdy_rs::ui {
     void ui_clear_draw_hook() noexcept;
 
     bool ui_register_font(EngineView &engine, rust::Str path, std::uint16_t font_id);
+    struct FontSource;
+    rust::String ui_register_font_stack(EngineView &engine, std::uint16_t font_id, const FontSource &primary,
+                                        const FontSource &emoji, const rust::Vec<FontSource> &fallbacks,
+                                        rust::Str features);
+    void ui_unregister_font(EngineView &engine, std::uint16_t font_id);
+    rust::Vec<rust::String> ui_system_font_families();
+    struct FontAxisInfo;
+    rust::Vec<FontAxisInfo> ui_font_variation_axes(const FontSource &source, rust::String &error);
     bool ui_register_text_font(std::uint64_t registry_font_id, std::uint16_t font_id);
 
+    /// `hdr_output` is the *surface's current* HDR state (not the startup config), so a live HDR toggle rebuilds the
+    /// UI renderer in the matching format on the next frame.
     bool ui_run_frame(EngineView &engine, std::uint32_t framebuffer_width,
-                      std::uint32_t framebuffer_height, double delta_seconds);
+                      std::uint32_t framebuffer_height, double delta_seconds, bool hdr_output);
 
     UiBounds ui_element_bounds(rust::Str id);
     bool ui_clicked_outside(rust::Str id);
@@ -77,12 +87,16 @@ namespace sturdy_rs::ui {
     std::array<float, 2> ui_viewport_size() noexcept;
 
     std::size_t ui_hit_test_text(const UiTextStyle &style, rust::Str content, float local_x);
+    std::array<float, 2> ui_measure_text(const UiTextStyle &style, rust::Str content);
+    void ui_set_hdr_reference_white(float scale) noexcept;
+    void ui_set_raw_pixel_layout(bool raw) noexcept;
 
     bool ui_begin_element(const UiElementDesc &desc);
     bool ui_end_element();
     bool ui_text(rust::Str text, const UiTextStyle &style);
 
     bool ui_image(const UiElementDesc &desc, UiTexture texture);
+    bool ui_image_sampled(const UiElementDesc &desc, UiTexture texture, bool nearest);
     UiSvgOutcome ui_load_svg(EngineView &engine, rust::Str path, float target_px);
     bool ui_svg(const UiElementDesc &desc, UiTexture texture);
 

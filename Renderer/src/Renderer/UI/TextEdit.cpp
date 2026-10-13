@@ -1,5 +1,8 @@
 #include <Renderer/UI/TextEdit.hpp>
 
+#include <algorithm>
+#include <optional>
+
 
 namespace SFT::UI {
 
@@ -323,6 +326,16 @@ namespace SFT::UI {
             composition_text_.clear();
         }
 
+        // Undo bookkeeping: remember the state before this frame's edits; it becomes an undo step if they change the
+        // text (or extends the current typing step).
+        const bool has_input = !input.typed_text.empty() || !input.keys.empty();
+        const bool only_typing = !input.typed_text.empty() && input.keys.empty();
+        const bool typed_whitespace = std::ranges::any_of(input.typed_text, [](char c) { return c == ' ' || c == '\t'; });
+        std::optional<EditSnapshot> before;
+        if (has_input) {
+            before = snapshot();
+        }
+
         if (features.typing && !input.typed_text.empty()) {
             UString typed{input.typed_text};
             if (!multiline) {
@@ -432,13 +445,61 @@ namespace SFT::UI {
                     }
                 }
                 break;
+            case EditKey::Undo:
+                if (features.typing || features.deletion) {
+                    if (!undo_stack_.empty()) {
+                        redo_stack_.push_back(snapshot());
+                        restore(undo_stack_.back());
+                        undo_stack_.pop_back();
+                        result.changed = true;
+                    }
+                    coalescing_typing_ = false;
+                    before.reset(); // the history move is not itself an undoable edit
+                }
+                break;
+            case EditKey::Redo:
+                if (features.typing || features.deletion) {
+                    if (!redo_stack_.empty()) {
+                        undo_stack_.push_back(snapshot());
+                        restore(redo_stack_.back());
+                        redo_stack_.pop_back();
+                        result.changed = true;
+                    }
+                    coalescing_typing_ = false;
+                    before.reset();
+                }
+                break;
             }
+        }
+
+        if (before && text_ != before->text) {
+            if (!(only_typing && coalescing_typing_)) {
+                undo_stack_.push_back(std::move(*before));
+                if (undo_stack_.size() > max_undo_steps) {
+                    undo_stack_.erase(undo_stack_.begin());
+                }
+            }
+            redo_stack_.clear();
+            coalescing_typing_ = only_typing && !typed_whitespace;
+        } else if (before && !input.keys.empty()) {
+            coalescing_typing_ = false; // navigation or selection ends a typing run
         }
 
         if (result.changed) {
             blink_elapsed_ = 0.0f;
         }
         return result;
+    }
+
+    TextEditState::EditSnapshot TextEditState::snapshot() const {
+        return EditSnapshot{text_, caret_, selection_anchor_};
+    }
+
+    void TextEditState::restore(const EditSnapshot &snapshot) {
+        text_ = snapshot.text;
+        const usize length = text_.size();
+        caret_ = std::min(snapshot.caret, length);
+        selection_anchor_ = std::min(snapshot.selection_anchor, length);
     }
 
     /// Updates visual from the supplied values.

@@ -201,6 +201,9 @@ pub struct TextInputStyle {
     /// Show a bullet instead of each character (password fields).
     pub mask_characters: bool,
     pub wrap_lines: bool,
+    /// Selectable and copyable but not editable: drag-select, double-click a word, Ctrl+A/C. Use it for
+    /// selectable labels (changelogs, log lines, error messages).
+    pub read_only: bool,
 }
 
 impl Default for TextInputStyle {
@@ -222,6 +225,7 @@ impl Default for TextInputStyle {
             caret_blink_seconds: 0.53,
             mask_characters: false,
             wrap_lines: false,
+            read_only: false,
         }
     }
 }
@@ -245,6 +249,7 @@ impl TextInputStyle {
             caret_blink_seconds: self.caret_blink_seconds,
             mask_characters: self.mask_characters,
             wrap_lines: self.wrap_lines,
+            read_only: self.read_only,
         }
     }
 }
@@ -366,6 +371,45 @@ pub struct SliderResult {
     pub hovered: bool,
     pub dragging: bool,
     pub focused: bool,
+}
+
+/// One styled run of a [`Ui::rich_text`] block. `start`/`len` count Unicode scalar values (chars), not bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct RichSpan {
+    pub start: usize,
+    pub len: usize,
+    /// `None` keeps the block's text colour.
+    pub color: Option<Vec4>,
+    /// `None` keeps the block's font (bold/italic/monospace runs use their own registered font ids).
+    pub font_id: Option<u16>,
+    /// Multiplies the block's font size (headings); 1.0 or 0.0 = unchanged.
+    pub size_scale: f32,
+    pub underline: bool,
+    pub strikethrough: bool,
+}
+
+impl RichSpan {
+    fn to_ffi(&self) -> ffi::RichSpanDesc {
+        ffi::RichSpanDesc {
+            start: self.start,
+            length: self.len,
+            has_color: self.color.is_some(),
+            color: self.color.unwrap_or(Vec4::ONE).into(),
+            has_font: self.font_id.is_some(),
+            font_id: self.font_id.unwrap_or(0),
+            size_scale: self.size_scale,
+            underline: self.underline,
+            strikethrough: self.strikethrough,
+        }
+    }
+}
+
+/// What a [`Ui::rich_text`] block did this frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RichTextResult {
+    pub focused: bool,
+    /// The char index a click landed on this frame (find the link span containing it).
+    pub clicked_char: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -828,6 +872,32 @@ impl Ui<'_> {
             enabled,
         );
         TextInputResult { changed: o.changed, submitted: false, focused: o.focused }
+    }
+
+    /// A block of rich text: the text held in `state` (set it with [`TextEditState::set_text`] when it changes),
+    /// drawn with `spans` over it, word-wrapped, selectable and copyable but not editable. `desc` gives it an id and
+    /// a width (`Sizing::Grow` in a column is typical). Returns which character a click landed on, so a caller can
+    /// resolve link spans. See [`crate::ui_kit::markdown`] for a Markdown renderer built on it.
+    pub fn rich_text(
+        &mut self,
+        desc: &ElementDesc,
+        style: &TextInputStyle,
+        scrollbar: &ScrollbarStyle,
+        state: &mut TextEditState,
+        scroll_state: &mut ScrollAreaState,
+        spans: &[RichSpan],
+    ) -> RichTextResult {
+        let spans: Vec<ffi::RichSpanDesc> = spans.iter().map(RichSpan::to_ffi).collect();
+        let o = ffi::ui_rich_text(
+            self.view_pin(),
+            &desc.to_ffi(),
+            &style.to_ffi(),
+            &scrollbar.to_ffi(),
+            state.0.pin_mut(),
+            scroll_state.0.pin_mut(),
+            &spans,
+        );
+        RichTextResult { focused: o.focused, clicked_char: usize::try_from(o.clicked_scalar).ok() }
     }
 
     /// A scrollable region: `content` builds the scrolled elements through the [`Ui`] it is given.

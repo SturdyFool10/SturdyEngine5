@@ -424,6 +424,12 @@ namespace SFT::Renderer {
         ///
         /// @note This function does not throw exceptions.
         void destroy_texture(TextureHandle handle) noexcept;
+
+        /// Replaces the pixels of an engine-owned texture in place (a video/animated image frame, a live preview, a
+        /// re-rendered thumbnail). `data` must have exactly the layout the texture was created with (same size, format
+        /// and mip chain). Synchronous: the copy is submitted and waited for. The texture handle and every UI image
+        /// using it stay valid, and the new pixels are what a device switch replays.
+        [[nodiscard]] Core::RendererResult update_texture(TextureHandle handle, span<const std::byte> data);
         /// Performs the texture operation for `Renderer` using the supplied arguments.
         ///
         /// @param handle Handle identifying the target object or resource.
@@ -482,6 +488,11 @@ namespace SFT::Renderer {
         ///
         /// @note This function does not throw exceptions.
         void destroy_offscreen_render_target(OffscreenRenderTargetHandle handle) noexcept;
+        /// Gives an off-screen target a new size in place (a UI element showing it was resized). The handle and its
+        /// sampling texture stay valid; the contents are cleared (the next frame re-renders into it). Cheap when the
+        /// extent is unchanged. Waits for the GPU to finish with the old size first, so resize on a settled size, not on
+        /// every pixel of a drag.
+        [[nodiscard]] Core::RendererResult resize_offscreen_render_target(OffscreenRenderTargetHandle handle, Core::Extent2D extent);
         /// Performs the offscreen render target description operation for `Renderer` using the supplied arguments.
         ///
         /// @param handle Handle identifying the target object or resource.

@@ -23,7 +23,7 @@ struct UiQuadInstance {
     float4 borderColor;
     float2 uvMin;
     float2 uvMax;
-    float kind; // 0 = rect (solid and/or bordered), 1 = image (also SVG-sourced — see UiQuad.hpp)
+    float kind; // 0 = rect (solid and/or bordered), 1 = image (also SVG-sourced — see UiQuad.hpp), 2 = image sampled nearest-neighbour
     float _pad0;
     float _pad1;
     float _pad2;
@@ -59,6 +59,8 @@ struct UiViewConstants {
 StructuredBuffer<UiQuadInstance> instances;
 Texture2D<float4> quadTexture;
 SamplerState quadSampler;
+// Point-filtered twin of quadSampler for images drawn with UI::ImageSampling::Nearest (pixel art).
+SamplerState quadSamplerNearest;
 
 struct VertexOutput {
     float4 position : SV_Position;
@@ -109,7 +111,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     // shader outright. A quad's texture binding is always a valid texture -- UiRenderer binds a
     // white fallback view for every untextured fill -- so the extra fetch on the non-image path is
     // well-defined and its result simply goes unused.
-    float4 sampled = quadTexture.Sample(quadSampler, input.uv);
+    // Both filters are fetched for the same reason, and the image kind picks one.
+    float4 sampledLinear = quadTexture.Sample(quadSampler, input.uv);
+    float4 sampledNearest = quadTexture.Sample(quadSamplerNearest, input.uv);
+    float4 sampled = input.kind > 1.5 ? sampledNearest : sampledLinear;
 
     float4 color = input.fillColor;
     if (input.kind > 0.5) {
@@ -117,9 +122,10 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
         // texture is rasterized to plain RGBA8 ahead of time by Engine::UiSvgCache, so it's
         // indistinguishable from any other image by the time it reaches this shader).
         // Clay_ImageRenderData's default tint is (0,0,0,0), meaning "untinted" (see its own doc
-        // comment) — only multiply-tint when the caller actually set a tint color.
-        float3 tinted = input.fillColor.a > 0.0 ? sampled.rgb * input.fillColor.rgb : sampled.rgb;
-        color = float4(tinted, sampled.a);
+        // comment) — only multiply-tint when the caller actually set a tint color. The tint's alpha scales the
+        // image's opacity (fade a thumbnail in, dim a disabled icon).
+        float4 tint = input.fillColor.a > 0.0 ? input.fillColor : float4(1.0, 1.0, 1.0, 1.0);
+        color = float4(sampled.rgb * tint.rgb, sampled.a * tint.a);
     } else if (dot(input.borderWidth, input.borderWidth) > 0.0) {
         float2 innerHalfSize = input.halfSize - float2(
             (input.borderWidth.x + input.borderWidth.y) * 0.5,

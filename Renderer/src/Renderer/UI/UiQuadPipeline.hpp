@@ -139,9 +139,12 @@ namespace SFT::UI {
         vector<RHI::BindGroupLayoutHandle> bind_group_layouts_;
         vector<u32> bind_group_layout_sets_;
         RHI::SamplerHandle sampler_{};
+        /// Point-filtered sampler for `UiQuadKind::ImageNearest` quads (pixel art).
+        RHI::SamplerHandle nearest_sampler_{};
         ResourceBinding instances_binding_{};
         ResourceBinding texture_binding_{};
         ResourceBinding sampler_binding_{};
+        ResourceBinding nearest_sampler_binding_{};
     };
 
 } // namespace SFT::UI

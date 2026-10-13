@@ -1618,7 +1618,15 @@ fn demonstrate_window_mutation(engine: &mut Engine<'_>, surface: SurfaceHandle) 
     engine.set_relative_mouse_mode(surface, false);
     engine.set_window_effect(surface, WindowEffectKind::Blur, false);
     // A blur with rounded corners and a one-rectangle region: exercises the options path end to end.
+    // `HELLO_BLUR_PROTOCOL=ext|kde|x11` forces one Linux route (default: automatic, ext then KDE).
+    let protocol = match std::env::var("HELLO_BLUR_PROTOCOL").as_deref() {
+        Ok("ext") => sturdy::render::LinuxBlurProtocol::ExtBackgroundEffect,
+        Ok("kde") => sturdy::render::LinuxBlurProtocol::KdeBlur,
+        Ok("x11") => sturdy::render::LinuxBlurProtocol::KdeX11,
+        _ => sturdy::render::LinuxBlurProtocol::Automatic,
+    };
     let blur_params = sturdy::render::WindowEffectParams {
+        protocol,
         options: sturdy::render::WindowEffectOptions { corner_radius: 12.0, ..Default::default() },
         ..Default::default()
     };
