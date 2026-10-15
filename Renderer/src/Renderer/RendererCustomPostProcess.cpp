@@ -126,7 +126,12 @@ namespace SFT::Renderer {
 
         const slang::ShaderReflection &reflection = resource.shader.reflection();
         const vector<GeneratedBindGroupLayout> generated = generate_bind_group_layouts(reflection, reflected_stage_mask(reflection));
-        const vector<ReflectedResource> reflected_resources = collect_resource_bindings(reflection);
+        // On targets without push constants (WGSL) the push-constant block is compiled as a uniform
+        // buffer in the reserved set; it is carried by the backend's emulation, not a user resource.
+        vector<ReflectedResource> reflected_resources = collect_resource_bindings(reflection);
+        std::erase_if(reflected_resources, [](const ReflectedResource &binding) {
+            return binding.set == emulated_push_constant_set;
+        });
         const usize expected_resources = 2 + static_cast<usize>(effect.extra_input_count);
         if (generated.size() != 1 || generated.front().set != 0 || generated.front().entries.size() != expected_resources ||
             reflected_resources.size() != expected_resources) {

@@ -209,7 +209,8 @@ namespace SFT::Engine {
 
         vector<std::byte> compressed_storage;
         RHI::RhiDevice *device = impl_->renderer.rhi_device();
-        if (decoded->width >= 4 && decoded->height >= 4 && device != nullptr &&
+        // WebGPU requires a block-compressed texture's base extent to be a whole number of 4x4 blocks.
+        if (decoded->width >= 4 && decoded->height >= 4 && decoded->width % 4 == 0 && decoded->height % 4 == 0 && device != nullptr &&
             device->limits().supports_bc_texture_compression) {
             std::optional<vector<std::byte>> compressed;
             switch (kind) {

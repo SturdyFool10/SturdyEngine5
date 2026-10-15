@@ -552,7 +552,9 @@ namespace SFT::Engine {
         // Every BC codec bundled here (BC1/3/4/5/7) takes 8-bit input and produces an 8-bit-range
         // result, so a half-float texture is uploaded uncompressed. Compressing it would need
         // BC6H, which is the one BC format bc7enc does not implement.
+        // WebGPU requires a block-compressed texture's base extent to be a whole number of 4x4 blocks.
         if (!half_float && desc.allow_compression && desc.width >= 4 && desc.height >= 4 &&
+            desc.width % 4 == 0 && desc.height % 4 == 0 &&
             device != nullptr && device->limits().supports_bc_texture_compression) {
             switch (desc.kind) {
                 case TextureKind::ColorOpaque:
