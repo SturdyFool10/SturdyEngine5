@@ -276,6 +276,99 @@ namespace {
         return ok;
     }
 
+    /// Every mip of a block-compressed texture, including the 2x2 and 1x1 tail that is smaller than one 4x4 block.
+    /// WebGPU wants each copy's extent in whole blocks (measured against the mip's physical size), so a copy that
+    /// names the mip's true 2x2 or 1x1 size is a validation error unless the encoder rounds it up.
+    ///
+    /// @param device Device under test.
+    /// @param watch Validation-error collector.
+    ///
+    /// @return Returns the boolean result of the operation.
+    /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    bool test_compressed_tail_mip_copy(rhi::RhiDevice &device, ValidationErrorWatch &watch) {
+        if (!device.limits().supports_bc_texture_compression) {
+            std::cout << "SKIPPED: the device has no BC texture compression\n";
+            return true;
+        }
+        constexpr u32 size = 16;
+        constexpr u32 mips = 5; // 16, 8, 4, 2, 1
+        constexpr u64 block_bytes = 16;
+
+        auto texture = device.create_texture(rhi::TextureDesc{
+            .dimension = rhi::TextureDimension::Dim2D,
+            .format = rhi::Format::BC7Unorm,
+            .extent = rhi::Extent3D{.width = size, .height = size, .depth_or_layers = 1},
+            .mip_levels = mips,
+            .samples = rhi::SampleCount::X1,
+            .usage = rhi::TextureUsage::TransferDst | rhi::TextureUsage::Sampled,
+            .concurrent_queue_classes = {},
+            .label = "test compressed destination",
+        });
+        if (!check(texture.has_value(), "the compressed destination texture should be creatable")) {
+            return false;
+        }
+        // Row pitch is 256 bytes for the multi-row mips; one block row for the rest. 4 block rows at most.
+        const std::vector<std::byte> contents(256 * 4, std::byte{0x22});
+        auto staging = device.create_buffer(rhi::BufferDesc{
+            .size = contents.size(),
+            .usage = rhi::BufferUsage::TransferSrc,
+            .memory = rhi::MemoryLocation::HostUpload,
+            .label = "test compressed source",
+        });
+        if (!check(staging.has_value(), "the compressed source buffer should be creatable")) {
+            device.destroy_texture(*texture);
+            return false;
+        }
+        bool ok = check(device.write_buffer(*staging, 0, contents).has_value(), "the source buffer should be writable");
+
+        auto encoder = device.create_command_encoder(rhi::CommandEncoderDesc{.label = "test compressed encoder"});
+        ok = check(encoder.has_value(), "a command encoder should be creatable") && ok;
+        if (encoder) {
+            const rhi::TextureBarrier to_transfer{
+                .texture = *texture,
+                .src_stage = rhi::PipelineStage::None,
+                .src_access = rhi::AccessFlags::None,
+                .dst_stage = rhi::PipelineStage::Transfer,
+                .dst_access = rhi::AccessFlags::TransferWrite,
+                .old_layout = rhi::TextureLayout::Undefined,
+                .new_layout = rhi::TextureLayout::TransferDst,
+            };
+            (*encoder)->barrier({}, {}, std::span<const rhi::TextureBarrier>{&to_transfer, 1});
+            for (u32 mip = 0; mip < mips; ++mip) {
+                const u32 extent = std::max(1u, size >> mip); // the mip's true size, which is below one block at the tail
+                (*encoder)->copy_buffer_to_texture(
+                    *staging, *texture,
+                    rhi::BufferTextureCopy{
+                        .buffer_offset = 0,
+                        // In texels: 256-byte rows of 16-byte blocks, 4 texels each (WebGPU's pitch rule).
+                        .buffer_row_length = 64,
+                        .buffer_image_height = 0,
+                        .mip_level = mip,
+                        .base_array_layer = 0,
+                        .array_layer_count = 1,
+                        .texture_offset = rhi::Offset3D{0, 0, 0},
+                        .texture_extent = rhi::Extent3D{.width = extent, .height = extent, .depth_or_layers = 1},
+                    });
+            }
+            auto command_buffer = (*encoder)->finish();
+            ok = check(command_buffer.has_value(), "the compressed copy command buffer should finish") && ok;
+            if (command_buffer) {
+                const std::array buffers{*command_buffer};
+                rhi::SubmitDesc submit_desc{};
+                submit_desc.command_buffers = std::span<const rhi::CommandBufferHandle>{buffers.data(), buffers.size()};
+                submit_desc.label = "test compressed submit";
+                ok = check(device.submit(submit_desc).has_value(), "the compressed copy should submit") && ok;
+                device.wait_idle();
+                device.destroy_command_buffer(*command_buffer);
+            }
+        }
+        (void)block_bytes;
+        ok = watch.quiet("copying every mip of a block-compressed texture") && ok;
+        device.destroy_buffer(*staging);
+        device.destroy_texture(*texture);
+        return ok;
+    }
+
     /// A render target requesting a storage binding on RG16Float, which WebGPU has no storage
     /// support for -- the shape of the renderer's G-buffer normal and motion targets.
     ///
@@ -456,6 +549,7 @@ int main() {
     ok = test_host_upload_shader_buffer(**device, watch) && ok;
     ok = test_queue_written_staging_buffer(**device, watch) && ok;
     ok = test_buffer_to_texture_copy(**device, watch) && ok;
+    ok = test_compressed_tail_mip_copy(**device, watch) && ok;
     ok = test_storage_usage_on_unsupported_format(**device, watch) && ok;
     ok = test_transient_bind_group_dedup(**device, watch) && ok;
 

@@ -34,6 +34,7 @@ namespace SFT::UI {
         }
         auto guard = renderer_state_->renderer.lock();
         *guard = std::move(*renderer);
+        renderer_state_->format.store(color_format);
         return true;
     }
 
@@ -78,14 +79,29 @@ namespace SFT::UI {
             if (!*guard) {
                 return {}; // released (graphics reconstruction) while this frame was in flight: draw nothing
             }
+            // The pass draws into the swapchain, or into a linear RGBA16Float layer for HDR output and for a UI-only frame
+            // on a transparent surface. The pipelines are built for one format, so follow the pass: callers cannot know
+            // in advance which of the two the renderer will pick (the display may refuse HDR the app asked for).
+            if (prepare.format != RHI::Format::Undefined && state->format.load() != prepare.format) {
+                (*guard)->destroy(prepare.device);
+                guard->reset();
+                auto rebuilt = UiRenderer::create(prepare.device, prepare.format);
+                if (!rebuilt) {
+                    Foundation::log_error("UI::UiSurface: failed to rebuild UI::UiRenderer for the overlay target format: {}",
+                                          rebuilt.error().message);
+                    return {};
+                }
+                *guard = std::move(*rebuilt);
+                state->format.store(prepare.format);
+            }
             return (*guard)->prepare(prepare.device, prepare.encoder, prepare.graph, *snapshot, texture_resolver, prepare.surface,
                                      prepare.frame_slot_index, prepare.transient_buffers, prepare.retired_text_atlas_resources,
                                      prepare.transient_bind_groups, prepare.sampled_textures);
         };
         overlay.draw = [state](Renderer::OverlayPassContext &draw) -> Core::RendererResult {
             auto guard = state->renderer.lock();
-            if (!*guard) {
-                return {};
+            if (!*guard || (draw.format != RHI::Format::Undefined && state->format.load() != draw.format)) {
+                return {}; // no renderer, or one built for another target format: skip rather than fail validation
             }
             return (*guard)->draw(draw.pass, glm::vec2{draw.extent}, draw.surface, draw.frame_slot_index);
         };

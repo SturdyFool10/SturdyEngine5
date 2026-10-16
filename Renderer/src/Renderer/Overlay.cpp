@@ -46,6 +46,7 @@ namespace SFT::Renderer {
                     .encoder = *frame.encoder,
                     .graph = frame.graph,
                     .viewport = glm::vec2{extent},
+                    .format = format,
                     .surface = frame.surface,
                     .frame_slot_index = frame.frame_slot_index,
                     .transient_buffers = *frame.transient_buffers,

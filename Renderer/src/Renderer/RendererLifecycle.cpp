@@ -169,8 +169,11 @@ namespace SFT::Renderer {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] RHI::Format hdr_presentation_format(const Core::PresentationSettings &presentation) noexcept {
-            if (!static_cast<bool>(presentation.hdr_enabled)) {
+        [[nodiscard]] RHI::Format hdr_presentation_format(const Core::PresentationSettings &presentation, bool webgpu_backend) noexcept {
+            // Dawn's native surfaces take 8-bit formats only unless colour management is chained at surface creation, which
+            // this backend does not do yet: asking for RGB10A2/RGBA16F here would give a swapchain the display path cannot
+            // encode for, so HDR is unavailable on WebGPU and the frame stays SDR.
+            if (webgpu_backend || !static_cast<bool>(presentation.hdr_enabled)) {
                 return RHI::Format::BGRA8UnormSrgb;
             }
 #if defined(STURDY_PLATFORM_WEB)
@@ -201,8 +204,8 @@ namespace SFT::Renderer {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] RHI::ColorSpace hdr_presentation_color_space(const Core::PresentationSettings &presentation) noexcept {
-            if (!static_cast<bool>(presentation.hdr_enabled)) {
+        [[nodiscard]] RHI::ColorSpace hdr_presentation_color_space(const Core::PresentationSettings &presentation, bool webgpu_backend) noexcept {
+            if (webgpu_backend || !static_cast<bool>(presentation.hdr_enabled)) {
                 return RHI::ColorSpace::SrgbNonlinear;
             }
 #if defined(STURDY_PLATFORM_WEB)
@@ -1419,8 +1422,8 @@ namespace SFT::Renderer {
             .surface = record.rhi_surface,
             .width = extent.x,
             .height = extent.y,
-            .format = hdr_presentation_format(record.presentation),
-            .color_space = hdr_presentation_color_space(record.presentation),
+            .format = hdr_presentation_format(record.presentation, device->backend_type() == RHI::BackendType::WebGpu),
+            .color_space = hdr_presentation_color_space(record.presentation, device->backend_type() == RHI::BackendType::WebGpu),
 
 
             .present_strategy = Core::resolve_present_strategy(record.presentation),

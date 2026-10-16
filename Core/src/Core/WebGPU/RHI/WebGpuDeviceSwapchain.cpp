@@ -232,6 +232,8 @@ namespace SFT::Core::WebGpu {
             .effective_composite_alpha = rhi::CompositeAlphaMode::Opaque,
             .composite_alpha_degraded = false,
             .via_composition_present = false,
+            .effective_format = desc.format,
+            .effective_color_space = desc.color_space,
         };
 
         const rhi::SwapchainHandle swapchain = swapchains_.insert(rhi::SurfaceHandle{desc.surface});

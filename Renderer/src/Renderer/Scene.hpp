@@ -177,6 +177,9 @@ namespace SFT::Renderer {
         RenderGraph &graph;
         /// The presentation extent in pixels.
         glm::vec2 viewport{0.0f};
+        /// Format of the target the overlay's pass will draw into: the swapchain's, or the linear RGBA16Float layer
+        /// when the frame is HDR or an overlay-only frame on a transparent surface. Pipelines must match it.
+        RHI::Format format = RHI::Format::Undefined;
         Core::RenderSurfaceHandle surface{};
         u32 frame_slot_index = 0;
         std::vector<RHI::BufferHandle> &transient_buffers;

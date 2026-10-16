@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <Foundation/Foundation.hpp>
 
 #include <memory>
@@ -105,6 +107,8 @@ namespace SFT::UI {
       private:
         struct RendererState {
             Async::Mutex<std::optional<UiRenderer>> renderer;
+            /// Colour format the renderer's pipelines were built for; the overlay's pass must draw into the same one.
+            std::atomic<RHI::Format> format{RHI::Format::Undefined};
         };
 
         Context context_{};

@@ -1,0 +1,12 @@
+[package]
+name = "webgpu_overlay"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# Draws a UI-only frame on the WebGPU (Dawn) backend over a transparent surface, with text, a quad and small SVG icons,
+# optionally in HDR (STURDY_PROBE_HDR=1), then exits. Any WebGPU validation error it logs is a bug: this is the shape of
+# a launcher window (UI overlay in a linear RGBA16Float layer, block-compressed icon textures with mip tails).
+# Run it under a real (nested) display.
+[dependencies]
+sturdy = { path = "../../sturdy", features = ["webgpu"] }

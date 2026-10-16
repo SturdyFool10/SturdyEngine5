@@ -69,6 +69,27 @@ namespace SFT::Core::WebGpu {
             return layout;
         }
 
+        /// The extent a buffer<->texture copy must use. WebGPU requires a block-compressed copy's width and height
+        /// to be whole numbers of blocks and measures them against the mip level's *physical* size (its size rounded up to
+        /// blocks), so the 2x2 and 1x1 tail mips of a BC texture are copied as one 4x4 block.
+        ///
+        /// @param region Copy region from the caller.
+        /// @param texture Format and extent of the destination or source texture.
+        ///
+        /// @return Returns the extent to hand to Dawn.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] WGPUExtent3D block_aligned_copy_extent(
+            const rhi::BufferTextureCopy &region, const WebGpuDevice::TextureLayout &texture) noexcept {
+            const u32 block = format_block_extent(texture.format);
+            u32 width = region.texture_extent.width;
+            u32 height = region.texture_extent.height;
+            if (block > 1u) {
+                width = (width + block - 1u) / block * block;
+                height = (height + block - 1u) / block * block;
+            }
+            return WGPUExtent3D{width, height, region.array_layer_count};
+        }
+
         /// Applies one `set_push_constants` call to an encoder's shadow block. Marks it dirty rather than
         /// allocating a ring slice and rebinding right away: a draw's vertex and fragment stages routinely both
         /// write into the same block before the draw that reads it, and only the state as of the *last* write
@@ -629,8 +650,7 @@ namespace SFT::Core::WebGpu {
                                            region.base_array_layer};
         texture_info.aspect = WGPUTextureAspect_All;
 
-        const WGPUExtent3D extent{region.texture_extent.width, region.texture_extent.height,
-                                  region.array_layer_count};
+        const WGPUExtent3D extent = block_aligned_copy_extent(region, layout);
         wgpuCommandEncoderCopyBufferToTexture(encoder_, &buffer_info, &texture_info, &extent);
     }
 
@@ -654,8 +674,7 @@ namespace SFT::Core::WebGpu {
         buffer_info.buffer = destination;
         buffer_info.layout = texel_copy_layout(region, layout);
 
-        const WGPUExtent3D extent{region.texture_extent.width, region.texture_extent.height,
-                                  region.array_layer_count};
+        const WGPUExtent3D extent = block_aligned_copy_extent(region, layout);
         wgpuCommandEncoderCopyTextureToBuffer(encoder_, &texture_info, &buffer_info, &extent);
     }
 
