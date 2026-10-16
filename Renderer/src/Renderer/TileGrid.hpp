@@ -158,15 +158,13 @@ namespace SFT::Renderer {
         /// @return Returns the boolean result of the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         bool touch(Key key) {
-
-
-            const auto node = std::ranges::find(order_, key);
-            if (node != order_.end()) {
-
-
-                order_.erase(node);
-                order_.push_front(key);
-                nodes_[key] = order_.begin();
+            // Through the node map, not a scan of `order_`: this runs once per glyph per frame, and a scan makes a page of
+            // text quadratic in the number of resident glyphs.
+            const auto node = nodes_.find(key);
+            if (node != nodes_.end()) {
+                if (node->second != order_.begin()) {
+                    order_.splice(order_.begin(), order_, node->second); // moves the node; its iterator stays valid
+                }
                 return false;
             }
             order_.push_front(key);
@@ -214,11 +212,11 @@ namespace SFT::Renderer {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         void erase(const Key &key) {
-            const auto node = std::ranges::find(order_, key);
-            if (node != order_.end()) {
-                order_.erase(node);
+            const auto node = nodes_.find(key);
+            if (node != nodes_.end()) {
+                order_.erase(node->second);
+                nodes_.erase(node);
             }
-            nodes_.erase(key);
         }
 
         /// Reports whether contains holds for this `LruIndex`.

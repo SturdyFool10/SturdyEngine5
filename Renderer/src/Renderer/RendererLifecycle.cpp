@@ -1931,6 +1931,10 @@ namespace SFT::Renderer {
 
 
         HiZCullInput hiz_cull_input{};
+        // The Hi-Z pyramid (and its two shaders) only serve scene culling. A frame with no scene -- a UI-only application
+        // such as a launcher -- skips it entirely, so it never compiles those shaders nor allocates a pyramid the size of
+        // the window: an application only pays for the shaders the frames it actually draws use.
+        if (submission.render_graph.render_scene) {
         if (Core::RendererResult hiz_build_ready = ensure_hiz_build_resources(); !hiz_build_ready.has_value()) {
             return hiz_build_ready;
         }
@@ -1947,6 +1951,7 @@ namespace SFT::Renderer {
                 // The pyramid holds lens-warped depth; the culling shader projects bounds without the lens.
                 .valid = record.hiz_pyramid.has_valid_data && !(submission.render_graph.frame.camera_emulation.lens_strength > 0.0f),
             };
+        }
         }
         PreparedShadowFrame shadow_frame{};
         if (submission.render_graph.render_scene) {
@@ -2393,6 +2398,8 @@ namespace SFT::Renderer {
         const u32 hiz_pyramid_mip_levels = record.hiz_pyramid.mip_levels;
 
 
+        // No pyramid exists until a frame has rendered a scene (see the Hi-Z setup above); nothing to import before that.
+        if (hiz_pyramid_gpu_texture) {
         const RenderGraphTextureHandle hiz_pyramid_texture = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = hiz_pyramid_gpu_texture,
             .default_view = hiz_pyramid_full_view,
@@ -2410,6 +2417,7 @@ namespace SFT::Renderer {
 
         graph.mark_output(hiz_pyramid_texture);
         graph_resources.publish_texture<RenderGraphSemantics::HiZPyramid>(hiz_pyramid_texture);
+        }
 
 
         RenderGraphTextureHandle raster_depth = depth_texture;

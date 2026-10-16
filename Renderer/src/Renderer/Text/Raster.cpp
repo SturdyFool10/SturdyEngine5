@@ -1,5 +1,8 @@
 #include <Renderer/Text/Raster.hpp>
 
+#include <algorithm>
+#include <cmath>
+
 namespace SFT::Text {
 
 /// Selects raster format that best satisfies the supplied requirements.
@@ -56,29 +59,45 @@ msdfgen::Shape to_msdfgen_shape(const GlyphOutline &outline) {
                     continue;
                 }
                 msdfgen::Contour &msdf_contour = shape.addContour();
-                msdfgen::Point2 current(contour.front().to.x, contour.front().to.y);
+                const msdfgen::Point2 start(contour.front().to.x, contour.front().to.y);
+                msdfgen::Point2 current = start;
+                // A zero-length edge has no direction, which msdfgen's distance maths turns into NaN. Drop them.
+                const auto same = [](const msdfgen::Point2 &a, const msdfgen::Point2 &b) {
+                    return std::abs(a.x - b.x) < 1e-9 && std::abs(a.y - b.y) < 1e-9;
+                };
                 for (usize i = 1; i < contour.size(); ++i) {
                     const OutlineSegment &segment = contour[i];
                     const msdfgen::Point2 to(segment.to.x, segment.to.y);
                     switch (segment.kind) {
                         case OutlineSegmentKind::LineTo:
-                            msdf_contour.addEdge(msdfgen::EdgeHolder(current, to));
+                            if (!same(current, to)) {
+                                msdf_contour.addEdge(msdfgen::EdgeHolder(current, to));
+                            }
                             break;
-                        case OutlineSegmentKind::QuadTo:
-                            msdf_contour.addEdge(msdfgen::EdgeHolder(
-                                current, msdfgen::Point2(segment.control1.x, segment.control1.y), to));
+                        case OutlineSegmentKind::QuadTo: {
+                            const msdfgen::Point2 control(segment.control1.x, segment.control1.y);
+                            if (!(same(current, to) && same(current, control))) {
+                                msdf_contour.addEdge(msdfgen::EdgeHolder(current, control, to));
+                            }
                             break;
-                        case OutlineSegmentKind::CubicTo:
-                            msdf_contour.addEdge(msdfgen::EdgeHolder(
-                                current, msdfgen::Point2(segment.control1.x, segment.control1.y),
-                                msdfgen::Point2(segment.control2.x, segment.control2.y), to));
+                        }
+                        case OutlineSegmentKind::CubicTo: {
+                            const msdfgen::Point2 control1(segment.control1.x, segment.control1.y);
+                            const msdfgen::Point2 control2(segment.control2.x, segment.control2.y);
+                            if (!(same(current, to) && same(current, control1) && same(current, control2))) {
+                                msdf_contour.addEdge(msdfgen::EdgeHolder(current, control1, control2, to));
+                            }
                             break;
+                        }
                         case OutlineSegmentKind::MoveTo:
-
-
                             break;
                     }
                     current = to;
+                }
+                // The distance field assumes closed contours: an outline whose last point is not its first leaves the
+                // inside/outside test open-ended, which flips whole cells.
+                if (!same(current, start)) {
+                    msdf_contour.addEdge(msdfgen::EdgeHolder(current, start));
                 }
             }
             return shape;
@@ -91,8 +110,12 @@ msdfgen::Shape to_msdfgen_shape(const GlyphOutline &outline) {
 /// @return Returns the value converted to unorm byte representation.
 /// @note This function does not throw exceptions.
 u8 to_unorm_byte(float value) noexcept {
-            const float clamped = std::clamp(value, 0.0f, 1.0f);
-            return static_cast<u8>(clamped * 255.0f + 0.5f);
+            // NaN compares false with everything, so clamp() would pass it through and the cast would be undefined; a
+            // distance that could not be computed is outside the glyph.
+            if (!(value > 0.0f)) {
+                return 0;
+            }
+            return static_cast<u8>(std::min(value, 1.0f) * 255.0f + 0.5f);
         }
 
 } // namespace SFT::Text::Detail
@@ -137,7 +160,30 @@ TextExpected<RasterizedGlyph> rasterize_glyph(const GlyphOutline &outline, Raste
         msdfgen::Shape shape = Detail::to_msdfgen_shape(outline);
 
 
-        shape.orientContours();
+        // Orient the glyph as a whole, not contour by contour. `orientContours()` re-derives each contour's direction
+        // from how the contours nest, which goes wrong for glyphs built from overlapping same-direction contours (most
+        // CJK faces, composite glyphs): it flips some of them and the distance field turns their area into a solid box.
+        // msdfgen's native convention is TrueType's (outer contours clockwise), so flip every contour only when the
+        // glyph as a whole runs the other way (CFF outlines), judged by its total signed area. Contours keep their
+        // directions relative to each other, and the generator's overlap support handles the rest.
+        {
+            double signed_area = 0.0;
+            for (const msdfgen::Contour &contour : shape.contours) {
+                for (const msdfgen::EdgeHolder &edge : contour.edges) {
+                    msdfgen::Point2 previous = edge->point(0.0);
+                    for (const double t : {0.25, 0.5, 0.75, 1.0}) {
+                        const msdfgen::Point2 next = edge->point(t);
+                        signed_area += previous.x * next.y - next.x * previous.y;
+                        previous = next;
+                    }
+                }
+            }
+            if (signed_area > 0.0) {
+                for (msdfgen::Contour &contour : shape.contours) {
+                    contour.reverse();
+                }
+            }
+        }
         shape.normalize();
         if (format == RasterFormat::MSDF) {
             msdfgen::edgeColoringSimple(shape, 3.0);

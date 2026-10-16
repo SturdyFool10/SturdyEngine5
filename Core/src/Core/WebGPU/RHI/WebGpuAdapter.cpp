@@ -1,5 +1,8 @@
 #include <Core/WebGPU/RHI/WebGpuAdapter.hpp>
 
+#include <mutex>
+#include <string>
+
 #include <Core/WebGPU/RHI/WebGpuCommon.hpp>
 #include <Core/WebGPU/RHI/WebGpuDevice.hpp>
 
@@ -239,7 +242,23 @@ namespace SFT::Core::WebGpu {
                                                   // this optional feature when the adapter has it
                                                   // keeps that one format working unchanged instead
                                                   // of needing a WebGPU-specific format substitution.
-                                                  WGPUFeatureName_RG11B10UfloatRenderable}) {
+                                                  WGPUFeatureName_RG11B10UfloatRenderable,
+                                                  // Everything `populate_features` claims to the engine has to be on
+                                                  // the device too, or the engine plans around a capability that the
+                                                  // device then rejects at pipeline creation.
+                                                  WGPUFeatureName_TextureCompressionETC2,
+                                                  WGPUFeatureName_TextureCompressionASTC,
+                                                  WGPUFeatureName_DualSourceBlending,
+                                                  WGPUFeatureName_ClipDistances,
+                                                  WGPUFeatureName_Subgroups,
+                                                  // Additive capabilities with no downside when the adapter has them.
+                                                  WGPUFeatureName_DepthClipControl,
+                                                  WGPUFeatureName_ShaderF16,
+                                                  WGPUFeatureName_BGRA8UnormStorage,
+                                                  WGPUFeatureName_Float32Blendable,
+                                                  WGPUFeatureName_TextureCompressionBCSliced3D,
+                                                  WGPUFeatureName_PrimitiveIndex,
+                                                  WGPUFeatureName_TextureComponentSwizzle}) {
                     if (wgpuAdapterHasFeature(adapter_, candidate) != 0) {
                         features.push_back(candidate);
                     }
@@ -276,7 +295,27 @@ namespace SFT::Core::WebGpu {
                     };
                 device_desc.uncapturedErrorCallbackInfo.callback =
                     [](const WGPUDevice *, WGPUErrorType, WGPUStringView message, void *, void *) {
-                        Foundation::log_error("WebGPU validation error: {}", to_string(message));
+                        // A broken pass repeats the same error every frame, and the logging alone (formatting a long Dawn
+                        // message, a write to stderr) then costs more than the frame. Say it once, then count: the same
+                        // message again is only reported on the 1st, 2nd, 10th, 100th... repeat.
+                        static std::mutex mutex;
+                        static std::string last;
+                        static u64 repeats = 0;
+                        const std::string text = to_string(message);
+                        const std::lock_guard<std::mutex> lock{mutex};
+                        if (text == last) {
+                            ++repeats;
+                            const bool power_of_ten = repeats == 1 || repeats == 10 || repeats == 100 || repeats == 1000 ||
+                                                      repeats == 10000 || repeats == 100000;
+                            if (power_of_ten) {
+                                Foundation::log_error("WebGPU validation error repeated {} more time(s): {}", repeats,
+                                                      text.substr(0, 160));
+                            }
+                            return;
+                        }
+                        last = text;
+                        repeats = 0;
+                        Foundation::log_error("WebGPU validation error: {}", text);
                     };
 
                 WGPURequestDeviceCallbackInfo callback{};

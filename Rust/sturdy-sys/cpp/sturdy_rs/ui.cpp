@@ -99,10 +99,18 @@ namespace sturdy_rs::ui {
         }
 
         void apply_font_registrations(SFT::UI::Context &context) {
-            if (SFT::Text::Font *font = default_font()) {
-                context.register_font(0, *font);
-            }
             const std::lock_guard<std::mutex> lock{g_font_mutex};
+            // The embedded default is only the fallback for id 0. Registering it on every replay while the caller has its
+            // own id 0 turned each frame into two font changes (default, then the caller's again): every change starts a
+            // new glyph-cache generation, so the text caches were thrown away twice a frame, every glyph was re-rasterised
+            // and re-uploaded each frame, and glyph keys from the two generations raced in the atlas (stale rects, solid
+            // boxes in place of glyphs). Re-registering an unchanged font is a no-op; a different one is not.
+            const bool caller_owns_default = std::ranges::any_of(g_fonts, [](const FontRegistration &entry) { return entry.font_id == 0; });
+            if (!caller_owns_default) {
+                if (SFT::Text::Font *font = default_font()) {
+                    context.register_font(0, *font);
+                }
+            }
             for (const SFT::UI::FontId id : g_unregistered_fonts) {
                 context.unregister_font(id);
             }

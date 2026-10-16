@@ -469,6 +469,8 @@ namespace SFT::UI {
         if (config.max_element_count != 0) {
             Clay_SetMaxElementCount(static_cast<i32>(config.max_element_count));
         }
+        // A launcher shows far more distinct words than Clay's default 16384 (logs, mod lists, descriptions).
+        Clay_SetMaxMeasureTextCacheWordCount(131072);
         const usize required = config.arena_capacity_bytes != 0 ? config.arena_capacity_bytes
                                                                   : static_cast<usize>(Clay_MinMemorySize());
 

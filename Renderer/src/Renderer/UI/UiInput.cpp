@@ -52,11 +52,19 @@ namespace SFT::UI {
     }
 
     void UiInput::end_frame() noexcept {
+        end_pointer_frame();
+        end_text_frame();
+    }
+
+    void UiInput::end_pointer_frame() noexcept {
         pointer_.pressed = false;
         pointer_.press_position.reset();
         pointer_.released = false;
         pointer_.cancelled = false;
         pointer_.scroll_delta = glm::vec2{0.0f};
+    }
+
+    void UiInput::end_text_frame() noexcept {
         typed_text_.clear();
         keys_.clear();
     }

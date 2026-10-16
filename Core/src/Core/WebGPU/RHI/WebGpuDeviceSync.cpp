@@ -41,6 +41,9 @@ namespace SFT::Core::WebGpu {
         }
 
         if (!buffers.empty()) {
+            // The push-constant slices these command buffers read were composed on the CPU; they must be in the ring
+            // before the queue runs them.
+            flush_push_constants();
             wgpuQueueSubmit(queue_, buffers.size(), buffers.data());
             // Whatever push-constant slices these command buffers named are now owned by this
             // submission and cannot be reused until it completes.

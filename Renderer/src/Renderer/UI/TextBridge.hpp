@@ -32,6 +32,8 @@ namespace SFT::UI {
         f32 width_px = 0.0f;
         f32 height_px = 0.0f;
         const Text::FontStack *fonts = nullptr;
+        /// `TextBridge::frame_` of the last frame that asked for this shape; entries idle for a while are dropped.
+        u64 last_used_frame = 0;
     };
 
     class TextBridge {
@@ -166,6 +168,8 @@ namespace SFT::UI {
         /// Font ids already reported as missing, so a bad id logs once instead of once per label.
         std::set<FontId> reported_missing_fonts_;
         unordered_map<ShapeCacheKey, CachedShape, ShapeCacheKeyHash> cache_;
+        /// Frames begun so far; the age `CachedShape::last_used_frame` is measured against.
+        u64 frame_ = 0;
     };
 
 } // namespace SFT::UI

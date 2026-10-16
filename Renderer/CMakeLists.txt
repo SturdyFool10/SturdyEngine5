@@ -38,7 +38,9 @@ sturdy_add_package(Renderer
 
 sturdy_add_tests(Renderer
     TIMEOUTS Text/DocumentTest=30 Text/RasterTest=30 DisplacementGpuParityTest=180
-    BIN_DIR UI/DockWorkspaceTest UI/WidgetTest UI/WidgetCompositionTest)
+    BIN_DIR UI/DockWorkspaceTest UI/WidgetTest UI/WidgetCompositionTest
+    # assert() is how these state their checks; without this a Release test build compiles every check away.
+    KEEP_ASSERTS UI/WidgetTest)
 
 # The same GPU-parity test against Dawn (WGSL). Built only with WebGPU support; it needs the define to
 # compile its WebGPU bring-up in, which the glob-registered Vulkan flavour above does not get.

@@ -59,6 +59,22 @@ int main() {
         check(text.shift_held, "held modifiers survive end_frame");
     }
     {
+        // The surface spends the pointer's edges as a frame begins but must leave typed text and keys for the widgets built
+        // during the frame (UiSurface::begin_frame used to clear them too, so a text field read an empty text_input() and
+        // never saw a keystroke); they are spent by end_text_frame() once the frame is finished.
+        UI::UiInput input;
+        input.add_text("2");
+        input.press_key(UI::EditKey::Backspace);
+        input.set_pointer_down(true);
+        input.end_pointer_frame();
+        auto text = input.text_input();
+        check(!input.pointer().pressed && input.pointer().down, "end_pointer_frame spends the press edge, keeps the button held");
+        check(text.typed_text == "2" && text.keys.size() == 1, "end_pointer_frame leaves typed text and keys for the frame's widgets");
+        input.end_text_frame();
+        text = input.text_input();
+        check(text.typed_text.empty() && text.keys.empty(), "end_text_frame spends them");
+    }
+    {
         // A 2 x 1 panel facing +z, top-left at (-1, 0.5, 0): u to the right, v down.
         const UI::UiWorldPlane plane{.origin = {-1.0f, 0.5f, 0.0f}, .u_axis = {2.0f, 0.0f, 0.0f}, .v_axis = {0.0f, -1.0f, 0.0f}};
         const glm::vec3 eye{0.0f, 0.0f, 4.0f};

@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <unordered_map>
 #include <string>
 #include <vector>
 #pragma endregion
@@ -361,6 +362,12 @@ namespace SFT::Core::WebGpu {
             // so they are released only once `claims` drains.
             vector<WGPUBuffer> retired_rings;
             vector<WGPUBindGroup> retired_groups;
+            // Slices are composed here and sent to the GPU in one `wgpuQueueWriteBuffer` per submission, not one per
+            // draw: a page of UI is thousands of draws, and each queue write is a Dawn staging allocation plus a copy.
+            vector<std::byte> shadow;
+            // Byte range of `shadow` written since the last flush (empty when begin >= end).
+            u64 dirty_begin = ~u64{0};
+            u64 dirty_end = 0;
         };
 
         /// Creates the reserved group's layout on first use. The ring lock must already be held.
@@ -388,6 +395,19 @@ namespace SFT::Core::WebGpu {
         ///
         /// @note This function does not throw exceptions.
         void reclaim_push_constant_slices(PushConstantState &state) noexcept;
+
+        /// Sends the slices composed since the last flush to the ring in one queue write. The ring lock must be held.
+        ///
+        /// @param state The locked ring state.
+        ///
+        /// @note This function does not throw exceptions.
+        void flush_push_constants_locked(PushConstantState &state) noexcept;
+
+        /// Locks the ring and flushes it; called before every queue submission so the commands being submitted read the
+        /// slices recorded for them.
+        ///
+        /// @note This function does not throw exceptions.
+        void flush_push_constants() noexcept;
 
         /// One entry per live texture, keeping the description alive so copies can recover the
         /// texel size and extent Dawn does not report back.
@@ -519,8 +539,17 @@ namespace SFT::Core::WebGpu {
             /// How many outstanding `create_bind_group` calls this entry answers for; the underlying
             /// `WGPUBindGroup` is only released once every one of them has had a matching `destroy_bind_group`.
             u32 ref_count = 0;
+            /// Hash of the layout and entries, the key `TransientBindGroupCache` files this under.
+            u64 hash = 0;
         };
-        Async::Mutex<vector<BindGroupCacheEntry>> transient_bind_group_cache_;
+        /// The cache, hashed: a frame describes hundreds of transient bind groups and every `create_bind_group` used to
+        /// scan all of them. Buckets are keyed by content hash (collisions are resolved by comparing entries), and
+        /// `by_handle` finds a group's bucket again when it is destroyed.
+        struct TransientBindGroupCache {
+            std::unordered_map<u64, vector<BindGroupCacheEntry>> buckets;
+            std::unordered_map<u64, u64> by_handle;
+        };
+        Async::Mutex<TransientBindGroupCache> transient_bind_group_cache_;
         WebGpuResourcePool<rhi::PipelineLayoutHandle, WGPUPipelineLayout> pipeline_layouts_;
         WebGpuResourcePool<rhi::RenderPipelineHandle, WGPURenderPipeline> render_pipelines_;
         WebGpuResourcePool<rhi::ComputePipelineHandle, WGPUComputePipeline> compute_pipelines_;

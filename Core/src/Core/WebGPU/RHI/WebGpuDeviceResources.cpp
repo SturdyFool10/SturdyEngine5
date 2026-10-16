@@ -79,12 +79,14 @@ namespace SFT::Core::WebGpu {
     /// @note This function does not throw exceptions.
     void WebGpuDevice::destroy_buffer(rhi::BufferHandle handle) noexcept {
         buffers_.erase(handle, [](BufferEntry &entry) {
+            // Release only, never `wgpuBufferDestroy`: Destroy invalidates the buffer at once, so a command buffer already
+            // recorded against it (the renderer records on several threads and submits later) fails validation at submit
+            // and the whole buffer is dropped, while Release just drops this reference and Dawn frees the storage once
+            // the last recorded or in-flight command naming it is done.
             if (entry.readback != nullptr) {
-                wgpuBufferDestroy(entry.readback);
                 wgpuBufferRelease(entry.readback);
             }
             if (entry.buffer != nullptr) {
-                wgpuBufferDestroy(entry.buffer);
                 wgpuBufferRelease(entry.buffer);
             }
         });
@@ -319,11 +321,8 @@ namespace SFT::Core::WebGpu {
             if (entry.texture == nullptr) {
                 return;
             }
-            // A surface-owned texture is released but never destroyed: the reference is this
-            // backend's to drop, the storage behind it is the surface's to keep.
-            if (!entry.owned_by_surface) {
-                wgpuTextureDestroy(entry.texture);
-            }
+            // Release only (see destroy_buffer): Dawn keeps the texture alive for every recorded or in-flight command that
+            // names it. A surface-owned texture is the same case: the storage is the surface's to keep.
             wgpuTextureRelease(entry.texture);
         });
     }

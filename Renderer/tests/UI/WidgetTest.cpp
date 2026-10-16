@@ -671,7 +671,9 @@ namespace {
         (void)text_input(context, decl, style, state, TextEditInput{}, 0.016f);
         (void)context.finish_frame();
 
-        const glm::vec2 press{20.0f, 15.0f};
+        // At the field's left edge, so the caret lands before the first character whatever the font's metrics and the
+        // field's padding (x=20 assumed one particular font and landed inside "hello").
+        const glm::vec2 press{1.0f, 15.0f};
         TextEditInput shift_input{};
         shift_input.shift_held = true;
         context.begin_layout({300.0f, 100.0f}, PointerState{
@@ -784,6 +786,87 @@ namespace {
 
 
         assert(after->position.y < before->position.y - 1.0f);
+    }
+
+
+    /// A wheel over a clipped element that cannot scroll (a card that only clips its contents) reaches the list around
+    /// it, and an inner list that runs out of room hands the rest of the step to its parent.
+    void scroll_propagates_to_the_nearest_container_that_can_take_it() {
+        Context context = make_context();
+        const UString outer_id{"outer-list"};
+        const UString card_id{"card"};
+        const UString inner_id{"inner-list"};
+        const UString last_id{"outer-last"};
+
+        const auto build = [&](const PointerState &pointer) {
+            context.begin_layout({200.0f, 200.0f}, pointer, 0.016f);
+            {
+                auto outer = context.element(ElementDecl{
+                    .sizing = {SizingAxis::fixed(150.0f), SizingAxis::fixed(150.0f)},
+                    .direction = LayoutDirection::TopToBottom,
+                    .clip = {.vertical = true},
+                    .id = outer_id,
+                });
+                (void)outer;
+                {
+                    // Clips horizontally but its content fits: nothing to scroll.
+                    auto card = context.element(ElementDecl{
+                        .sizing = {SizingAxis::fixed(140.0f), SizingAxis::fixed(60.0f)},
+                        .clip = {.horizontal = true, .vertical = true},
+                        .id = card_id,
+                    });
+                    (void)card;
+                    auto fill = context.element(ElementDecl{.sizing = {SizingAxis::fixed(100.0f), SizingAxis::fixed(40.0f)}});
+                    (void)fill;
+                }
+                {
+                    // A short inner list: 40 px of content beyond its 60 px viewport.
+                    auto inner = context.element(ElementDecl{
+                        .sizing = {SizingAxis::fixed(140.0f), SizingAxis::fixed(60.0f)},
+                        .direction = LayoutDirection::TopToBottom,
+                        .clip = {.vertical = true},
+                        .id = inner_id,
+                    });
+                    (void)inner;
+                    auto tall = context.element(ElementDecl{.sizing = {SizingAxis::fixed(100.0f), SizingAxis::fixed(100.0f)}});
+                    (void)tall;
+                }
+                {
+                    auto filler = context.element(ElementDecl{.sizing = {SizingAxis::fixed(100.0f), SizingAxis::fixed(300.0f)}});
+                    (void)filler;
+                }
+                {
+                    auto last = context.element(ElementDecl{.sizing = {SizingAxis::fixed(10.0f), SizingAxis::fixed(10.0f)}, .id = last_id});
+                    (void)last;
+                }
+            }
+            (void)context.finish_frame();
+        };
+
+        build(PointerState{});
+        build(PointerState{});
+        const auto outer_offset = [&] { return context.scroll_metrics(outer_id).offset.y; };
+        const auto inner_offset = [&] { return context.scroll_metrics(inner_id).offset.y; };
+
+        // Over the card (it cannot scroll): the outer list takes the step.
+        const PointerState over_card{.position = {50.0f, 30.0f}, .scroll_delta = {0.0f, -2.0f}};
+        build(over_card);
+        for (int i = 0; i < 30; ++i) {
+            build(PointerState{.position = {50.0f, 30.0f}}); // let smooth scrolling play out
+        }
+        assert(outer_offset() < -1.0f);
+
+        // Back to the top, then a large step over the inner list: it takes its 40 px, the rest moves the outer list.
+        assert(context.set_scroll_offset(outer_id, glm::vec2{0.0f, 0.0f}));
+        build(PointerState{});
+        const f32 inner_y = context.element_bounds(inner_id)->position.y + 10.0f;
+        const PointerState over_inner{.position = {50.0f, inner_y}, .scroll_delta = {0.0f, -10.0f}};
+        build(over_inner);
+        for (int i = 0; i < 30; ++i) {
+            build(PointerState{.position = {50.0f, inner_y}});
+        }
+        assert(inner_offset() <= -39.0f);
+        assert(outer_offset() < -1.0f);
     }
 
 
@@ -1205,6 +1288,9 @@ namespace {
 /// @return Returns the process/application exit status; zero conventionally indicates successful completion.
 /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
 int main() {
+    scroll_container_moves_child_offset();
+    scroll_propagates_to_the_nearest_container_that_can_take_it();
+    scroll_metrics_and_set_scroll_offset_work();
     slider_drag_and_keyboard();
     color_picker_preserves_achromatic_hue();
     color_picker_selects_foundation_color_space();
@@ -1220,10 +1306,8 @@ int main() {
     ime_composition_text_is_visible_but_not_inserted();
     text_input_shift_click_extends_selection();
     text_input_drag_acquires_and_releases_pointer_capture();
-    scroll_container_moves_child_offset();
     floating_attached_parent_clips_to_ancestor();
     clicked_respects_ancestor_clip();
-    scroll_metrics_and_set_scroll_offset_work();
     scroll_area_shows_thumb_only_when_hovering_overflowing_content();
     scroll_area_thumb_drag_scrolls_content();
     text_input_cursor_defaults_and_overrides();

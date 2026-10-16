@@ -1,5 +1,7 @@
 #include <Core/WebGPU/RHI/WebGpuDevice.hpp>
 
+#include <span>
+
 #include <Core/WebGPU/RHI/WebGpuConvert.hpp>
 
 #include <algorithm>
@@ -18,6 +20,28 @@ namespace SFT::Core::WebGpu {
                    a.offset == b.offset && a.size == b.size && a.structure_stride == b.structure_stride &&
                    a.texture_view.value == b.texture_view.value && a.sampler.value == b.sampler.value &&
                    a.acceleration_structure.value == b.acceleration_structure.value;
+        }
+
+        /// Mixes `value` into `seed` (the 64-bit golden-ratio combine).
+        constexpr void hash_combine(u64 &seed, u64 value) noexcept {
+            seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        }
+
+        /// Content hash over exactly the fields `bind_group_entries_equal` compares.
+        [[nodiscard]] u64 bind_group_hash(rhi::BindGroupLayoutHandle layout, std::span<const rhi::BindGroupEntry> entries) noexcept {
+            u64 seed = layout.value;
+            for (const rhi::BindGroupEntry &entry : entries) {
+                hash_combine(seed, entry.binding);
+                hash_combine(seed, entry.array_element);
+                hash_combine(seed, entry.buffer.value);
+                hash_combine(seed, entry.offset);
+                hash_combine(seed, entry.size);
+                hash_combine(seed, entry.structure_stride);
+                hash_combine(seed, entry.texture_view.value);
+                hash_combine(seed, entry.sampler.value);
+                hash_combine(seed, entry.acceleration_structure.value);
+            }
+            return seed;
         }
 
     } // namespace
@@ -190,22 +214,25 @@ namespace SFT::Core::WebGpu {
         }
 
         const bool cacheable = desc.lifetime == rhi::BindGroupLifetime::FrameTransient;
+        const u64 content_hash = cacheable ? bind_group_hash(desc.layout, desc.entries) : 0;
         if (cacheable) {
             auto cache = transient_bind_group_cache_.lock();
-            for (BindGroupCacheEntry &candidate : *cache) {
-                if (candidate.layout.value != desc.layout.value || candidate.entries.size() != desc.entries.size()) {
-                    continue;
-                }
-                bool same = true;
-                for (usize i = 0; i < desc.entries.size(); ++i) {
-                    if (!bind_group_entries_equal(candidate.entries[i], desc.entries[i])) {
-                        same = false;
-                        break;
+            if (auto bucket = cache->buckets.find(content_hash); bucket != cache->buckets.end()) {
+                for (BindGroupCacheEntry &candidate : bucket->second) {
+                    if (candidate.layout.value != desc.layout.value || candidate.entries.size() != desc.entries.size()) {
+                        continue;
                     }
-                }
-                if (same) {
-                    ++candidate.ref_count;
-                    return candidate.handle;
+                    bool same = true;
+                    for (usize i = 0; i < desc.entries.size(); ++i) {
+                        if (!bind_group_entries_equal(candidate.entries[i], desc.entries[i])) {
+                            same = false;
+                            break;
+                        }
+                    }
+                    if (same) {
+                        ++candidate.ref_count;
+                        return candidate.handle;
+                    }
                 }
             }
         }
@@ -293,12 +320,14 @@ namespace SFT::Core::WebGpu {
         const rhi::BindGroupHandle handle = bind_groups_.insert(std::move(group));
         if (cacheable) {
             auto cache = transient_bind_group_cache_.lock();
-            cache->push_back(BindGroupCacheEntry{
+            cache->buckets[content_hash].push_back(BindGroupCacheEntry{
                 .layout = desc.layout,
                 .entries = std::vector<rhi::BindGroupEntry>(desc.entries.begin(), desc.entries.end()),
                 .handle = handle,
                 .ref_count = 1,
+                .hash = content_hash,
             });
+            cache->by_handle[handle.value] = content_hash;
         }
         return handle;
     }
@@ -311,17 +340,27 @@ namespace SFT::Core::WebGpu {
     void WebGpuDevice::destroy_bind_group(rhi::BindGroupHandle handle) noexcept {
         {
             auto cache = transient_bind_group_cache_.lock();
-            for (usize i = 0; i < cache->size(); ++i) {
-                if ((*cache)[i].handle.value != handle.value) {
-                    continue;
+            if (auto owner = cache->by_handle.find(handle.value); owner != cache->by_handle.end()) {
+                auto bucket = cache->buckets.find(owner->second);
+                if (bucket != cache->buckets.end()) {
+                    auto &entries = bucket->second;
+                    for (usize i = 0; i < entries.size(); ++i) {
+                        if (entries[i].handle.value != handle.value) {
+                            continue;
+                        }
+                        if (--entries[i].ref_count > 0) {
+                            // Another `create_bind_group` call that deduplicated onto this same handle is still
+                            // outstanding; the underlying WGPUBindGroup stays alive until it is also destroyed.
+                            return;
+                        }
+                        entries.erase(entries.begin() + static_cast<isize>(i));
+                        break;
+                    }
+                    if (entries.empty()) {
+                        cache->buckets.erase(bucket);
+                    }
                 }
-                if (--(*cache)[i].ref_count > 0) {
-                    // Another `create_bind_group` call that deduplicated onto this same handle is still
-                    // outstanding; the underlying WGPUBindGroup stays alive until it is also destroyed.
-                    return;
-                }
-                cache->erase(cache->begin() + static_cast<isize>(i));
-                break;
+                cache->by_handle.erase(owner);
             }
         }
         bind_groups_.erase(handle, [](WGPUBindGroup &g) { wgpuBindGroupRelease(g); });

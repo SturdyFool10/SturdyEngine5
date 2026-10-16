@@ -1,4 +1,7 @@
 #include <Core/Slang/ShaderVariant.hpp>
+#include <Core/Slang/EmbeddedShaders.hpp>
+#include <filesystem>
+#include <string>
 
 namespace SFT::Core::Slang {
 
@@ -11,10 +14,32 @@ namespace {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+    /// Every embedded shader's text hashed together, once. Mixed into the cache key of shaders served from the embedded
+    /// copies, so an engine build that changes any of them -- including a module only `import`ed, which the per-shader
+    /// key cannot see -- never reuses another build's bytecode.
+    [[nodiscard]] const string &embedded_library_fingerprint() {
+        static const string fingerprint = [] {
+            u64 value = 0xcbf29ce484222325ull;
+            for (const EmbeddedShaderSource &shader : embedded_shaders()) {
+                for (const char c : string{shader.source}) {
+                    value = (value ^ static_cast<u8>(c)) * 0x100000001b3ull;
+                }
+                value = (value ^ 0xffu) * 0x100000001b3ull;
+            }
+            return std::to_string(value);
+        }();
+        return fingerprint;
+    }
+
     [[nodiscard]] string resolve_source_text(const ShaderSource &source) {
         if (source.kind == ShaderSourceKind::File) {
             if (auto loaded = Foundation::read_file_to_string(source.path)) {
                 return std::move(*loaded);
+            }
+            // Not on disk: the compiler falls back to the embedded copy, so key the cache on that text (plus the whole
+            // embedded library, for its imports). Keying on "" made every embedded shader's key ignore its content.
+            if (const EmbeddedShaderSource *embedded = find_embedded_shader(source.path)) {
+                return string{embedded->source} + "\n//sturdy-embedded:" + embedded_library_fingerprint();
             }
             return {};
         }
@@ -35,8 +60,17 @@ namespace {
         u64 cache_key) noexcept {
 
 
-        return source.kind != ShaderSourceKind::File ||
-               shader_cache_entry_is_fresh(cache_directory, cache_key, source.path);
+        if (source.kind != ShaderSourceKind::File) {
+            return true;
+        }
+        // A shader served from the embedded copy has no file to compare times with; its key already covers the embedded
+        // text (see resolve_source_text), so an entry under that key is fresh by construction. Without this every embedded
+        // shader recompiled on every launch (~100 ms each).
+        std::error_code error;
+        if (!std::filesystem::exists(source.path, error) && find_embedded_shader(source.path) != nullptr) {
+            return std::filesystem::exists(cache_directory, error);
+        }
+        return shader_cache_entry_is_fresh(cache_directory, cache_key, source.path);
     }
 
 } // namespace

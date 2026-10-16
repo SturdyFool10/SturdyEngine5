@@ -60,6 +60,14 @@ namespace SFT::UI {
         /// Clears one-frame transitions (press/release edges, scroll, typed text, key presses).
         void end_frame() noexcept;
 
+        /// The pointer half of `end_frame`: press/release edges and scroll. Done as a frame begins, because the layout
+        /// has already been handed the pointer by then.
+        void end_pointer_frame() noexcept;
+
+        /// The keyboard half: typed text and edit keys. Done once the frame's widgets have read them -- text fields are
+        /// built (and read `text_input()`) *after* `begin_frame`, so clearing it there threw away everything typed.
+        void end_text_frame() noexcept;
+
       private:
         PointerState pointer_{};
         bool pointer_consumed_ = false;

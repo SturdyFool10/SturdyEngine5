@@ -1874,6 +1874,27 @@ function(sturdy_fetch_dawn)
     )
     FetchContent_MakeAvailable(dawn)
 
+    # Dawn's Vulkan swapchain hard-codes VK_COMPOSITE_ALPHA_OPAQUE (see its "TODO(dawn:286): investigate composite alpha
+    # for WebGPU native"), so a surface configured with a Premultiplied/Unpremultiplied alphaMode still presents opaque
+    # and a translucent window shows no desktop through it. Honour the configuration's alpha mode when the surface
+    # supports it. Idempotent (marker-guarded), so it applies to a fresh fetch and to an already cached checkout alike.
+    set(_dawn_swapchain_vk "${dawn_SOURCE_DIR}/src/dawn/native/vulkan/SwapChainVk.cpp")
+    if(EXISTS "${_dawn_swapchain_vk}")
+        file(READ "${_dawn_swapchain_vk}" _dawn_swapchain_src)
+        if(NOT _dawn_swapchain_src MATCHES "STURDY_PATCH_COMPOSITE_ALPHA")
+            set(_dawn_anchor "    // Choose the number of images for the swapchain= and clamp it to the min and max from the")
+            string(FIND "${_dawn_swapchain_src}" "${_dawn_anchor}" _dawn_anchor_at)
+            if(_dawn_anchor_at GREATER -1)
+                set(_dawn_patch "    // STURDY_PATCH_COMPOSITE_ALPHA: honour the surface configuration's alpha mode (see SturdyDependencies.cmake).\n    {\n        VkCompositeAlphaFlagBitsKHR wanted = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;\n        switch (GetAlphaMode()) {\n            case wgpu::CompositeAlphaMode::Premultiplied:\n                wanted = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;\n                break;\n            case wgpu::CompositeAlphaMode::Unpremultiplied:\n                wanted = VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;\n                break;\n            case wgpu::CompositeAlphaMode::Inherit:\n                wanted = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;\n                break;\n            default:\n                break;\n        }\n        if (wanted != VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR &&\n            (surfaceInfo.capabilities.supportedCompositeAlpha & wanted) != 0) {\n            config.alphaMode = wanted;\n        }\n    }\n\n")
+                string(REPLACE "${_dawn_anchor}" "${_dawn_patch}${_dawn_anchor}" _dawn_swapchain_src "${_dawn_swapchain_src}")
+                file(WRITE "${_dawn_swapchain_vk}" "${_dawn_swapchain_src}")
+                message(STATUS "Patched Dawn's Vulkan swapchain to honour the composite alpha mode.")
+            else()
+                message(WARNING "Dawn's Vulkan swapchain no longer matches the composite-alpha patch anchor; translucent windows will be opaque on WebGPU.")
+            endif()
+        endif()
+    endif()
+
     # Presented under the same target name the Emscripten path already uses
     # (sturdy_configure_webgpu below), so Core/src/Core/WebGPU compiles against <webgpu/webgpu.h>
     # unchanged whether it is talking to native Dawn or to the browser's WebGPU through

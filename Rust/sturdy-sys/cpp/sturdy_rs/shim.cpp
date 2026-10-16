@@ -150,9 +150,15 @@ namespace sturdy_rs {
                 // doc comment: this is the "remaining integration step" that doc used to describe as
                 // future work -- it now lives here, right where a hand-written C++ caller would put
                 // the `sturdy_ui_begin`/`sturdy_ui_end` pair FFI/Ui.cpp documents.
-                const bool hdr_output = static_cast<bool>(engine.presentation_settings(surface).hdr_enabled);
+                // The UI is drawn into the linear RGBA16Float layer for HDR output, and for a UI-only frame on a transparent
+                // surface; otherwise straight into the swapchain. Telling the UI renderer up front avoids building its
+                // pipelines for one format and rebuilding them for the other on the first frame (the overlay still
+                // corrects itself if the renderer decides differently, e.g. HDR the display refuses).
+                const auto presentation = engine.presentation_settings(surface);
+                const bool linear_layer = static_cast<bool>(presentation.hdr_enabled) ||
+                                          (request.overlay_only && static_cast<bool>(presentation.transparent_composition));
                 if (sturdy_rs::ui::ui_run_frame(engine, frame.framebuffer_width, frame.framebuffer_height,
-                                                frame.delta_seconds, hdr_output)) {
+                                                frame.delta_seconds, linear_layer)) {
                     if (auto overlay = sturdy_rs::ui::ui_take_pending_overlay()) {
                         params.overlay_passes.push_back(std::move(*overlay));
                     }

@@ -212,7 +212,57 @@ namespace SFT::Core::WebGpu {
                 resolved_mode = rhi::PresentMode::Fifo;
                 break;
         }
-        config.alphaMode = WGPUCompositeAlphaMode_Auto;
+        // Ask for the compositing the caller wanted (a translucent window needs Premultiplied or Unpremultiplied), then
+        // settle for what the surface offers: an unsupported request is reported as degraded, not silently opaque.
+        WGPUCompositeAlphaMode requested_alpha = WGPUCompositeAlphaMode_Auto;
+        switch (desc.composite_alpha) {
+            case rhi::CompositeAlphaMode::Opaque: requested_alpha = WGPUCompositeAlphaMode_Opaque; break;
+            case rhi::CompositeAlphaMode::Premultiplied: requested_alpha = WGPUCompositeAlphaMode_Premultiplied; break;
+            case rhi::CompositeAlphaMode::PostMultiplied: requested_alpha = WGPUCompositeAlphaMode_Unpremultiplied; break;
+            case rhi::CompositeAlphaMode::Inherit: requested_alpha = WGPUCompositeAlphaMode_Inherit; break;
+            case rhi::CompositeAlphaMode::Auto: default: break;
+        }
+        rhi::CompositeAlphaMode effective_alpha = rhi::CompositeAlphaMode::Opaque;
+        bool alpha_degraded = false;
+        config.alphaMode = requested_alpha;
+        if (requested_alpha != WGPUCompositeAlphaMode_Auto && adapter_ != nullptr) {
+            WGPUSurfaceCapabilities caps{};
+            bool supported = false;
+            if (wgpuSurfaceGetCapabilities(entry->surface, adapter_, &caps) == WGPUStatus_Success) {
+                std::string offered_modes;
+                for (size_t i = 0; i < caps.alphaModeCount; ++i) {
+                    offered_modes += std::to_string(static_cast<unsigned>(caps.alphaModes[i])) + ' ';
+                }
+                Foundation::log_info("WebGPU surface: requested composite alpha {} (0 auto, 1 opaque, 2 premultiplied, 3 unpremultiplied, 4 inherit); the surface offers: {}",
+                                     static_cast<unsigned>(requested_alpha), offered_modes);
+                for (size_t i = 0; i < caps.alphaModeCount; ++i) {
+                    supported = supported || caps.alphaModes[i] == requested_alpha;
+                }
+                if (!supported) {
+                    // Prefer any translucent mode over dropping to opaque.
+                    for (const WGPUCompositeAlphaMode fallback :
+                         {WGPUCompositeAlphaMode_Premultiplied, WGPUCompositeAlphaMode_Unpremultiplied, WGPUCompositeAlphaMode_Inherit,
+                          WGPUCompositeAlphaMode_Opaque}) {
+                        bool offered = false;
+                        for (size_t i = 0; i < caps.alphaModeCount; ++i) {
+                            offered = offered || caps.alphaModes[i] == fallback;
+                        }
+                        if (offered && (requested_alpha != WGPUCompositeAlphaMode_Opaque || fallback == WGPUCompositeAlphaMode_Opaque)) {
+                            config.alphaMode = fallback;
+                            break;
+                        }
+                    }
+                    alpha_degraded = true;
+                }
+                wgpuSurfaceCapabilitiesFreeMembers(caps);
+            }
+        }
+        switch (config.alphaMode) {
+            case WGPUCompositeAlphaMode_Premultiplied: effective_alpha = rhi::CompositeAlphaMode::Premultiplied; break;
+            case WGPUCompositeAlphaMode_Unpremultiplied: effective_alpha = rhi::CompositeAlphaMode::PostMultiplied; break;
+            case WGPUCompositeAlphaMode_Inherit: effective_alpha = rhi::CompositeAlphaMode::Inherit; break;
+            default: effective_alpha = rhi::CompositeAlphaMode::Opaque; break;
+        }
         // WebGPU does not let a caller pick an image count: the implementation chooses how deep to
         // make the chain, so desc.image_count has nothing to map to.
 
@@ -229,8 +279,8 @@ namespace SFT::Core::WebGpu {
             // AdaptiveTearing, which WebGPU has no equivalent of at all.
             .degraded = desc.present_strategy == rhi::PresentStrategy::AdaptiveTearing,
             .present_queue_is_compute = false,
-            .effective_composite_alpha = rhi::CompositeAlphaMode::Opaque,
-            .composite_alpha_degraded = false,
+            .effective_composite_alpha = effective_alpha,
+            .composite_alpha_degraded = alpha_degraded,
             .via_composition_present = false,
             .effective_format = desc.format,
             .effective_color_space = desc.color_space,

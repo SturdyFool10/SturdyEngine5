@@ -7,6 +7,13 @@ namespace SFT::Engine {
     void apply_window_event(UI::UiInput &input, const MouseMoveEvent &event, glm::vec2 pixel_density) noexcept {
         // Mouse events arrive in window coordinates; UiInput works in framebuffer pixels.
         input.move_pointer(glm::vec2{event.mouse.x, event.mouse.y} * pixel_density);
+        // Every motion event says which buttons are down *now*. A release that happened outside the window (or while
+        // another window had focus) is never delivered as a button event, so a drag would stay held forever; the first
+        // motion afterwards (including the pointer coming back) puts the state right.
+        constexpr u32 left_button_mask = 1u; // SDL_BUTTON_LMASK
+        if (input.pointer().down && (event.mouse.buttons & left_button_mask) == 0) {
+            input.set_pointer_down(false);
+        }
     }
 
     void apply_window_event(UI::UiInput &input, const MouseButtonEvent &event, glm::vec2 pixel_density) noexcept {
@@ -91,6 +98,17 @@ namespace SFT::Engine {
                 }
                 for (const TextEditingEvent &event : text_editing.read()) {
                     if (wanted(event.window)) apply_window_event(surface_.input(), event);
+                }
+            }));
+        // Losing focus mid-drag (alt-tab, a popup from another app) means the release will go to someone else: cancel the
+        // press so widgets drop their drags instead of waiting for it.
+        systems_.push_back(engine.update_schedule().add_system(
+            [this](Ecs::EventReader<WindowStateEvent> state) noexcept {
+                for (const WindowStateEvent &event : state.read()) {
+                    if (event.kind == WindowManager::WindowEventKind::FocusLost && (!window_ || *window_ == event.window) &&
+                        surface_.input().pointer().down) {
+                        surface_.input().cancel_pointer();
+                    }
                 }
             }));
         // A live device switch destroys the UI's GPU renderer against the old device while it is still alive; the

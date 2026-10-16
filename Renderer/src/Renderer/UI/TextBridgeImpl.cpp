@@ -68,6 +68,8 @@ namespace SFT::UI {
 
         FontEntry new_entry{.id = font_id};
         build(new_entry);
+        // `fonts_` may reallocate, which moves every `FontEntry::stack` that cached shapes point at.
+        cache_.clear();
         fonts_.push_back(std::move(new_entry));
     }
 
@@ -81,7 +83,8 @@ namespace SFT::UI {
     }
 
     void TextBridge::unregister_font(FontId font_id) {
-        std::erase_if(cache_, [font_id](const auto &cached) { return cached.first.font_id == font_id; });
+        // Erasing from `fonts_` shifts the other entries, and cached shapes point at their stacks: drop them all.
+        cache_.clear();
         std::erase_if(fonts_, [font_id](const FontEntry &entry) { return entry.id == font_id; });
     }
 
@@ -128,7 +131,21 @@ namespace SFT::UI {
     ///
     /// @return Returns the current begin frame value.
     /// @note This function does not throw exceptions.
-    void TextBridge::begin_frame() noexcept { cache_.clear(); }
+    void TextBridge::begin_frame() noexcept {
+        // Shapes persist across frames: shaping (HarfBuzz) every string of the UI again each frame was a large share of
+        // a text-heavy frame's CPU, for text that did not change. A shape stays valid until its font is re-registered or
+        // unregistered (both erase that font's entries) or `fonts_` reallocates (cleared on insert below). The cache is
+        // bounded: past the cap, shapes unused for a while go, and if that is not enough everything does.
+        ++frame_;
+        constexpr usize max_entries = 8192;
+        constexpr u64 idle_frames = 120;
+        if (cache_.size() > max_entries) {
+            std::erase_if(cache_, [this](const auto &item) { return item.second.last_used_frame + idle_frames < frame_; });
+            if (cache_.size() > max_entries) {
+                cache_.clear();
+            }
+        }
+    }
 
     /// Shapes and cache using the supplied arguments and current state.
     ///
@@ -160,6 +177,7 @@ namespace SFT::UI {
             .content = string{utf8_content},
         };
         if (auto cached = cache_.find(key); cached != cache_.end()) {
+            cached->second.last_used_frame = frame_;
             return &cached->second;
         }
 
@@ -185,6 +203,7 @@ namespace SFT::UI {
             .width_px = shaped->advance_em * static_cast<f32>(style.font_size),
             .height_px = height_px,
             .fonts = &entry->stack,
+            .last_used_frame = frame_,
         };
         auto [inserted, _] = cache_.emplace(std::move(key), std::move(entry_value));
         return &inserted->second;

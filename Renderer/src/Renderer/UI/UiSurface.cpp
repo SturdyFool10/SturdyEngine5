@@ -47,7 +47,9 @@ namespace SFT::UI {
         context_.set_pixel_scale(pixel_scale());
         context_.begin_layout(extent, input_.pointer(), delta_seconds);
         input_.set_pointer_consumed(context_.pointer_over_any() || context_.pointer_captured());
-        input_.end_frame();
+        // Only the pointer's one-frame edges are spent here. Typed text and edit keys are read by the widgets that are
+        // built *after* this call, so they are cleared once the frame is finished (see finish_overlay/overlay_for_snapshot).
+        input_.end_pointer_frame();
         return context_;
     }
 
@@ -57,6 +59,7 @@ namespace SFT::UI {
 
     Renderer::OverlayPass UiSurface::overlay_for_snapshot(std::shared_ptr<FrameSnapshot> snapshot,
                                                           Renderer::Renderer *texture_resolver, OverlayOptions options) {
+        input_.end_text_frame(); // the frame's widgets have read what was typed
         Renderer::OverlayPass overlay;
         overlay.name = std::move(options.name);
         overlay.hdr_reference_white_scale = options.hdr_reference_white_scale;

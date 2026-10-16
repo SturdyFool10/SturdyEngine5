@@ -26,7 +26,7 @@ namespace SFT::Core::WebGpu {
         /// Bytes the ring starts at. Sized so an ordinary frame never grows it: at a 256-byte slice
         /// stride this is 256 push-constant sets, and the whole UI plus deferred pass issues far
         /// fewer than that.
-        constexpr u64 initial_ring_capacity = 64u * 1024u;
+        constexpr u64 initial_ring_capacity = 1024u * 1024u;
 
         /// Rounds `value` up to a multiple of `alignment`.
         ///
@@ -127,15 +127,13 @@ namespace SFT::Core::WebGpu {
                 return std::nullopt;
             }
         } else if (state->cursor + state->stride > state->capacity) {
-            // Out of room at the end. Collect whatever finished; once nothing at all is outstanding
-            // the whole ring is free and the cursor goes back to the start. Anything short of that
-            // grows instead: partially reusing the ring would need per-slice liveness rather than
-            // the one high-water mark per submission this tracks, and a ring that fills while work
-            // is still in flight is a ring that was too small for one batch anyway.
-            reclaim_push_constant_slices(*state);
-            if (state->claims.empty()) {
-                state->cursor = 0;
-            } else if (!grow_push_constant_ring(*state, layout, state->capacity * 2u)) {
+            // Out of room: start a fresh ring instead of wrapping this one. A slice is read when the command buffer that
+            // named it *runs*, and a frame's command buffers are recorded on several threads and submitted separately, so
+            // there is no moment at which "nothing outstanding" is knowable while recording; wrapping would overwrite
+            // slices that recorded-but-unsubmitted draws still read, which scrambled their constants (broken UI text,
+            // wrong colours and sizes). The old ring is only released, never destroyed: Dawn keeps it alive for as long
+            // as a recorded command buffer or in-flight submission names it.
+            if (!grow_push_constant_ring(*state, layout, state->capacity)) {
                 return std::nullopt;
             }
         }
@@ -146,11 +144,31 @@ namespace SFT::Core::WebGpu {
         // The binding is a whole block wide, so the whole block is written even when the caller set
         // fewer bytes -- the encoder's shadow copy supplies the rest, which is what keeps
         // push-constant semantics (a value persists until something overwrites it).
-        std::array<std::byte, push_constant_block_size> block{};
-        std::memcpy(block.data(), data.data(), std::min<usize>(data.size(), block.size()));
-        wgpuQueueWriteBuffer(queue_, state->ring, offset, block.data(), block.size());
+        if (state->shadow.size() != state->capacity) {
+            state->shadow.resize(static_cast<usize>(state->capacity));
+        }
+        std::byte *slice = state->shadow.data() + offset;
+        const usize copied = std::min<usize>(data.size(), push_constant_block_size);
+        std::memcpy(slice, data.data(), copied);
+        std::memset(slice + copied, 0, push_constant_block_size - copied);
+        state->dirty_begin = std::min(state->dirty_begin, offset);
+        state->dirty_end = std::max(state->dirty_end, offset + push_constant_block_size);
         return PushConstantBinding{.group = state->bind_group,
                                    .dynamic_offset = static_cast<u32>(offset)};
+    }
+
+    void WebGpuDevice::flush_push_constants_locked(PushConstantState &state) noexcept {
+        if (state.ring != nullptr && state.dirty_begin < state.dirty_end && state.dirty_end <= state.shadow.size()) {
+            wgpuQueueWriteBuffer(queue_, state.ring, state.dirty_begin, state.shadow.data() + state.dirty_begin,
+                                 static_cast<usize>(state.dirty_end - state.dirty_begin));
+        }
+        state.dirty_begin = ~u64{0};
+        state.dirty_end = 0;
+    }
+
+    void WebGpuDevice::flush_push_constants() noexcept {
+        auto state = push_constants_.lock();
+        flush_push_constants_locked(*state);
     }
 
     /// Replaces the ring with one of at least `required` bytes.
@@ -195,14 +213,18 @@ namespace SFT::Core::WebGpu {
             return false;
         }
 
-        // The outgoing ring and group are still named by commands that have been recorded but not
-        // yet completed, so they are retired rather than destroyed; the claim queue decides when
-        // they go.
-        if (state.ring != nullptr) {
-            state.retired_rings.push_back(state.ring);
-        }
+        // Anything composed for the outgoing ring must reach it before it is left behind: commands already recorded
+        // against it read those slices when they run.
+        flush_push_constants_locked(state);
+        state.shadow.clear();
+
+        // The outgoing ring and group may still be named by recorded or in-flight commands. Releasing (not destroying)
+        // drops only our reference; Dawn frees them once nothing else holds one.
         if (state.bind_group != nullptr) {
-            state.retired_groups.push_back(state.bind_group);
+            wgpuBindGroupRelease(state.bind_group);
+        }
+        if (state.ring != nullptr) {
+            wgpuBufferRelease(state.ring);
         }
 
         state.ring = buffer;
@@ -240,7 +262,6 @@ namespace SFT::Core::WebGpu {
         }
         state.retired_groups.clear();
         for (WGPUBuffer ring : state.retired_rings) {
-            wgpuBufferDestroy(ring);
             wgpuBufferRelease(ring);
         }
         state.retired_rings.clear();

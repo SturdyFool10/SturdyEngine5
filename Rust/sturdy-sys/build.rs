@@ -87,7 +87,7 @@ fn main() {
     for dir in [
         "Foundation", "Reflection", "Async", "Ecs", "Core", "RHI", "Renderer", "WindowManager",
         "Engine", "ApplicationHost", "Runtime", "CxxApi", "RenderSettings", "Audio", "AudioGpu", "Animation", "Physics",
-        "EngineKit", "cmake", "Shaders", "Fonts",
+        "EngineKit", "cmake", "Shaders", "Fonts", "thirdparty",
     ] {
         println!("cargo:rerun-if-changed={}", engine_src.join(dir).display());
     }

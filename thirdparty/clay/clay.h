@@ -1300,9 +1300,18 @@ struct Clay_Context {
     Clay__int32_tArray measureTextHashMap;
     Clay__MeasuredWordArray measuredWords;
     Clay__int32_tArray measuredWordsFreeList;
+    // Next hash bucket of the measured-text cache the background sweep will clean (see Clay__SweepMeasureTextCache).
+    int32_t measureSweepBucket;
+    uint32_t measureFullSweepGeneration;
     Clay__int32_tArray openClipElementStack;
     Clay_ElementIdArray pointerOverIds;
     Clay__ScrollContainerDataInternalArray scrollContainerDatas;
+    // Open-addressing index over scrollContainerDatas by element id (slot -> array index + 1, 0 = empty), so the many
+    // per-element lookups below are O(1) instead of a scan of every scroll container: a UI where most cards, lists and
+    // text boxes clip makes that scan quadratic. Rebuilt when entries are removed (`scrollIndexDirty`).
+    int32_t *scrollIndex;
+    uint32_t scrollIndexMask;
+    bool scrollIndexDirty;
     Clay__boolArray treeNodeVisited;
     Clay__charArray dynamicStringData;
     Clay__DebugElementDataArray debugElementData;
@@ -1577,6 +1586,50 @@ Clay__MeasuredWord *Clay__AddMeasuredWord(Clay__MeasuredWord word, Clay__Measure
     }
 }
 
+// Frees the entries of one hash bucket that have not been asked for in a few frames (and the words they own). The
+// cache used to do this only while *inserting into* the same bucket, so a bucket nobody measured into again kept its stale
+// entries forever; an app that shows many different strings over time (a log, long lists) eventually filled the whole
+// cache with dead ones and every new string failed to measure.
+static void Clay__EvictStaleMeasureEntries(Clay_Context *context, uint32_t hashBucket) {
+    int32_t elementIndexPrevious = 0;
+    int32_t elementIndex = context->measureTextHashMap.internalArray[hashBucket];
+    while (elementIndex != 0) {
+        Clay__MeasureTextCacheItem *hashEntry = Clay__MeasureTextCacheItemArray_Get(&context->measureTextHashMapInternal, elementIndex);
+        if (context->generation - hashEntry->generation > 2) {
+            int32_t nextWordIndex = hashEntry->measuredWordsStartIndex;
+            while (nextWordIndex != -1) {
+                Clay__MeasuredWord *measuredWord = Clay__MeasuredWordArray_Get(&context->measuredWords, nextWordIndex);
+                Clay__int32_tArray_Add(&context->measuredWordsFreeList, nextWordIndex);
+                nextWordIndex = measuredWord->next;
+            }
+            int32_t nextIndex = hashEntry->nextIndex;
+            Clay__MeasureTextCacheItemArray_Set(&context->measureTextHashMapInternal, elementIndex, CLAY__INIT(Clay__MeasureTextCacheItem) { .measuredWordsStartIndex = -1 });
+            Clay__int32_tArray_Add(&context->measureTextHashMapInternalFreeList, elementIndex);
+            if (elementIndexPrevious == 0) {
+                context->measureTextHashMap.internalArray[hashBucket] = nextIndex;
+            } else {
+                Clay__MeasureTextCacheItemArray_Get(&context->measureTextHashMapInternal, elementIndexPrevious)->nextIndex = nextIndex;
+            }
+            elementIndex = nextIndex;
+        } else {
+            elementIndexPrevious = elementIndex;
+            elementIndex = hashEntry->nextIndex;
+        }
+    }
+}
+
+// Cleans `bucketCount` buckets (wrapping round), continuing from where the last call stopped.
+static void Clay__SweepMeasureTextCache(Clay_Context *context, int32_t bucketCount) {
+    int32_t buckets = context->maxMeasureTextCacheWordCount / 32;
+    if (buckets <= 0 || context->measureTextHashMap.internalArray == NULL) {
+        return;
+    }
+    for (int32_t i = 0; i < bucketCount && i < buckets; i++) {
+        context->measureSweepBucket = (context->measureSweepBucket + 1) % buckets;
+        Clay__EvictStaleMeasureEntries(context, (uint32_t)context->measureSweepBucket);
+    }
+}
+
 Clay__MeasureTextCacheItem *Clay__MeasureTextCached(Clay_String *text, Clay_TextElementConfig *config) {
     Clay_Context* context = Clay_GetCurrentContext();
     #ifndef CLAY_WASM
@@ -1591,6 +1644,14 @@ Clay__MeasureTextCacheItem *Clay__MeasureTextCached(Clay_String *text, Clay_Text
         return &Clay__MeasureTextCacheItem_DEFAULT;
     }
     #endif
+    // Nearly out of word slots with nothing on the free list: reclaim everything stale right now (at most once per frame,
+    // it walks the whole cache) before deciding the cache is really full.
+    if (context->measuredWordsFreeList.length == 0 &&
+        context->measuredWords.length >= context->measuredWords.capacity - 256 &&
+        context->generation != context->measureFullSweepGeneration) {
+        context->measureFullSweepGeneration = context->generation;
+        Clay__SweepMeasureTextCache(context, context->maxMeasureTextCacheWordCount / 32);
+    }
     uint32_t id = Clay__HashStringContentsWithConfig(text, config);
     uint32_t hashBucket = id % (context->maxMeasureTextCacheWordCount / 32);
     int32_t elementIndexPrevious = 0;
@@ -2080,6 +2141,74 @@ void *Clay__GrowArrayStorage(void *internalArray, int32_t *capacity, int32_t len
     return newArray;
 }
 
+static inline uint32_t Clay__ScrollIdHash(uint32_t id) {
+    id ^= id >> 16;
+    id *= 0x7feb352dU;
+    id ^= id >> 15;
+    id *= 0x846ca68bU;
+    id ^= id >> 16;
+    return id;
+}
+
+// Rebuilds the element id -> scrollContainerDatas index (load factor <= 0.5, linear probing).
+static void Clay__RebuildScrollIndex(Clay_Context *context) {
+    uint32_t wanted = 64;
+    while (wanted < (uint32_t)context->scrollContainerDatas.length * 2u + 2u) {
+        wanted <<= 1;
+    }
+    if (!context->scrollIndex || context->scrollIndexMask + 1u != wanted) {
+        int32_t *table = (int32_t *)malloc((size_t)wanted * sizeof(int32_t));
+        if (table == NULL) {
+            free(context->scrollIndex);
+            context->scrollIndex = NULL;
+            context->scrollIndexMask = 0;
+            context->scrollIndexDirty = false;
+            return; // lookups fall back to the linear scan
+        }
+        free(context->scrollIndex);
+        context->scrollIndex = table;
+        context->scrollIndexMask = wanted - 1u;
+    }
+    memset(context->scrollIndex, 0, ((size_t)context->scrollIndexMask + 1u) * sizeof(int32_t));
+    for (int32_t i = 0; i < context->scrollContainerDatas.length; i++) {
+        uint32_t slot = Clay__ScrollIdHash(Clay__ScrollContainerDataInternalArray_Get(&context->scrollContainerDatas, i)->elementId) & context->scrollIndexMask;
+        while (context->scrollIndex[slot]) {
+            slot = (slot + 1u) & context->scrollIndexMask;
+        }
+        context->scrollIndex[slot] = i + 1;
+    }
+    context->scrollIndexDirty = false;
+}
+
+// The scroll container data of element `elementId`, or NULL.
+static Clay__ScrollContainerDataInternal *Clay__FindScrollContainer(Clay_Context *context, uint32_t elementId) {
+    if (context->scrollIndexDirty || context->scrollIndex == NULL) {
+        Clay__RebuildScrollIndex(context);
+    }
+    if (context->scrollIndex == NULL) {
+        for (int32_t i = 0; i < context->scrollContainerDatas.length; i++) {
+            Clay__ScrollContainerDataInternal *mapping = Clay__ScrollContainerDataInternalArray_Get(&context->scrollContainerDatas, i);
+            if (mapping->elementId == elementId) {
+                return mapping;
+            }
+        }
+        return CLAY__NULL;
+    }
+    uint32_t slot = Clay__ScrollIdHash(elementId) & context->scrollIndexMask;
+    for (;;) {
+        int32_t entry = context->scrollIndex[slot];
+        if (entry == 0) {
+            return CLAY__NULL;
+        }
+        Clay__ScrollContainerDataInternal *mapping = Clay__ScrollContainerDataInternalArray_Get(&context->scrollContainerDatas, entry - 1);
+        if (mapping->elementId == elementId) {
+            return mapping;
+        }
+        slot = (slot + 1u) & context->scrollIndexMask;
+    }
+}
+
+
 void Clay__ConfigureOpenElementPtr(const Clay_ElementDeclaration *declaration) {
     Clay_Context* context = Clay_GetCurrentContext();
     Clay_LayoutElement *openLayoutElement = Clay__GetOpenLayoutElement();
@@ -2179,20 +2308,17 @@ void Clay__ConfigureOpenElementPtr(const Clay_ElementDeclaration *declaration) {
         Clay__AttachElementConfig(CLAY__INIT(Clay_ElementConfigUnion) { .clipElementConfig = Clay__StoreClipElementConfig(declaration->clip) }, CLAY__ELEMENT_CONFIG_TYPE_CLIP);
         Clay__int32_tArray_Add(&context->openClipElementStack, (int)openLayoutElement->id);
         // Retrieve or create cached data to track scroll position across frames
-        Clay__ScrollContainerDataInternal *scrollOffset = CLAY__NULL;
-        for (int32_t i = 0; i < context->scrollContainerDatas.length; i++) {
-            Clay__ScrollContainerDataInternal *mapping = Clay__ScrollContainerDataInternalArray_Get(&context->scrollContainerDatas, i);
-            if (openLayoutElement->id == mapping->elementId) {
-                scrollOffset = mapping;
-                scrollOffset->layoutElement = openLayoutElement;
-                scrollOffset->openThisFrame = true;
-            }
+        Clay__ScrollContainerDataInternal *scrollOffset = Clay__FindScrollContainer(context, openLayoutElement->id);
+        if (scrollOffset) {
+            scrollOffset->layoutElement = openLayoutElement;
+            scrollOffset->openThisFrame = true;
         }
         if (!scrollOffset) {
             context->scrollContainerDatas.internalArray = (Clay__ScrollContainerDataInternal *)Clay__GrowArrayStorage(
                 context->scrollContainerDatas.internalArray, &context->scrollContainerDatas.capacity,
                 context->scrollContainerDatas.length, sizeof(Clay__ScrollContainerDataInternal), &context->internalArena);
             scrollOffset = Clay__ScrollContainerDataInternalArray_Add(&context->scrollContainerDatas, CLAY__INIT(Clay__ScrollContainerDataInternal){.layoutElement = openLayoutElement, .scrollOrigin = {-1,-1}, .elementId = openLayoutElement->id, .openThisFrame = true});
+            context->scrollIndexDirty = true; // an entry was added (the array may also have moved): reindex before the next lookup
         }
         if (context->externalScrollHandlingEnabled) {
             scrollOffset->scrollPosition = Clay__QueryScrollOffset(scrollOffset->elementId, context->queryScrollOffsetUserData);
@@ -2808,9 +2934,9 @@ void Clay__CalculateFinalLayout(void) {
                     Clay_ClipElementConfig *clipConfig = Clay__FindElementConfigWithType(currentElement, CLAY__ELEMENT_CONFIG_TYPE_CLIP).clipElementConfig;
 
                     // This linear scan could theoretically be slow under very strange conditions, but I can't imagine a real UI with more than a few 10's of scroll containers
-                    for (int32_t i = 0; i < context->scrollContainerDatas.length; i++) {
-                        Clay__ScrollContainerDataInternal *mapping = Clay__ScrollContainerDataInternalArray_Get(&context->scrollContainerDatas, i);
-                        if (mapping->layoutElement == currentElement) {
+                    for (int32_t i = 0; i < 1; i++) {
+                        Clay__ScrollContainerDataInternal *mapping = Clay__FindScrollContainer(context, currentElement->id);
+                        if (mapping && mapping->layoutElement == currentElement) {
                             scrollContainerData = mapping;
                             mapping->boundingBox = currentElementBoundingBox;
                             scrollOffset = clipConfig->childOffset;
@@ -3040,9 +3166,9 @@ void Clay__CalculateFinalLayout(void) {
                 Clay_ClipElementConfig *clipConfig = Clay__FindElementConfigWithType(currentElement, CLAY__ELEMENT_CONFIG_TYPE_CLIP).clipElementConfig;
                 if (clipConfig) {
                     closeClipElement = true;
-                    for (int32_t i = 0; i < context->scrollContainerDatas.length; i++) {
-                        Clay__ScrollContainerDataInternal *mapping = Clay__ScrollContainerDataInternalArray_Get(&context->scrollContainerDatas, i);
-                        if (mapping->layoutElement == currentElement) {
+                    for (int32_t i = 0; i < 1; i++) {
+                        Clay__ScrollContainerDataInternal *mapping = Clay__FindScrollContainer(context, currentElement->id);
+                        if (mapping && mapping->layoutElement == currentElement) {
                             scrollOffset = clipConfig->childOffset;
                             if (context->externalScrollHandlingEnabled) {
                                 scrollOffset = CLAY__INIT(Clay_Vector2) CLAY__DEFAULT_STRUCT;
@@ -4118,9 +4244,9 @@ Clay_Vector2 Clay_GetScrollOffset(void) {
     if (openLayoutElement->id == 0) {
         Clay__GenerateIdForAnonymousElement(openLayoutElement);
     }
-    for (int32_t i = 0; i < context->scrollContainerDatas.length; i++) {
-        Clay__ScrollContainerDataInternal *mapping = Clay__ScrollContainerDataInternalArray_Get(&context->scrollContainerDatas, i);
-        if (mapping->layoutElement == openLayoutElement) {
+    {
+        Clay__ScrollContainerDataInternal *mapping = Clay__FindScrollContainer(context, openLayoutElement->id);
+        if (mapping && mapping->layoutElement == openLayoutElement) {
             return mapping->scrollPosition;
         }
     }
@@ -4131,13 +4257,19 @@ CLAY_WASM_EXPORT("Clay_UpdateScrollContainers")
 void Clay_UpdateScrollContainers(bool enableDragScrolling, Clay_Vector2 scrollDelta, float deltaTime) {
     Clay_Context* context = Clay_GetCurrentContext();
     bool isPointerActive = enableDragScrolling && (context->pointerInfo.state == CLAY_POINTER_DATA_PRESSED || context->pointerInfo.state == CLAY_POINTER_DATA_PRESSED_THIS_FRAME);
-    // Don't apply scroll events to ancestors of the inner element
-    int32_t highestPriorityElementIndex = -1;
-    Clay__ScrollContainerDataInternal *highestPriorityScrollData = CLAY__NULL;
+    // Every scroll container under the pointer, with its depth in the pointer-over list (deeper = more inner). A wheel
+    // step is offered innermost first: each container takes as much as it can still scroll, and what it cannot take
+    // moves on to the next one out. A container that cannot scroll at all (a clipped card, a text box that fits) just
+    // passes the whole step through, so it no longer swallows scrolling meant for the list around it.
+    enum { CLAY__MAX_SCROLL_CHAIN = 64 };
+    Clay__ScrollContainerDataInternal *chain[CLAY__MAX_SCROLL_CHAIN];
+    int32_t chainDepth[CLAY__MAX_SCROLL_CHAIN];
+    int32_t chainLength = 0;
     for (int32_t i = 0; i < context->scrollContainerDatas.length; i++) {
         Clay__ScrollContainerDataInternal *scrollData = Clay__ScrollContainerDataInternalArray_Get(&context->scrollContainerDatas, i);
         if (!scrollData->openThisFrame) {
             Clay__ScrollContainerDataInternalArray_RemoveSwapback(&context->scrollContainerDatas, i);
+            context->scrollIndexDirty = true;
             continue;
         }
         scrollData->openThisFrame = false;
@@ -4145,6 +4277,7 @@ void Clay_UpdateScrollContainers(bool enableDragScrolling, Clay_Vector2 scrollDe
         // Element isn't rendered this frame but scroll offset has been retained
         if (!hashMapItem) {
             Clay__ScrollContainerDataInternalArray_RemoveSwapback(&context->scrollContainerDatas, i);
+            context->scrollIndexDirty = true;
             continue;
         }
 
@@ -4181,11 +4314,68 @@ void Clay_UpdateScrollContainers(bool enableDragScrolling, Clay_Vector2 scrollDe
         }
         scrollData->scrollPosition.y = CLAY__MIN(CLAY__MAX(scrollData->scrollPosition.y, -(CLAY__MAX(scrollData->contentSize.height - scrollData->layoutElement->dimensions.height, 0))), 0);
 
-        for (int32_t j = 0; j < context->pointerOverIds.length; ++j) { // TODO n & m are small here but this being n*m gives me the creeps
+        int32_t depth = -1;
+        for (int32_t j = 0; j < context->pointerOverIds.length; ++j) {
             if (scrollData->layoutElement->id == Clay_ElementIdArray_Get(&context->pointerOverIds, j)->id) {
-                highestPriorityElementIndex = j;
-                highestPriorityScrollData = scrollData;
+                depth = j;
             }
+        }
+        if (depth >= 0 && chainLength < CLAY__MAX_SCROLL_CHAIN) {
+            // Insertion sort, deepest first.
+            int32_t at = chainLength++;
+            while (at > 0 && chainDepth[at - 1] < depth) {
+                chain[at] = chain[at - 1];
+                chainDepth[at] = chainDepth[at - 1];
+                --at;
+            }
+            chain[at] = scrollData;
+            chainDepth[at] = depth;
+        }
+    }
+
+    // Wheel: propagate the step outwards, each container consuming what it can.
+    float remainingX = scrollDelta.x * 10;
+    float remainingY = scrollDelta.y * 10;
+    for (int32_t c = 0; c < chainLength && (remainingX != 0 || remainingY != 0); ++c) {
+        Clay__ScrollContainerDataInternal *data = chain[c];
+        Clay_LayoutElement *element = data->layoutElement;
+        Clay_ClipElementConfig *clip = Clay__FindElementConfigWithType(element, CLAY__ELEMENT_CONFIG_TYPE_CLIP).clipElementConfig;
+        if (!clip) {
+            continue;
+        }
+        if (clip->vertical && remainingY != 0) {
+            const float minY = -CLAY__MAX(data->contentSize.height - element->dimensions.height, 0);
+            const float before = data->scrollPosition.y;
+            const float after = CLAY__MAX(CLAY__MIN(before + remainingY, 0), minY);
+            data->scrollPosition.y = after;
+            remainingY -= after - before;
+            if (remainingY > -0.01f && remainingY < 0.01f) {
+                remainingY = 0;
+            }
+        }
+        if (clip->horizontal && remainingX != 0) {
+            const float minX = -CLAY__MAX(data->contentSize.width - element->dimensions.width, 0);
+            const float before = data->scrollPosition.x;
+            const float after = CLAY__MAX(CLAY__MIN(before + remainingX, 0), minX);
+            data->scrollPosition.x = after;
+            remainingX -= after - before;
+            if (remainingX > -0.01f && remainingX < 0.01f) {
+                remainingX = 0;
+            }
+        }
+    }
+
+    // Click / touch drag scrolls the innermost container that can actually scroll.
+    int32_t highestPriorityElementIndex = -1;
+    Clay__ScrollContainerDataInternal *highestPriorityScrollData = CLAY__NULL;
+    for (int32_t c = 0; c < chainLength; ++c) {
+        Clay_LayoutElement *element = chain[c]->layoutElement;
+        Clay_ClipElementConfig *clip = Clay__FindElementConfigWithType(element, CLAY__ELEMENT_CONFIG_TYPE_CLIP).clipElementConfig;
+        if (clip && ((clip->vertical && chain[c]->contentSize.height > element->dimensions.height) ||
+                     (clip->horizontal && chain[c]->contentSize.width > element->dimensions.width))) {
+            highestPriorityElementIndex = chainDepth[c];
+            highestPriorityScrollData = chain[c];
+            break;
         }
     }
 
@@ -4194,13 +4384,7 @@ void Clay_UpdateScrollContainers(bool enableDragScrolling, Clay_Vector2 scrollDe
         Clay_ClipElementConfig *clipConfig = Clay__FindElementConfigWithType(scrollElement, CLAY__ELEMENT_CONFIG_TYPE_CLIP).clipElementConfig;
         bool canScrollVertically = clipConfig->vertical && highestPriorityScrollData->contentSize.height > scrollElement->dimensions.height;
         bool canScrollHorizontally = clipConfig->horizontal && highestPriorityScrollData->contentSize.width > scrollElement->dimensions.width;
-        // Handle wheel scroll
-        if (canScrollVertically) {
-            highestPriorityScrollData->scrollPosition.y = highestPriorityScrollData->scrollPosition.y + scrollDelta.y * 10;
-        }
-        if (canScrollHorizontally) {
-            highestPriorityScrollData->scrollPosition.x = highestPriorityScrollData->scrollPosition.x + scrollDelta.x * 10;
-        }
+        // (Wheel steps were applied above, along the whole chain.)
         // Handle click / touch scroll
         if (isPointerActive) {
             highestPriorityScrollData->scrollMomentum = CLAY__INIT(Clay_Vector2)CLAY__DEFAULT_STRUCT;
@@ -4247,6 +4431,7 @@ void Clay_BeginLayout(void) {
     Clay__InitializeEphemeralMemory(context);
     context->generation++;
     context->dynamicElementIndex = 0;
+    Clay__SweepMeasureTextCache(context, 64); // a slice of the measured-text cache per frame, so stale words are returned
     // Set up the root container that covers the entire window
     Clay_Dimensions rootDimensions = {context->layoutDimensions.width, context->layoutDimensions.height};
     if (context->debugModeEnabled) {
