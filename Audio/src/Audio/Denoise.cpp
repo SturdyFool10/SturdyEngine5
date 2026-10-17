@@ -2,6 +2,7 @@
 
 #include <Audio/Fft.hpp>
 #include <Audio/Interleaved.hpp>
+#include <Foundation/AtomicSharedPtr.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -61,7 +62,7 @@ namespace SFT::Audio {
 
     struct NoiseReducer::State {
         std::vector<ChannelState> channels;
-        std::atomic<std::shared_ptr<const NoiseProfile>> profile;
+        Foundation::AtomicSharedPtr<const NoiseProfile> profile;
         // Learning: sums of bin power per channel, filled by the audio thread while `learning` is set.
         struct Accumulator {
             std::vector<std::vector<f64>> sum;

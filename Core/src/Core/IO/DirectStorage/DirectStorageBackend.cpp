@@ -61,7 +61,19 @@ namespace SFT::Core {
             }
             s.init_attempted = true;
 
-            if (FAILED(DStorageGetFactory(IID_PPV_ARGS(&s.factory)))) {
+            // DirectStorage is not part of Windows: dstorage.dll (+ dstoragecore.dll) ships next to the executable when
+            // an application wants it. Resolve it at run time rather than through the import library, so a program
+            // that does not ship it still starts and simply uses standard file I/O.
+            using GetFactoryFn = HRESULT(WINAPI *)(REFIID, void **);
+            HMODULE dstorage = LoadLibraryW(L"dstorage.dll");
+            const auto get_factory = dstorage != nullptr
+                                         ? reinterpret_cast<GetFactoryFn>(reinterpret_cast<void *>(GetProcAddress(dstorage, "DStorageGetFactory")))
+                                         : nullptr;
+            if (get_factory == nullptr) {
+                Foundation::log_info("DirectStorage: dstorage.dll not present; using standard file I/O.");
+                return false;
+            }
+            if (FAILED(get_factory(IID_PPV_ARGS(&s.factory)))) {
                 Foundation::log_warn("DirectStorage: DStorageGetFactory failed; falling back to standard file I/O.");
                 return false;
             }

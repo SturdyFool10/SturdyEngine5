@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Async/Chunk.hpp>
+#include <Foundation/RangesCompat.hpp>
 #include <Async/Ranges.hpp>
 #include <Async/Runtime.hpp>
 #include <Async/Task.hpp>
@@ -43,7 +44,7 @@ namespace SFT::Async {
         [[nodiscard]] auto flat_map(Fn fn) { auto mapped=Ranges::map<Rt>(view_,std::move(fn)); std::vector<std::ranges::range_value_t<std::ranges::range_value_t<decltype(mapped)>>> out; for(auto &r:mapped) for(auto &&x:r) out.emplace_back(std::forward<decltype(x)>(x)); return make(std::move(out)); }
         [[nodiscard]] auto take(usize n) { auto r=std::views::take(std::move(view_),static_cast<std::ranges::range_difference_t<V>>(n)); return ParIter<Rt,decltype(r)>(std::move(r)); }
         [[nodiscard]] auto skip(usize n) { auto r=std::views::drop(std::move(view_),static_cast<std::ranges::range_difference_t<V>>(n)); return ParIter<Rt,decltype(r)>(std::move(r)); }
-        [[nodiscard]] auto step_by(usize n) { auto r=std::views::stride(std::move(view_),static_cast<std::ranges::range_difference_t<V>>(n)); return ParIter<Rt,decltype(r)>(std::move(r)); }
+        [[nodiscard]] auto step_by(usize n) { auto r=Foundation::Compat::stride(std::move(view_),static_cast<std::ranges::range_difference_t<V>>(n)); return ParIter<Rt,decltype(r)>(std::move(r)); }
         [[nodiscard]] auto rev() { auto r=std::views::reverse(std::move(view_)); return ParIter<Rt,decltype(r)>(std::move(r)); }
         [[nodiscard]] auto enumerate() { return make(Ranges::map<Rt>(view_, [i=usize{0}](auto &&x) mutable { return std::pair<usize,std::ranges::range_value_t<V>>{i++,x}; })); }
         template <std::ranges::viewable_range R2> [[nodiscard]] auto zip(R2 &&other) { return make(Ranges::map<Rt>(view_, [other=std::views::all(std::forward<R2>(other))](auto &&x) mutable { static usize i=0; return std::pair{std::forward<decltype(x)>(x),other[i++]}; })); }

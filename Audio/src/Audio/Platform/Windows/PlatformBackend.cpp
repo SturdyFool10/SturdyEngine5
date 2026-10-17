@@ -175,8 +175,8 @@ namespace SFT::Audio {
         class MediaFoundationBackend final : public DecoderBackend {
           public:
             [[nodiscard]] ustr name() const override { return "Windows Media Foundation (AAC, M4A, WMA)"_ustr; }
-            [[nodiscard]] std::vector<std::string_view> extensions() const override { return {".m4a", ".mp4", ".aac", ".wma", ".m4b", ".3gp"}; }
-            [[nodiscard]] int probe(std::span<const std::byte> header, const ustr &extension) const override {
+            [[nodiscard]] std::vector<UString> extensions() const override { return {".m4a", ".mp4", ".aac", ".wma", ".m4b", ".3gp"}; }
+            [[nodiscard]] int probe(std::span<const std::byte> header, const UString &extension) const override {
                 if (header.size() >= 12 && std::memcmp(header.data() + 4, "ftyp", 4) == 0) {
                     return 85; // MP4 family (AAC, ALAC where installed)
                 }
@@ -187,7 +187,7 @@ namespace SFT::Audio {
                 if (header.size() >= 2 && static_cast<unsigned>(header[0]) == 0xFF && (static_cast<unsigned>(header[1]) & 0xF6) == 0xF0) {
                     return 50; // ADTS AAC (layer bits 00)
                 }
-                for (std::string_view e : extensions()) {
+                for (const UString &e : extensions()) {
                     if (e == extension) {
                         return 10;
                     }

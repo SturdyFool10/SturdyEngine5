@@ -97,3 +97,7 @@ perf.data
 perf.data.old
 *.folded
 flamegraph*.svg
+
+# Python bytecode caches (written next to the generator scripts whenever they run).
+__pycache__/
+*.py[cod]

@@ -29,6 +29,20 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # unit includes <limits>, so a leaf header's #define is too late once something upstream of it has
 # already pulled <limits> in.
 add_compile_definitions(_SILENCE_CXX23_DENORM_DEPRECATION_WARNING)
+if(WIN32)
+    # <windows.h> otherwise defines min/max as macros, breaking every std::min/std::max/numeric_limits::max after it.
+    add_compile_definitions(NOMINMAX)
+endif()
+if(MSVC)
+    # The MSVC STL refuses std::aligned_storage with an alignment above max_align_t unless asked; the other standard
+    # libraries the engine builds against honour it (C++ "extended alignment") without being asked.
+    add_compile_definitions(_ENABLE_EXTENDED_ALIGNED_STORAGE)
+endif()
+if(APPLE)
+    # Apple's libc++ drops std::wstring_convert / <codecvt> in C++26 mode (deprecated since C++17), but third-party
+    # code (OpenEXR) still uses them. Keep them available; libc++ documents these macros as the opt-out.
+    add_compile_definitions(_LIBCPP_ENABLE_CXX26_REMOVED_WSTRING_CONVERT _LIBCPP_ENABLE_CXX26_REMOVED_CODECVT)
+endif()
 
 # Forced empty and set as early as possible, before any dependency is fetched: several fetched
 # projects (freetype, OpenEXR, ...) set this themselves internally to suffix Debug-config library
@@ -148,6 +162,13 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # run before dependencies and subdirectories so every target inherits them.
 include(SturdyMatrix)
 sturdy_apply_matrix()
+
+if(APPLE)
+    # SDL3 enables Objective-C from inside the sturdy_fetch_* functions. CMake keeps a language's rule variables
+    # (CMAKE_OBJC_COMPILE_OBJECT, ...) in the calling scope, so they are gone once that function returns and the
+    # generator fails with "required internal CMake variable not set". Enable it here, at directory scope.
+    enable_language(OBJC)
+endif()
 
 set(
     STURDY_STATIC_ARCHIVE_TIMEOUT_SECONDS

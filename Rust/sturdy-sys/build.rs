@@ -66,6 +66,38 @@ const ALLOWED_SYSTEM_LIBS: &[&str] = &["wayland-client"];
 /// Linked by the engine's CMake but unnecessary: loaded at runtime through volk instead.
 const DROPPED_SYSTEM_LIBS: &[&str] = &["vulkan"];
 
+/// The platform being built *for*. A build script is compiled for the build machine, so `cfg!(windows)` and friends
+/// describe the host; cross builds (Windows from Linux through cargo-xwin, macOS through cargo-zigbuild, ...) need
+/// Cargo's view of the target instead.
+fn target_os() -> String {
+    env::var("CARGO_CFG_TARGET_OS").unwrap_or_default()
+}
+
+fn target_is_msvc() -> bool {
+    target_os() == "windows" && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+}
+
+/// A CMake toolchain file for the target, when one is provided: `CMAKE_TOOLCHAIN_FILE_<target triple>` (what
+/// cargo-xwin exports, `-` or `_` separated), `TARGET_CMAKE_TOOLCHAIN_FILE`, or plain `CMAKE_TOOLCHAIN_FILE` (the same
+/// lookup order as the `cmake` crate). Only consulted when cross compiling.
+fn cross_toolchain_file() -> Option<PathBuf> {
+    let target = env::var("TARGET").ok()?;
+    let host = env::var("HOST").ok()?;
+    if target == host {
+        return None;
+    }
+    let keys = [
+        format!("CMAKE_TOOLCHAIN_FILE_{target}"),
+        format!("CMAKE_TOOLCHAIN_FILE_{}", target.replace('-', "_")),
+        "TARGET_CMAKE_TOOLCHAIN_FILE".to_owned(),
+        "CMAKE_TOOLCHAIN_FILE".to_owned(),
+    ];
+    keys.iter().find_map(|key| {
+        println!("cargo:rerun-if-env-changed={key}");
+        env::var_os(key).map(PathBuf::from)
+    })
+}
+
 fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -220,9 +252,21 @@ fn configure(
     // into an artifact meant to run on other machines.
     // `-mxsave` on x86: Foundation's CPUID probe reads XCR0 via `xgetbv` (after checking OSXSAVE),
     // which clang only accepts with that feature enabled; `-march=native` used to imply it.
-    let mut cxx_flags = if cpu.is_empty() { String::new() } else { format!("-march={cpu}") };
+    let toolchain = cross_toolchain_file();
+    // clang-cl (the MSVC-style driver a Windows toolchain file selects) only takes GNU-style options behind `/clang:`.
+    let clang_cl = toolchain.is_some() && target_is_msvc();
+    let gnu = |flag: &str| if clang_cl { format!("/clang:{flag}") } else { flag.to_owned() };
+    // clang-cl puts `/clang:` options after everything else, so a `-march` there would override (and drop) the AVX a
+    // source file's own `/arch:AVX2` asks for. Express the portable baseline as added features instead, which only
+    // ever add to what each file enables.
+    let mut cxx_flags = match cpu.as_str() {
+        "" => String::new(),
+        "x86-64-v2" if clang_cl => ["-msse4.2", "-mpopcnt", "-mcx16"].map(gnu).join(" "),
+        _ => gnu(&format!("-march={cpu}")),
+    };
     if env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64") {
-        cxx_flags.push_str(" -mxsave");
+        cxx_flags.push(' ');
+        cxx_flags.push_str(&gnu("-mxsave"));
     }
 
     let shim_sources = shim_sources(manifest, bridge_cc)
@@ -234,9 +278,38 @@ fn configure(
 
     let mut cmd = Command::new("cmake");
     cmd.arg("-S").arg(engine_src).arg("-B").arg(build_dir).args(["-G", "Ninja"]);
+    // The engine's build matrix (cmake/SturdyMatrix.cmake) defaults to the build machine; say what the target is, so a
+    // cross build never configures for the host (and a cached value from an earlier configure cannot win either).
+    let sturdy_os = match target_os().as_str() {
+        "windows" => Some("Windows"),
+        "macos" => Some("MacOS"),
+        "linux" => Some("Linux"),
+        "freebsd" => Some("FreeBSD"),
+        _ => None,
+    };
+    let sturdy_arch = match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("x86_64") => Some("x86-64"),
+        Ok("aarch64") => Some("Arm64"),
+        Ok("riscv64") => Some("RISCV"),
+        _ => None,
+    };
+    if let Some(os) = sturdy_os {
+        cmd.arg(format!("-DSTURDY_OS={os}"));
+    }
+    if let Some(arch) = sturdy_arch {
+        cmd.arg(format!("-DSTURDY_ARCH={arch}"));
+    }
+    match &toolchain {
+        // The toolchain file names the cross compilers, sysroot and target; it must not be overridden here.
+        Some(file) => {
+            let file = if clang_cl { msvc_toolchain_wrapper(out, file) } else { file.clone() };
+            cmd.arg(format!("-DCMAKE_TOOLCHAIN_FILE={}", file.display()));
+        }
+        None => {
+            cmd.arg("-DCMAKE_C_COMPILER=clang").arg("-DCMAKE_CXX_COMPILER=clang++");
+        }
+    }
     cmd.arg(format!("-DCMAKE_BUILD_TYPE={build_type}"))
-        .arg("-DCMAKE_C_COMPILER=clang")
-        .arg("-DCMAKE_CXX_COMPILER=clang++")
         .arg(format!("-DCMAKE_C_FLAGS={cxx_flags}"))
         .arg(format!("-DCMAKE_CXX_FLAGS={cxx_flags}"))
         .arg("-DCMAKE_POSITION_INDEPENDENT_CODE=ON")
@@ -271,6 +344,50 @@ fn configure(
     // Configure-time compiler flags come only from the -D arguments above.
     cmd.env_remove("CFLAGS").env_remove("CXXFLAGS").env_remove("LDFLAGS");
     run(&mut cmd);
+}
+
+/// It also means to select the dynamic CRT (`/MD`, what Rust links) but its `set(CMAKE_MSVC_RUNTIME_LIBRARY CACHE STRING
+/// "MultiThreadedDLL")` sets the value to empty (the string is only the doc string), so clang-cl falls back to the static
+/// CRT and the final link fails on a RuntimeLibrary mismatch; set it properly.
+///
+/// cargo-xwin's toolchain file empties CMake's default Windows libraries (kernel32, user32, shell32, ...), leaving every
+/// project to name them. Third-party code inside the engine build that links an executable (Slang's tools, the link
+/// probe) does not, so restore the MSVC defaults on top of it.
+fn msvc_toolchain_wrapper(out: &Path, toolchain: &Path) -> PathBuf {
+    let wrapper = out.join("msvc-cross-toolchain.cmake");
+    let libraries = "kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib";
+    // It also leaves CMake free to search the build machine's /usr for headers, libraries and packages, which a
+    // Windows target can never use (and whose glibc headers then clash with the MSVC CRT). Root every search in an
+    // empty directory instead; build-machine programs (python, git, ...) are still found.
+    // The splatted Windows SDK has lower-case header names; on a case-sensitive file system a third-party
+    // `#include <Intsafe.h>` (written against case-insensitive Windows) misses. Forwarding headers fix the ones in use.
+    let aliases = out.join("msvc-header-case-aliases");
+    fs::create_dir_all(&aliases).unwrap();
+    for (alias, real) in [("Intsafe.h", "intsafe.h"), ("Windows.h", "windows.h"), ("WinSock2.h", "winsock2.h"), ("ShlObj.h", "shlobj.h"), ("Shlwapi.h", "shlwapi.h"), ("DbgHelp.h", "dbghelp.h"), ("Psapi.h", "psapi.h"), ("VersionHelpers.h", "versionhelpers.h")] {
+        fs::write(aliases.join(alias), format!("#pragma once\n#include <{real}>\n")).unwrap();
+    }
+    let aliases = aliases.display().to_string().replace('\\', "/");
+    let find_root = out.join("msvc-cross-find-root");
+    fs::create_dir_all(&find_root).unwrap();
+    let body = format!(
+        "include(\"{}\")\n\
+         set(CMAKE_C_STANDARD_LIBRARIES \"{libraries}\" CACHE STRING \"\" FORCE)\n\
+         set(CMAKE_CXX_STANDARD_LIBRARIES \"{libraries}\" CACHE STRING \"\" FORCE)\n\
+         set(CMAKE_MSVC_RUNTIME_LIBRARY \"MultiThreadedDLL\" CACHE STRING \"\" FORCE)\n\
+         set(CMAKE_FIND_ROOT_PATH \"{}\")\n\
+         set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\n\
+         set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)\n\
+         set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)\n\
+         set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)\n\
+         if(NOT CMAKE_C_FLAGS MATCHES \"msvc-header-case-aliases\")\n\
+           set(CMAKE_C_FLAGS \"${{CMAKE_C_FLAGS}} /imsvc {aliases}\" CACHE STRING \"\" FORCE)\n\
+           set(CMAKE_CXX_FLAGS \"${{CMAKE_CXX_FLAGS}} /imsvc {aliases}\" CACHE STRING \"\" FORCE)\n\
+         endif()\n",
+        toolchain.display().to_string().replace('\\', "/"),
+        find_root.display().to_string().replace('\\', "/")
+    );
+    fs::write(&wrapper, body).unwrap();
+    wrapper
 }
 
 /// Where the engine's third-party sources live: `STURDY_RS_DEPS_DIR` when set (shared between profiles and
@@ -311,7 +428,8 @@ fn emit_link_directives(build_dir: &Path) {
     let commands = String::from_utf8_lossy(&output.stdout);
     let link_line = commands
         .lines()
-        .rfind(|l| l.contains("sturdy_rs_link_probe") && l.contains("-o "))
+        // GNU-style drivers name the output with `-o`; an MSVC-style link (lld-link / link.exe) with `/out:`.
+        .rfind(|l| l.contains("sturdy_rs_link_probe") && (l.contains("-o ") || l.contains("/out:")))
         .expect("could not find the probe link command");
 
     let mut seen_names: HashMap<String, PathBuf> = HashMap::new();
@@ -322,6 +440,16 @@ fn emit_link_directives(build_dir: &Path) {
     let mut take_framework = false;
 
     for token in tokens(link_line, build_dir) {
+        // MSVC-style linker options (`-libpath:"..."`, `/LIBPATH:...`, `/out:`, `/nologo`, ...) are not libraries; the
+        // first would otherwise read as `-l ibpath:...`. Rust's own link gets the library paths from cargo-xwin/the SDK.
+        let lower = token.to_ascii_lowercase();
+        if lower.starts_with("-libpath:") || (token.starts_with('/') && !Path::new(&token).exists()) {
+            continue;
+        }
+        // `-Xlinker <flag>` forwards one argument to the linker; the flag itself is handled below.
+        if token == "-Xlinker" {
+            continue;
+        }
         if take_framework {
             take_framework = false;
             if !frameworks.contains(&token) {
@@ -329,8 +457,16 @@ fn emit_link_directives(build_dir: &Path) {
             }
             continue;
         }
-        if token == "-framework" {
+        // `-weak_framework` (SDL3's CoreHaptics / UniformTypeIdentifiers) is linked as an ordinary framework: Rust has no
+        // weak link kind, and both exist on every macOS the deployment target (11.0) allows.
+        if token == "-framework" || token == "-weak_framework" {
             take_framework = true;
+            continue;
+        }
+        if let Some(name) = token.strip_prefix("-Wl,-framework,").or_else(|| token.strip_prefix("-Wl,-weak_framework,")) {
+            if !frameworks.iter().any(|f| f == name) {
+                frameworks.push(name.to_owned());
+            }
             continue;
         }
         // Windows (MSVC ABI): archives are `Name.lib` (no `lib` prefix); a `.lib` that is not one of the engine's own
@@ -381,7 +517,7 @@ fn emit_link_directives(build_dir: &Path) {
             assert!(
                 ALLOWED_SYSTEM_LIBS.contains(&name.as_str())
                     // macOS ships libc++/libSystem/... under /usr/lib; they are part of the OS.
-                    || (cfg!(target_os = "macos") && token.starts_with("/usr/lib/")),
+                    || (target_os() == "macos" && token.starts_with("/usr/lib/")),
                 "the engine link line pulls in system shared library `{token}`, which would make the \
                  executable depend on the build machine. Disable its find_package in \
                  HERMETIC_CMAKE_ARGS (build.rs) or add it to ALLOWED_SYSTEM_LIBS if it is part of the OS."
@@ -397,7 +533,8 @@ fn emit_link_directives(build_dir: &Path) {
     }
 
     // Threading/dl are always needed by SDL3/volk/spdlog even when the link line omits them (not a Windows concept).
-    for lib in if cfg!(windows) { &[][..] } else { &["pthread", "dl", "m"][..] } {
+    let target_os = target_os();
+    for lib in if target_os == "windows" { &[][..] } else { &["pthread", "dl", "m"][..] } {
         if !system_libs.iter().any(|l| l == lib) {
             system_libs.push((*lib).into());
         }
@@ -413,10 +550,10 @@ fn emit_link_directives(build_dir: &Path) {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
 
-    if cfg!(windows) {
+    if target_os == "windows" {
         return; // the MSVC C++ runtime is pulled in by the object files' default-library directives
     }
-    if cfg!(target_os = "macos") {
+    if target_os == "macos" {
         // The platform C++ runtime is libc++ (part of the OS); there is no libstdc++ to bundle.
         println!("cargo:rustc-link-lib=c++");
         return;
@@ -424,7 +561,20 @@ fn emit_link_directives(build_dir: &Path) {
 
     // The engine is C++26 and is built against a very recent libstdc++; a target machine's copy is
     // likely older, so the C++ runtime is bundled statically whenever the static archive exists.
-    let static_stdcxx = Command::new("clang++")
+    // Ask for the *target's* archive: a cross build (e.g. aarch64 from x86_64) must not bundle the host's.
+    let mut probe = Command::new("clang++");
+    if let (Ok(target), Ok(host)) = (env::var("TARGET"), env::var("HOST"))
+        && target != host
+    {
+        probe.arg(format!("--target={target}"));
+        // The cross C++ flags (cc-rs's CXXFLAGS_<target>) carry the target sysroot that holds its libstdc++.
+        let key = format!("CXXFLAGS_{}", target.replace('-', "_"));
+        println!("cargo:rerun-if-env-changed={key}");
+        if let Ok(flags) = env::var(&key) {
+            probe.args(flags.split_whitespace());
+        }
+    }
+    let static_stdcxx = probe
         .arg("-print-file-name=libstdc++.a")
         .output()
         .ok()

@@ -46,9 +46,10 @@ VulkanPhysicalDevice::VulkanPhysicalDevice(VkPhysicalDevice device) : device_(de
                 return graphics_backend_error(GraphicsBackendErrorCode::OperationFailed,
                                       "vkEnumeratePhysicalDevices (populate) failed.");
             }
-            return raw
-                 | std::views::transform([](VkPhysicalDevice raw_device) { return VulkanPhysicalDevice(raw_device); })
-                 | std::ranges::to<vector>();
+            // Call form rather than `| std::ranges::to<vector>()`: libstdc++ 14's range-adaptor closure for ranges::to
+            // does not compile under clang (its forward_like overload is rejected), and that is what Ubuntu 24.04 ships.
+            return std::ranges::to<vector>(
+                raw | std::views::transform([](VkPhysicalDevice raw_device) { return VulkanPhysicalDevice(raw_device); }));
         }
 
 /// Returns the Vulkan handle associated with this `Vulkan`.

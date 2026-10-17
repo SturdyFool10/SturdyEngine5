@@ -55,6 +55,28 @@ function(sturdy_detect_host_os out_var)
     endif()
 endfunction()
 
+# Target arch/OS named by a cross toolchain file (CMAKE_SYSTEM_NAME / CMAKE_SYSTEM_PROCESSOR). Leaves an output alone
+# when the toolchain's value has no matrix spelling.
+function(sturdy_detect_target_from_toolchain arch_var os_var)
+    string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _processor)
+    if(_processor MATCHES "^(x86_64|amd64|x64)$")
+        set(${arch_var} "x86-64" PARENT_SCOPE)
+    elseif(_processor MATCHES "^(arm64|aarch64)$")
+        set(${arch_var} "Arm64" PARENT_SCOPE)
+    elseif(_processor MATCHES "^riscv")
+        set(${arch_var} "RISCV" PARENT_SCOPE)
+    endif()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        set(${os_var} "Windows" PARENT_SCOPE)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        set(${os_var} "MacOS" PARENT_SCOPE)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+        set(${os_var} "FreeBSD" PARENT_SCOPE)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(${os_var} "Linux" PARENT_SCOPE)
+    endif()
+endfunction()
+
 # ---------------------------------------------------------------------------------------------
 # Directory naming for build trees: lowercase, and Windows shortens to "win" because Slang's
 # CMake source glob excludes any path containing /windows/ — a build directory named
@@ -140,13 +162,21 @@ macro(sturdy_apply_matrix)
     sturdy_detect_host_arch(STURDY_HOST_ARCH)
     sturdy_detect_host_os(STURDY_HOST_OS)
 
-    set(STURDY_ARCH "${STURDY_HOST_ARCH}" CACHE STRING "Target CPU architecture. One of: ${STURDY_ARCH_LIST}")
+    # A real cross toolchain file (cargo-xwin's clang-cl one for Windows, a zig/osxcross one for macOS, ...) names the
+    # target system; default the matrix to it rather than to the build machine, and leave --target to the toolchain.
+    set(_sturdy_default_arch "${STURDY_HOST_ARCH}")
+    set(_sturdy_default_os "${STURDY_HOST_OS}")
+    if(CMAKE_CROSSCOMPILING)
+        sturdy_detect_target_from_toolchain(_sturdy_default_arch _sturdy_default_os)
+    endif()
+
+    set(STURDY_ARCH "${_sturdy_default_arch}" CACHE STRING "Target CPU architecture. One of: ${STURDY_ARCH_LIST}")
     set_property(CACHE STURDY_ARCH PROPERTY STRINGS ${STURDY_ARCH_LIST})
     if(NOT STURDY_ARCH IN_LIST STURDY_ARCH_LIST)
         message(FATAL_ERROR "Unsupported STURDY_ARCH='${STURDY_ARCH}'. Expected one of: ${STURDY_ARCH_LIST}")
     endif()
 
-    set(STURDY_OS "${STURDY_HOST_OS}" CACHE STRING "Target operating system (source view when not the host OS). One of: ${STURDY_OS_LIST}")
+    set(STURDY_OS "${_sturdy_default_os}" CACHE STRING "Target operating system (source view when not the host OS). One of: ${STURDY_OS_LIST}")
     set_property(CACHE STURDY_OS PROPERTY STRINGS ${STURDY_OS_LIST})
 
     # Legacy spelling used by older presets/tasks; wins when set so existing build trees keep
@@ -235,14 +265,16 @@ macro(sturdy_apply_matrix)
 
         # Cross-architecture builds go through clang's --target. Same-arch builds stay flag-free so
         # native tooling (and any user-provided -march flags) behave exactly as before.
-        if(NOT STURDY_ARCH STREQUAL STURDY_HOST_ARCH)
+        if(NOT STURDY_ARCH STREQUAL STURDY_HOST_ARCH AND NOT CMAKE_CROSSCOMPILING)
             sturdy_target_triple("${STURDY_ARCH}" "${STURDY_OS}" STURDY_TARGET_TRIPLE)
             add_compile_options(--target=${STURDY_TARGET_TRIPLE})
             add_link_options(--target=${STURDY_TARGET_TRIPLE})
             message(STATUS "Cross-architecture build: --target=${STURDY_TARGET_TRIPLE} (host is ${STURDY_HOST_ARCH})")
         endif()
 
-        if(NOT STURDY_OS STREQUAL STURDY_HOST_OS)
+        if(CMAKE_CROSSCOMPILING)
+            message(STATUS "Cross compiling for ${STURDY_ARCH}-${STURDY_OS} through the toolchain file (host is ${STURDY_HOST_ARCH}-${STURDY_HOST_OS})")
+        elseif(NOT STURDY_OS STREQUAL STURDY_HOST_OS)
             message(STATUS "STURDY_OS=${STURDY_OS} differs from the host (${STURDY_HOST_OS}): "
                 "this configuration is a source view for code intelligence; linking needs the target SDK.")
         endif()

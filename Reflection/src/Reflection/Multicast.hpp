@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Foundation/AtomicSharedPtr.hpp>
 #include <Foundation/Foundation.hpp>
 
 #include <atomic>
@@ -20,7 +21,7 @@ namespace SFT::Reflection {
     /// method/event got reflected, only because something actually subscribed to it. Once a
     /// subscriber exists, `fire` pays one additional relaxed load of the subscriber count, then
     /// (only past that) the acquire-load of an immutable snapshot (a copy-on-write
-    /// `std::vector`, published via `std::atomic<std::shared_ptr<const std::vector<Entry>>>`,
+    /// `std::vector`, published via `Foundation::AtomicSharedPtr<const std::vector<Entry>>`,
     /// C++20's atomic shared_ptr specialization) — an RCU-style read path that never blocks a
     /// concurrent subscribe/fire. Writers (`subscribe`/`unsubscribe`) are serialized by an
     /// internal mutex and are expected to be rare (mod install/uninstall), never called from the
@@ -157,7 +158,7 @@ namespace SFT::Reflection {
 
         struct Impl {
             std::mutex mutation_mutex;
-            std::atomic<std::shared_ptr<const std::vector<Entry>>> subscribers{};
+            Foundation::AtomicSharedPtr<const std::vector<Entry>> subscribers{};
             std::atomic<usize> count{0};
             std::atomic<u64> next_id{1};
         };

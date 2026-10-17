@@ -312,8 +312,8 @@ namespace SFT::Audio {
             img.rgba.resize(static_cast<usize>(w) * h * 4);
             const Rgba bg = unpack(background);
             const std::array<u8, 4> pixel{static_cast<u8>(bg.r), static_cast<u8>(bg.g), static_cast<u8>(bg.b), static_cast<u8>(bg.a * 255.0f + 0.5f)};
-            for (const auto px : std::views::chunk(img.rgba, 4)) {
-                std::ranges::copy(pixel, px.begin());
+            for (usize at = 0; at + pixel.size() <= img.rgba.size(); at += pixel.size()) {
+                std::ranges::copy(pixel, img.rgba.begin() + static_cast<std::ptrdiff_t>(at));
             }
             return img;
         }

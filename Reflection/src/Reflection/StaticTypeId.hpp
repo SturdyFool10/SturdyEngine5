@@ -56,11 +56,17 @@ namespace SFT::Reflection {
         STURDY_REFLECTION_FUNDAMENTAL_NAME(void, "void")
         STURDY_REFLECTION_FUNDAMENTAL_NAME(std::byte, "std::byte")
         STURDY_REFLECTION_FUNDAMENTAL_NAME(std::nullptr_t, "std::nullptr_t")
-        // `long long`/`unsigned long long` are distinct types from `i64`/`u64` (which are
-        // `long`/`unsigned long` on every LP64 target this engine builds for), so they need their
-        // own entries rather than aliasing onto the fixed-width ones.
+        // The 64-bit integer spelling `i64`/`u64` does not use needs its own entry: on Linux and FreeBSD
+        // those are `long`/`unsigned long`, leaving `long long` distinct; on Windows (LLP64) and Apple
+        // platforms (where int64_t is `long long`) they are `long long`, leaving `long`/`unsigned long`
+        // distinct.
+#if defined(_WIN32) || defined(__APPLE__)
+        STURDY_REFLECTION_FUNDAMENTAL_NAME(long, "long")
+        STURDY_REFLECTION_FUNDAMENTAL_NAME(unsigned long, "unsigned long")
+#else
         STURDY_REFLECTION_FUNDAMENTAL_NAME(long long, "long long")
         STURDY_REFLECTION_FUNDAMENTAL_NAME(unsigned long long, "unsigned long long")
+#endif
         STURDY_REFLECTION_FUNDAMENTAL_NAME(wchar_t, "wchar_t")
         STURDY_REFLECTION_FUNDAMENTAL_NAME(char8_t, "char8_t")
         STURDY_REFLECTION_FUNDAMENTAL_NAME(char16_t, "char16_t")

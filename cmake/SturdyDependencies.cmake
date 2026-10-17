@@ -10,6 +10,7 @@ set(STURDY_VMA_TAG "v3.4.0" CACHE STRING "Vulkan Memory Allocator git tag to fet
 # memory of the project's release history, not confirmed against a live checkout.
 set(STURDY_D3D12MA_TAG "v2.0.1" CACHE STRING "D3D12 Memory Allocator git tag to fetch.")
 set(STURDY_VOLK_TAG "1.4.350" CACHE STRING "volk git tag to fetch.")
+set(STURDY_VULKAN_HEADERS_TAG "v1.4.363" CACHE STRING "Vulkan-Headers git tag fetched when cross compiling (native builds use the installed SDK). New enough for Dawn's pinned vulkan-utility-libraries.")
 set(STURDY_SDL3_TAG "release-3.4.10" CACHE STRING "SDL3 git tag to fetch.")
 if(STURDY_BUILD_GLFW_WINDOW_PROVIDER)
     set(STURDY_GLFW_TAG "3.4" CACHE STRING "GLFW git tag to fetch.")
@@ -504,6 +505,41 @@ function(sturdy_configure_dependencies)
 endfunction()
 
 function(sturdy_find_vulkan)
+    # The loader is reached at runtime through volk, so only the headers are needed. A native build uses the installed
+    # SDK when there is one; a cross build never does (the build machine's include directory is its whole
+    # /usr/include, and there is no loader for the target anyway), and neither does a machine without an SDK (a
+    # minimal build container). Those fetch the matching Khronos headers instead.
+    set(_sturdy_vulkan_from_headers OFF)
+    if(CMAKE_CROSSCOMPILING AND NOT STURDY_VULKAN_LIBRARY)
+        set(_sturdy_vulkan_from_headers ON)
+    elseif(NOT STURDY_VULKAN_LIBRARY)
+        # Probed with find_library rather than find_package(Vulkan): FindVulkan defines Vulkan::Headers even when it
+        # then fails, and that would collide with the fetched headers' target of the same name.
+        find_library(STURDY_VULKAN_LOADER_PROBE NAMES vulkan vulkan-1 HINTS "$ENV{VULKAN_SDK}/lib" "$ENV{VULKAN_SDK}/Lib")
+        if(NOT STURDY_VULKAN_LOADER_PROBE)
+            message(STATUS "No Vulkan SDK found; using fetched Vulkan headers (the loader is loaded at run time)")
+            set(_sturdy_vulkan_from_headers ON)
+        endif()
+    endif()
+    if(_sturdy_vulkan_from_headers)
+        sturdy_fetchcontent_declare(vulkan_headers
+            GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+            GIT_TAG ${STURDY_VULKAN_HEADERS_TAG}
+        )
+        FetchContent_MakeAvailable(vulkan_headers)
+        sturdy_register_license(vulkan_headers "${vulkan_headers_SOURCE_DIR}")
+        # volk looks for headers itself (FindVulkan first, which would find the build machine's); sturdy_fetch_volk()
+        # names these for it. Not VULKAN_HEADERS_INSTALL_DIR itself: Dawn's vulkan-utility-libraries reads that name too
+        # and then insists on an installed VulkanHeaders package.
+        set(STURDY_CROSS_VULKAN_HEADERS_DIR "${vulkan_headers_SOURCE_DIR}" CACHE INTERNAL "")
+        if(NOT TARGET Sturdy::Vulkan)
+            add_library(Sturdy::Vulkan INTERFACE IMPORTED GLOBAL)
+            target_link_libraries(Sturdy::Vulkan INTERFACE Vulkan::Headers)
+        endif()
+        set(Vulkan_FOUND TRUE PARENT_SCOPE)
+        set(Vulkan_INCLUDE_DIRS "${vulkan_headers_SOURCE_DIR}/include" PARENT_SCOPE)
+        return()
+    endif()
     find_package(Vulkan 1.4 REQUIRED)
 
     if(NOT TARGET Sturdy::Vulkan)
@@ -591,10 +627,16 @@ function(sturdy_fetch_directstorage)
     if(NOT TARGET Sturdy::DirectStorage)
         add_library(Sturdy::DirectStorage INTERFACE IMPORTED GLOBAL)
         target_include_directories(Sturdy::DirectStorage INTERFACE "${directstorage_SOURCE_DIR}/native/include")
-        target_link_libraries(Sturdy::DirectStorage INTERFACE "${directstorage_SOURCE_DIR}/native/lib/x64/dstorage.lib")
+        # No import library: Core resolves DStorageGetFactory with LoadLibrary at run time, so an executable does not
+        # require dstorage.dll to start (it is not part of Windows). The DLLs to ship match the target architecture.
+        if(STURDY_ARCH STREQUAL "Arm64")
+            set(_dstorage_arch ARM64)
+        else()
+            set(_dstorage_arch x64)
+        endif()
         set_target_properties(Sturdy::DirectStorage PROPERTIES
-            STURDY_DIRECTSTORAGE_DLL "${directstorage_SOURCE_DIR}/native/bin/x64/dstorage.dll"
-            STURDY_DIRECTSTORAGE_CORE_DLL "${directstorage_SOURCE_DIR}/native/bin/x64/dstoragecore.dll"
+            STURDY_DIRECTSTORAGE_DLL "${directstorage_SOURCE_DIR}/native/bin/${_dstorage_arch}/dstorage.dll"
+            STURDY_DIRECTSTORAGE_CORE_DLL "${directstorage_SOURCE_DIR}/native/bin/${_dstorage_arch}/dstoragecore.dll"
         )
     endif()
 endfunction()
@@ -604,7 +646,49 @@ endfunction()
 # (the non-declarative FetchContent_Populate() form — FetchContent_MakeAvailable() would try to
 # add_subdirectory() a tree with no build system) and wires up an include path + the actual
 # system frameworks by hand.
+# The link item for Apple's Foundation framework. Spelled "-framework Foundation", CMake's link-dependency graph keys the
+# entry by the bare name "Foundation" -- which is also this engine's own library target -- so the two merge and the
+# engine's static library comes out as "-framework lib/libFoundation.a". The framework's path has no such clash, and CMake
+# still emits "-framework Foundation" for it.
+function(sturdy_apple_foundation_framework out_var)
+    if(CMAKE_OSX_SYSROOT AND EXISTS "${CMAKE_OSX_SYSROOT}/System/Library/Frameworks/Foundation.framework")
+        set(${out_var} "${CMAKE_OSX_SYSROOT}/System/Library/Frameworks/Foundation.framework" PARENT_SCOPE)
+    else()
+        set(${out_var} "-framework Foundation" PARENT_SCOPE)
+    endif()
+endfunction()
+
+# Rewrites the Foundation framework link items of every target a third-party project created under `source_dir` (its
+# CMakeLists is already read by the time this runs) to the framework path. Covers both spellings in use: a plain
+# "-framework Foundation" string (Dawn) and the "$<LINK_LIBRARY:FRAMEWORK,Foundation>" feature expression (SDL3).
+function(sturdy_unclash_apple_foundation_links source_dir)
+    if(NOT APPLE)
+        return()
+    endif()
+    sturdy_apple_foundation_framework(_framework)
+    set(_dirs "${source_dir}")
+    set(_targets)
+    while(_dirs)
+        list(POP_FRONT _dirs _dir)
+        get_property(_dir_targets DIRECTORY "${_dir}" PROPERTY BUILDSYSTEM_TARGETS)
+        list(APPEND _targets ${_dir_targets})
+        get_property(_dir_subdirs DIRECTORY "${_dir}" PROPERTY SUBDIRECTORIES)
+        list(APPEND _dirs ${_dir_subdirs})
+    endwhile()
+    foreach(_target IN LISTS _targets)
+        foreach(_prop LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+            get_target_property(_libs ${_target} ${_prop})
+            if(_libs)
+                list(TRANSFORM _libs REPLACE "-framework Foundation" "${_framework}")
+                list(TRANSFORM _libs REPLACE "\\$<LINK_LIBRARY:FRAMEWORK,Foundation>" "${_framework}")
+                set_property(TARGET ${_target} PROPERTY ${_prop} "${_libs}")
+            endif()
+        endforeach()
+    endforeach()
+endfunction()
+
 function(sturdy_fetch_metalcpp)
+    sturdy_apple_foundation_framework(_sturdy_foundation_framework)
     set(_cache_dirs)
     if(STURDY_SHARED_DEPS_CACHE)
         set(_cache_dirs
@@ -632,12 +716,13 @@ function(sturdy_fetch_metalcpp)
             "-framework Metal"
             "-framework MetalKit"
             "-framework QuartzCore"
-            "-framework Foundation"
+            "${_sturdy_foundation_framework}"
         )
     endif()
 endfunction()
 
 function(sturdy_find_metalcpp)
+    sturdy_apple_foundation_framework(_sturdy_foundation_framework)
     find_path(STURDY_METALCPP_INCLUDE_DIR NAMES Metal/Metal.hpp)
     if(NOT STURDY_METALCPP_INCLUDE_DIR)
         message(FATAL_ERROR "Could not find metal-cpp (Metal/Metal.hpp). Install apple/metal-cpp or enable STURDY_FETCH_DEPENDENCIES.")
@@ -652,7 +737,7 @@ function(sturdy_find_metalcpp)
             "-framework Metal"
             "-framework MetalKit"
             "-framework QuartzCore"
-            "-framework Foundation"
+            "${_sturdy_foundation_framework}"
         )
     endif()
 endfunction()
@@ -832,6 +917,12 @@ function(sturdy_fetch_slang)
     # engine's renderer) and its test target does not configure cleanly when cross-compiling to
     # Emscripten, so it stays off everywhere rather than only on Web.
     set(SLANG_ENABLE_SLANG_RHI OFF CACHE BOOL "" FORCE)
+    # On Windows x64 Slang downloads prebuilt webgpu_dawn and slang-tint shared libraries for its own WebGPU tests. The
+    # former is an IMPORTED target named exactly like the webgpu_dawn this engine builds from source (configure fails
+    # with "an imported target with the same name already exists"), and the engine needs neither. Defined-but-empty
+    # URLs skip both fetches.
+    set(SLANG_WEBGPU_DAWN_BINARY_URL "" CACHE STRING "" FORCE)
+    set(SLANG_SLANG_TINT_BINARY_URL "" CACHE STRING "" FORCE)
 
     # Slang's copy_slang_headers target is always dirty upstream because it has no declared output.
     # Populate it without adding its subdirectory, patch that target into a stamped custom command,
@@ -843,6 +934,25 @@ function(sturdy_fetch_slang)
     )
     FetchContent_MakeAvailable(slang)
     sturdy_patch_slang_header_copy_target("${slang_SOURCE_DIR}")
+    # v2026.11 bug: slang-parser.cpp uses INT_MIN without including <climits>.
+    # Patch the file after download but before the build compiles it.
+    set(_slang_parser "${slang_SOURCE_DIR}/source/slang/slang-parser.cpp")
+    if(EXISTS "${_slang_parser}")
+        file(READ "${_slang_parser}" _slang_parser_content)
+        if(NOT _slang_parser_content MATCHES "#include <climits>")
+            string(REPLACE "#include <optional>"
+                           "#include <optional>\n#include <climits>"
+                           _slang_parser_content "${_slang_parser_content}")
+            file(WRITE "${_slang_parser}" "${_slang_parser_content}")
+        endif()
+    endif()
+
+    # Slang runs some of its own executables during its build to generate sources. A cross build cannot run target
+    # binaries, so build those generators for the build machine first and point Slang at them (the route Slang's own
+    # docs give for cross compiling). Web is the exception: Emscripten runs them through node instead (see below).
+    if(CMAKE_CROSSCOMPILING AND NOT STURDY_OS STREQUAL "Web" AND NOT SLANG_GENERATORS_PATH)
+        sturdy_build_host_slang_generators("${slang_SOURCE_DIR}")
+    endif()
     if(NOT TARGET slang AND NOT TARGET slang::slang AND NOT TARGET Slang::slang)
         if(STURDY_OS STREQUAL "Web")
             # Slang's own build runs several of its executables *during the build* to generate
@@ -876,19 +986,6 @@ function(sturdy_fetch_slang)
     sturdy_mark_dependency_targets_exclude_from_all(slang slang::slang Slang::slang slang-compiler)
     sturdy_register_license(slang "${slang_SOURCE_DIR}")
 
-    # v2026.11 bug: slang-parser.cpp uses INT_MIN without including <climits>.
-    # Patch the file after download but before the build compiles it.
-    set(_slang_parser "${slang_SOURCE_DIR}/source/slang/slang-parser.cpp")
-    if(EXISTS "${_slang_parser}")
-        file(READ "${_slang_parser}" _slang_parser_content)
-        if(NOT _slang_parser_content MATCHES "#include <climits>")
-            string(REPLACE "#include <optional>"
-                           "#include <optional>\n#include <climits>"
-                           _slang_parser_content "${_slang_parser_content}")
-            file(WRITE "${_slang_parser}" "${_slang_parser_content}")
-        endif()
-    endif()
-
     if(TARGET slang::slang)
         set(_target slang::slang)
     elseif(TARGET Slang::slang)
@@ -906,6 +1003,53 @@ function(sturdy_fetch_slang)
         add_library(Sturdy::Slang INTERFACE IMPORTED GLOBAL)
         target_link_libraries(Sturdy::Slang INTERFACE "${_target}")
     endif()
+endfunction()
+
+set(STURDY_HOST_C_COMPILER "clang" CACHE STRING "Build-machine C compiler for tools a cross build has to run (Slang's generators).")
+set(STURDY_HOST_CXX_COMPILER "clang++" CACHE STRING "Build-machine C++ compiler for tools a cross build has to run (Slang's generators).")
+
+# Configures and builds Slang's `all-generators` target for the build machine, at configure time, and sets
+# SLANG_GENERATORS_PATH to the result. The host build runs without the cross toolchain (its compilers, flags and
+# toolchain file are scrubbed from the environment) and is cached in the build tree, so it only costs the first configure.
+function(sturdy_build_host_slang_generators slang_source_dir)
+    set(_host_build "${CMAKE_BINARY_DIR}/slang-host-generators")
+    set(_host_env ${CMAKE_COMMAND} -E env
+        --unset=CC --unset=CXX --unset=CFLAGS --unset=CXXFLAGS --unset=LDFLAGS --unset=CMAKE_TOOLCHAIN_FILE)
+    if(NOT EXISTS "${_host_build}/CMakeCache.txt")
+        message(STATUS "Cross compiling: building Slang's code generators for the build machine (once)")
+        execute_process(
+            COMMAND ${_host_env} ${CMAKE_COMMAND} -S "${slang_source_dir}" -B "${_host_build}" -G Ninja
+                -DCMAKE_BUILD_TYPE=Release
+                -DCMAKE_C_COMPILER=${STURDY_HOST_C_COMPILER}
+                -DCMAKE_CXX_COMPILER=${STURDY_HOST_CXX_COMPILER}
+                -DSLANG_SLANG_LLVM_FLAVOR=DISABLE
+                -DSLANG_ENABLE_SLANG_RHI=OFF
+                -DSLANG_ENABLE_TESTS=OFF
+                -DSLANG_ENABLE_EXAMPLES=OFF
+                -DSLANG_ENABLE_GFX=OFF
+                -DSLANG_ENABLE_SLANGD=OFF
+                -DSLANG_ENABLE_SLANGC=OFF
+                -DSLANG_ENABLE_REPLAYER=OFF
+                -DSLANG_WEBGPU_DAWN_BINARY_URL=
+                -DSLANG_SLANG_TINT_BINARY_URL=
+            RESULT_VARIABLE _result)
+        if(NOT _result EQUAL 0)
+            file(REMOVE "${_host_build}/CMakeCache.txt")
+            message(FATAL_ERROR "Configuring Slang's host generators failed (${_result}).")
+        endif()
+    endif()
+    execute_process(
+        COMMAND ${_host_env} ${CMAKE_COMMAND} --build "${_host_build}" --target all-generators
+        RESULT_VARIABLE _result)
+    if(NOT _result EQUAL 0)
+        message(FATAL_ERROR "Building Slang's host generators failed (${_result}).")
+    endif()
+    file(GLOB _generator_dirs LIST_DIRECTORIES TRUE "${_host_build}/generators/*/bin")
+    list(GET _generator_dirs 0 _generators)
+    if(NOT IS_DIRECTORY "${_generators}")
+        message(FATAL_ERROR "Slang's host generators were built but not found under ${_host_build}/generators.")
+    endif()
+    set(SLANG_GENERATORS_PATH "${_generators}" CACHE PATH "Slang generators built for the build machine." FORCE)
 endfunction()
 
 function(sturdy_fetch_glm)
@@ -976,6 +1120,9 @@ function(sturdy_fetch_volk)
         GIT_TAG ${STURDY_VOLK_TAG}
         FIND_PACKAGE_ARGS CONFIG QUIET
     )
+    if(STURDY_CROSS_VULKAN_HEADERS_DIR)
+        set(VULKAN_HEADERS_INSTALL_DIR "${STURDY_CROSS_VULKAN_HEADERS_DIR}") # function scope: volk's configure only
+    endif()
     FetchContent_MakeAvailable(volk)
     if(WIN32 AND TARGET volk)
         # PRIVATE, not the public VOLK_STATIC_DEFINES mechanism: this only needs to affect volk.c's
@@ -993,7 +1140,11 @@ function(sturdy_fetch_volk)
         # `#if defined(_MINWINDEF_)` guard around its FARPROC shim shows this exact scenario, windows.h
         # already processed before its shims run, is an anticipated case, not an unsupported one).
         target_compile_definitions(volk PRIVATE VK_USE_PLATFORM_WIN32_KHR NOMINMAX WIN32_LEAN_AND_MEAN)
-        target_compile_options(volk PRIVATE "-include" "windows.h")
+        if(MSVC)
+            target_compile_options(volk PRIVATE "/FIwindows.h") # clang-cl / cl spelling of -include
+        else()
+            target_compile_options(volk PRIVATE "-include" "windows.h")
+        endif()
     endif()
     sturdy_mark_dependency_targets_exclude_from_all(volk volk::volk)
     sturdy_register_license(volk "${volk_SOURCE_DIR}")
@@ -1020,6 +1171,8 @@ function(sturdy_fetch_sdl3)
         FIND_PACKAGE_ARGS CONFIG QUIET
     )
     FetchContent_MakeAvailable(SDL3)
+    # SDL3 links Foundation as $<LINK_LIBRARY:FRAMEWORK,Foundation>; see sturdy_apple_foundation_framework.
+    sturdy_unclash_apple_foundation_links("${sdl3_SOURCE_DIR}")
     sturdy_mark_dependency_targets_exclude_from_all(SDL3 SDL3::SDL3 SDL3::SDL3-static SDL3-static)
     sturdy_register_license(sdl3 "${sdl3_SOURCE_DIR}")
 endfunction()
@@ -1837,6 +1990,10 @@ function(sturdy_fetch_dawn)
     set(TINT_BUILD_WGSL_READER ON CACHE BOOL "" FORCE)
     set(TINT_BUILD_WGSL_WRITER ON CACHE BOOL "" FORCE)
     set(TINT_BUILD_SPV_READER OFF CACHE BOOL "" FORCE)
+    # Protobuf only backs Tint's IR binary format (fuzzers / tooling), which the engine never uses. It also cannot be
+    # cross compiled without a host protoc, so leaving it on would break every cross build.
+    set(DAWN_BUILD_PROTOBUF OFF CACHE BOOL "" FORCE)
+    set(TINT_BUILD_IR_BINARY OFF CACHE BOOL "" FORCE)
 
     # Dawn vendors its dependencies through a Chromium DEPS file rather than git submodules, so it
     # ships a Python script to fetch them and a CMake option to run it. Without this the configure
@@ -1873,6 +2030,10 @@ function(sturdy_fetch_dawn)
         ${_dawn_cache_dirs}
     )
     FetchContent_MakeAvailable(dawn)
+
+    # Dawn links "-framework Foundation" as a plain string from several of its targets (dawn_common, dawn_native_objects,
+    # ...), which collides with this engine's Foundation library target (see sturdy_apple_foundation_framework).
+    sturdy_unclash_apple_foundation_links("${dawn_SOURCE_DIR}")
 
     # Dawn's Vulkan swapchain hard-codes VK_COMPOSITE_ALPHA_OPAQUE (see its "TODO(dawn:286): investigate composite alpha
     # for WebGPU native"), so a surface configured with a Premultiplied/Unpremultiplied alphaMode still presents opaque
@@ -1923,11 +2084,16 @@ function(sturdy_fetch_dawn)
     # (which loads entry points through volk and declares none of them itself).
     set(_dawn_vulkan_headers "${dawn_SOURCE_DIR}/third_party/vulkan-headers/src/include")
     if(TARGET Vulkan::Headers AND EXISTS "${_dawn_vulkan_headers}")
-        get_target_property(_existing_vulkan_includes Vulkan::Headers INTERFACE_INCLUDE_DIRECTORIES)
+        # A fetched Vulkan-Headers (cross builds) makes Vulkan::Headers an ALIAS, whose properties live on the real target.
+        get_target_property(_vulkan_headers_target Vulkan::Headers ALIASED_TARGET)
+        if(NOT _vulkan_headers_target)
+            set(_vulkan_headers_target Vulkan::Headers)
+        endif()
+        get_target_property(_existing_vulkan_includes ${_vulkan_headers_target} INTERFACE_INCLUDE_DIRECTORIES)
         if(NOT _existing_vulkan_includes)
             set(_existing_vulkan_includes "")
         endif()
-        set_target_properties(Vulkan::Headers PROPERTIES
+        set_target_properties(${_vulkan_headers_target} PROPERTIES
             INTERFACE_INCLUDE_DIRECTORIES "${_dawn_vulkan_headers};${_existing_vulkan_includes}")
         message(STATUS "Dawn: prepending bundled Vulkan headers at ${_dawn_vulkan_headers}")
     endif()
@@ -1954,11 +2120,34 @@ function(sturdy_fetch_webp)
     set(WEBP_BUILD_WEBP_JS OFF CACHE BOOL "" FORCE)
     set(WEBP_BUILD_FUZZTEST OFF CACHE BOOL "" FORCE)
 
+    # Populated without adding it, so the SIMD flag fix below lands before libwebp's configure reads the file.
     sturdy_fetchcontent_declare(webp
         GIT_REPOSITORY https://github.com/webmproject/libwebp.git
         GIT_TAG ${STURDY_WEBP_TAG}
+        SOURCE_SUBDIR "__sturdy_populate_only__"
     )
     FetchContent_MakeAvailable(webp)
+
+    # libwebp's SIMD detection: under clang-cl (MSVC true, compiler Clang) a SIMD level the compiler already has by
+    # default still takes its enable flag from the GCC list, whose NEON entry is the 32-bit ARM `-mfpu=neon` -- an error
+    # on 64-bit ARM, where NEON is always on. Leave that slot empty there. Marker-guarded and arch-checked at configure
+    # time, so the shared source checkout stays correct for every target.
+    set(_webp_cpu "${webp_SOURCE_DIR}/cmake/cpu.cmake")
+    if(EXISTS "${_webp_cpu}")
+        file(READ "${_webp_cpu}" _webp_cpu_src)
+        set(_webp_anchor [[  set(SIMD_ENABLE_FLAGS "-mavx2;-msse4.1;-msse2;-mips32;-mdspr2;-mfpu=neon;-mmsa")]])
+        if(NOT _webp_cpu_src MATCHES "STURDY_PATCH_WEBP_NEON" AND _webp_cpu_src MATCHES "-mfpu=neon;-mmsa")
+            set(_webp_patch [[  # STURDY_PATCH_WEBP_NEON: NEON needs no flag (and -mfpu does not exist) on 64-bit ARM.
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+    set(SIMD_ENABLE_FLAGS "-mavx2;-msse4.1;-msse2;-mips32;-mdspr2; ;-mmsa")
+  else()
+    set(SIMD_ENABLE_FLAGS "-mavx2;-msse4.1;-msse2;-mips32;-mdspr2;-mfpu=neon;-mmsa")
+  endif()]])
+            string(REPLACE "${_webp_anchor}" "${_webp_patch}" _webp_cpu_src "${_webp_cpu_src}")
+            file(WRITE "${_webp_cpu}" "${_webp_cpu_src}")
+        endif()
+    endif()
+    add_subdirectory("${webp_SOURCE_DIR}" "${webp_BINARY_DIR}")
 
     sturdy_mark_dependency_targets_exclude_from_all(webp webpdecoder webpdemux sharpyuv libwebpmux)
     sturdy_register_license(webp "${webp_SOURCE_DIR}")
@@ -1982,6 +2171,12 @@ function(sturdy_fetch_libgav1)
         # Web specifically -- it falls back to its plain C implementation there.
         set(LIBGAV1_ENABLE_AVX2 OFF CACHE BOOL "" FORCE)
         set(LIBGAV1_ENABLE_SSE4_1 OFF CACHE BOOL "" FORCE)
+    endif()
+    if(STURDY_OS STREQUAL "Windows" AND STURDY_ARCH STREQUAL "Arm64")
+        # libgav1's NEON film-grain code relies on the GCC/Clang vector-extension spellings of the NEON types, which
+        # the MSVC ABI's arm_neon.h does not provide (int16x8_t is not assignable lane-wise there); its plain C paths
+        # are used on Windows on ARM.
+        set(LIBGAV1_ENABLE_NEON OFF CACHE BOOL "" FORCE)
     endif()
 
     sturdy_fetchcontent_declare(libgav1
@@ -2107,6 +2302,12 @@ function(sturdy_fetch_openjpeg)
         GIT_REPOSITORY https://github.com/uclouvain/openjpeg.git
         GIT_TAG ${STURDY_OPENJPEG_TAG}
     )
+    if(MSVC AND NOT CMAKE_HOST_WIN32)
+        # openjpeg's CPack setup includes InstallRequiredSystemLibraries, which for an MSVC toolset queries the host for
+        # Visual Studio installations -- a query that only exists on Windows hosts, so a cross build fails to configure.
+        # Hiding the toolset version (function scope only) makes that module find no runtime to package.
+        set(MSVC_TOOLSET_VERSION "")
+    endif()
     FetchContent_MakeAvailable(openjpeg)
 
     if(TARGET openjp2)
@@ -2219,10 +2420,11 @@ function(sturdy_fetch_openexr)
     # passing -msimd128"). The workaround is not even needed there regardless -- Emscripten's clang
     # defines neither _MSC_VER nor _M_X64, so internal_zip.c's clang-cl-specific code path (the
     # whole reason this exists) is not reachable on Web in the first place.
-    if(TARGET OpenEXRCore AND CMAKE_C_COMPILER_ID MATCHES "Clang" AND NOT STURDY_OS STREQUAL "Web")
+    # x86 only, too: these are x86 flags, which an ARM64 compiler rejects outright.
+    if(TARGET OpenEXRCore AND CMAKE_C_COMPILER_ID MATCHES "Clang" AND STURDY_ARCH STREQUAL "x86-64" AND NOT STURDY_OS STREQUAL "Web")
         target_compile_options(OpenEXRCore PRIVATE -mssse3 -msse4.1)
     endif()
-    if(TARGET OpenEXR AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT STURDY_OS STREQUAL "Web")
+    if(TARGET OpenEXR AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND STURDY_ARCH STREQUAL "x86-64" AND NOT STURDY_OS STREQUAL "Web")
         target_compile_options(OpenEXR PRIVATE -mssse3 -msse4.1)
     endif()
 

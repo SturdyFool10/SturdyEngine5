@@ -36,8 +36,21 @@ endif()
 if(STURDY_OS STREQUAL "Linux")
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(STURDY_WAYLAND_CLIENT REQUIRED IMPORTED_TARGET wayland-client)
-    pkg_check_modules(STURDY_WAYLAND_PROTOCOLS REQUIRED wayland-protocols>=1.49)
-    pkg_get_variable(STURDY_WAYLAND_PROTOCOLS_DATA_DIR wayland-protocols pkgdatadir)
+    # wayland-protocols is only XML data. Older distributions (Ubuntu 24.04 ships 1.34) predate the protocols used here,
+    # so fall back to fetching the pinned release; its source tree has the same stable/staging layout as pkgdatadir.
+    pkg_check_modules(STURDY_WAYLAND_PROTOCOLS wayland-protocols>=1.49)
+    if(STURDY_WAYLAND_PROTOCOLS_FOUND)
+        pkg_get_variable(STURDY_WAYLAND_PROTOCOLS_DATA_DIR wayland-protocols pkgdatadir)
+    else()
+        message(STATUS "wayland-protocols >= 1.49 not installed; fetching it")
+        sturdy_fetchcontent_declare(wayland_protocols
+            GIT_REPOSITORY https://gitlab.freedesktop.org/wayland/wayland-protocols.git
+            GIT_TAG 1.49
+            SOURCE_SUBDIR "__sturdy_populate_only__"
+        )
+        FetchContent_MakeAvailable(wayland_protocols)
+        set(STURDY_WAYLAND_PROTOCOLS_DATA_DIR "${wayland_protocols_SOURCE_DIR}")
+    endif()
     find_program(STURDY_WAYLAND_SCANNER NAMES wayland-scanner REQUIRED)
 
     set(_sturdy_wayland_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/wayland")

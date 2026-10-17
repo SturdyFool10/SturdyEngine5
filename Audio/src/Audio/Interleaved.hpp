@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Foundation/RangesCompat.hpp>
 #include <Async/ParIter.hpp>
 #include <Foundation/Foundation.hpp>
 
@@ -15,7 +16,13 @@ namespace SFT::Audio {
     /// One span per frame of `samples` (`channels` samples each). A trailing partial frame, if any, comes out shorter.
     template <class T>
     [[nodiscard]] auto frames_of(std::span<T> samples, usize channels) {
-        return std::views::chunk(samples, std::max<usize>(channels, 1));
+        // Not std::views::chunk: libc++ does not implement it. This is the same view (random access, sized, reversible).
+        const usize width = std::max<usize>(channels, 1);
+        const usize count = (samples.size() + width - 1) / width;
+        return std::views::iota(usize{0}, count) | std::views::transform([samples, width](usize frame) {
+                   const usize begin = frame * width;
+                   return samples.subspan(begin, std::min(width, samples.size() - begin));
+               });
     }
 
     /// `(frame index, frame)` pairs.
@@ -28,7 +35,7 @@ namespace SFT::Audio {
     /// Channel `channel` of every frame, as a strided view (empty when `channel` is past the end).
     template <class T>
     [[nodiscard]] auto channel_of(std::span<T> samples, usize channels, usize channel) {
-        return samples | std::views::drop(channel) | std::views::stride(std::max<usize>(channels, 1));
+        return Foundation::Compat::stride(samples | std::views::drop(channel), static_cast<std::ptrdiff_t>(std::max<usize>(channels, 1)));
     }
 
     /// Items below which `for_each_parallel` stays on the calling thread: handing out tasks costs more than the work. Sized

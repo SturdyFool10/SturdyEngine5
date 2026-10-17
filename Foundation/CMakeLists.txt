@@ -29,4 +29,11 @@ target_link_libraries(Foundation PRIVATE ${CMAKE_DL_LIBS})
 # at the small, usually-negligible cost of one extra GOT/PLT indirection for global data access.
 set_target_properties(Foundation PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+if(APPLE)
+    # "Foundation" is also the name of an Apple system framework. rustc de-duplicates native libraries by name, so a
+    # Rust crate that links the framework (anything built on objc2 / cocoa) silently drops a static library called
+    # Foundation, and its symbols come up undefined at the final link. The target keeps its name; only the file differs.
+    set_target_properties(Foundation PROPERTIES OUTPUT_NAME SturdyFoundation)
+endif()
+
 sturdy_add_tests(Foundation)

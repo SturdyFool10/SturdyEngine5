@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Foundation/Concepts.hpp>
+#include <Foundation/RangesCompat.hpp>
 
 #include <algorithm>
 #include <array>
@@ -243,7 +244,7 @@ namespace SFT::Foundation {
         [[nodiscard]] auto take_while(Pred p) { auto r = std::views::take_while(std::move(view_), std::move(p)); return Iter<decltype(r)>(std::move(r)); }
         template <class Pred> requires std::predicate<Pred &, std::ranges::range_reference_t<V>>
         [[nodiscard]] auto skip_while(Pred p) { auto r = std::views::drop_while(std::move(view_), std::move(p)); return Iter<decltype(r)>(std::move(r)); }
-        [[nodiscard]] auto step_by(std::ranges::range_difference_t<V> step) { auto r = std::views::stride(std::move(view_), step); return Iter<decltype(r)>(std::move(r)); }
+        [[nodiscard]] auto step_by(std::ranges::range_difference_t<V> step) { auto r = Compat::stride(std::move(view_), step); return Iter<decltype(r)>(std::move(r)); }
         [[nodiscard]] auto enumerate() { auto r = std::views::zip(std::views::iota(std::ranges::range_difference_t<V>{0}), std::move(view_)); return Iter<decltype(r)>(std::move(r)); }
         template <std::ranges::viewable_range R2> [[nodiscard]] auto zip(R2 &&other) { auto r = std::views::zip(std::move(view_), std::views::all(std::forward<R2>(other))); return Iter<decltype(r)>(std::move(r)); }
         template <std::ranges::viewable_range R2> requires Detail::Chainable<V, std::views::all_t<R2>>
@@ -258,7 +259,7 @@ namespace SFT::Foundation {
         template <class Fn> requires std::invocable<Fn &, std::ranges::range_reference_t<V>>
         void for_each(Fn fn) { std::ranges::for_each(view_, std::move(fn)); }
         template <class T, class Fn> [[nodiscard]] T fold(T init, Fn fn) { return std::ranges::fold_left(view_, std::move(init), std::move(fn)); }
-        template <class T, class Fn> [[nodiscard]] T fold_right(T init, Fn fn) requires std::ranges::bidirectional_range<V> && std::ranges::common_range<V> { return std::ranges::fold_right(view_, std::move(init), std::move(fn)); }
+        template <class T, class Fn> [[nodiscard]] T fold_right(T init, Fn fn) requires std::ranges::bidirectional_range<V> && std::ranges::common_range<V> { return Compat::fold_right(view_, std::move(init), std::move(fn)); }
         [[nodiscard]] auto sum() { using T = std::ranges::range_value_t<V>; return std::ranges::fold_left(view_, T{}, std::plus<>{}); }
         [[nodiscard]] auto product() { using T = std::ranges::range_value_t<V>; return std::ranges::fold_left(view_, T{1}, std::multiplies<>{}); }
         [[nodiscard]] usize count() { return static_cast<usize>(std::ranges::distance(view_)); }
