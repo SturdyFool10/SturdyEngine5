@@ -137,14 +137,23 @@ fn main() {
     let bridge_cc = generate_bridges(&manifest, &out);
     let build_dir = out.join("engine-build");
     configure(&manifest, &out, &engine_src, &build_dir, &out.join("gen"), &bridge_cc);
+    // Compile with one job per hardware thread rather than the generator's own default.
+    let jobs = std::thread::available_parallelism().map_or(1, |n| n.get()).to_string();
     run(Command::new("cmake").args([
         "--build".as_ref(),
         build_dir.as_os_str(),
+        "--parallel".as_ref(),
+        jobs.as_ref(),
         "--target".as_ref(),
         "sturdy_rs_shim".as_ref(),
         "sturdy_rs_link_probe".as_ref(),
+        // Ninja deletes linker response files after a successful link by default. The link
+        // probe's response file is parsed below to mirror its archive list into Cargo, so keep it.
+        "--".as_ref(),
+        "-d".as_ref(),
+        "keeprsp".as_ref(),
     ]));
-    emit_link_directives(&build_dir);
+    emit_link_directives(&build_dir, &out);
 }
 
 /// Runs `cxx-gen` over every `src/*.rs` file that contains a `#[cxx::bridge]` module — one engine
@@ -417,7 +426,7 @@ fn tokens(command: &str, build_dir: &Path) -> Vec<String> {
     result
 }
 
-fn emit_link_directives(build_dir: &Path) {
+fn emit_link_directives(build_dir: &Path, out: &Path) {
     let output = Command::new("ninja")
         .args(["-C"])
         .arg(build_dir)
@@ -432,6 +441,7 @@ fn emit_link_directives(build_dir: &Path) {
         .rfind(|l| l.contains("sturdy_rs_link_probe") && (l.contains("-o ") || l.contains("/out:")))
         .expect("could not find the probe link command");
 
+    let mut directives = Vec::new();
     let mut seen_names: HashMap<String, PathBuf> = HashMap::new();
     let mut searched = Vec::new();
     let mut system_libs = Vec::new();
@@ -463,6 +473,17 @@ fn emit_link_directives(build_dir: &Path) {
             take_framework = true;
             continue;
         }
+        // CMake/Clang may render a Windows import library as `-lfoo.lib`. Handle the `-l`
+        // prefix first; treating it as an archive named `-lfoo` gives Cargo an invalid `-l` name.
+        if let Some(name) = token
+            .strip_prefix("-l")
+            .and_then(|name| name.strip_suffix(".lib").or_else(|| name.strip_suffix(".LIB")))
+        {
+            if !system_libs.contains(&name.to_owned()) {
+                system_libs.push(name.to_owned());
+            }
+            continue;
+        }
         if let Some(name) = token.strip_prefix("-Wl,-framework,").or_else(|| token.strip_prefix("-Wl,-weak_framework,")) {
             if !frameworks.iter().any(|f| f == name) {
                 frameworks.push(name.to_owned());
@@ -477,13 +498,26 @@ fn emit_link_directives(build_dir: &Path) {
             let own_archive = build_dir.join(&token).is_file() || Path::new(&token).is_file();
             if own_archive {
                 let path = if Path::new(&token).is_absolute() { PathBuf::from(&token) } else { build_dir.join(&token) };
-                let dir = path.parent().unwrap().to_path_buf();
-                if seen_names.insert(file.clone(), dir.clone()).is_none() {
+                let mut dir = path.parent().unwrap().to_path_buf();
+                let mut file = file;
+                // Windows file names are case-insensitive and Cargo links by bare name, so the engine's
+                // `Core.lib` and Slang's `core.lib` would resolve to the same archive. Link a renamed copy
+                // of any archive whose name was already taken by one from a different directory.
+                let key = file.to_ascii_lowercase();
+                if seen_names.get(&key).is_some_and(|previous| *previous != dir) {
+                    let unique = format!("{}_{}", dir.file_name().and_then(|n| n.to_str()).unwrap_or("dup"), file);
+                    let renamed_dir = out.join("renamed-archives");
+                    fs::create_dir_all(&renamed_dir).expect("create renamed archive directory");
+                    fs::copy(&path, renamed_dir.join(format!("{unique}.lib"))).expect("copy colliding archive");
+                    file = unique;
+                    dir = renamed_dir;
+                }
+                if seen_names.insert(file.to_ascii_lowercase(), dir.clone()).is_none() {
                     if !searched.contains(&dir) {
-                        println!("cargo:rustc-link-search=native={}", dir.display());
+                        directives.push(format!("cargo:rustc-link-search=native={}", dir.display()));
                         searched.push(dir);
                     }
-                    println!("cargo:rustc-link-lib=static={file}");
+                    directives.push(format!("cargo:rustc-link-lib=static={file}"));
                 }
             } else if !system_libs.contains(&file) {
                 system_libs.push(file);
@@ -506,10 +540,10 @@ fn emit_link_directives(build_dir: &Path) {
                 continue;
             }
             if !searched.contains(&dir) {
-                println!("cargo:rustc-link-search=native={}", dir.display());
+                directives.push(format!("cargo:rustc-link-search=native={}", dir.display()));
                 searched.push(dir);
             }
-            println!("cargo:rustc-link-lib=static={name}");
+            directives.push(format!("cargo:rustc-link-lib=static={name}"));
         } else if let Some(name) = shared_library_name(&token) {
             if DROPPED_SYSTEM_LIBS.contains(&name.as_str()) {
                 continue;
@@ -543,50 +577,56 @@ fn emit_link_directives(build_dir: &Path) {
         if lib == "stdc++" {
             continue; // handled below
         }
-        println!("cargo:rustc-link-lib={lib}");
+        directives.push(format!("cargo:rustc-link-lib={lib}"));
     }
 
     for framework in frameworks {
-        println!("cargo:rustc-link-lib=framework={framework}");
+        directives.push(format!("cargo:rustc-link-lib=framework={framework}"));
     }
 
-    if target_os == "windows" {
-        return; // the MSVC C++ runtime is pulled in by the object files' default-library directives
-    }
     if target_os == "macos" {
         // The platform C++ runtime is libc++ (part of the OS); there is no libstdc++ to bundle.
-        println!("cargo:rustc-link-lib=c++");
-        return;
-    }
-
-    // The engine is C++26 and is built against a very recent libstdc++; a target machine's copy is
-    // likely older, so the C++ runtime is bundled statically whenever the static archive exists.
-    // Ask for the *target's* archive: a cross build (e.g. aarch64 from x86_64) must not bundle the host's.
-    let mut probe = Command::new("clang++");
-    if let (Ok(target), Ok(host)) = (env::var("TARGET"), env::var("HOST"))
-        && target != host
-    {
-        probe.arg(format!("--target={target}"));
-        // The cross C++ flags (cc-rs's CXXFLAGS_<target>) carry the target sysroot that holds its libstdc++.
-        let key = format!("CXXFLAGS_{}", target.replace('-', "_"));
-        println!("cargo:rerun-if-env-changed={key}");
-        if let Ok(flags) = env::var(&key) {
-            probe.args(flags.split_whitespace());
+        directives.push("cargo:rustc-link-lib=c++".to_owned());
+    } else if target_os != "windows" {
+        // The engine is C++26 and is built against a very recent libstdc++; a target machine's copy is
+        // likely older, so the C++ runtime is bundled statically whenever the static archive exists.
+        // Ask for the *target's* archive: a cross build (e.g. aarch64 from x86_64) must not bundle the host's.
+        let mut probe = Command::new("clang++");
+        if let (Ok(target), Ok(host)) = (env::var("TARGET"), env::var("HOST"))
+            && target != host
+        {
+            probe.arg(format!("--target={target}"));
+            // The cross C++ flags (cc-rs's CXXFLAGS_<target>) carry the target sysroot that holds its libstdc++.
+            let key = format!("CXXFLAGS_{}", target.replace('-', "_"));
+            println!("cargo:rerun-if-env-changed={key}");
+            if let Ok(flags) = env::var(&key) {
+                probe.args(flags.split_whitespace());
+            }
+        }
+        let static_stdcxx = probe
+            .arg("-print-file-name=libstdc++.a")
+            .output()
+            .ok()
+            .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+            .filter(|p| p.is_absolute() && p.exists());
+        if let Some(archive) = static_stdcxx {
+            directives.push(format!("cargo:rustc-link-search=native={}", archive.parent().unwrap().display()));
+            directives.push("cargo:rustc-link-lib=static=stdc++".to_owned());
+        } else {
+            println!("cargo:warning=libstdc++.a not found; the binary will need a compatible libstdc++.so at runtime");
+            directives.push("cargo:rustc-link-lib=stdc++".to_owned());
         }
     }
-    let static_stdcxx = probe
-        .arg("-print-file-name=libstdc++.a")
-        .output()
-        .ok()
-        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
-        .filter(|p| p.is_absolute() && p.exists());
-    if let Some(archive) = static_stdcxx {
-        println!("cargo:rustc-link-search=native={}", archive.parent().unwrap().display());
-        println!("cargo:rustc-link-lib=static=stdc++");
-    } else {
-        println!("cargo:warning=libstdc++.a not found; the binary will need a compatible libstdc++.so at runtime");
-        println!("cargo:rustc-link-lib=stdc++");
+
+    // Keep a copy for a top-level binary that depends on this library through one or more Rust
+    // wrapper crates. Cargo's rustc-link-lib instructions otherwise stop at this crate's library
+    // target, while its native search paths are still propagated.
+    let manifest = out.join("link-directives.txt");
+    fs::write(&manifest, directives.join("\n")).expect("write native link directives");
+    for directive in &directives {
+        println!("{directive}");
     }
+    println!("cargo:link_directives_file={}", manifest.display());
 }
 
 /// `/usr/lib/libfoo-bar.so.1.2` -> `foo-bar`.

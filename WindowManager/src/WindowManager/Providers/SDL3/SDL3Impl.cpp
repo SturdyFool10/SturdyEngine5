@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -316,6 +317,22 @@ namespace SFT::WindowManager::SDL3 {
         Async::Mutex<std::monostate> &sdl_window_mutex() noexcept {
             static Async::Mutex<std::monostate> mutex;
             return mutex;
+        }
+
+        /// Locks the SDL window mutex from the window (event-pump) thread without ever blocking its message loop.
+        ///
+        /// @note Other threads hold the mutex across SDL calls that, on Windows, `SendMessage` to the HWND's owning
+        ///       thread (SDL_SetWindowIcon, SDL_SetWindowTitle, ...). That send only completes when this thread pumps
+        ///       messages, so a plain `lock()` here would deadlock against it. Pump while waiting instead.
+        /// @note Must only be called on the thread that owns the windows' message queues.
+        Async::MutexGuard<std::monostate> lock_while_pumping() noexcept {
+            for (;;) {
+                if (auto guard = sdl_window_mutex().try_lock()) {
+                    return std::move(*guard);
+                }
+                SDL_PumpEvents();
+                std::this_thread::yield();
+            }
         }
 
         /// Returns the current or globally available SDL window registry value.
@@ -843,6 +860,12 @@ namespace SFT::WindowManager::SDL3 {
 
 
         SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
+#if defined(_WIN32)
+        // By default SDL keeps WS_CAPTION | WS_SYSMENU on borderless windows. With the DWM frame extended into the client
+        // area (transparent windows) Windows 11 then paints its own caption buttons over an app's custom title bar, so
+        // an undecorated window gets plain WS_POPUP instead.
+        SDL_SetHint("SDL_BORDERLESS_WINDOWED_STYLE", "0");
+#endif
 
         // The app id names the Wayland app_id / X11 WM_CLASS; SDL reads it when the video subsystem first starts, so
         // only the first window's value matters.
@@ -1072,7 +1095,7 @@ namespace SFT::WindowManager::SDL3 {
         ZoneScopedN("SDL3Window::pump_events");
         SDL_WindowID window_id{};
         {
-            auto lock = sdl_window_mutex().lock();
+            auto lock = lock_while_pumping();
             const auto maybe_window_id = live_window_id(window_, "pump_events");
             if (!maybe_window_id) [[unlikely]] {
                 return unexpected(maybe_window_id.error());
@@ -1092,7 +1115,7 @@ namespace SFT::WindowManager::SDL3 {
 
 
         while (event_count < max_events_per_pump && SDL_PollEvent(&event)) {
-            auto lock = sdl_window_mutex().lock();
+            auto lock = lock_while_pumping();
             ++event_count;
 
             const u64 event_timestamp_ns = sdl_event_timestamp_ns(event.common.timestamp, timestamp_offset_ns);
@@ -1311,7 +1334,7 @@ namespace SFT::WindowManager::SDL3 {
         }
 
         {
-            auto lock = sdl_window_mutex().lock();
+            auto lock = lock_while_pumping();
             Foundation::log_trace(
                 "SDL3 event pump complete: wrapper={} native_ptr={} id={} events={} queued_events={} close_events={} close_requested={}",
                 static_cast<void *>(this),

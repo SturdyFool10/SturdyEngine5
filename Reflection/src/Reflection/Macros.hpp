@@ -892,8 +892,13 @@ namespace SFT::Reflection::Detail {
     template <class T>
     [[nodiscard]] TypeInfo make_type_info() {
         using TypeT = std::remove_cv_t<T>;
+#if !defined(_MSVC_STL_VERSION)
+        // MSVC's STL allocates a sentinel node in the move constructors of node-based containers
+        // (std::set, std::unordered_map, ...), so they are not noexcept there; the registered move
+        // function is still noexcept and terminates only on allocation failure.
         static_assert(std::is_nothrow_move_constructible_v<TypeT>,
                       "Reflected types must be nothrow move-constructible.");
+#endif
         static_assert(std::is_nothrow_destructible_v<TypeT>,
                       "Reflected types must be nothrow destructible.");
 

@@ -32,6 +32,8 @@ add_compile_definitions(_SILENCE_CXX23_DENORM_DEPRECATION_WARNING)
 if(WIN32)
     # <windows.h> otherwise defines min/max as macros, breaking every std::min/std::max/numeric_limits::max after it.
     add_compile_definitions(NOMINMAX)
+    # glm (and our own types) use std::aligned_storage/stable_sort with 16-byte alignment, which MSVC STL rejects by default.
+    add_compile_definitions(_ENABLE_EXTENDED_ALIGNED_STORAGE)
 endif()
 if(MSVC)
     # The MSVC STL refuses std::aligned_storage with an alignment above max_align_t unless asked; the other standard
