@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class Sturdy {
     public static final int ABI_MAJOR = 0;
-    public static final int ABI_MINOR = 36;
+    public static final int ABI_MINOR = 37;
 
     private Sturdy() {}
 
@@ -783,6 +783,23 @@ public final class Sturdy {
         public static final int STURDY_TONE_MAPPING_AGX = 3;
         public static final int STURDY_TONE_MAPPING_HERMITE_SPLINE = 4;
         public static final int STURDY_TONE_MAPPING_PSYCHO_V = 5;
+    }
+
+    /** SturdyTraceDetail */
+    public static final class SturdyTraceDetail {
+        private SturdyTraceDetail() {}
+        public static final int STURDY_TRACE_DETAIL_OFF = 0;
+        public static final int STURDY_TRACE_DETAIL_SCOPES = 1;
+        public static final int STURDY_TRACE_DETAIL_NATIVE = 2;
+    }
+
+    /** SturdyTraceFrameKind */
+    public static final class SturdyTraceFrameKind {
+        private SturdyTraceFrameKind() {}
+        public static final int STURDY_TRACE_FRAME_NATIVE = 0;
+        public static final int STURDY_TRACE_FRAME_SCOPE = 1;
+        public static final int STURDY_TRACE_FRAME_FOREIGN = 2;
+        public static final int STURDY_TRACE_FRAME_UNWOUND = 3;
     }
 
     /** Which way an element stacks its children. */
@@ -3332,6 +3349,28 @@ public final class Sturdy {
     public static final long OFFSET_SturdyToneMappingSettings_psychov_background_gray_bt709 = 96L;
     public static final long SIZE_SturdyToneMappingSettings = 108L;
 
+    /** SturdyTraceFrame (size 56, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyTraceFrame = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("kind"),
+            ValueLayout.JAVA_LONG.withName("address"),
+            ValueLayout.JAVA_LONG.withName("module_offset"),
+            ValueLayout.JAVA_INT.withName("line"),
+            ValueLayout.JAVA_INT.withName("column"),
+            ValueLayout.ADDRESS.withName("function"),
+            ValueLayout.ADDRESS.withName("file"),
+            ValueLayout.ADDRESS.withName("module")).withName("SturdyTraceFrame");
+    public static final long OFFSET_SturdyTraceFrame_struct_size = 0L;
+    public static final long OFFSET_SturdyTraceFrame_kind = 4L;
+    public static final long OFFSET_SturdyTraceFrame_address = 8L;
+    public static final long OFFSET_SturdyTraceFrame_module_offset = 16L;
+    public static final long OFFSET_SturdyTraceFrame_line = 24L;
+    public static final long OFFSET_SturdyTraceFrame_column = 28L;
+    public static final long OFFSET_SturdyTraceFrame_function = 32L;
+    public static final long OFFSET_SturdyTraceFrame_file = 40L;
+    public static final long OFFSET_SturdyTraceFrame_module = 48L;
+    public static final long SIZE_SturdyTraceFrame = 56L;
+
     /** SturdyTraceRaysDesc (size 144, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyTraceRaysDesc = MemoryLayout.structLayout(
             LAYOUT_SturdyShaderBindingTableRegion.withName("raygen"),
@@ -4743,6 +4782,24 @@ public final class Sturdy {
     public static MemorySegment sturdy_last_error_message() throws Throwable {
         MethodHandle h = handle("sturdy_last_error_message", FunctionDescriptor.of(ValueLayout.ADDRESS));
         return (MemorySegment) h.invokeExact();
+    }
+
+    // The whole trace as readable text, one frame per line, with the usual size-query convention (see `copy_string_out` in the ABI notes: pass a null buffer to learn the size; a short buffer gets a truncated, terminated result and `STURDY_ERROR_BUFFER_TOO_SMALL`).
+    public static int sturdy_last_error_trace_format(MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_last_error_trace_format", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(buffer, capacity, out_length);
+    }
+
+    // Reads one frame of the trace counted by `sturdy_last_error_trace_frame_count`, innermost first.
+    public static int sturdy_last_error_trace_frame(int index, MemorySegment out_frame) throws Throwable {
+        MethodHandle h = handle("sturdy_last_error_trace_frame", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(index, out_frame);
+    }
+
+    // Number of frames in the calling thread's most recent trace (the last failure's, or the last `sturdy_trace_capture`). Zero if none. Call this before `sturdy_last_error_trace_frame`: it resolves the trace once so the frames can be read cheaply.
+    public static int sturdy_last_error_trace_frame_count(MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_last_error_trace_frame_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_count);
     }
 
     // Fills `settings` with `struct_size` and engine defaults (clustered on).
@@ -6338,6 +6395,42 @@ public final class Sturdy {
     public static int sturdy_tone_mapping_settings_init(MemorySegment settings) throws Throwable {
         MethodHandle h = handle("sturdy_tone_mapping_settings_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(settings);
+    }
+
+    // Replaces the calling thread's trace with the stack at this call (foreign site, engine scopes, native stack per the detail setting). For a foreign language that wants the engine's side of a stack at a moment of its choosing, such as a panic hook.
+    public static int sturdy_trace_capture() throws Throwable {
+        MethodHandle h = handle("sturdy_trace_capture", FunctionDescriptor.of(ValueLayout.JAVA_INT));
+        return (int) h.invokeExact();
+    }
+
+    // Forgets the calling thread's foreign call site.
+    public static int sturdy_trace_clear_foreign_call_site() throws Throwable {
+        MethodHandle h = handle("sturdy_trace_clear_foreign_call_site", FunctionDescriptor.of(ValueLayout.JAVA_INT));
+        return (int) h.invokeExact();
+    }
+
+    // Reads the current capture detail.
+    public static int sturdy_trace_get_detail(MemorySegment out_detail) throws Throwable {
+        MethodHandle h = handle("sturdy_trace_get_detail", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_detail);
+    }
+
+    // Installs process-wide crash handlers (fatal signals on POSIX, the unhandled-exception filter on Windows) that print the crashing thread's engine scopes and native stack before the process dies. Does nothing useful on WebAssembly (returns `STURDY_ERROR_NOT_AVAILABLE`). Safe to call repeatedly.
+    public static int sturdy_trace_install_crash_handler(MemorySegment log_path) throws Throwable {
+        MethodHandle h = handle("sturdy_trace_install_crash_handler", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(log_path);
+    }
+
+    // Chooses how much future failures capture, for the whole process.
+    public static int sturdy_trace_set_detail(int detail) throws Throwable {
+        MethodHandle h = handle("sturdy_trace_set_detail", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(detail);
+    }
+
+    // Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.
+    public static int sturdy_trace_set_foreign_call_site(MemorySegment language, int language_length, MemorySegment file, int file_length, int line, int column, MemorySegment function, int function_length) throws Throwable {
+        MethodHandle h = handle("sturdy_trace_set_foreign_call_site", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(language, language_length, file, file_length, line, column, function, function_length);
     }
 
     // Opens a UI frame, to be built and then closed with `sturdy_ui_end`.

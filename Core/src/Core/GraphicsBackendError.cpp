@@ -10,6 +10,8 @@ namespace SFT::Core {
 /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
 /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
 unexpected<GraphicsBackendError> graphics_backend_error(GraphicsBackendErrorCode code, string message) {
+        // Record where the failure was found: by the time the error value reaches whoever reports it, this stack is long gone.
+        Foundation::note_trace_origin();
         return unexpected(GraphicsBackendError{code, std::move(message)});
     }
 

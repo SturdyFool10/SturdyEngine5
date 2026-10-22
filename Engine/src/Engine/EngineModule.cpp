@@ -1,4 +1,5 @@
 #include <Engine/EngineModule.hpp>
+#include <Foundation/Trace.hpp>
 
 namespace SFT::Engine {
 
@@ -108,6 +109,7 @@ namespace SFT::Engine {
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void Engine::update(f64 delta_seconds) {
+        SFT_TRACE_SCOPE("Engine::update");
         // The one moment nothing is running: module loads and unloads, system removals and the like queued since the last update
         // happen here. Taken out of the queue first so an action may queue another without deadlocking (it runs next update).
         std::vector<std::function<void()>> actions;

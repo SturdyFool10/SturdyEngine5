@@ -1876,6 +1876,7 @@ namespace SFT::Core::Slang {
     /// @note Error/status alternatives explicitly produced by this implementation include `ShaderErrorCode::InitializationFailed`, `ShaderErrorCode::CompilationFailed`, `ShaderErrorCode::OutOfMemory`, `ShaderErrorCode::OperationFailed`.
     /// @note Allocation failure is converted to the implementation's out-of-memory error/status rather than escaping as `std::bad_alloc`.
     ShaderExpected<Shader> ShaderCompiler::compile(const ShaderSource &source, const ShaderCompileOptions &options) {
+        SFT_TRACE_SCOPE("ShaderCompiler::compile");
         if (!state_) {
             return shader_error(ShaderErrorCode::InitializationFailed, "Slang shader compiler state is unavailable.");
         }

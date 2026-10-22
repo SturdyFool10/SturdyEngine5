@@ -19,6 +19,7 @@
 #include <Foundation/LogSink.hpp>
 #include <Foundation/ThrottledLog.hpp>
 #include <Foundation/Diagnostics.hpp>
+#include <Foundation/Trace.hpp>
 #include <Foundation/Cpu/CpuId.hpp>
 #include <Foundation/Cpu/CpuTopology.hpp>
 #include <Foundation/Cpu/SimdMath.hpp>

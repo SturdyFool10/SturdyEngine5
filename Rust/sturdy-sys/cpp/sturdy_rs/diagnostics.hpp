@@ -66,6 +66,19 @@ namespace sturdy_rs::diagnostics {
     void log_set_level(std::uint8_t level) noexcept;
     void log_set_console_enabled(bool enabled) noexcept;
 
+    // -- Engine stack traces ----------------------------------------------------------------------
+
+    struct TraceFrame;
+
+    void trace_set_detail(std::uint8_t detail) noexcept;
+    std::uint8_t trace_detail() noexcept;
+    void trace_set_call_site(rust::Str language, rust::Str file, std::uint32_t line, std::uint32_t column, rust::Str function) noexcept;
+    void trace_clear_call_site() noexcept;
+    void trace_capture() noexcept;
+    rust::Vec<TraceFrame> last_error_trace();
+    rust::String last_error_trace_text();
+    bool trace_install_crash_handler(rust::Str log_path) noexcept;
+
     // -- Process-wide task scheduler --------------------------------------------------------------
 
     /// Wraps `SFT::Async::TaskHandle<void>` (a template cxx cannot bind directly) so the scheduler

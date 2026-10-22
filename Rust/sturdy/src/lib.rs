@@ -56,6 +56,7 @@ pub mod task;
 pub mod text;
 pub mod text_render;
 pub mod time;
+pub mod trace;
 pub mod ui;
 pub mod ui_kit;
 pub mod markdown;

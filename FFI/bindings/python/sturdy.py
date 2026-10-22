@@ -12,7 +12,7 @@ import enum
 import os
 import sys
 
-ABI_VERSION = (0, 36)
+ABI_VERSION = (0, 37)
 """The ABI version this binding was generated from; `load()` refuses a library that cannot satisfy it."""
 
 
@@ -624,6 +624,17 @@ class SturdyToneMapping(enum.IntEnum):
     STURDY_TONE_MAPPING_HERMITE_SPLINE = 4
     STURDY_TONE_MAPPING_PSYCHO_V = 5
 
+class SturdyTraceDetail(enum.IntEnum):
+    STURDY_TRACE_DETAIL_OFF = 0
+    STURDY_TRACE_DETAIL_SCOPES = 1
+    STURDY_TRACE_DETAIL_NATIVE = 2
+
+class SturdyTraceFrameKind(enum.IntEnum):
+    STURDY_TRACE_FRAME_NATIVE = 0
+    STURDY_TRACE_FRAME_SCOPE = 1
+    STURDY_TRACE_FRAME_FOREIGN = 2
+    STURDY_TRACE_FRAME_UNWOUND = 3
+
 class SturdyUiDirection(enum.IntEnum):
     """Which way an element stacks its children."""
     STURDY_UI_DIRECTION_LEFT_TO_RIGHT = 0
@@ -1025,6 +1036,8 @@ class SturdyTextureViewDesc(ctypes.Structure):
     """Describes a texture view to create."""
 class SturdyToneMappingSettings(ctypes.Structure):
     """Fine-grained tone-mapping settings. `sturdy_frame_set_tone_mapping` remains the quick path for just operator/exposure/white-point/saturation; use this instead to also reach HDR display mapping and the AGX/Hermite-spline/PsychoV curve-tuning knobs, which only apply when `operation` selects the matching operator."""
+class SturdyTraceFrame(ctypes.Structure):
+    pass
 class SturdyTraceRaysDesc(ctypes.Structure):
     pass
 class SturdyUiElement(ctypes.Structure):
@@ -2287,6 +2300,17 @@ SturdyToneMappingSettings._fields_ = [
     ('psychov_adapted_gray_bt709', (ctypes.c_float * 3)),
     ('psychov_background_gray_bt709', (ctypes.c_float * 3)),
 ]
+SturdyTraceFrame._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('kind', ctypes.c_int32),
+    ('address', ctypes.c_uint64),
+    ('module_offset', ctypes.c_uint64),
+    ('line', ctypes.c_uint32),
+    ('column', ctypes.c_uint32),
+    ('function', ctypes.c_char_p),
+    ('file', ctypes.c_char_p),
+    ('module', ctypes.c_char_p),
+]
 SturdyTraceRaysDesc._fields_ = [
     ('raygen', SturdyShaderBindingTableRegion),
     ('miss', SturdyShaderBindingTableRegion),
@@ -2644,6 +2668,9 @@ _FUNCTIONS = {
     'sturdy_gltf_spawn_all': (ctypes.c_int32, (SturdyEngine, SturdyGltfScene, ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_gpu_enumerate': (ctypes.c_int32, (ctypes.POINTER(SturdyGpuInfo), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_last_error_message': (ctypes.c_char_p, ()),
+    'sturdy_last_error_trace_format': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_last_error_trace_frame': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(SturdyTraceFrame))),
+    'sturdy_last_error_trace_frame_count': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint32),)),
     'sturdy_lighting_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyLightingSettings),)),
     'sturdy_log_add_sink': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyLogSink))),
     'sturdy_log_remove_sink': (ctypes.c_int32, (SturdyLogSink,)),
@@ -2910,6 +2937,12 @@ _FUNCTIONS = {
     'sturdy_time_tick_index': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_time_unscaled_delta_seconds': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_double))),
     'sturdy_tone_mapping_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyToneMappingSettings),)),
+    'sturdy_trace_capture': (ctypes.c_int32, ()),
+    'sturdy_trace_clear_foreign_call_site': (ctypes.c_int32, ()),
+    'sturdy_trace_get_detail': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_int32),)),
+    'sturdy_trace_install_crash_handler': (ctypes.c_int32, (ctypes.c_char_p,)),
+    'sturdy_trace_set_detail': (ctypes.c_int32, (ctypes.c_int32,)),
+    'sturdy_trace_set_foreign_call_site': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32)),
     'sturdy_ui_begin': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyFrameInput))),
     'sturdy_ui_begin_element': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyUiElement))),
     'sturdy_ui_clicked': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8))),
@@ -3104,6 +3137,9 @@ _DOCS = {
     'sturdy_gltf_spawn_all': 'Spawns an entity for every instance and light in the scene, reproducing it as authored.\n\nThe convenience path: import, spawn, release. Instances with no model are skipped, since an entity that draws nothing and lights nothing would only cost iteration.',
     'sturdy_gpu_enumerate': 'Enumerates every physical GPU this machine can create an engine on, across every graphics backend this build supports. Safe to call before `sturdy_runtime_run`, with no window or device yet — this is how an application builds its own GPU picker rather than guessing at `physical_device_id` values. Not free: it creates and immediately destroys a temporary graphics instance per backend, so call it once and cache the result rather than every frame.',
     'sturdy_last_error_message': 'Detail for the most recent failing call **on the calling thread**.',
+    'sturdy_last_error_trace_format': 'The whole trace as readable text, one frame per line, with the usual size-query convention (see `copy_string_out` in the ABI notes: pass a null buffer to learn the size; a short buffer gets a truncated, terminated result and `STURDY_ERROR_BUFFER_TOO_SMALL`).',
+    'sturdy_last_error_trace_frame': 'Reads one frame of the trace counted by `sturdy_last_error_trace_frame_count`, innermost first.',
+    'sturdy_last_error_trace_frame_count': "Number of frames in the calling thread's most recent trace (the last failure's, or the last `sturdy_trace_capture`). Zero if none. Call this before `sturdy_last_error_trace_frame`: it resolves the trace once so the frames can be read cheaply.",
     'sturdy_lighting_settings_init': 'Fills `settings` with `struct_size` and engine defaults (clustered on).',
     'sturdy_log_add_sink': 'Registers a callback to receive every subsequent log message.',
     'sturdy_log_remove_sink': 'Unregisters a sink added by `sturdy_log_add_sink`. A null/zero handle, or one already removed, is a no-op.',
@@ -3331,6 +3367,12 @@ _DOCS = {
     'sturdy_time_tick_index': 'Reads the monotonically increasing simulation tick counter.',
     'sturdy_time_unscaled_delta_seconds': 'Reads the time step for the current tick before the time scale is applied.\n\nUse this for anything that must keep running at real speed while the game is slowed or paused — UI animation, profiling, input smoothing.',
     'sturdy_tone_mapping_settings_init': 'Fills `settings` with `struct_size` and engine defaults (AGX operator, no look, neutral PsychoV/Hermite curve parameters).',
+    'sturdy_trace_capture': "Replaces the calling thread's trace with the stack at this call (foreign site, engine scopes, native stack per the detail setting). For a foreign language that wants the engine's side of a stack at a moment of its choosing, such as a panic hook.",
+    'sturdy_trace_clear_foreign_call_site': "Forgets the calling thread's foreign call site.",
+    'sturdy_trace_get_detail': 'Reads the current capture detail.',
+    'sturdy_trace_install_crash_handler': "Installs process-wide crash handlers (fatal signals on POSIX, the unhandled-exception filter on Windows) that print the crashing thread's engine scopes and native stack before the process dies. Does nothing useful on WebAssembly (returns `STURDY_ERROR_NOT_AVAILABLE`). Safe to call repeatedly.",
+    'sturdy_trace_set_detail': 'Chooses how much future failures capture, for the whole process.',
+    'sturdy_trace_set_foreign_call_site': "Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.",
     'sturdy_ui_begin': "Opens a UI frame, to be built and then closed with `sturdy_ui_end`.\n\nCall this from `request_render_frame` before building any UI. It readies the UI renderer, starts a layout pass sized to the surface, and picks up this frame's pointer state so hover and click queries work.\n\nBetween begin and end, the ABI holds an open layout. Build the tree, then call `sturdy_ui_end` on every path — including when you decide not to render the frame — or the next frame's begin reports `STURDY_ERROR_BUSY`.",
     'sturdy_ui_begin_element': 'Opens an element. Children declared until the matching `sturdy_ui_end_element` go inside it.',
     'sturdy_ui_clicked': 'Reports whether the element with this id was clicked this frame.',
@@ -3379,11 +3421,34 @@ _DOCS = {
 
 
 class SturdyError(RuntimeError):
-    """A failed ABI call: `result` is the `SturdyResult` and the message is the engine's own detail text."""
+    """A failed ABI call: `result` is the `SturdyResult` and the message is the engine's own detail text.
 
-    def __init__(self, result, message):
+    `trace` is the engine's stack for the failure, innermost frame first, as a list of dicts (`kind`, `function`, `file`, `module`,
+    `line`, `column`, `address`, `module_offset`); `kind` is a `SturdyTraceFrameKind`. `python_site` is the line of Python that made the
+    failing call. `str(error)` appends both, so an uncaught error already shows where it happened in both languages.
+    """
+
+    def __init__(self, result, message, trace=None, python_site=None):
         super().__init__(f"{SturdyResult(result).name if result in SturdyResult._value2member_map_ else result}: {message}")
         self.result = result
+        self.trace = trace or []
+        self.python_site = python_site
+
+    def __str__(self):
+        text = super().__str__()
+        if self.python_site:
+            text += f"\n  at [python] {self.python_site[0]}:{self.python_site[1]} ({self.python_site[2]})"
+        for frame in self.trace:
+            kind = frame["kind"]
+            if kind == SturdyTraceFrameKind.STURDY_TRACE_FRAME_FOREIGN:
+                text += f"\n  at [{frame['module'] or 'foreign'}] {frame['file']}:{frame['line']} ({frame['function']})"
+            elif kind == SturdyTraceFrameKind.STURDY_TRACE_FRAME_SCOPE:
+                text += f"\n  in {frame['function']}"
+            elif kind == SturdyTraceFrameKind.STURDY_TRACE_FRAME_UNWOUND:
+                text += f"\n  thrown through {frame['function']}"
+            else:
+                text += f"\n  0x{frame['address']:x} {frame['module']}+0x{frame['module_offset']:x} {frame['function']}".rstrip()
+        return text
 
 
 class Library:
@@ -3433,10 +3498,54 @@ def load(path=None):
     raise OSError(f"could not load the Sturdy library ({last})")
 
 
+def last_error_trace(library):
+    """The calling thread's engine stack trace for its most recent failure (or `sturdy_trace_capture`), innermost frame first.
+
+    A list of dicts (`kind`, `function`, `file`, `module`, `line`, `column`, `address`, `module_offset`). Read it on the thread that
+    made the failing call, straight after it; reading never changes the error state.
+    """
+    count = ctypes.c_uint32(0)
+    if library.sturdy_last_error_trace_frame_count(ctypes.byref(count)) != SturdyResult.STURDY_OK:
+        return []
+    frames = []
+    for index in range(count.value):
+        frame = SturdyTraceFrame()
+        frame.struct_size = ctypes.sizeof(SturdyTraceFrame)
+        if library.sturdy_last_error_trace_frame(index, ctypes.byref(frame)) != SturdyResult.STURDY_OK:
+            break
+        frames.append({
+            "kind": SturdyTraceFrameKind(frame.kind),
+            "function": (frame.function or b"").decode("utf-8", "replace"),
+            "file": (frame.file or b"").decode("utf-8", "replace"),
+            "module": (frame.module or b"").decode("utf-8", "replace"),
+            "line": frame.line,
+            "column": frame.column,
+            "address": frame.address,
+            "module_offset": frame.module_offset,
+        })
+    return frames
+
+
+def announce_call_site(library, file, line, function="", column=0, language="python"):
+    """Tells the engine where this thread's foreign code is, so an engine failure can be traced back to this line.
+
+    Sticky until replaced or cleared (`library.sturdy_trace_clear_foreign_call_site()`); `check()` also reports the calling Python line
+    on its own, so this is for attributing failures inside calls you do not wrap in `check()`.
+    """
+    language_bytes, file_bytes, function_bytes = language.encode("utf-8"), str(file).encode("utf-8"), function.encode("utf-8")
+    library.sturdy_trace_set_foreign_call_site(language_bytes, len(language_bytes), file_bytes, len(file_bytes), line, column, function_bytes, len(function_bytes))
+
+
 def check(library, result):
-    """Returns normally for `STURDY_OK`; otherwise raises `SturdyError` with the engine's detail message for this thread."""
+    """Returns normally for `STURDY_OK`; otherwise raises `SturdyError` with the engine's detail message for this thread.
+
+    The error carries the engine's stack trace (`error.trace`) and the Python line that made the call (`error.python_site`).
+    """
     if result != SturdyResult.STURDY_OK:
         message = library.sturdy_last_error_message()
-        raise SturdyError(result, message.decode("utf-8", "replace") if message else "")
+        trace = last_error_trace(library)
+        caller = sys._getframe(1)
+        python_site = (caller.f_code.co_filename, caller.f_lineno, caller.f_code.co_name)
+        raise SturdyError(result, message.decode("utf-8", "replace") if message else "", trace, python_site)
     return result
 

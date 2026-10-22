@@ -95,15 +95,20 @@ namespace SFT::UI {
         Foundation::CallSite foreign_call_site;
         /// The chain of open elements, outermost first, by the names they were given (or `<anonymous child N>`).
         std::vector<std::string> element_path;
-        /// Native call stack at the first occurrence (addresses only until resolved; see `native_frames`).
-        Foundation::Backtrace backtrace;
+        /// The engine trace at the first occurrence: foreign call site, engine scopes and (per the trace detail) the native stack.
+        /// Addresses only until resolved; see `trace_frames`.
+        Foundation::TraceCapture trace;
         /// Identity of the failing check inside the layout engine (static string pointer + line); lets repeats be recognised without
         /// building a new report. Not meaningful outside this process.
         const char *source_key_file = nullptr;
         i32 source_key_line = 0;
+        /// Hash of what distinguishes two problems raised by the same check: the chain of open elements, and for problems that are about one
+        /// specific id (a duplicate, a missing floating parent) that id. Without it two different problems that trip the same check would be
+        /// counted as one once the fast repeat path takes over.
+        u64 key_hash = 0;
 
-        /// Resolved native frames, with module-relative offsets a foreign debugger can symbolize.
-        [[nodiscard]] std::vector<Foundation::BacktraceFrame> native_frames() const { return backtrace.resolve(); }
+        /// The trace as frames (foreign site, engine scopes, native frames with module-relative offsets a foreign debugger can symbolize).
+        [[nodiscard]] std::vector<Foundation::TraceFrame> trace_frames() const { return trace.resolve(); }
     };
 
     /// Renders a report as multi-line text: headline, numbers, where it happened in each language, element path and (optionally) native stack.
@@ -123,7 +128,8 @@ namespace SFT::UI {
         /// Cheap path for a problem that keeps repeating (a per-frame bug): if the same failing check has already been seen at least twice,
         /// counts this occurrence and returns true so the caller can skip building the path and stack again. Returns false when the report
         /// must be built (first and second sighting, or a check not seen before).
-        [[nodiscard]] bool note_repeat(UiErrorCode code, const char *source_file, i32 source_line, u32 frame, i64 value, i64 limit) noexcept;
+        [[nodiscard]] bool note_repeat(UiErrorCode code, const char *source_file, i32 source_line, u64 key_hash, u32 frame, i64 value,
+                                       i64 limit) noexcept;
 
         /// Replaces the numbers of the report for `code` that was last seen in `frame`. Capacity problems are noticed part-way through a
         /// frame, when only a lower bound of what the frame needs is known; the context calls this once the frame is finished with the

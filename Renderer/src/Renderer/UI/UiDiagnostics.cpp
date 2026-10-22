@@ -70,20 +70,9 @@ namespace SFT::UI {
                 }
                 out += '\n';
             }
-            if (include_backtrace && !report.backtrace.empty()) {
-                out += "  native stack:\n";
-                const std::string frames = Foundation::format_backtrace(report.backtrace.resolve());
-                usize start = 0;
-                while (start < frames.size()) {
-                    const usize end = frames.find('\n', start);
-                    out += "    ";
-                    out.append(frames, start, end == std::string::npos ? std::string::npos : end - start);
-                    out += '\n';
-                    if (end == std::string::npos) {
-                        break;
-                    }
-                    start = end + 1;
-                }
+            if (include_backtrace && !report.trace.empty()) {
+                out += "  engine trace:\n";
+                out += report.trace.format();
             }
         } catch (...) {
             // Formatting is best effort; keep whatever was built.
@@ -94,7 +83,7 @@ namespace SFT::UI {
     namespace {
 
         [[nodiscard]] bool same_problem(const UiErrorReport &a, const UiErrorReport &b) noexcept {
-            return a.code == b.code && a.engine_source == b.engine_source && a.element_path == b.element_path &&
+            return a.code == b.code && a.engine_source == b.engine_source && a.key_hash == b.key_hash && a.element_path == b.element_path &&
                    a.foreign_call_site.file == b.foreign_call_site.file && a.foreign_call_site.line == b.foreign_call_site.line;
         }
 
@@ -166,10 +155,11 @@ namespace SFT::UI {
         }
     }
 
-    bool UiDiagnostics::note_repeat(UiErrorCode code, const char *source_file, i32 source_line, u32 frame, i64 value, i64 limit) noexcept {
+    bool UiDiagnostics::note_repeat(UiErrorCode code, const char *source_file, i32 source_line, u64 key_hash, u32 frame, i64 value,
+                                    i64 limit) noexcept {
         for (UiErrorReport &existing : reports_) {
             if (existing.code != code || existing.source_key_line != source_line || existing.source_key_file != source_file ||
-                existing.occurrences < 2) {
+                existing.key_hash != key_hash || existing.occurrences < 2) {
                 continue;
             }
             totals_[std::min<usize>(static_cast<usize>(existing.severity), 2)] += 1;

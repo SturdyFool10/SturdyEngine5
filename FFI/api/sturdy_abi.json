@@ -1,7 +1,7 @@
 {
  "abi_version": {
   "major": 0,
-  "minor": 36
+  "minor": 37
  },
  "source": "Sturdy.h",
  "enums": [
@@ -2133,6 +2133,53 @@
     {
      "name": "STURDY_TONE_MAPPING_PSYCHO_V",
      "value": 5
+    }
+   ]
+  },
+  {
+   "name": "SturdyTraceDetail",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_TRACE_DETAIL_OFF",
+     "value": 0,
+     "doc": "Nothing is captured."
+    },
+    {
+     "name": "STURDY_TRACE_DETAIL_SCOPES",
+     "value": 1,
+     "doc": "Foreign call site and engine scopes only. Cheap enough to leave on in release builds. The release-build default."
+    },
+    {
+     "name": "STURDY_TRACE_DETAIL_NATIVE",
+     "value": 2,
+     "doc": "Scopes plus the native call stack. The debug-build default."
+    }
+   ]
+  },
+  {
+   "name": "SturdyTraceFrameKind",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_TRACE_FRAME_NATIVE",
+     "value": 0,
+     "doc": "A machine frame: `address`, `module`, `module_offset`, and `function`/`file`/`line` when known."
+    },
+    {
+     "name": "STURDY_TRACE_FRAME_SCOPE",
+     "value": 1,
+     "doc": "A named engine scope: `function` is its name."
+    },
+    {
+     "name": "STURDY_TRACE_FRAME_FOREIGN",
+     "value": 2,
+     "doc": "The announced foreign call site: `file`, `line`, `column`, `function`; `module` holds the language tag."
+    },
+    {
+     "name": "STURDY_TRACE_FRAME_UNWOUND",
+     "value": 3,
+     "doc": "An engine scope an exception unwound through: `function` is its name."
     }
    ]
   },
@@ -11986,6 +12033,112 @@
    ]
   },
   {
+   "name": "SturdyTraceFrame",
+   "doc": "",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyTraceFrame)` before the call."
+    },
+    {
+     "name": "kind",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyTraceFrameKind"
+     }
+    },
+    {
+     "name": "address",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "uint64_t"
+     },
+     "doc": "Absolute instruction address in this process (native frames), else 0."
+    },
+    {
+     "name": "module_offset",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "uint64_t"
+     },
+     "doc": "Address relative to the load base of `module` (native frames), else 0."
+    },
+    {
+     "name": "line",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "column",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "function",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     },
+     "doc": "Never null; empty when unknown."
+    },
+    {
+     "name": "file",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     },
+     "doc": "Never null; empty when unknown."
+    },
+    {
+     "name": "module",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     },
+     "doc": "Never null. Native: the executable or library path. Foreign: the language tag."
+    }
+   ]
+  },
+  {
    "name": "SturdyTraceRaysDesc",
    "doc": "",
    "fields": [
@@ -20420,6 +20573,105 @@
    "returns": "A null-terminated UTF-8 string, never null; empty when the last call succeeded. The pointer stays valid until the next ABI call on this same thread, so copy it if you need to keep it. Never freed by the caller.",
    "notes": [
     "Thread-local by design: engine frames can run on their own render threads, so a process-wide error slot would let one thread's failure overwrite another's."
+   ]
+  },
+  {
+   "name": "sturdy_last_error_trace_format",
+   "doc": "The whole trace as readable text, one frame per line, with the usual size-query convention (see `copy_string_out` in the ABI notes: pass a null buffer to learn the size; a short buffer gets a truncated, terminated result and `STURDY_ERROR_BUFFER_TOO_SMALL`).",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "buffer",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "capacity",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "uint64_t"
+     }
+    },
+    {
+     "name": "out_length",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 64,
+       "signed": false,
+       "name": "uint64_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_last_error_trace_frame",
+   "doc": "Reads one frame of the trace counted by `sturdy_last_error_trace_frame_count`, innermost first.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_frame",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyTraceFrame"
+      },
+      "const": false
+     }
+    }
+   ],
+   "returns": "`STURDY_ERROR_OUT_OF_RANGE` when `index` is past the end."
+  },
+  {
+   "name": "sturdy_last_error_trace_frame_count",
+   "doc": "Number of frames in the calling thread's most recent trace (the last failure's, or the last `sturdy_trace_capture`). Zero if none. Call this before `sturdy_last_error_trace_frame`: it resolves the trace once so the frames can be read cheaply.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "out_count",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    }
    ]
   },
   {
@@ -31015,6 +31267,192 @@
       "const": false
      }
     }
+   ]
+  },
+  {
+   "name": "sturdy_trace_capture",
+   "doc": "Replaces the calling thread's trace with the stack at this call (foreign site, engine scopes, native stack per the detail setting). For a foreign language that wants the engine's side of a stack at a moment of its choosing, such as a panic hook.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": []
+  },
+  {
+   "name": "sturdy_trace_clear_foreign_call_site",
+   "doc": "Forgets the calling thread's foreign call site.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": []
+  },
+  {
+   "name": "sturdy_trace_get_detail",
+   "doc": "Reads the current capture detail.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "out_detail",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "enum",
+       "name": "SturdyTraceDetail"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_trace_install_crash_handler",
+   "doc": "Installs process-wide crash handlers (fatal signals on POSIX, the unhandled-exception filter on Windows) that print the crashing thread's engine scopes and native stack before the process dies. Does nothing useful on WebAssembly (returns `STURDY_ERROR_NOT_AVAILABLE`). Safe to call repeatedly.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "log_path",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     },
+     "doc": "Also append the report to this file; null or empty for stderr only."
+    }
+   ]
+  },
+  {
+   "name": "sturdy_trace_set_detail",
+   "doc": "Chooses how much future failures capture, for the whole process.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "detail",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyTraceDetail"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_trace_set_foreign_call_site",
+   "doc": "Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "language",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     },
+     "doc": "Short tag: \"rust\", \"csharp\", \"java\", \"python\", ..."
+    },
+    {
+     "name": "language_length",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "file",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     },
+     "doc": "Source file; may be empty."
+    },
+    {
+     "name": "file_length",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "line",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "1-based line, or 0 if unknown."
+    },
+    {
+     "name": "column",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "1-based column, or 0 if unknown."
+    },
+    {
+     "name": "function",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     },
+     "doc": "Enclosing function; may be empty."
+    },
+    {
+     "name": "function_length",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ],
+   "notes": [
+    "Never changes the error state."
    ]
   },
   {

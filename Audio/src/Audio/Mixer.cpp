@@ -1,4 +1,5 @@
 #include <Audio/Mixer.hpp>
+#include <Foundation/Trace.hpp>
 
 #include <Audio/Kernels.hpp>
 #include <Audio/MixPool.hpp>
@@ -2254,6 +2255,7 @@ namespace SFT::Audio {
     }
 
     void AudioEngine::render_block() {
+        SFT_TRACE_SCOPE("AudioEngine::render_block");
         Impl &m = *impl_;
         // Denormals decay out of filters and reverb tails; flushing them keeps the block time flat. (Priority is the device
         // callback's business: offline rendering runs here too.)

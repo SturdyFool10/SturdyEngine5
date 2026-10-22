@@ -59,6 +59,16 @@ namespace {
         (void)context.finish_frame();
     }
 
+    /// One frame with a deliberate duplicate id.
+    void context_dup_frame(Context &context) {
+        context.begin_layout({400.0f, 400.0f});
+        {
+            auto a = context.element(ElementDecl{.id = "dup"_ustr});
+            auto b = context.element(ElementDecl{.id = "dup"_ustr});
+        }
+        (void)context.finish_frame();
+    }
+
     void growth_fits_from_the_next_frame() {
         Context context = make(Context::Config{.max_element_count = 64});
         SFT::Foundation::set_foreign_call_site("rust", "src/game/inventory.rs", 118, 13, "draw_inventory");
@@ -79,8 +89,8 @@ namespace {
             named_root = named_root || part == "root";
         }
         assert(named_root);
-        if (SFT::Foundation::Backtrace::supported()) {
-            assert(!limit->backtrace.empty());
+        if (SFT::Foundation::trace_detail() != SFT::Foundation::TraceDetail::Off) {
+            assert(!limit->trace.empty());
         }
         const std::string text = SFT::UI::format_report(*limit);
         assert(text.find("src/game/inventory.rs:118") != std::string::npos);
@@ -193,11 +203,33 @@ namespace {
         Context moved = std::move(first);
         build_frame(moved, 500);
         assert(find(moved, UiErrorCode::ElementLimit) != nullptr);
-        Context assigned = make();
-        assigned = std::move(moved);
-        build_frame(assigned, 500);
-        assert(find(assigned, UiErrorCode::ElementLimit) != nullptr);
-        build_frame(assigned, 500);
+    }
+
+    void assignment_keeps_the_hosts_diagnostics_and_debug_view() {
+        // The engine move-assigns a freshly built context over the live one (device change, HDR toggle). What the application set up on the
+        // live one -- its callback, its collected reports, its debug-view choice -- must survive that, and the new layout context must
+        // report into the same store.
+        Context live = make();
+        live.diagnostics().set_log_severity(UiSeverity::Error);
+        int callback_calls = 0;
+        live.diagnostics().set_callback([&](const UiErrorReport &) { ++callback_calls; });
+        live.set_debug_view_enabled(true);
+        for (int frame = 0; frame < 3; ++frame) {
+            context_dup_frame(live);
+        }
+        assert(find(live, UiErrorCode::DuplicateId) != nullptr);
+        const u64 before = find(live, UiErrorCode::DuplicateId)->occurrences;
+
+        Context replacement = make(Context::Config{.max_element_count = 64});
+        live = std::move(replacement);
+        assert(live.debug_view_enabled());                 // choice carried over
+        assert(find(live, UiErrorCode::DuplicateId) != nullptr); // reports kept
+        const int calls_before = callback_calls;
+        build_frame(live, 500);                            // the new context overflows its small budget...
+        assert(find(live, UiErrorCode::ElementLimit) != nullptr); // ...and reports into the kept store
+        assert(callback_calls > calls_before);             // ...through the kept callback
+        context_dup_frame(live);
+        assert(find(live, UiErrorCode::DuplicateId)->occurrences > before);
     }
 
 } // namespace
@@ -209,6 +241,7 @@ int main() {
     memory_limit_truncates_with_a_clear_error();
     debug_view_toggles_at_runtime();
     reports_survive_moving_the_context();
+    assignment_keeps_the_hosts_diagnostics_and_debug_view();
     std::puts("UiDiagnosticsTest: all checks passed.");
     return 0;
 }

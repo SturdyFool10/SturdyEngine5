@@ -302,6 +302,7 @@ namespace SFT::Engine {
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`, `GraphicsBackendErrorCode::InitializationFailed`.
     Core::RendererExpected<Core::RenderSurfaceHandle> Engine::initialize(WindowManager::Window &window,
                                                                          const EngineConfig &config) {
+        SFT_TRACE_SCOPE("Engine::initialize");
         if (initialized_) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                          "Engine renderer is already initialized."});

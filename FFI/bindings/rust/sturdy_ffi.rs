@@ -9,7 +9,7 @@
 use core::ffi::{c_char, c_void};
 
 pub const ABI_VERSION_MAJOR: u32 = 0;
-pub const ABI_VERSION_MINOR: u32 = 36;
+pub const ABI_VERSION_MINOR: u32 = 37;
 
 /// Matches `RHI::AccelerationStructureCopyMode`.
 pub type SturdyAccelerationStructureCopyMode = i32;
@@ -625,6 +625,17 @@ pub const STURDY_TONE_MAPPING_EXPONENTIAL: SturdyToneMapping = 2;
 pub const STURDY_TONE_MAPPING_AGX: SturdyToneMapping = 3;
 pub const STURDY_TONE_MAPPING_HERMITE_SPLINE: SturdyToneMapping = 4;
 pub const STURDY_TONE_MAPPING_PSYCHO_V: SturdyToneMapping = 5;
+
+pub type SturdyTraceDetail = i32;
+pub const STURDY_TRACE_DETAIL_OFF: SturdyTraceDetail = 0;
+pub const STURDY_TRACE_DETAIL_SCOPES: SturdyTraceDetail = 1;
+pub const STURDY_TRACE_DETAIL_NATIVE: SturdyTraceDetail = 2;
+
+pub type SturdyTraceFrameKind = i32;
+pub const STURDY_TRACE_FRAME_NATIVE: SturdyTraceFrameKind = 0;
+pub const STURDY_TRACE_FRAME_SCOPE: SturdyTraceFrameKind = 1;
+pub const STURDY_TRACE_FRAME_FOREIGN: SturdyTraceFrameKind = 2;
+pub const STURDY_TRACE_FRAME_UNWOUND: SturdyTraceFrameKind = 3;
 
 /// Which way an element stacks its children.
 pub type SturdyUiDirection = i32;
@@ -4528,6 +4539,36 @@ const _: () = assert!(core::mem::offset_of!(SturdyToneMappingSettings, psychov_b
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct SturdyTraceFrame {
+    pub struct_size: u32,
+    pub kind: i32,
+    pub address: u64,
+    pub module_offset: u64,
+    pub line: u32,
+    pub column: u32,
+    pub function: *const c_char,
+    pub file: *const c_char,
+    pub module: *const c_char,
+}
+impl Default for SturdyTraceFrame {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTraceFrame>() == 56 && core::mem::align_of::<SturdyTraceFrame>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTraceFrame, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyTraceFrame, kind) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyTraceFrame, address) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTraceFrame, module_offset) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyTraceFrame, line) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyTraceFrame, column) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyTraceFrame, function) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyTraceFrame, file) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyTraceFrame, module) == 48);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct SturdyTraceRaysDesc {
     pub raygen: SturdyShaderBindingTableRegion,
     pub miss: SturdyShaderBindingTableRegion,
@@ -5462,6 +5503,12 @@ unsafe extern "C" {
     pub fn sturdy_gpu_enumerate(out_gpus: *mut SturdyGpuInfo, capacity: u32, out_count: *mut u32) -> i32;
     /// Detail for the most recent failing call **on the calling thread**.
     pub fn sturdy_last_error_message() -> *const c_char;
+    /// The whole trace as readable text, one frame per line, with the usual size-query convention (see `copy_string_out` in the ABI notes: pass a null buffer to learn the size; a short buffer gets a truncated, terminated result and `STURDY_ERROR_BUFFER_TOO_SMALL`).
+    pub fn sturdy_last_error_trace_format(buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Reads one frame of the trace counted by `sturdy_last_error_trace_frame_count`, innermost first.
+    pub fn sturdy_last_error_trace_frame(index: u32, out_frame: *mut SturdyTraceFrame) -> i32;
+    /// Number of frames in the calling thread's most recent trace (the last failure's, or the last `sturdy_trace_capture`). Zero if none. Call this before `sturdy_last_error_trace_frame`: it resolves the trace once so the frames can be read cheaply.
+    pub fn sturdy_last_error_trace_frame_count(out_count: *mut u32) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (clustered on).
     pub fn sturdy_lighting_settings_init(settings: *mut SturdyLightingSettings) -> i32;
     /// Registers a callback to receive every subsequent log message.
@@ -5993,6 +6040,18 @@ unsafe extern "C" {
     pub fn sturdy_time_unscaled_delta_seconds(engine: SturdyEngine, out_seconds: *mut f64) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (AGX operator, no look, neutral PsychoV/Hermite curve parameters).
     pub fn sturdy_tone_mapping_settings_init(settings: *mut SturdyToneMappingSettings) -> i32;
+    /// Replaces the calling thread's trace with the stack at this call (foreign site, engine scopes, native stack per the detail setting). For a foreign language that wants the engine's side of a stack at a moment of its choosing, such as a panic hook.
+    pub fn sturdy_trace_capture() -> i32;
+    /// Forgets the calling thread's foreign call site.
+    pub fn sturdy_trace_clear_foreign_call_site() -> i32;
+    /// Reads the current capture detail.
+    pub fn sturdy_trace_get_detail(out_detail: *mut i32) -> i32;
+    /// Installs process-wide crash handlers (fatal signals on POSIX, the unhandled-exception filter on Windows) that print the crashing thread's engine scopes and native stack before the process dies. Does nothing useful on WebAssembly (returns `STURDY_ERROR_NOT_AVAILABLE`). Safe to call repeatedly.
+    pub fn sturdy_trace_install_crash_handler(log_path: *const c_char) -> i32;
+    /// Chooses how much future failures capture, for the whole process.
+    pub fn sturdy_trace_set_detail(detail: i32) -> i32;
+    /// Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.
+    pub fn sturdy_trace_set_foreign_call_site(language: *const c_char, language_length: u32, file: *const c_char, file_length: u32, line: u32, column: u32, function: *const c_char, function_length: u32) -> i32;
     /// Opens a UI frame, to be built and then closed with `sturdy_ui_end`.
     ///
     /// Call this from `request_render_frame` before building any UI. It readies the UI renderer, starts a layout pass sized to the surface, and picks up this frame's pointer state so hover and click queries work.

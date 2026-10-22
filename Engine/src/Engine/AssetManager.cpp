@@ -1,4 +1,5 @@
 #include <Engine/AssetManager.hpp>
+#include <Foundation/Trace.hpp>
 #include <Engine/ImageDecode.hpp>
 #include <Engine/TextureCompression.hpp>
 #include <Engine/TextureMipChain.hpp>
@@ -400,6 +401,7 @@ namespace SFT::Engine {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::InvalidDescription`, `AssetErrorCode::NotFound`.
     AssetExpected<Asset> AssetManager::load_shader(ShaderAssetDesc desc) {
+        SFT_TRACE_SCOPE("AssetManager::load_shader");
         const Foundation::Stopwatch stopwatch;
         const std::string source_for_log = desc.source.string();
         if (desc.source.empty()) {
@@ -663,6 +665,7 @@ namespace SFT::Engine {
                                                     TextureKind kind,
                                                     UString label,
                                                     TextureDynamicRange dynamic_range) {
+        SFT_TRACE_SCOPE("AssetManager::load_texture");
         // The dynamic range is part of the key: the same file loaded as SDR and as HDR produces
         // genuinely different textures (different format, different VRAM cost), so sharing one
         // cache entry between them would hand the second caller the first one's result.
@@ -731,6 +734,7 @@ namespace SFT::Engine {
     AssetExpected<Asset> AssetManager::load_texture_streamed(const std::filesystem::path &source,
                                                               TextureColorSpace color_space, TextureKind kind,
                                                               UString label) {
+        SFT_TRACE_SCOPE("AssetManager::load_texture_streamed");
         if (label.empty()) {
             label = path_label(source, "texture");
         }
@@ -804,6 +808,7 @@ namespace SFT::Engine {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `AssetErrorCode::DecodeFailure`.
     AssetExpected<Asset> AssetManager::load_sound(const std::filesystem::path &source, UString label) {
+        SFT_TRACE_SCOPE("AssetManager::load_sound");
         const std::string dedup_key = source.string();
         {
             std::shared_lock read_lock{impl_->mutex};
@@ -863,6 +868,7 @@ namespace SFT::Engine {
     /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     AssetExpected<Asset> AssetManager::load_file(const std::filesystem::path &source, UString label) {
+        SFT_TRACE_SCOPE("AssetManager::load_file");
         const std::string dedup_key = source.string();
         {
             std::shared_lock read_lock{impl_->mutex};

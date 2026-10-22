@@ -34,6 +34,14 @@ namespace SFT::Ffi {
     ///       fail, the stored detail is truncated or dropped rather than propagating.
     SturdyResult set_error(SturdyResult result, std::string_view message) noexcept;
 
+    /// Like `set_error`, for a failure that arrived as a C++ exception: the trace includes the engine scopes the exception unwound through
+    /// (the logical stack at the throw), which are gone by the time a `catch` runs.
+    SturdyResult set_exception_error(SturdyResult result, std::string_view message) noexcept;
+
+    /// Marks the start of an ABI call on this thread: forgets any error origin recorded by earlier, already-handled failures, so the trace of
+    /// a failure is always one that happened during the call that is reporting it.
+    void begin_call() noexcept;
+
     /// Clears the calling thread's error slot. Called on every successful path so a stale message
     /// from an earlier failure is never mistaken for detail about the current call.
     ///
@@ -195,6 +203,7 @@ namespace SFT::Ffi {
     /// @note This function does not throw exceptions.
     template <typename Body>
     [[nodiscard]] SturdyResult guarded(Body &&body) noexcept {
+        begin_call();
         try {
             const SturdyResult result = std::forward<Body>(body)();
             if (result == STURDY_OK) {
@@ -202,12 +211,12 @@ namespace SFT::Ffi {
             }
             return result;
         } catch (const std::bad_alloc &) {
-            return set_error(STURDY_ERROR_OUT_OF_MEMORY, "allocation failed");
+            return set_exception_error(STURDY_ERROR_OUT_OF_MEMORY, "allocation failed");
         } catch (const std::exception &error) {
-            return set_error(STURDY_ERROR_INTERNAL, error.what());
+            return set_exception_error(STURDY_ERROR_INTERNAL, error.what());
         } catch (...) {
-            return set_error(STURDY_ERROR_INTERNAL,
-                             "an unrecognized C++ exception reached the ABI boundary");
+            return set_exception_error(STURDY_ERROR_INTERNAL,
+                                       "an unrecognized C++ exception reached the ABI boundary");
         }
     }
 

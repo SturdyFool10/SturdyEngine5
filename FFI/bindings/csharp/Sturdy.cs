@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 
 namespace Sturdy
 {
-    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 36; }
+    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 37; }
 
     /// Matches `RHI::AccelerationStructureCopyMode`.
     public enum SturdyAccelerationStructureCopyMode : int
@@ -762,6 +762,21 @@ namespace Sturdy
         STURDY_TONE_MAPPING_AGX = 3,
         STURDY_TONE_MAPPING_HERMITE_SPLINE = 4,
         STURDY_TONE_MAPPING_PSYCHO_V = 5,
+    }
+
+    public enum SturdyTraceDetail : int
+    {
+        STURDY_TRACE_DETAIL_OFF = 0,
+        STURDY_TRACE_DETAIL_SCOPES = 1,
+        STURDY_TRACE_DETAIL_NATIVE = 2,
+    }
+
+    public enum SturdyTraceFrameKind : int
+    {
+        STURDY_TRACE_FRAME_NATIVE = 0,
+        STURDY_TRACE_FRAME_SCOPE = 1,
+        STURDY_TRACE_FRAME_FOREIGN = 2,
+        STURDY_TRACE_FRAME_UNWOUND = 3,
     }
 
     /// Which way an element stacks its children.
@@ -2690,6 +2705,20 @@ namespace Sturdy
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTraceFrame
+    {
+        public uint struct_size;
+        public SturdyTraceFrameKind kind;
+        public ulong address;
+        public ulong module_offset;
+        public uint line;
+        public uint column;
+        public byte* function;
+        public byte* file;
+        public byte* module;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyTraceRaysDesc
     {
         public SturdyShaderBindingTableRegion raygen;
@@ -3626,6 +3655,18 @@ namespace Sturdy
         /// Detail for the most recent failing call **on the calling thread**.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern byte* sturdy_last_error_message();
+
+        /// The whole trace as readable text, one frame per line, with the usual size-query convention (see `copy_string_out` in the ABI notes: pass a null buffer to learn the size; a short buffer gets a truncated, terminated result and `STURDY_ERROR_BUFFER_TOO_SMALL`).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_last_error_trace_format(byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Reads one frame of the trace counted by `sturdy_last_error_trace_frame_count`, innermost first.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_last_error_trace_frame(uint index, SturdyTraceFrame* out_frame);
+
+        /// Number of frames in the calling thread's most recent trace (the last failure's, or the last `sturdy_trace_capture`). Zero if none. Call this before `sturdy_last_error_trace_frame`: it resolves the trace once so the frames can be read cheaply.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_last_error_trace_frame_count(uint* out_count);
 
         /// Fills `settings` with `struct_size` and engine defaults (clustered on).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -4689,6 +4730,30 @@ namespace Sturdy
         /// Fills `settings` with `struct_size` and engine defaults (AGX operator, no look, neutral PsychoV/Hermite curve parameters).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_tone_mapping_settings_init(SturdyToneMappingSettings* settings);
+
+        /// Replaces the calling thread's trace with the stack at this call (foreign site, engine scopes, native stack per the detail setting). For a foreign language that wants the engine's side of a stack at a moment of its choosing, such as a panic hook.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_trace_capture();
+
+        /// Forgets the calling thread's foreign call site.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_trace_clear_foreign_call_site();
+
+        /// Reads the current capture detail.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_trace_get_detail(SturdyTraceDetail* out_detail);
+
+        /// Installs process-wide crash handlers (fatal signals on POSIX, the unhandled-exception filter on Windows) that print the crashing thread's engine scopes and native stack before the process dies. Does nothing useful on WebAssembly (returns `STURDY_ERROR_NOT_AVAILABLE`). Safe to call repeatedly.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_trace_install_crash_handler(byte* log_path);
+
+        /// Chooses how much future failures capture, for the whole process.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_trace_set_detail(SturdyTraceDetail detail);
+
+        /// Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_trace_set_foreign_call_site(byte* language, uint language_length, byte* file, uint file_length, uint line, uint column, byte* function, uint function_length);
 
         /// Opens a UI frame, to be built and then closed with `sturdy_ui_end`.
         ///

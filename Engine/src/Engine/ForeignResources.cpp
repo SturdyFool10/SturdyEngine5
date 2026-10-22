@@ -38,6 +38,7 @@ namespace SFT::Engine {
         std::map<OwnedKey, OwnedResource> g_owned;
 
         [[nodiscard]] std::unexpected<ForeignResourceError> error(ForeignResourceErrorKind kind, std::string message) {
+            Foundation::note_trace_origin();
             return std::unexpected(ForeignResourceError{.kind = kind, .message = std::move(message)});
         }
 

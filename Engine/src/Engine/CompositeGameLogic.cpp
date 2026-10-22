@@ -1,4 +1,5 @@
 #include <Engine/CompositeGameLogic.hpp>
+#include <Foundation/Trace.hpp>
 
 #include <algorithm>
 #include <format>
@@ -125,6 +126,8 @@ namespace SFT::Engine {
             GameLogicResult result;
             {
                 const ModuleScope scope{module.name};
+                // Module names are a small, stable set chosen by the application, so each makes a good trace scope.
+                const Foundation::TraceScope trace_scope{Foundation::intern_trace_name(module.name)};
                 result = module.logic->on_engine_initialized(engine);
             }
             if (!result) {
@@ -161,6 +164,7 @@ namespace SFT::Engine {
             if (!module.started) {
                 continue;
             }
+            const Foundation::TraceScope trace_scope{Foundation::intern_trace_name(module.name)};
             std::optional<RenderFrameParameters> contribution = module.logic->request_render_frame(engine, surface, frame);
             if (!contribution) {
                 continue;

@@ -169,6 +169,27 @@ pub mod ffi {
         cpu_stages: Vec<TimingEntry>,
     }
 
+    /// One frame of an engine stack trace (see `trace_*` below). `kind` is the ordinal of
+    /// `sturdy::diagnostics::TraceFrameKind`: 0 native machine frame, 1 named engine scope,
+    /// 2 the foreign (Rust) call site announced with `trace_set_call_site`, 3 an engine scope an
+    /// exception unwound through.
+    #[derive(Debug, Clone, Default)]
+    struct TraceFrame {
+        kind: u32,
+        /// Absolute instruction address (native frames).
+        address: u64,
+        /// Address relative to the load base of `module`. Stable across runs: feed it to
+        /// `addr2line`/`llvm-symbolizer` together with the module's debug info to symbolize a
+        /// frame the process itself could not.
+        module_offset: u64,
+        line: u32,
+        column: u32,
+        function: String,
+        file: String,
+        /// Native frames: the executable or library path. Foreign frames: the language tag.
+        module: String,
+    }
+
     extern "Rust" {
         type LogSink;
         type SchedulerTask;
@@ -231,6 +252,30 @@ pub mod ffi {
         fn log_set_level(level: u8);
         /// Turns the engine's own console output on/off; file log and registered sinks are untouched.
         fn log_set_console_enabled(enabled: bool);
+
+        // -- Engine stack traces ----------------------------------------------------------------------
+        //
+        // Per-thread: a trace belongs to the thread that made the failing call, so read it on the
+        // same thread right after the `Err` came back.
+
+        /// How much future failures capture, process-wide: 0 off, 1 foreign call site + engine
+        /// scopes, 2 additionally the native stack.
+        fn trace_set_detail(detail: u8);
+        fn trace_detail() -> u8;
+        /// Tells the engine where this thread's Rust code is, so a failure raised deep in C++ can be
+        /// traced back to a line of Rust. Sticky until replaced or cleared; cheap to repeat.
+        fn trace_set_call_site(language: &str, file: &str, line: u32, column: u32, function: &str);
+        fn trace_clear_call_site();
+        /// Replaces this thread's trace with the stack at this call.
+        fn trace_capture();
+        /// This thread's most recent trace (the last engine failure's, or the last `trace_capture`),
+        /// innermost first.
+        fn last_error_trace() -> Vec<TraceFrame>;
+        /// The same trace as readable text.
+        fn last_error_trace_text() -> String;
+        /// Installs crash handlers that print the crashing thread's engine scopes and native
+        /// stack. `log_path` empty means stderr only. `false` where the platform has no hook.
+        fn trace_install_crash_handler(log_path: &str) -> bool;
 
         // -- Process-wide task scheduler ------------------------------------------------------------
 

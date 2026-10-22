@@ -281,6 +281,7 @@ namespace SFT::Renderer {
     Core::RendererExpected<Core::RenderSurfaceHandle> Renderer::initialize(
         const Core::RendererCreateInfo &create_info) {
         ZoneScopedN("Renderer::initialize");
+        SFT_TRACE_SCOPE("Renderer::initialize");
         if (initialized_) {
             return unexpected(Core::GraphicsBackendError{Core::GraphicsBackendErrorCode::OperationFailed,
                                                         "Renderer is already initialized."});
@@ -367,6 +368,7 @@ namespace SFT::Renderer {
     /// @note Error/status alternatives explicitly produced by this implementation include `GraphicsBackendErrorCode::OperationFailed`.
     Core::RendererResult Renderer::render_frame(const RenderFrameDesc &desc) {
         ZoneScopedN("Renderer::render_frame");
+        SFT_TRACE_SCOPE("Renderer::render_frame");
 
 
         poll_shader_hot_reload();
@@ -478,6 +480,7 @@ namespace SFT::Renderer {
     Core::RendererResult Renderer::render_frame(Core::RenderSurfaceHandle surface,
                                                 const Core::FrameInput &frame) {
         ZoneScopedN("Renderer::render_frame");
+        SFT_TRACE_SCOPE("Renderer::render_frame(surface)");
 
 
         poll_shader_hot_reload();

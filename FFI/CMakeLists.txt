@@ -83,7 +83,8 @@ sturdy_add_tests(FFI
         EcsFfiTest=FfiEcsTest
         AnimationFfiTest=FfiAnimationTest
         AudioFfiTest=FfiAudioTest
-        ReflectionFfiTest=FfiReflectionTest)
+        ReflectionFfiTest=FfiReflectionTest
+        TraceFfiTest=FfiTraceTest)
 
 # Native plugins: a plugin is a shared library that exports `sturdy_plugin_entry` and knows the engine only through Sturdy.h, so the fixture
 # is plain C built as a loadable module (like the hot-reload fixtures) and the test opens it with a real dlopen/LoadLibrary. Static-only for

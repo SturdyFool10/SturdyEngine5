@@ -1,4 +1,5 @@
 #include <Renderer/FramePipeline.hpp>
+#include <Foundation/Trace.hpp>
 
 #include <algorithm>
 
@@ -121,6 +122,8 @@ namespace SFT::Renderer {
             if (!entry.enabled || entry.stage != stage) {
                 continue;
             }
+            // Feature names are the pipeline's own vocabulary ("shadow_maps", "bloom", a plug-in's), so they make good trace scopes.
+            const Foundation::TraceScope scope{Foundation::intern_trace_name(entry.name)};
             if (Core::RendererResult built = entry.build(context); !built.has_value()) {
                 return built;
             }

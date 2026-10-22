@@ -14,6 +14,7 @@ namespace SFT::Engine {
     namespace {
 
         [[nodiscard]] std::unexpected<ForeignUiError> error(ForeignUiErrorKind kind, std::string message) {
+            Foundation::note_trace_origin();
             return std::unexpected(ForeignUiError{.kind = kind, .message = std::move(message)});
         }
 

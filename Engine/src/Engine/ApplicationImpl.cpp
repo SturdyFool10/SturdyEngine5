@@ -79,7 +79,10 @@ namespace SFT::Engine {
 
         drain_render_thread();
         engine_->wait_idle();
-        client_->on_shutdown(*engine_);
+        {
+            SFT_TRACE_SCOPE("GameLogic::on_shutdown");
+            client_->on_shutdown(*engine_);
+        }
     }
 
     /// Finds managed window in the available state.
@@ -675,8 +678,12 @@ namespace SFT::Engine {
 
 
         const Core::RenderSurfaceHandle surface = *managed.surface;
-        optional<RenderFrameParameters> frame_parameters =
-            client_->request_render_frame(*engine_, surface, frame_input);
+        optional<RenderFrameParameters> frame_parameters;
+        {
+            // The application's (or a foreign language's) frame callback: a failure raised below it should say it was in there.
+            SFT_TRACE_SCOPE("GameLogic::request_render_frame");
+            frame_parameters = client_->request_render_frame(*engine_, surface, frame_input);
+        }
         if (!frame_parameters) {
             return true;
         }
@@ -819,6 +826,7 @@ namespace SFT::Engine {
     /// @return Returns the current initialize value.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     bool Application::initialize() {
+        SFT_TRACE_SCOPE("Application::initialize");
         const Foundation::Stopwatch stopwatch;
         client_initialized_ = false;
         client_shutdown_ = false;
@@ -838,8 +846,11 @@ namespace SFT::Engine {
             return false;
         }
 
-        if (ApplicationResult consumer_initialized = client_->on_engine_initialized(*engine_);
-            !consumer_initialized) {
+        ApplicationResult consumer_initialized = [this]() -> ApplicationResult {
+            SFT_TRACE_SCOPE("GameLogic::on_engine_initialized");
+            return client_->on_engine_initialized(*engine_);
+        }();
+        if (!consumer_initialized) {
             Foundation::log_diagnostic(Foundation::ConsoleDiagnostic{
                 .code = "engine.game_logic.initialize",
                 .summary = "game or application logic failed to initialize",
@@ -1201,6 +1212,7 @@ namespace SFT::Engine {
     }
 
     void Application::run() {
+        SFT_TRACE_SCOPE("Application::run");
         if (windows_.empty() || !engine_) {
             return;
         }

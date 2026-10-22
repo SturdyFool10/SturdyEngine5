@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 36u
+#define STURDY_ABI_VERSION_MINOR 37u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -183,6 +183,119 @@ typedef enum SturdyResult {
 /// @note Thread-local by design: engine frames can run on their own render threads, so a
 ///       process-wide error slot would let one thread's failure overwrite another's.
 STURDY_ABI const char *STURDY_ABI_CALL sturdy_last_error_message(void);
+
+// ---------------------------------------------------------------------------------------------
+// Stack traces
+// ---------------------------------------------------------------------------------------------
+//
+// When a call fails, `sturdy_last_error_message()` says what went wrong; the trace says WHERE, across languages. A trace is a list of
+// frames, innermost first, drawn from three layers:
+//
+//   FOREIGN  the call site the calling language announced with `sturdy_trace_set_foreign_call_site` ("src/game/inventory.rs:118");
+//   SCOPE    named engine scopes ("Renderer::submit_frame"): the engine's own logical stack. These need no symbols, survive stripped
+//            builds and exist on WebAssembly, where a native stack cannot be walked;
+//   UNWOUND  engine scopes an exception travelled through before it was caught at the ABI boundary: the logical stack at the throw;
+//   NATIVE   machine frames as module + offset (+ symbol and file/line when the platform provides them). The offset is stable across
+//            runs, so a foreign debugger can symbolize it offline against the module's debug info even when this process could not.
+//
+// Reading a trace never changes the error state, and a trace belongs to the thread that made the failing call. Strings inside a
+// `SturdyTraceFrame` stay valid until the next trace call on the same thread.
+//
+// How much is captured is `SturdyTraceDetail`; the environment variable `STURDY_TRACE=off|scopes|native` sets the initial value.
+// Failures that are part of ordinary use (`STURDY_ERROR_BUFFER_TOO_SMALL`, `_OUT_OF_RANGE`, `_ENTITY_NOT_ALIVE`, ...) record only the
+// foreign call site, so size-query loops do not pay for a native stack walk.
+
+typedef enum SturdyTraceDetail {
+    /// Nothing is captured.
+    STURDY_TRACE_DETAIL_OFF = 0,
+    /// Foreign call site and engine scopes only. Cheap enough to leave on in release builds. The release-build default.
+    STURDY_TRACE_DETAIL_SCOPES = 1,
+    /// Scopes plus the native call stack. The debug-build default.
+    STURDY_TRACE_DETAIL_NATIVE = 2,
+    STURDY_TRACE_DETAIL_FORCE_U32 = 0x7fffffff
+} SturdyTraceDetail;
+
+typedef enum SturdyTraceFrameKind {
+    /// A machine frame: `address`, `module`, `module_offset`, and `function`/`file`/`line` when known.
+    STURDY_TRACE_FRAME_NATIVE = 0,
+    /// A named engine scope: `function` is its name.
+    STURDY_TRACE_FRAME_SCOPE = 1,
+    /// The announced foreign call site: `file`, `line`, `column`, `function`; `module` holds the language tag.
+    STURDY_TRACE_FRAME_FOREIGN = 2,
+    /// An engine scope an exception unwound through: `function` is its name.
+    STURDY_TRACE_FRAME_UNWOUND = 3,
+    STURDY_TRACE_FRAME_KIND_FORCE_U32 = 0x7fffffff
+} SturdyTraceFrameKind;
+
+typedef struct SturdyTraceFrame {
+    /// Set to `sizeof(SturdyTraceFrame)` before the call.
+    uint32_t struct_size;
+    SturdyTraceFrameKind kind;
+    /// Absolute instruction address in this process (native frames), else 0.
+    uint64_t address;
+    /// Address relative to the load base of `module` (native frames), else 0.
+    uint64_t module_offset;
+    uint32_t line;
+    uint32_t column;
+    /// Never null; empty when unknown.
+    const char *function;
+    /// Never null; empty when unknown.
+    const char *file;
+    /// Never null. Native: the executable or library path. Foreign: the language tag.
+    const char *module;
+} SturdyTraceFrame;
+
+/// Chooses how much future failures capture, for the whole process.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_trace_set_detail(SturdyTraceDetail detail);
+
+/// Reads the current capture detail.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_trace_get_detail(SturdyTraceDetail *out_detail);
+
+/// Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site
+/// stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine
+/// copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.
+///
+/// @param language Short tag: "rust", "csharp", "java", "python", ...
+/// @param file Source file; may be empty.
+/// @param line 1-based line, or 0 if unknown.
+/// @param column 1-based column, or 0 if unknown.
+/// @param function Enclosing function; may be empty.
+/// @note Never changes the error state.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_trace_set_foreign_call_site(const char *language,
+                                                                          uint32_t language_length,
+                                                                          const char *file,
+                                                                          uint32_t file_length,
+                                                                          uint32_t line,
+                                                                          uint32_t column,
+                                                                          const char *function,
+                                                                          uint32_t function_length);
+
+/// Forgets the calling thread's foreign call site.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_trace_clear_foreign_call_site(void);
+
+/// Replaces the calling thread's trace with the stack at this call (foreign site, engine scopes, native stack per the detail setting).
+/// For a foreign language that wants the engine's side of a stack at a moment of its choosing, such as a panic hook.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_trace_capture(void);
+
+/// Number of frames in the calling thread's most recent trace (the last failure's, or the last `sturdy_trace_capture`). Zero if none.
+/// Call this before `sturdy_last_error_trace_frame`: it resolves the trace once so the frames can be read cheaply.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_last_error_trace_frame_count(uint32_t *out_count);
+
+/// Reads one frame of the trace counted by `sturdy_last_error_trace_frame_count`, innermost first.
+///
+/// @return `STURDY_ERROR_OUT_OF_RANGE` when `index` is past the end.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_last_error_trace_frame(uint32_t index, SturdyTraceFrame *out_frame);
+
+/// The whole trace as readable text, one frame per line, with the usual size-query convention (see `copy_string_out` in the ABI notes:
+/// pass a null buffer to learn the size; a short buffer gets a truncated, terminated result and `STURDY_ERROR_BUFFER_TOO_SMALL`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_last_error_trace_format(char *buffer, uint64_t capacity, uint64_t *out_length);
+
+/// Installs process-wide crash handlers (fatal signals on POSIX, the unhandled-exception filter on Windows) that print the crashing
+/// thread's engine scopes and native stack before the process dies. Does nothing useful on WebAssembly (returns
+/// `STURDY_ERROR_NOT_AVAILABLE`). Safe to call repeatedly.
+///
+/// @param log_path Also append the report to this file; null or empty for stderr only.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_trace_install_crash_handler(const char *log_path);
 
 /// Major component of the ABI version this library implements.
 STURDY_ABI uint32_t STURDY_ABI_CALL sturdy_abi_version_major(void);

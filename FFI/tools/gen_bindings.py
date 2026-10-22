@@ -269,11 +269,34 @@ def emit_python(api: Api) -> str:
     w('''
 
 class SturdyError(RuntimeError):
-    """A failed ABI call: `result` is the `SturdyResult` and the message is the engine's own detail text."""
+    """A failed ABI call: `result` is the `SturdyResult` and the message is the engine's own detail text.
 
-    def __init__(self, result, message):
+    `trace` is the engine's stack for the failure, innermost frame first, as a list of dicts (`kind`, `function`, `file`, `module`,
+    `line`, `column`, `address`, `module_offset`); `kind` is a `SturdyTraceFrameKind`. `python_site` is the line of Python that made the
+    failing call. `str(error)` appends both, so an uncaught error already shows where it happened in both languages.
+    """
+
+    def __init__(self, result, message, trace=None, python_site=None):
         super().__init__(f"{SturdyResult(result).name if result in SturdyResult._value2member_map_ else result}: {message}")
         self.result = result
+        self.trace = trace or []
+        self.python_site = python_site
+
+    def __str__(self):
+        text = super().__str__()
+        if self.python_site:
+            text += f"\\n  at [python] {self.python_site[0]}:{self.python_site[1]} ({self.python_site[2]})"
+        for frame in self.trace:
+            kind = frame["kind"]
+            if kind == SturdyTraceFrameKind.STURDY_TRACE_FRAME_FOREIGN:
+                text += f"\\n  at [{frame['module'] or 'foreign'}] {frame['file']}:{frame['line']} ({frame['function']})"
+            elif kind == SturdyTraceFrameKind.STURDY_TRACE_FRAME_SCOPE:
+                text += f"\\n  in {frame['function']}"
+            elif kind == SturdyTraceFrameKind.STURDY_TRACE_FRAME_UNWOUND:
+                text += f"\\n  thrown through {frame['function']}"
+            else:
+                text += f"\\n  0x{frame['address']:x} {frame['module']}+0x{frame['module_offset']:x} {frame['function']}".rstrip()
+        return text
 
 
 class Library:
@@ -323,11 +346,55 @@ def load(path=None):
     raise OSError(f"could not load the Sturdy library ({last})")
 
 
+def last_error_trace(library):
+    """The calling thread's engine stack trace for its most recent failure (or `sturdy_trace_capture`), innermost frame first.
+
+    A list of dicts (`kind`, `function`, `file`, `module`, `line`, `column`, `address`, `module_offset`). Read it on the thread that
+    made the failing call, straight after it; reading never changes the error state.
+    """
+    count = ctypes.c_uint32(0)
+    if library.sturdy_last_error_trace_frame_count(ctypes.byref(count)) != SturdyResult.STURDY_OK:
+        return []
+    frames = []
+    for index in range(count.value):
+        frame = SturdyTraceFrame()
+        frame.struct_size = ctypes.sizeof(SturdyTraceFrame)
+        if library.sturdy_last_error_trace_frame(index, ctypes.byref(frame)) != SturdyResult.STURDY_OK:
+            break
+        frames.append({
+            "kind": SturdyTraceFrameKind(frame.kind),
+            "function": (frame.function or b"").decode("utf-8", "replace"),
+            "file": (frame.file or b"").decode("utf-8", "replace"),
+            "module": (frame.module or b"").decode("utf-8", "replace"),
+            "line": frame.line,
+            "column": frame.column,
+            "address": frame.address,
+            "module_offset": frame.module_offset,
+        })
+    return frames
+
+
+def announce_call_site(library, file, line, function="", column=0, language="python"):
+    """Tells the engine where this thread's foreign code is, so an engine failure can be traced back to this line.
+
+    Sticky until replaced or cleared (`library.sturdy_trace_clear_foreign_call_site()`); `check()` also reports the calling Python line
+    on its own, so this is for attributing failures inside calls you do not wrap in `check()`.
+    """
+    language_bytes, file_bytes, function_bytes = language.encode("utf-8"), str(file).encode("utf-8"), function.encode("utf-8")
+    library.sturdy_trace_set_foreign_call_site(language_bytes, len(language_bytes), file_bytes, len(file_bytes), line, column, function_bytes, len(function_bytes))
+
+
 def check(library, result):
-    """Returns normally for `STURDY_OK`; otherwise raises `SturdyError` with the engine's detail message for this thread."""
+    """Returns normally for `STURDY_OK`; otherwise raises `SturdyError` with the engine's detail message for this thread.
+
+    The error carries the engine's stack trace (`error.trace`) and the Python line that made the call (`error.python_site`).
+    """
     if result != SturdyResult.STURDY_OK:
         message = library.sturdy_last_error_message()
-        raise SturdyError(result, message.decode("utf-8", "replace") if message else "")
+        trace = last_error_trace(library)
+        caller = sys._getframe(1)
+        python_site = (caller.f_code.co_filename, caller.f_lineno, caller.f_code.co_name)
+        raise SturdyError(result, message.decode("utf-8", "replace") if message else "", trace, python_site)
     return result
 ''')
     return "\n".join(out) + "\n"

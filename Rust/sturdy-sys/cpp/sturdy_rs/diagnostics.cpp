@@ -18,6 +18,8 @@
 #include <Renderer/RendererModule.hpp>
 #include <WindowManager/WindowManager.hpp>
 #include <Foundation/LogSink.hpp>
+#include <Foundation/Trace.hpp>
+#include <string>
 #include <RHI/RHI.hpp>
 #include <RHI/Selection.hpp>
 
@@ -354,6 +356,68 @@ namespace sturdy_rs::diagnostics {
     }
 
     void log_set_console_enabled(bool enabled) noexcept { SFT::Foundation::set_console_logging_enabled(enabled); }
+
+    // -- Engine stack traces ----------------------------------------------------------------------
+
+    namespace {
+
+        [[nodiscard]] std::string_view to_view(rust::Str text) noexcept { return std::string_view{text.data(), text.size()}; }
+
+    } // namespace
+
+    void trace_set_detail(std::uint8_t detail) noexcept {
+        using SFT::Foundation::TraceDetail;
+        SFT::Foundation::set_trace_detail(detail == 0 ? TraceDetail::Off : (detail == 1 ? TraceDetail::Scopes : TraceDetail::Native));
+    }
+
+    std::uint8_t trace_detail() noexcept { return static_cast<std::uint8_t>(SFT::Foundation::trace_detail()); }
+
+    void trace_set_call_site(rust::Str language, rust::Str file, std::uint32_t line, std::uint32_t column, rust::Str function) noexcept {
+        SFT::Foundation::set_foreign_call_site(to_view(language), to_view(file), line, column, to_view(function));
+    }
+
+    void trace_clear_call_site() noexcept { SFT::Foundation::clear_foreign_call_site(); }
+
+    void trace_capture() noexcept { SFT::Foundation::set_last_error_trace(SFT::Foundation::TraceCapture::capture(1)); }
+
+    rust::Vec<TraceFrame> last_error_trace() {
+        rust::Vec<TraceFrame> out;
+        try {
+            for (const SFT::Foundation::TraceFrame &frame : SFT::Foundation::last_error_trace().resolve()) {
+                TraceFrame converted;
+                converted.kind = static_cast<std::uint32_t>(frame.kind);
+                converted.address = frame.address;
+                converted.module_offset = frame.module_offset;
+                converted.line = frame.line;
+                converted.column = frame.column;
+                // lossy: names and paths are not guaranteed UTF-8 (ANSI paths on Windows), and a throw here would abort across the bridge.
+                converted.function = rust::String::lossy(frame.function);
+                converted.file = rust::String::lossy(frame.file);
+                converted.module = rust::String::lossy(frame.module);
+                out.push_back(std::move(converted));
+            }
+        } catch (...) {
+            // An allocation failure while reporting a failure: return what was converted.
+        }
+        return out;
+    }
+
+    rust::String last_error_trace_text() {
+        try {
+            return rust::String::lossy(SFT::Foundation::last_error_trace().format());
+        } catch (...) {
+            return rust::String{};
+        }
+    }
+
+    bool trace_install_crash_handler(rust::Str log_path) noexcept {
+        SFT::Foundation::CrashTraceOptions options;
+        try {
+            options.log_path = std::string{to_view(log_path)};
+        } catch (...) {
+        }
+        return SFT::Foundation::install_crash_trace_handler(options);
+    }
 
     // -- Process-wide task scheduler --------------------------------------------------------------
 

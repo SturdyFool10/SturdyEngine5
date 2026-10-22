@@ -1,5 +1,6 @@
 #include <Ecs/System.hpp>
 #include <Foundation/Iter.hpp>
+#include <Foundation/Trace.hpp>
 
 #include <algorithm>
 #include <limits>
@@ -400,6 +401,7 @@ namespace SFT::Ecs {
 
     void Schedule::run(World &world) {
         ZoneScopedN("Schedule::run");
+        SFT_TRACE_SCOPE("Ecs::Schedule::run");
 
 
         usize target_parallelism = 1;

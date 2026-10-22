@@ -52,6 +52,46 @@ python3 FFI/tests/bindings/check_bindings.py --repo . --update
 
 The test fails on a stale file, so a header change without regeneration cannot land.
 
+## Stack traces across the language boundary
+
+A failed call returns a `SturdyResult`; `sturdy_last_error_message()` says what went wrong and the **trace** says where, in both
+languages. A trace is a list of frames, innermost first:
+
+| kind | what it is | needs symbols? |
+|---|---|---|
+| `FOREIGN` | the line of *your* code you announced with `sturdy_trace_set_foreign_call_site` | no |
+| `SCOPE` | a named engine scope (`Renderer::render_frame`, a render feature, a game-logic module) | no, and it works on WebAssembly |
+| `UNWOUND` | an engine scope a C++ exception travelled through: the logical stack at the throw | no |
+| `NATIVE` | a machine frame: module + offset (+ symbol, file, line when the platform has them) | optional; the offset symbolizes offline |
+
+Announce where you are, make calls, and on a failure read the trace (all of it is per thread, so read it on the thread that failed,
+straight after the call):
+
+```python
+import sturdy
+lib = sturdy.load()
+try:
+    sturdy.check(lib, lib.sturdy_ui_begin_element(engine, ctypes.byref(element)))
+except sturdy.SturdyError as error:
+    print(error)            # message, the Python line that made the call, then the engine's frames innermost first
+    error.trace             # the same frames as dicts: kind, function, file, module, line, column, address, module_offset
+```
+
+The Python binding does this for you in `check()`; `sturdy.announce_call_site(lib, __file__, line, "function")` attributes failures in calls
+you do not wrap in `check()`, and `sturdy.last_error_trace(lib)` reads the current thread's trace on demand. From C, Java or C#, call
+`sturdy_last_error_trace_frame_count` then `sturdy_last_error_trace_frame` for each index, or take it as ready-made text with
+`sturdy_last_error_trace_format`. `sturdy_trace_capture` takes a trace on demand (a panic hook, a watchdog),
+and `sturdy_trace_install_crash_handler` prints the engine's scopes and native stack when the process dies from a fatal signal.
+
+How much is captured is `sturdy_trace_set_detail` (`OFF`, `SCOPES`, `NATIVE`), or `STURDY_TRACE=off|scopes|native` in the environment.
+Debug builds default to `NATIVE`, release builds to `SCOPES`, which costs a pointer push per instrumented stage. Failures that are part
+of ordinary use (a size query, the end of an enumeration, a dead entity) record only the cheap layers so they stay cheap.
+
+To symbolize a native frame offline: `addr2line -f -C -e <module> 0x<module_offset>` (or `llvm-symbolizer`).
+
+The Rust crate wraps all of this in `sturdy::trace` (`announce_call_site`, `trace_here!`, `last_error_trace`, `install_crash_handler`,
+`install_panic_hook`), going through its own bridge rather than this C ABI.
+
 ## Using them
 
 All three need the engine built as a shared library (`STURDY_BUILD_SHARED_LIBS`), named `libsturdy.so` / `sturdy.dll` /

@@ -635,8 +635,22 @@ namespace SFT::UI {
             UiSeverity severity = UiSeverity::Error;
             classify(info, growable, code, severity);
             UiDiagnostics &store = diagnostics_->store;
-            // A per-frame bug repeats every frame: once it has been seen twice, only count it (no path, no native stack).
-            if (store.note_repeat(code, info.source_file, info.source_line, info.frame, info.value, info.limit)) {
+            // The chain of open elements, as ids. Cheap, and it is what tells two problems raised by the same check apart.
+            Clay_ElementPathEntry path[48];
+            const i32 depth = Clay_GetOpenElementPath(path, static_cast<i32>(std::size(path)));
+            u64 key_hash = 1469598103934665603ull;
+            const auto mix = [&key_hash](u64 value) noexcept { key_hash = (key_hash ^ value) * 1099511628211ull; };
+            for (i32 i = 0; i < depth && i < static_cast<i32>(std::size(path)); ++i) {
+                mix(path[i].id);
+                mix(static_cast<u64>(static_cast<u32>(path[i].childIndex)));
+            }
+            // For problems that are about one specific id, that id is part of the identity (the value is the id hash); for capacity
+            // problems the value is a changing count and must not be.
+            if (code == UiErrorCode::DuplicateId || code == UiErrorCode::FloatingParentMissing) {
+                mix(static_cast<u64>(info.value));
+            }
+            // A per-frame bug repeats every frame: once it has been seen twice, only count it (no path labels, no native stack).
+            if (store.note_repeat(code, info.source_file, info.source_line, key_hash, info.frame, info.value, info.limit)) {
                 return;
             }
             UiErrorReport report;
@@ -647,6 +661,7 @@ namespace SFT::UI {
             report.last_frame = info.frame;
             report.source_key_file = info.source_file;
             report.source_key_line = info.source_line;
+            report.key_hash = key_hash;
             if (info.message != nullptr) {
                 report.message.assign(info.message, info.message_length);
             }
@@ -669,9 +684,7 @@ namespace SFT::UI {
             }
             report.foreign_call_site = Foundation::foreign_call_site();
 
-            // The chain of open elements, by name where the name is known this frame.
-            Clay_ElementPathEntry path[48];
-            const i32 depth = Clay_GetOpenElementPath(path, static_cast<i32>(std::size(path)));
+            // The same chain, by name where the name is known this frame.
             constexpr string_view root_name = "Clay__RootContainer";
             const u32 root_id = Clay_GetElementId(Clay_String{.isStaticallyAllocated = true,
                                                               .length = static_cast<i32>(root_name.size()),
@@ -697,7 +710,12 @@ namespace SFT::UI {
                 report.element_path.push_back(std::move(label));
             }
             if (store.capture_backtraces()) {
-                report.backtrace = Foundation::Backtrace::capture(1);
+                // Prefer the trace recorded where the underlying error was found, else the stack at this report.
+                if (auto origin = Foundation::take_trace_origin()) {
+                    report.trace = std::move(*origin);
+                } else {
+                    report.trace = Foundation::TraceCapture::capture(1);
+                }
             }
             store.record(std::move(report));
         } catch (...) {
