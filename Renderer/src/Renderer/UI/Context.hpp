@@ -5,6 +5,8 @@
 #pragma region Imports
 #include <cstddef>
 #include <deque>
+#include <memory>
+#include <source_location>
 #include <glm/vec2.hpp>
 #include <optional>
 #include <span>
@@ -22,6 +24,7 @@
 
 #include <Renderer/UI/CustomElement.hpp>
 #include <Renderer/UI/Style.hpp>
+#include <Renderer/UI/UiDiagnostics.hpp>
 #include <Renderer/UI/TextBridge.hpp>
 #include <Renderer/UI/UiFill.hpp>
 #include <Renderer/UI/UiQuad.hpp>
@@ -309,8 +312,17 @@ namespace SFT::UI {
         ~Context();
 
         struct Config {
+            /// Non-zero selects a fixed-size context with exactly this many bytes, which can never grow (and truncates a layout that does not
+            /// fit it). Zero (the default) selects a growable context: it sizes itself to the layout, between frames, up to `memory_limit_bytes`.
             usize arena_capacity_bytes = 0;
-            u32 max_element_count = 8192;
+            /// Starting element budget. A growable context grows past it (and, with `allow_shrink`, returns to it) as the UI needs; a
+            /// fixed context keeps it as a hard limit.
+            u32 max_element_count = 2048;
+            /// Most memory a growable context may hold at once. 0 selects 1 GiB. Past it the layout is truncated (and reported) rather than
+            /// growing further.
+            usize memory_limit_bytes = 0;
+            /// Give memory back after the layout has needed far less than it holds for about half a minute.
+            bool allow_shrink = true;
             /// When text asks for font id 0 and nothing was registered under it, load the embedded
             /// default font instead of silently drawing nothing. Turn off for layouts that must not
             /// depend on glyph metrics (e.g. tests with hard-coded pointer positions).
@@ -325,6 +337,40 @@ namespace SFT::UI {
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] static Core::RendererExpected<Context> create(const Config &config);
+
+        // ---- debug view -----------------------------------------------------------------------------------------------------------------
+        //
+        // An inspector the layout engine can draw over the UI (the element tree, sizes, configs, warnings). Whether it exists at all, and
+        // how a user reaches it (a key, a menu item, a command line flag, an environment variable, never), is the application's decision:
+        // the engine never turns it on by itself and binds no key. Safe to switch at any time, including mid-session; the view appears from
+        // the next `begin_layout`, narrowing the layout area by the panel width.
+
+        void set_debug_view_enabled(bool enabled) noexcept;
+        [[nodiscard]] bool debug_view_enabled() const noexcept;
+
+        // ---- diagnostics ----------------------------------------------------------------------------------------------------------------
+
+        /// Everything that went wrong in this context, as data. See `UiDiagnostics`.
+        [[nodiscard]] UiDiagnostics &diagnostics() noexcept { return diagnostics_->store; }
+        [[nodiscard]] const UiDiagnostics &diagnostics() const noexcept { return diagnostics_->store; }
+
+        /// How much memory the layout engine holds and how much the last frame used of each buffer.
+        struct MemoryStats {
+            bool growable = false;
+            /// The last finished frame left something out for lack of room (see the diagnostics for what and how much).
+            bool truncated_last_frame = false;
+            usize bytes_reserved = 0;
+            usize bytes_limit = 0;
+            u32 element_budget = 0;
+            u32 grow_count = 0;
+            u32 shrink_count = 0;
+            /// What the last frame asked for against what each buffer holds. "Asked for" counts what was rejected too.
+            u32 elements_used = 0, elements_capacity = 0;
+            u32 configs_used = 0, configs_capacity = 0;
+            u32 text_lines_used = 0, text_lines_capacity = 0;
+            u32 draw_commands_used = 0, draw_commands_capacity = 0;
+        };
+        [[nodiscard]] MemoryStats memory_stats() const noexcept;
 
 
         /// Registers font using the supplied arguments and current state.
@@ -359,7 +405,8 @@ namespace SFT::UI {
         /// @param delta_seconds `delta_seconds` value used by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void begin_layout(glm::vec2 viewport_size, const PointerState &pointer = {}, f32 delta_seconds = 0.0f);
+        void begin_layout(glm::vec2 viewport_size, const PointerState &pointer = {}, f32 delta_seconds = 0.0f,
+                          std::source_location site = std::source_location::current());
 
 
         /// Returns the current layout viewport in logical UI pixels.
@@ -431,21 +478,22 @@ namespace SFT::UI {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] ElementScope element(const ElementDecl &decl);
+        [[nodiscard]] ElementScope element(const ElementDecl &decl, std::source_location site = std::source_location::current());
         /// Performs the text operation for `Context` using the supplied arguments.
         ///
         /// @param content `content` value used by the operation.
         /// @param style `style` value used by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void text(const ustr &content, const TextStyle &style);
+        void text(const ustr &content, const TextStyle &style, std::source_location site = std::source_location::current());
         /// Performs the image operation for `Context` using the supplied arguments.
         ///
         /// @param decl `decl` value used by the operation.
         /// @param texture Texture used or affected by the operation.
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        void image(const ElementDecl &decl, Renderer::TextureHandle texture, ImageSampling sampling = ImageSampling::Linear);
+        void image(const ElementDecl &decl, Renderer::TextureHandle texture, ImageSampling sampling = ImageSampling::Linear,
+                   std::source_location site = std::source_location::current());
 
 
         /// Computes the hit test text byte offset required by the supplied values.
@@ -480,7 +528,8 @@ namespace SFT::UI {
         ///
         /// @return Returns the value produced by the operation.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] ElementScope custom_element(const ElementDecl &decl, const CustomShaderRef &shader);
+        [[nodiscard]] ElementScope custom_element(const ElementDecl &decl, const CustomShaderRef &shader,
+                                                 std::source_location site = std::source_location::current());
 
 
         /// Draws one or more anti-aliased polylines (see Shaders/ui_stroke.slang) as a single leaf
@@ -727,7 +776,7 @@ namespace SFT::UI {
         ///
         /// @return Returns the current finish frame value.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-        [[nodiscard]] FrameSnapshot finish_frame();
+        [[nodiscard]] FrameSnapshot finish_frame(std::source_location site = std::source_location::current());
 
 
         /// Performs the finish frame operation for `Context` using the supplied arguments.
@@ -762,7 +811,48 @@ namespace SFT::UI {
         void scale_snapshot_to_pixels(FrameSnapshot &snapshot) const noexcept;
 
         Clay_Context *context_ = nullptr;
+        /// Backing memory of a fixed-size context (`Config::arena_capacity_bytes != 0`); empty for a growable one, which owns its own.
         vector<std::byte> arena_memory_;
+        /// Heap-allocated so the error handler registered with the layout engine keeps a stable pointer across moves of this context
+        /// (`owner` is re-pointed by the move operations).
+        struct DiagnosticsHub {
+            UiDiagnostics store;
+            Context *owner = nullptr;
+        };
+        std::unique_ptr<DiagnosticsHub> diagnostics_ = std::make_unique<DiagnosticsHub>();
+        /// The most recent UI API call (static strings from `std::source_location`), attached to any error raised while it runs.
+        struct ApiSite {
+            const char *file = nullptr;
+            const char *function = nullptr;
+            u32 line = 0;
+            u32 column = 0;
+        } api_site_;
+
+        void note_call_site(const std::source_location &site) noexcept {
+            api_site_ = ApiSite{site.file_name(), site.function_name(), site.line(), site.column()};
+        }
+
+      public:
+        /// A problem found by the layout engine, in the engine's own terms (no layout-engine types leak into this header). Internal: the
+        /// registered error handler fills this in and hands it to `report_layout_error`.
+        struct LayoutErrorInfo {
+            u32 type = 0;
+            u32 detail = 0;
+            i64 value = 0;
+            i64 limit = 0;
+            const char *message = nullptr;
+            usize message_length = 0;
+            const char *source_file = nullptr;
+            const char *source_function = nullptr;
+            i32 source_line = 0;
+            u32 frame = 0;
+        };
+        /// Turns a layout-engine problem into a `UiErrorReport` (path, call sites, native stack) and records it. Never throws.
+        void report_layout_error(const LayoutErrorInfo &info) noexcept;
+        /// Entry point for the registered handler: `hub` is the opaque pointer given to the layout engine when the context was created.
+        static void dispatch_layout_error(void *hub, const LayoutErrorInfo &info) noexcept;
+
+      private:
         TextBridge text_bridge_;
 
 

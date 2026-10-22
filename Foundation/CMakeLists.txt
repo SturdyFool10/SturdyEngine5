@@ -14,6 +14,9 @@ sturdy_add_package(Foundation
 # needed here rather than pulling in the whole WindowManager package for it.
 if(STURDY_OS STREQUAL "Windows")
     target_compile_definitions(Foundation PUBLIC STURDY_PLATFORM_WINDOWS=1)
+    # Diagnostics.cpp resolves native backtrace frames through DbgHelp (the #pragma comment(lib) there only helps MSVC-style
+    # linkers; MinGW needs it named).
+    target_link_libraries(Foundation PRIVATE dbghelp)
 endif()
 
 # DynamicLibrary.cpp's dlopen/dlsym/dlclose need libdl on platforms where those symbols aren't

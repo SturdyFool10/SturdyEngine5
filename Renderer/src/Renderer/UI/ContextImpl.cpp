@@ -297,19 +297,54 @@ namespace SFT::UI {
             };
         }
 
-        /// Performs the clay error handler operation for `UI` using the supplied arguments.
-        ///
-        /// @param error Error value describing the failure.
-        ///
-        /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        /// The layout engine's error callback. Hands the problem to the owning context as plain data; nothing here throws or unwinds,
+        /// because this runs inside the engine's layout code (and, for foreign callers, inside a call that cannot propagate exceptions).
         void clay_error_handler(Clay_ErrorData error) {
-            // Layout errors are typically caused by a real, persistent bug in whatever declared this
-            // frame's elements (a duplicate id, a stack overflow, ...) and so fire again every single
-            // frame until fixed — throttled to keep that from burying the rest of the log, but still
-            // reported regularly (with a suppressed-call count) rather than only once, so it stays
-            // visible for as long as the underlying bug is still there.
-            SFT_LOG_ERROR_THROTTLED(2000, "Clay UI layout error: {}",
-                                    string_view{error.errorText.chars, static_cast<usize>(error.errorText.length)});
+            Context::LayoutErrorInfo info;
+            info.type = static_cast<u32>(error.errorType);
+            info.detail = static_cast<u32>(error.detail);
+            info.value = error.value;
+            info.limit = error.limit;
+            info.message = error.errorText.chars;
+            info.message_length = error.errorText.length > 0 ? static_cast<usize>(error.errorText.length) : 0;
+            info.source_file = error.sourceFile;
+            info.source_function = error.sourceFunction;
+            info.source_line = error.sourceLine;
+            info.frame = error.frame;
+            Context::dispatch_layout_error(error.userData, info);
+        }
+
+        /// Maps a layout-engine problem onto the stable UI error code and a severity.
+        void classify(const Context::LayoutErrorInfo &info, bool growable, UiErrorCode &code, UiSeverity &severity) noexcept {
+            // Capacity problems heal themselves in a growable context (it resizes before the next frame); in a fixed one they persist.
+            const UiSeverity capacity_severity = growable ? UiSeverity::Warning : UiSeverity::Error;
+            severity = UiSeverity::Error;
+            switch (static_cast<Clay_ErrorDetail>(info.detail)) {
+                case CLAY_ERROR_DETAIL_ELEMENTS: code = UiErrorCode::ElementLimit; severity = capacity_severity; return;
+                case CLAY_ERROR_DETAIL_ELEMENT_CONFIGS: code = UiErrorCode::ElementConfigLimit; severity = capacity_severity; return;
+                case CLAY_ERROR_DETAIL_WRAPPED_TEXT_LINES: code = UiErrorCode::TextLineLimit; severity = capacity_severity; return;
+                case CLAY_ERROR_DETAIL_RENDER_COMMANDS: code = UiErrorCode::DrawCommandLimit; severity = capacity_severity; return;
+                case CLAY_ERROR_DETAIL_TEXT_MEASURE_ITEMS:
+                case CLAY_ERROR_DETAIL_TEXT_MEASURE_WORDS: code = UiErrorCode::TextCacheLimit; severity = UiSeverity::Warning; return;
+                case CLAY_ERROR_DETAIL_ELEMENT_ID_MAP: code = UiErrorCode::ElementLimit; severity = capacity_severity; return;
+                case CLAY_ERROR_DETAIL_DYNAMIC_STRINGS: code = UiErrorCode::DynamicStringLimit; severity = UiSeverity::Warning; return;
+                case CLAY_ERROR_DETAIL_TRAVERSAL_STACK: code = UiErrorCode::TraversalOverflow; return;
+                case CLAY_ERROR_DETAIL_UNBALANCED_CLOSE: code = UiErrorCode::UnbalancedClose; return;
+                case CLAY_ERROR_DETAIL_BAD_TEXT_ARGUMENT: code = UiErrorCode::InvalidArgument; severity = UiSeverity::Warning; return;
+                case CLAY_ERROR_DETAIL_OUT_OF_BOUNDS_ACCESS: code = UiErrorCode::InternalBoundsViolation; return;
+                case CLAY_ERROR_DETAIL_ARENA_TOO_SMALL: code = UiErrorCode::FixedArenaTooSmall; return;
+                case CLAY_ERROR_DETAIL_SETTING_IGNORED: code = UiErrorCode::SettingIgnored; severity = UiSeverity::Warning; return;
+                case CLAY_ERROR_DETAIL_MEMORY_LIMIT: code = UiErrorCode::MemoryLimitReached; return;
+                case CLAY_ERROR_DETAIL_ALLOCATION: code = UiErrorCode::AllocationFailed; return;
+                case CLAY_ERROR_DETAIL_GREW:
+                case CLAY_ERROR_DETAIL_SHRANK: code = UiErrorCode::Resized; severity = UiSeverity::Info; return;
+                case CLAY_ERROR_DETAIL_MEASURE_FUNCTION: code = UiErrorCode::MeasureFunctionMissing; return;
+                case CLAY_ERROR_DETAIL_DUPLICATE_ID: code = UiErrorCode::DuplicateId; severity = UiSeverity::Warning; return;
+                case CLAY_ERROR_DETAIL_FLOATING_PARENT: code = UiErrorCode::FloatingParentMissing; severity = UiSeverity::Warning; return;
+                case CLAY_ERROR_DETAIL_PERCENTAGE: code = UiErrorCode::PercentageOverOne; severity = UiSeverity::Warning; return;
+                case CLAY_ERROR_DETAIL_NONE: break;
+            }
+            code = UiErrorCode::Other;
         }
 
     } // namespace
@@ -364,6 +399,8 @@ namespace SFT::UI {
     Context::Context(Context &&other) noexcept
         : context_(std::exchange(other.context_, nullptr)),
           arena_memory_(std::move(other.arena_memory_)),
+          diagnostics_(std::move(other.diagnostics_)),
+          api_site_(other.api_site_),
           text_bridge_(std::move(other.text_bridge_)),
           text_storage_(std::move(other.text_storage_)),
           image_storage_(std::move(other.image_storage_)),
@@ -391,6 +428,9 @@ namespace SFT::UI {
           z_stack_(std::move(other.z_stack_)) {
 
 
+        if (diagnostics_) {
+            diagnostics_->owner = this;
+        }
         if (context_ != nullptr) {
             Clay_SetCurrentContext(context_);
             Clay_SetMeasureTextFunction(&TextBridge::measure_callback, &text_bridge_);
@@ -405,9 +445,19 @@ namespace SFT::UI {
     /// @note This function does not throw exceptions.
     Context &Context::operator=(Context &&other) noexcept {
         if (this != &other) {
+            // The host's long-lived settings survive being replaced: the UI is rebuilt wholesale on a device change or an HDR toggle
+            // (the engine move-assigns a fresh context over the live one), and the app's diagnostics callback, its collected reports and
+            // its debug-view choice must not be silently reset by that.
+            const bool keep_debug_view = context_ != nullptr && debug_view_enabled();
+            std::unique_ptr<DiagnosticsHub> kept_hub = std::move(diagnostics_);
             destroy();
             context_ = std::exchange(other.context_, nullptr);
             arena_memory_ = std::move(other.arena_memory_);
+            diagnostics_ = kept_hub ? std::move(kept_hub) : std::move(other.diagnostics_);
+            if (diagnostics_) {
+                diagnostics_->owner = this;
+            }
+            api_site_ = other.api_site_;
             text_bridge_ = std::move(other.text_bridge_);
             text_storage_ = std::move(other.text_storage_);
             image_storage_ = std::move(other.image_storage_);
@@ -437,6 +487,13 @@ namespace SFT::UI {
             if (context_ != nullptr) {
                 Clay_SetCurrentContext(context_);
                 Clay_SetMeasureTextFunction(&TextBridge::measure_callback, &text_bridge_);
+                // The incoming layout context reports to the hub it was created with; point it at the one we kept.
+                if (diagnostics_) {
+                    Clay_SetErrorHandler(Clay_ErrorHandler{.errorHandlerFunction = &clay_error_handler, .userData = diagnostics_.get()});
+                }
+                if (keep_debug_view) {
+                    Clay_SetDebugModeEnabled(true);
+                }
             }
         }
         return *this;
@@ -466,23 +523,41 @@ namespace SFT::UI {
         // Forcing "no current context" here routes both calls through Clay's actual global-default path,
         // independent of whatever other UI::Context instances already exist.
         Clay_SetCurrentContext(nullptr);
-        if (config.max_element_count != 0) {
-            Clay_SetMaxElementCount(static_cast<i32>(config.max_element_count));
-        }
-        // A launcher shows far more distinct words than Clay's default 16384 (logs, mod lists, descriptions).
-        Clay_SetMaxMeasureTextCacheWordCount(131072);
-        const usize required = config.arena_capacity_bytes != 0 ? config.arena_capacity_bytes
-                                                                  : static_cast<usize>(Clay_MinMemorySize());
 
         Context result;
-        result.arena_memory_.resize(required);
-        Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(required, result.arena_memory_.data());
-        Clay_Context *context = Clay_Initialize(
-            arena, Clay_Dimensions{.width = 1.0f, .height = 1.0f},
-            Clay_ErrorHandler{.errorHandlerFunction = &clay_error_handler, .userData = nullptr});
+        result.diagnostics_->owner = &result;
+        const Clay_ErrorHandler handler{.errorHandlerFunction = &clay_error_handler, .userData = result.diagnostics_.get()};
+        Clay_Context *context = nullptr;
+        if (config.arena_capacity_bytes != 0) {
+            // Fixed-size context: the caller chose the exact memory, so it is a hard limit.
+            if (config.max_element_count != 0) {
+                Clay_SetMaxElementCount(static_cast<i32>(config.max_element_count));
+            }
+            Clay_SetMaxMeasureTextCacheWordCount(131072);
+            result.arena_memory_.resize(config.arena_capacity_bytes);
+            Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(config.arena_capacity_bytes, result.arena_memory_.data());
+            context = Clay_Initialize(arena, Clay_Dimensions{.width = 1.0f, .height = 1.0f}, handler);
+        } else {
+            Clay_GrowableConfig growable{};
+            growable.layoutDimensions = Clay_Dimensions{.width = 1.0f, .height = 1.0f};
+            growable.errorHandler = handler;
+            growable.initialElementCount = static_cast<i32>(config.max_element_count);
+            // A launcher shows far more distinct words than a small default (logs, mod lists, descriptions); the cache grows past this.
+            growable.initialMeasureWordCount = 32768;
+            growable.memoryLimitBytes = config.memory_limit_bytes;
+            growable.allowShrink = config.allow_shrink;
+            context = Clay_InitializeGrowable(&growable);
+        }
         if (context == nullptr) {
-            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed,
-                                                "Clay_Initialize failed (arena too small).");
+            std::string reason = config.arena_capacity_bytes != 0
+                                     ? "UI layout context could not be created: the fixed arena is too small for the requested element count."
+                                     : "UI layout context could not be created: the allocator refused the initial memory.";
+            // Whatever the layout engine reported while failing (with the numbers) is the most useful detail.
+            if (!result.diagnostics_->store.reports().empty()) {
+                const UiErrorReport &first = result.diagnostics_->store.reports().front();
+                reason += std::format(" Detail: {} (wanted {}, had {}).", first.message, first.value, first.limit);
+            }
+            return Core::graphics_backend_error(Core::GraphicsBackendErrorCode::OperationFailed, reason);
         }
         result.context_ = context;
         result.text_bridge_.set_load_default_font(config.load_default_font);
@@ -497,6 +572,136 @@ namespace SFT::UI {
     void Context::set_current() const noexcept {
         if (context_ != nullptr) {
             Clay_SetCurrentContext(context_);
+        }
+    }
+
+    void Context::set_debug_view_enabled(bool enabled) noexcept {
+        if (context_ != nullptr) {
+            set_current();
+            Clay_SetDebugModeEnabled(enabled);
+        }
+    }
+
+    bool Context::debug_view_enabled() const noexcept {
+        if (context_ == nullptr) {
+            return false;
+        }
+        set_current();
+        return Clay_IsDebugModeEnabled();
+    }
+
+    Context::MemoryStats Context::memory_stats() const noexcept {
+        MemoryStats out;
+        if (context_ == nullptr) {
+            return out;
+        }
+        set_current();
+        const Clay_MemoryStats s = Clay_GetMemoryStats();
+        out.growable = s.growable;
+        out.truncated_last_frame = s.truncatedLastLayout;
+        out.bytes_reserved = s.bytesReserved;
+        out.bytes_limit = s.bytesLimit;
+        out.element_budget = static_cast<u32>(s.elementBudget);
+        out.grow_count = s.growCount;
+        out.shrink_count = s.shrinkCount;
+        out.elements_used = static_cast<u32>(s.usedElements);
+        out.elements_capacity = static_cast<u32>(s.capacityElements);
+        out.configs_used = static_cast<u32>(s.usedElementConfigs);
+        out.configs_capacity = static_cast<u32>(s.capacityElementConfigs);
+        out.text_lines_used = static_cast<u32>(s.usedWrappedTextLines);
+        out.text_lines_capacity = static_cast<u32>(s.capacityWrappedTextLines);
+        out.draw_commands_used = static_cast<u32>(s.usedRenderCommands);
+        out.draw_commands_capacity = static_cast<u32>(s.capacityRenderCommands);
+        return out;
+    }
+
+    void Context::dispatch_layout_error(void *hub, const LayoutErrorInfo &info) noexcept {
+        if (hub == nullptr) {
+            return;
+        }
+        auto *typed = static_cast<DiagnosticsHub *>(hub);
+        if (typed->owner != nullptr) {
+            typed->owner->report_layout_error(info);
+        }
+    }
+
+    void Context::report_layout_error(const LayoutErrorInfo &info) noexcept {
+        if (!diagnostics_) {
+            return;
+        }
+        try {
+            const bool growable = context_ != nullptr && Clay_GetCurrentContext() == context_ && Clay_GetMemoryStats().growable;
+            UiErrorCode code = UiErrorCode::Other;
+            UiSeverity severity = UiSeverity::Error;
+            classify(info, growable, code, severity);
+            UiDiagnostics &store = diagnostics_->store;
+            // A per-frame bug repeats every frame: once it has been seen twice, only count it (no path, no native stack).
+            if (store.note_repeat(code, info.source_file, info.source_line, info.frame, info.value, info.limit)) {
+                return;
+            }
+            UiErrorReport report;
+            report.code = code;
+            report.severity = severity;
+            report.value = info.value;
+            report.limit = info.limit;
+            report.last_frame = info.frame;
+            report.source_key_file = info.source_file;
+            report.source_key_line = info.source_line;
+            if (info.message != nullptr) {
+                report.message.assign(info.message, info.message_length);
+            }
+            if (code == UiErrorCode::Resized) {
+                report.message = std::format("The UI layout context resized itself from {} to {} elements.", info.limit, info.value);
+            } else if (code == UiErrorCode::ElementLimit || code == UiErrorCode::ElementConfigLimit || code == UiErrorCode::TextLineLimit ||
+                       code == UiErrorCode::DrawCommandLimit) {
+                report.message += growable ? " (this context will grow to fit before the next frame)" : " (this context is fixed-size and cannot grow)";
+            }
+            if (info.source_file != nullptr) {
+                report.engine_source = std::format("{}:{} ({})", info.source_file, info.source_line,
+                                                   info.source_function != nullptr ? info.source_function : "?");
+            }
+            if (api_site_.file != nullptr) {
+                report.api_call_site.language = "c++";
+                report.api_call_site.file = api_site_.file;
+                report.api_call_site.line = api_site_.line;
+                report.api_call_site.column = api_site_.column;
+                report.api_call_site.function = api_site_.function != nullptr ? api_site_.function : "";
+            }
+            report.foreign_call_site = Foundation::foreign_call_site();
+
+            // The chain of open elements, by name where the name is known this frame.
+            Clay_ElementPathEntry path[48];
+            const i32 depth = Clay_GetOpenElementPath(path, static_cast<i32>(std::size(path)));
+            constexpr string_view root_name = "Clay__RootContainer";
+            const u32 root_id = Clay_GetElementId(Clay_String{.isStaticallyAllocated = true,
+                                                              .length = static_cast<i32>(root_name.size()),
+                                                              .chars = root_name.data()}).id;
+            for (i32 i = 0; i < depth && i < static_cast<i32>(std::size(path)); ++i) {
+                const Clay_ElementPathEntry &entry = path[i];
+                if (entry.id == root_id) {
+                    report.element_path.emplace_back("<root>");
+                    continue;
+                }
+                std::string label;
+                for (const string &name : current_frame_ids_) {
+                    const Clay_ElementId candidate = Clay_GetElementId(Clay_String{
+                        .isStaticallyAllocated = false, .length = static_cast<i32>(name.size()), .chars = name.data()});
+                    if (candidate.id == entry.id) {
+                        label = name;
+                        break;
+                    }
+                }
+                if (label.empty()) {
+                    label = std::format("<anonymous child {}>", entry.childIndex);
+                }
+                report.element_path.push_back(std::move(label));
+            }
+            if (store.capture_backtraces()) {
+                report.backtrace = Foundation::Backtrace::capture(1);
+            }
+            store.record(std::move(report));
+        } catch (...) {
+            // Reporting must never become a second failure inside the layout; the problem is simply not recorded.
         }
     }
 
@@ -528,7 +733,8 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void Context::begin_layout(glm::vec2 viewport_size, const PointerState &pointer, f32 delta_seconds) {
+    void Context::begin_layout(glm::vec2 viewport_size, const PointerState &pointer, f32 delta_seconds, std::source_location site) {
+        note_call_site(site);
         const auto layout_dimension = [](f32 value) noexcept {
             constexpr f32 max_exact_pixel_dimension = 16777216.0f;
             if (!std::isfinite(value) || value <= 0.0f) {
@@ -625,7 +831,8 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    ElementScope Context::element(const ElementDecl &decl) {
+    ElementScope Context::element(const ElementDecl &decl, std::source_location site) {
+        note_call_site(site);
         set_current();
         if (!decl.id.empty()) {
             current_frame_ids_.push_back(decl.id.cpp_string());
@@ -663,7 +870,8 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void Context::text(const ustr &content, const TextStyle &style) {
+    void Context::text(const ustr &content, const TextStyle &style, std::source_location site) {
+        note_call_site(site);
         set_current();
         const UString utf8{content};
         text_storage_.push_back(string{utf8.cpp_string_view()});
@@ -753,7 +961,8 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    void Context::image(const ElementDecl &decl, Renderer::TextureHandle texture, ImageSampling sampling) {
+    void Context::image(const ElementDecl &decl, Renderer::TextureHandle texture, ImageSampling sampling, std::source_location site) {
+        note_call_site(site);
         set_current();
         if (!decl.id.empty()) {
             current_frame_ids_.push_back(decl.id.cpp_string());
@@ -900,7 +1109,8 @@ namespace SFT::UI {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    ElementScope Context::custom_element(const ElementDecl &decl, const CustomShaderRef &shader) {
+    ElementScope Context::custom_element(const ElementDecl &decl, const CustomShaderRef &shader, std::source_location site) {
+        note_call_site(site);
         set_current();
         if (!decl.id.empty()) {
             current_frame_ids_.push_back(decl.id.cpp_string());
@@ -1341,7 +1551,8 @@ namespace SFT::UI {
     ///
     /// @return Returns the current finish frame value.
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
-    FrameSnapshot Context::finish_frame() {
+    FrameSnapshot Context::finish_frame(std::source_location site) {
+        note_call_site(site);
         set_current();
         FrameSnapshot snapshot;
         snapshot.full_viewport_scissor_ = RHI::Rect2D{
@@ -1352,6 +1563,18 @@ namespace SFT::UI {
         };
 
         Clay_RenderCommandArray commands = Clay_EndLayout();
+        if (diagnostics_) {
+            // Capacity problems were noticed part-way through the frame, when only a lower bound of the need was known; now the
+            // frame is complete, put the real totals in the reports.
+            const Clay_MemoryStats stats = Clay_GetMemoryStats();
+            if (stats.truncatedLastLayout) {
+                UiDiagnostics &store = diagnostics_->store;
+                store.update_numbers(UiErrorCode::ElementLimit, stats.frame, stats.usedElements, stats.capacityElements);
+                store.update_numbers(UiErrorCode::ElementConfigLimit, stats.frame, stats.usedElementConfigs, stats.capacityElementConfigs);
+                store.update_numbers(UiErrorCode::TextLineLimit, stats.frame, stats.usedWrappedTextLines, stats.capacityWrappedTextLines);
+                store.update_numbers(UiErrorCode::DrawCommandLimit, stats.frame, stats.usedRenderCommands, stats.capacityRenderCommands);
+            }
+        }
 
         unordered_map<string, ElementBounds> completed_bounds;
         completed_bounds.reserve(current_frame_ids_.size());
@@ -1711,19 +1934,11 @@ namespace SFT::UI {
 
 
         if (context_ != nullptr) {
-            // scrollContainerDatas may have outgrown its original arena-allocated slice (see
-            // Clay__GrowArrayStorage in clay.h) and now points at a separately malloc'd heap buffer --
-            // freeing arena_memory_ below wouldn't release that. Detected the same way growth itself
-            // detects "is this still the original arena pointer": outside arena_memory_'s own range.
-            const auto *arena_begin = reinterpret_cast<const std::byte *>(arena_memory_.data());
-            const auto *arena_end = arena_begin + arena_memory_.size();
-            const auto *scroll_data = reinterpret_cast<const std::byte *>(context_->scrollContainerDatas.internalArray);
-            if (scroll_data != nullptr && !(scroll_data >= arena_begin && scroll_data < arena_end)) {
-                std::free(context_->scrollContainerDatas.internalArray);
-            }
-            if (Clay_GetCurrentContext() == context_) {
-                Clay_SetCurrentContext(nullptr);
-            }
+            // Clay keeps a few buffers on the heap outside its arena (scroll container storage that outgrew
+            // its arena slice, and the scroll id index) -- freeing arena_memory_ below wouldn't release them.
+            // Frees everything a growable context owns (its blocks and the context itself); for a fixed-size one only the few heap
+            // buffers it can own, since its arena (arena_memory_) is released below.
+            Clay_DestroyContext(context_);
         }
         context_ = nullptr;
         arena_memory_.clear();

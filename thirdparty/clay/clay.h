@@ -21,6 +21,26 @@
 //     so skipping SCISSOR_START left an unbalanced pair that corrupted scissor-stack state for every
 //     sibling declared after it.
 //
+//   - Memory-safety hardening pass (bounds/overflow audit). Every change is marked "HARDENING" inline:
+//       * Arena allocation is overflow-checked; a failed allocation yields a zero-capacity array (never a
+//         NULL array with a non-zero capacity) and makes Clay_Initialize return NULL.
+//       * The warnings array was allocated with sizeof(Clay_String) per item instead of
+//         sizeof(Clay__Warning) (half the needed size) -- a real arena overflow.
+//       * Array accessors reject negative lengths/NULL storage, and the shared "_DEFAULT" sentinels handed
+//         back on failure are re-zeroed first (callers write through them) and are now thread-local.
+//       * Clay__currentContext is thread-local, so contexts driven from different threads cannot clobber
+//         each other's "current context".
+//       * elementConfigs/wrappedTextLines/renderCommands get larger capacities (they legitimately hold
+//         several entries per element), and a full array no longer inflates per-element slice lengths past
+//         the real storage (previously an out-of-bounds read into neighbouring arena arrays).
+//       * Wrapped-line construction bounds-checks measured-word offsets against the text and no longer
+//         reads text[-1]; the measure cache verifies text length (hash-collision safety), no longer leaks
+//         slots when a measure fails part way, derives its bucket count from the real table size, and
+//         can reclaim stale items on demand.
+//       * Unbalanced Clay__CloseElement, negative stack lengths, >20 configs per element, unchecked DFS
+//         pushes, dynamic string buffers and pointer-state clip lookups are all bounds-checked.
+//       * Clay_ReleaseContextResources() frees the heap storage a context may own.
+//
 // Do not silently pull a fresh copy of clay.h over this file — these fixes are load-bearing for this
 // engine's UI (real, reproduced correctness bugs, not speculative). Re-apply them (or re-verify they
 // still apply) if upstream is ever re-merged.
@@ -815,7 +835,42 @@ typedef CLAY_PACKED_ENUM {
     CLAY_ERROR_TYPE_PERCENTAGE_OVER_1,
     // Clay encountered an internal error. It would be wonderful if you could report this so we can fix it!
     CLAY_ERROR_TYPE_INTERNAL_ERROR,
+    // HARDENING+: an argument or call sequence was invalid (a close with nothing open, text with a negative length, ...). The call was ignored.
+    CLAY_ERROR_TYPE_INVALID_USAGE,
+    // HARDENING+: a growable context reached its configured memory limit, so it can no longer grow to fit the layout. The layout is truncated.
+    CLAY_ERROR_TYPE_MEMORY_LIMIT_REACHED,
+    // HARDENING+: the allocator refused a request. The context keeps running at its previous size.
+    CLAY_ERROR_TYPE_ALLOCATION_FAILED,
+    // HARDENING+: not a fault: the context resized itself. Reported so a host can log or tune initial sizes.
+    CLAY_ERROR_TYPE_RESIZED,
 } Clay_ErrorType;
+
+// HARDENING+: the precise condition behind an error, stable across versions, for hosts that want to react or map it onto their own codes.
+typedef CLAY_PACKED_ENUM {
+    CLAY_ERROR_DETAIL_NONE = 0,
+    CLAY_ERROR_DETAIL_ELEMENTS,
+    CLAY_ERROR_DETAIL_ELEMENT_CONFIGS,
+    CLAY_ERROR_DETAIL_WRAPPED_TEXT_LINES,
+    CLAY_ERROR_DETAIL_RENDER_COMMANDS,
+    CLAY_ERROR_DETAIL_TEXT_MEASURE_ITEMS,
+    CLAY_ERROR_DETAIL_TEXT_MEASURE_WORDS,
+    CLAY_ERROR_DETAIL_ELEMENT_ID_MAP,
+    CLAY_ERROR_DETAIL_DYNAMIC_STRINGS,
+    CLAY_ERROR_DETAIL_TRAVERSAL_STACK,
+    CLAY_ERROR_DETAIL_UNBALANCED_CLOSE,
+    CLAY_ERROR_DETAIL_BAD_TEXT_ARGUMENT,
+    CLAY_ERROR_DETAIL_OUT_OF_BOUNDS_ACCESS,
+    CLAY_ERROR_DETAIL_ARENA_TOO_SMALL,
+    CLAY_ERROR_DETAIL_SETTING_IGNORED,
+    CLAY_ERROR_DETAIL_MEMORY_LIMIT,
+    CLAY_ERROR_DETAIL_ALLOCATION,
+    CLAY_ERROR_DETAIL_GREW,
+    CLAY_ERROR_DETAIL_SHRANK,
+    CLAY_ERROR_DETAIL_MEASURE_FUNCTION,
+    CLAY_ERROR_DETAIL_DUPLICATE_ID,
+    CLAY_ERROR_DETAIL_FLOATING_PARENT,
+    CLAY_ERROR_DETAIL_PERCENTAGE,
+} Clay_ErrorDetail;
 
 // Data to identify the error that clay has encountered.
 typedef struct Clay_ErrorData {
@@ -833,7 +888,31 @@ typedef struct Clay_ErrorData {
     Clay_String errorText;
     // A transparent pointer passed through from when the error handler was first provided.
     void *userData;
+    // HARDENING+ (everything below is zero for errors raised by code that predates these fields) ---------------------------------
+    // The precise condition (see Clay_ErrorDetail).
+    Clay_ErrorDetail detail;
+    // For capacity errors: how many entries the layout wanted, and how many the buffer holds. Otherwise 0.
+    int64_t value;
+    int64_t limit;
+    // Where inside Clay the check that failed lives (static strings, valid forever).
+    const char *sourceFile;
+    const char *sourceFunction;
+    int32_t sourceLine;
+    // The layout generation (frame counter) the error happened in.
+    uint32_t frame;
 } Clay_ErrorData;
+
+// HARDENING+: one open element on the path from the layout root to the innermost open element.
+typedef struct Clay_ElementPathEntry {
+    // Hashed id of the element, 0 while it has none yet (anonymous elements get theirs when first queried).
+    uint32_t id;
+    // The numeric offset used with the id (CLAY_IDI index).
+    uint32_t offset;
+    // Its position among the parent's children declared so far.
+    int32_t childIndex;
+    // 1 when the element is a text element or another kind of leaf.
+    int32_t isText;
+} Clay_ElementPathEntry;
 
 // A wrapper struct around Clay's error handler function.
 typedef struct {
@@ -862,6 +941,69 @@ CLAY_DLL_EXPORT void Clay_SetPointerState(Clay_Vector2 position, bool pointerDow
 // - layoutDimensions are the initial bounding dimensions of the layout (i.e. the screen width and height for a full screen layout)
 // - errorHandler is used by Clay to inform you if something has gone wrong in configuration or layout.
 CLAY_DLL_EXPORT Clay_Context* Clay_Initialize(Clay_Arena arena, Clay_Dimensions layoutDimensions, Clay_ErrorHandler errorHandler);
+
+// HARDENING+: growable contexts -------------------------------------------------------------------------------------------------
+// A fixed-arena context (Clay_Initialize) has hard limits sized up front. A growable context owns its memory and resizes itself
+// between frames to fit what the layout actually needs, so there is no per-layout element/command limit, only a memory limit the host
+// chooses. Growth happens in Clay_BeginLayout (never mid-layout, which would invalidate pointers the layout holds); a layout that
+// outgrows the current size is truncated for that one frame -- every element past the limit is ignored, the rest is laid out and
+// rendered normally, and an error with the exact numbers is reported -- and the next frame has room.
+
+// Hooks for the memory a growable context uses. Leave all members NULL for malloc/free. The allocator must return memory aligned to at
+// least 16 bytes (malloc does) and may return NULL to refuse; Clay then keeps running at its previous size and reports the refusal.
+typedef struct Clay_Allocator {
+    void *(*allocate)(size_t size, void *userData);
+    void (*release)(void *memory, size_t size, void *userData);
+    void *userData;
+} Clay_Allocator;
+
+typedef struct Clay_GrowableConfig {
+    Clay_Dimensions layoutDimensions;
+    Clay_ErrorHandler errorHandler;
+    Clay_Allocator allocator;
+    // Starting size, in elements. 0 selects a default. The context grows (and optionally shrinks) from here.
+    int32_t initialElementCount;
+    // Starting size of the measured-word cache. 0 selects a default.
+    int32_t initialMeasureWordCount;
+    // Upper bound on the memory the context may hold at once. 0 selects 1 GiB. At the limit the layout truncates rather than growing.
+    size_t memoryLimitBytes;
+    // Give memory back after the layout has needed far less than it holds for a long time.
+    bool allowShrink;
+} Clay_GrowableConfig;
+
+typedef struct Clay_MemoryStats {
+    bool growable;
+    // The layout generation (frame counter) of the most recent finished layout.
+    uint32_t frame;
+    // True when the most recent layout had to leave elements, configs, text lines or commands out because it ran out of room.
+    bool truncatedLastLayout;
+    size_t bytesReserved;
+    size_t bytesLimit;
+    int32_t elementBudget;
+    int32_t measureWordBudget;
+    // What the most recent layout asked for (counting what was rejected), against what a buffer holds.
+    int32_t usedElements, capacityElements;
+    int32_t usedElementConfigs, capacityElementConfigs;
+    int32_t usedWrappedTextLines, capacityWrappedTextLines;
+    int32_t usedRenderCommands, capacityRenderCommands;
+    uint32_t growCount;
+    uint32_t shrinkCount;
+} Clay_MemoryStats;
+
+// Creates a context that owns and manages its own memory. Returns NULL if the first allocation fails (after reporting it).
+CLAY_DLL_EXPORT Clay_Context* Clay_InitializeGrowable(const Clay_GrowableConfig *config);
+// Releases a context made by Clay_InitializeGrowable (including the context itself). For a fixed-arena context this only releases the
+// few heap buffers such a context can own; its arena stays the caller's to free. Safe with NULL. The context must not be current on
+// another thread.
+CLAY_DLL_EXPORT void Clay_DestroyContext(Clay_Context* context);
+// Replaces the error handler (function and user data) of the current context. For hosts that move a context's ownership around and need
+// errors to keep reaching the right place.
+CLAY_DLL_EXPORT void Clay_SetErrorHandler(Clay_ErrorHandler errorHandler);
+// Memory and utilisation figures for the current context.
+CLAY_DLL_EXPORT Clay_MemoryStats Clay_GetMemoryStats(void);
+// Copies the chain of currently open elements, outermost first, into `out` (up to `capacity` entries) and returns how many are open.
+// Meant for error handlers: it describes where in the layout tree the call that failed was made.
+CLAY_DLL_EXPORT int32_t Clay_GetOpenElementPath(Clay_ElementPathEntry *out, int32_t capacity);
 // Returns the Context that clay is currently using. Used when using multiple instances of clay simultaneously.
 CLAY_DLL_EXPORT Clay_Context* Clay_GetCurrentContext(void);
 // Sets the context that clay will use to compute the layout.
@@ -939,6 +1081,11 @@ CLAY_DLL_EXPORT void Clay_SetMaxMeasureTextCacheWordCount(int32_t maxMeasureText
 // Resets Clay's internal text measurement cache. Useful if font mappings have changed or fonts have been reloaded.
 CLAY_DLL_EXPORT void Clay_ResetMeasureTextCache(void);
 
+// HARDENING: frees the few buffers a context can own on the heap outside its arena (scroll container storage that
+// outgrew its arena slice, and the scroll id index). Call once before releasing the arena memory of a context that is
+// no longer used. Safe to call with NULL.
+CLAY_DLL_EXPORT void Clay_ReleaseContextResources(Clay_Context* context);
+
 // Internal API functions required by macros ----------------------
 
 CLAY_DLL_EXPORT void Clay__OpenElement(void);
@@ -973,6 +1120,22 @@ extern uint32_t Clay__debugViewWidth;
 #define CLAY__MAXFLOAT 3.40282346638528859812e+38F
 #endif
 
+// HARDENING: the "current context" and the failure sentinels below are per-thread, so UI contexts driven from
+// different threads (one per window) cannot clobber each other's state.
+#ifndef CLAY__THREAD_LOCAL
+    #if defined(__cplusplus)
+        #define CLAY__THREAD_LOCAL thread_local
+    #elif defined(_MSC_VER)
+        #define CLAY__THREAD_LOCAL __declspec(thread)
+    #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_THREADS__)
+        #define CLAY__THREAD_LOCAL _Thread_local
+    #elif defined(__GNUC__) || defined(__clang__)
+        #define CLAY__THREAD_LOCAL __thread
+    #else
+        #define CLAY__THREAD_LOCAL
+    #endif
+#endif
+
 Clay_LayoutConfig CLAY_LAYOUT_DEFAULT = CLAY__DEFAULT_STRUCT;
 
 Clay_Color Clay__Color_DEFAULT = CLAY__DEFAULT_STRUCT;
@@ -988,45 +1151,55 @@ typedef struct                                                                  
     typeName *internalArray;                                                                                    \
 } arrayName##Slice;                                                                                             \
                                                                                                                 \
-typeName typeName##_DEFAULT = CLAY__DEFAULT_STRUCT;                                                             \
+CLAY__THREAD_LOCAL typeName typeName##_DEFAULT = CLAY__DEFAULT_STRUCT;                                          \
                                                                                                                 \
-arrayName arrayName##_Allocate_Arena(int32_t capacity, Clay_Arena *arena) {                                     \
-    return CLAY__INIT(arrayName){.capacity = capacity, .length = 0,                                             \
-        .internalArray = (typeName *)Clay__Array_Allocate_Arena(capacity, sizeof(typeName), arena)};            \
-}                                                                                                               \
-                                                                                                                \
-typeName *arrayName##_Get(arrayName *array, int32_t index) {                                                    \
-    return Clay__Array_RangeCheck(index, array->length) ? &array->internalArray[index] : &typeName##_DEFAULT;   \
-}                                                                                                               \
-                                                                                                                \
-typeName arrayName##_GetValue(arrayName *array, int32_t index) {                                                \
-    return Clay__Array_RangeCheck(index, array->length) ? array->internalArray[index] : typeName##_DEFAULT;     \
-}                                                                                                               \
-                                                                                                                \
-typeName *arrayName##_Add(arrayName *array, typeName item) {                                                    \
-    if (Clay__Array_AddCapacityCheck(array->length, array->capacity)) {                                         \
-        array->internalArray[array->length++] = item;                                                           \
-        return &array->internalArray[array->length - 1];                                                        \
-    }                                                                                                           \
+/* HARDENING: callers write through the pointers returned on failure, so re-zero the sentinel before use. */    \
+typeName *typeName##_FailureSentinel(void) {                                                                    \
+    memset((void *)&typeName##_DEFAULT, 0, sizeof(typeName));                                                   \
     return &typeName##_DEFAULT;                                                                                 \
 }                                                                                                               \
                                                                                                                 \
+arrayName arrayName##_Allocate_Arena(int32_t capacity, Clay_Arena *arena) {                                     \
+    typeName *storage = (typeName *)Clay__Array_Allocate_Arena(capacity, sizeof(typeName), arena);              \
+    /* HARDENING: a failed allocation must not leave a non-zero capacity over NULL storage. */                  \
+    return CLAY__INIT(arrayName){.capacity = storage ? capacity : 0, .length = 0, .internalArray = storage};    \
+}                                                                                                               \
+                                                                                                                \
+typeName *arrayName##_Get(arrayName *array, int32_t index) {                                                    \
+    return (array->internalArray && Clay__Array_RangeCheck(index, array->length))                               \
+        ? &array->internalArray[index] : typeName##_FailureSentinel();                                          \
+}                                                                                                               \
+                                                                                                                \
+typeName arrayName##_GetValue(arrayName *array, int32_t index) {                                                \
+    return (array->internalArray && Clay__Array_RangeCheck(index, array->length))                               \
+        ? array->internalArray[index] : *typeName##_FailureSentinel();                                          \
+}                                                                                                               \
+                                                                                                                \
+typeName *arrayName##_Add(arrayName *array, typeName item) {                                                    \
+    if (array->internalArray && Clay__Array_AddCapacityCheck(array->length, array->capacity)) {                 \
+        array->internalArray[array->length++] = item;                                                           \
+        return &array->internalArray[array->length - 1];                                                        \
+    }                                                                                                           \
+    return typeName##_FailureSentinel();                                                                        \
+}                                                                                                               \
+                                                                                                                \
 typeName *arrayName##Slice_Get(arrayName##Slice *slice, int32_t index) {                                        \
-    return Clay__Array_RangeCheck(index, slice->length) ? &slice->internalArray[index] : &typeName##_DEFAULT;   \
+    return (slice->internalArray && Clay__Array_RangeCheck(index, slice->length))                               \
+        ? &slice->internalArray[index] : typeName##_FailureSentinel();                                          \
 }                                                                                                               \
                                                                                                                 \
 typeName arrayName##_RemoveSwapback(arrayName *array, int32_t index) {                                          \
-	if (Clay__Array_RangeCheck(index, array->length)) {                                                         \
+	if (array->internalArray && Clay__Array_RangeCheck(index, array->length)) {                                 \
 		array->length--;                                                                                        \
 		typeName removed = array->internalArray[index];                                                         \
 		array->internalArray[index] = array->internalArray[array->length];                                      \
 		return removed;                                                                                         \
 	}                                                                                                           \
-	return typeName##_DEFAULT;                                                                                  \
+	return *typeName##_FailureSentinel();                                                                       \
 }                                                                                                               \
                                                                                                                 \
 void arrayName##_Set(arrayName *array, int32_t index, typeName value) {                                         \
-	if (Clay__Array_RangeCheck(index, array->capacity)) {                                                       \
+	if (array->internalArray && Clay__Array_RangeCheck(index, array->capacity)) {                               \
 		array->internalArray[index] = value;                                                                    \
 		array->length = index < array->length ? array->length : index + 1;                                      \
 	}                                                                                                           \
@@ -1042,7 +1215,7 @@ typedef struct                                      \
                                                     \
 CLAY__ARRAY_DEFINE_FUNCTIONS(typeName, arrayName)   \
 
-Clay_Context *Clay__currentContext;
+CLAY__THREAD_LOCAL Clay_Context *Clay__currentContext;
 int32_t Clay__defaultMaxElementCount = 8192;
 int32_t Clay__defaultMaxMeasureTextWordCacheCount = 16384;
 
@@ -1058,6 +1231,9 @@ typedef struct {
     bool maxRenderCommandsExceeded;
     bool maxTextMeasureCacheExceeded;
     bool textMeasurementFunctionNotSet;
+    bool maxWrappedLinesExceeded;
+    bool maxElementConfigsExceeded;
+    bool unbalancedClose;
 } Clay_BooleanWarnings;
 
 typedef struct {
@@ -1086,6 +1262,14 @@ Clay__Warning *Clay__WarningArray_Add(Clay__WarningArray *array, Clay__Warning i
 void* Clay__Array_Allocate_Arena(int32_t capacity, uint32_t itemSize, Clay_Arena *arena);
 bool Clay__Array_RangeCheck(int32_t index, int32_t length);
 bool Clay__Array_AddCapacityCheck(int32_t length, int32_t capacity);
+// HARDENING+: every error carries where inside Clay it was raised, a precise detail code and the numbers involved. `Clay__ReportError`
+// is the short form for sites with no extra numbers; `CLAY__REPORT` is the full one.
+static void Clay__ReportErrorEx(Clay_ErrorType errorType, Clay_ErrorDetail detail, Clay_String errorText, int64_t value, int64_t limit,
+                                const char *sourceFile, int32_t sourceLine, const char *sourceFunction);
+#define CLAY__REPORT(type, detail, text, value, limit) \
+    Clay__ReportErrorEx((type), (detail), CLAY_STRING(text), (int64_t)(value), (int64_t)(limit), __FILE__, (int32_t)__LINE__, __func__)
+#define Clay__ReportError(type, text) \
+    Clay__ReportErrorEx((type), CLAY_ERROR_DETAIL_NONE, (text), 0, 0, __FILE__, (int32_t)__LINE__, __func__)
 
 CLAY__ARRAY_DEFINE(bool, Clay__boolArray)
 CLAY__ARRAY_DEFINE(int32_t, Clay__int32_tArray)
@@ -1168,6 +1352,17 @@ typedef struct {
 
 CLAY__ARRAY_DEFINE(Clay_LayoutElement, Clay_LayoutElementArray)
 
+// HARDENING: when a layout element lookup fails the zeroed sentinel comes back, whose layoutConfig is NULL -- and
+// nearly every consumer dereferences layoutConfig straight away. Give the sentinel a valid (default) config.
+static Clay_LayoutElement *Clay__LayoutElementWithConfig(Clay_LayoutElement *element) {
+    if (element == &Clay_LayoutElement_DEFAULT) {
+        element->layoutConfig = &CLAY_LAYOUT_DEFAULT;
+    }
+    return element;
+}
+#define Clay_LayoutElementArray_Get(array, index) Clay__LayoutElementWithConfig((Clay_LayoutElementArray_Get)((array), (index)))
+#define Clay_LayoutElementArray_Add(array, item) Clay__LayoutElementWithConfig((Clay_LayoutElementArray_Add)((array), (item)))
+
 typedef struct {
     Clay_LayoutElement *layoutElement;
     Clay_BoundingBox boundingBox;
@@ -1202,6 +1397,10 @@ typedef struct { // todo get this struct into a single cache line
     uint32_t generation;
     uint32_t idAlias;
     Clay__DebugElementData *debugData;
+    // HARDENING+: the entry's own copy of (the start of) its id text. The text a caller declared an element with is usually gone by the
+    // next frame, so nothing stored here may point at it; `elementId.stringId` points at this buffer instead (re-pointed whenever
+    // entries move, see Clay__RebuildElementHashMap).
+    char nameBuffer[48];
 } Clay_LayoutElementHashMapItem;
 
 CLAY__ARRAY_DEFINE(Clay_LayoutElementHashMapItem, Clay__LayoutElementHashMapItemArray)
@@ -1222,6 +1421,7 @@ typedef struct {
     bool containsNewlines;
     // Hash map data
     uint32_t id;
+    int32_t textLength; // HARDENING: second key besides the content hash (see Clay__MeasureTextCached)
     int32_t nextIndex;
     uint32_t generation;
 } Clay__MeasureTextCacheItem;
@@ -1250,6 +1450,50 @@ struct Clay_Context {
     int32_t maxElementCount;
     int32_t maxMeasureTextCacheWordCount;
     bool warningsEnabled;
+    // HARDENING: set when any arena allocation for this context failed (see Clay__Array_Allocate_Arena).
+    bool arenaAllocationFailed;
+    // HARDENING+: while an element past the capacity limit is open, every element/text declared inside it is ignored. This counts the
+    // open ignored elements so their closes can be matched.
+    int32_t ghostDepth;
+    // HARDENING+: growable-context state (all zero for a fixed-arena context).
+    bool growable;
+    bool allowShrink;
+    bool growthFailedRecently;
+    bool memoryLimitReported;
+    int32_t initialElements;
+    int32_t initialWords;
+    uint32_t growthRetryAtGeneration;
+    Clay_Allocator allocator;
+    size_t memoryLimitBytes;
+    size_t persistentBlockSize;
+    size_t ephemeralBlockSize;
+    char *persistentBlock;
+    char *ephemeralBlock;
+    // The previous ephemeral block, kept alive for one extra frame because pointers into it (scroll containers, the id map) are still
+    // read until the next layout re-registers them.
+    char *retiredBlock;
+    size_t retiredBlockSize;
+    uint32_t retiredAtGeneration;
+    Clay_Arena persistentArena;
+    Clay_Arena ephemeralArena;
+    uint32_t growCount;
+    uint32_t shrinkCount;
+    uint32_t lowUsageFrames;
+    // What the layout in progress (and, after Clay_EndLayout, the one just finished) asked for -- counting what was rejected.
+    int32_t usageElements;
+    int32_t usageElementConfigs;
+    int32_t usageWrappedLines;
+    int32_t usageRenderCommands;
+    int32_t usageMeasureItemFailures;
+    int32_t usageMeasureWordFailures;
+    int32_t usageMeasureWordShortfall;
+    int32_t usageDynamicChars;
+    // Snapshot of the last finished layout, for Clay_GetMemoryStats.
+    int32_t lastUsageElements;
+    int32_t lastUsageElementConfigs;
+    int32_t lastUsageWrappedLines;
+    int32_t lastUsageRenderCommands;
+    bool lastLayoutTruncated;
     Clay_ErrorHandler errorHandler;
     Clay_BooleanWarnings booleanWarnings;
     Clay__WarningArray warnings;
@@ -1322,7 +1566,7 @@ Clay_Context* Clay__Context_Allocate_Arena(Clay_Arena *arena) {
     uintptr_t memoryAddress = (uintptr_t)arena->memory;
     // Make sure the memory address passed in for clay to use is cache line aligned
     uintptr_t nextAllocOffset = (memoryAddress % 64);
-    if (nextAllocOffset + totalSizeBytes > arena->capacity)
+    if (nextAllocOffset > arena->capacity || totalSizeBytes > arena->capacity - nextAllocOffset)
     {
         return NULL;
     }
@@ -1331,6 +1575,14 @@ Clay_Context* Clay__Context_Allocate_Arena(Clay_Arena *arena) {
 }
 
 Clay_String Clay__WriteStringToCharBuffer(Clay__charArray *buffer, Clay_String string) {
+    // HARDENING: the buffer holds maxElementCount chars in total and was written without any bound.
+    if (buffer->internalArray == NULL || string.chars == NULL || string.length <= 0 || buffer->length < 0 ||
+        string.length > buffer->capacity - buffer->length) {
+        CLAY__REPORT(CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED, CLAY_ERROR_DETAIL_DYNAMIC_STRINGS,
+                     "Clay ran out of space for dynamically generated strings; the string was dropped.",
+                     (int64_t)buffer->length + (int64_t)string.length, buffer->capacity);
+        return CLAY__INIT(Clay_String) { .length = 0, .chars = "" };
+    }
     for (int32_t i = 0; i < string.length; i++) {
         buffer->internalArray[buffer->length + i] = string.chars[i];
     }
@@ -1368,12 +1620,27 @@ Clay_SharedElementConfig * Clay__StoreSharedElementConfig(Clay_SharedElementConf
 
 Clay_ElementConfig Clay__AttachElementConfig(Clay_ElementConfigUnion config, Clay__ElementConfigType type) {
     Clay_Context* context = Clay_GetCurrentContext();
-    if (context->booleanWarnings.maxElementsExceeded) {
+    if (context->ghostDepth > 0 || context->booleanWarnings.maxElementsExceeded) {
+        return CLAY__INIT(Clay_ElementConfig) CLAY__DEFAULT_STRUCT;
+    }
+    // HARDENING: the element's config slice length used to be bumped before (and regardless of whether) the config
+    // was actually stored. With the shared config array full the slice then claimed entries beyond the end of the
+    // array, so later reads walked into the neighbouring arena allocation. Only count configs that were stored. A config that does
+    // not fit is dropped (the element renders without, e.g., its border) and counted, so a growable context sizes up for next frame.
+    context->usageElementConfigs++;
+    if (context->elementConfigs.length >= context->elementConfigs.capacity) {
+        if (!context->booleanWarnings.maxElementConfigsExceeded) {
+            context->booleanWarnings.maxElementConfigsExceeded = true;
+            CLAY__REPORT(CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED, CLAY_ERROR_DETAIL_ELEMENT_CONFIGS,
+                         "Clay ran out of room for element configurations (backgrounds, borders, clips, ...); this element is missing some of them for this frame.",
+                         context->usageElementConfigs, context->elementConfigs.capacity);
+        }
         return CLAY__INIT(Clay_ElementConfig) CLAY__DEFAULT_STRUCT;
     }
     Clay_LayoutElement *openLayoutElement = Clay__GetOpenLayoutElement();
+    Clay_ElementConfig stored = *Clay__ElementConfigArray_Add(&context->elementConfigs, CLAY__INIT(Clay_ElementConfig) { .type = type, .config = config });
     openLayoutElement->elementConfigs.length++;
-    return *Clay__ElementConfigArray_Add(&context->elementConfigs, CLAY__INIT(Clay_ElementConfig) { .type = type, .config = config });
+    return stored;
 }
 
 Clay_ElementConfigUnion Clay__FindElementConfigWithType(Clay_LayoutElement *element, Clay__ElementConfigType type) {
@@ -1572,18 +1839,60 @@ uint32_t Clay__HashStringContentsWithConfig(Clay_String *text, Clay_TextElementC
     return hash + 1; // Reserve the hash result of zero as "null id"
 }
 
+// HARDENING: returns NULL (leaving previousWord->next untouched) when no word slot is available, instead of linking
+// the chain to a slot that does not exist. Callers abort the measurement and release what they linked so far.
 Clay__MeasuredWord *Clay__AddMeasuredWord(Clay__MeasuredWord word, Clay__MeasuredWord *previousWord) {
     Clay_Context* context = Clay_GetCurrentContext();
     if (context->measuredWordsFreeList.length > 0) {
-        uint32_t newItemIndex = Clay__int32_tArray_GetValue(&context->measuredWordsFreeList, (int)context->measuredWordsFreeList.length - 1);
+        int32_t newItemIndex = Clay__int32_tArray_GetValue(&context->measuredWordsFreeList, (int)context->measuredWordsFreeList.length - 1);
         context->measuredWordsFreeList.length--;
-        Clay__MeasuredWordArray_Set(&context->measuredWords, (int)newItemIndex, word);
-        previousWord->next = (int32_t)newItemIndex;
-        return Clay__MeasuredWordArray_Get(&context->measuredWords, (int)newItemIndex);
+        if (newItemIndex < 0 || newItemIndex >= context->measuredWords.capacity) {
+            return NULL;
+        }
+        Clay__MeasuredWordArray_Set(&context->measuredWords, newItemIndex, word);
+        previousWord->next = newItemIndex;
+        return Clay__MeasuredWordArray_Get(&context->measuredWords, newItemIndex);
     } else {
+        if (context->measuredWords.length >= context->measuredWords.capacity) {
+            return NULL;
+        }
         previousWord->next = (int32_t)context->measuredWords.length;
         return Clay__MeasuredWordArray_Add(&context->measuredWords, word);
     }
+}
+
+// HARDENING: bounds-checked lookup of a measured word by chain index (the chains are walked with `while (i != -1)`,
+// so a bad link used to read a sentinel whose `next` of 0 looped forever). NULL for any index outside the used range.
+static Clay__MeasuredWord *Clay__GetMeasuredWordChecked(Clay_Context *context, int32_t index) {
+    if (index < 0 || index >= context->measuredWords.length || context->measuredWords.internalArray == NULL) {
+        return NULL;
+    }
+    return &context->measuredWords.internalArray[index];
+}
+
+// Returns every word of a chain to the free list. The walk is capped at the number of words that can exist so that a
+// corrupt (cyclic) chain cannot hang the frame.
+static void Clay__FreeMeasuredWordChain(Clay_Context *context, int32_t firstWordIndex) {
+    int32_t remaining = context->measuredWords.capacity;
+    int32_t nextWordIndex = firstWordIndex;
+    while (nextWordIndex != -1 && remaining-- > 0) {
+        Clay__MeasuredWord *measuredWord = Clay__GetMeasuredWordChecked(context, nextWordIndex);
+        if (measuredWord == NULL) {
+            break;
+        }
+        Clay__int32_tArray_Add(&context->measuredWordsFreeList, nextWordIndex);
+        nextWordIndex = measuredWord->next;
+    }
+}
+
+// HARDENING: the hash bucket count used to be maxMeasureTextCacheWordCount / 32 even when the bucket table
+// (measureTextHashMap, sized by maxElementCount) was smaller, indexing past its end. Never exceed the real table.
+static int32_t Clay__MeasureBucketCount(Clay_Context *context) {
+    int32_t buckets = context->maxMeasureTextCacheWordCount / 32;
+    if (buckets > context->measureTextHashMap.capacity) {
+        buckets = context->measureTextHashMap.capacity;
+    }
+    return buckets;
 }
 
 // Frees the entries of one hash bucket that have not been asked for in a few frames (and the words they own). The
@@ -1592,16 +1901,25 @@ Clay__MeasuredWord *Clay__AddMeasuredWord(Clay__MeasuredWord word, Clay__Measure
 // cache with dead ones and every new string failed to measure.
 static void Clay__EvictStaleMeasureEntries(Clay_Context *context, uint32_t hashBucket) {
     int32_t elementIndexPrevious = 0;
+    if (context->measureTextHashMap.internalArray == NULL || hashBucket >= (uint32_t)context->measureTextHashMap.capacity) {
+        return;
+    }
     int32_t elementIndex = context->measureTextHashMap.internalArray[hashBucket];
-    while (elementIndex != 0) {
+    // HARDENING: bounded walk -- a corrupt (cyclic) bucket chain must not hang the frame.
+    int32_t remainingSteps = context->measureTextHashMapInternal.length;
+    while (elementIndex != 0 && remainingSteps-- > 0) {
+        if (elementIndex < 0 || elementIndex >= context->measureTextHashMapInternal.length) {
+            // Broken link: cut the chain here rather than following it.
+            if (elementIndexPrevious == 0) {
+                context->measureTextHashMap.internalArray[hashBucket] = 0;
+            } else {
+                Clay__MeasureTextCacheItemArray_Get(&context->measureTextHashMapInternal, elementIndexPrevious)->nextIndex = 0;
+            }
+            break;
+        }
         Clay__MeasureTextCacheItem *hashEntry = Clay__MeasureTextCacheItemArray_Get(&context->measureTextHashMapInternal, elementIndex);
         if (context->generation - hashEntry->generation > 2) {
-            int32_t nextWordIndex = hashEntry->measuredWordsStartIndex;
-            while (nextWordIndex != -1) {
-                Clay__MeasuredWord *measuredWord = Clay__MeasuredWordArray_Get(&context->measuredWords, nextWordIndex);
-                Clay__int32_tArray_Add(&context->measuredWordsFreeList, nextWordIndex);
-                nextWordIndex = measuredWord->next;
-            }
+            Clay__FreeMeasuredWordChain(context, hashEntry->measuredWordsStartIndex);
             int32_t nextIndex = hashEntry->nextIndex;
             Clay__MeasureTextCacheItemArray_Set(&context->measureTextHashMapInternal, elementIndex, CLAY__INIT(Clay__MeasureTextCacheItem) { .measuredWordsStartIndex = -1 });
             Clay__int32_tArray_Add(&context->measureTextHashMapInternalFreeList, elementIndex);
@@ -1620,7 +1938,7 @@ static void Clay__EvictStaleMeasureEntries(Clay_Context *context, uint32_t hashB
 
 // Cleans `bucketCount` buckets (wrapping round), continuing from where the last call stopped.
 static void Clay__SweepMeasureTextCache(Clay_Context *context, int32_t bucketCount) {
-    int32_t buckets = context->maxMeasureTextCacheWordCount / 32;
+    int32_t buckets = Clay__MeasureBucketCount(context);
     if (buckets <= 0 || context->measureTextHashMap.internalArray == NULL) {
         return;
     }
@@ -1636,76 +1954,68 @@ Clay__MeasureTextCacheItem *Clay__MeasureTextCached(Clay_String *text, Clay_Text
     if (!Clay__MeasureText) {
         if (!context->booleanWarnings.textMeasurementFunctionNotSet) {
             context->booleanWarnings.textMeasurementFunctionNotSet = true;
-            context->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-                    .errorType = CLAY_ERROR_TYPE_TEXT_MEASUREMENT_FUNCTION_NOT_PROVIDED,
-                    .errorText = CLAY_STRING("Clay's internal MeasureText function is null. You may have forgotten to call Clay_SetMeasureTextFunction(), or passed a NULL function pointer by mistake."),
-                    .userData = context->errorHandler.userData });
+            CLAY__REPORT(CLAY_ERROR_TYPE_TEXT_MEASUREMENT_FUNCTION_NOT_PROVIDED, CLAY_ERROR_DETAIL_MEASURE_FUNCTION,
+                         "Clay's text measure function is null, so all text measures as empty. Call Clay_SetMeasureTextFunction() for this context (it must be set on the thread that lays out).",
+                         0, 0);
         }
         return &Clay__MeasureTextCacheItem_DEFAULT;
     }
     #endif
-    // Nearly out of word slots with nothing on the free list: reclaim everything stale right now (at most once per frame,
-    // it walks the whole cache) before deciding the cache is really full.
-    if (context->measuredWordsFreeList.length == 0 &&
-        context->measuredWords.length >= context->measuredWords.capacity - 256 &&
-        context->generation != context->measureFullSweepGeneration) {
+    int32_t bucketCount = Clay__MeasureBucketCount(context);
+    if (bucketCount <= 0 || context->measureTextHashMap.internalArray == NULL) {
+        return Clay__MeasureTextCacheItem_FailureSentinel();
+    }
+    // Nearly out of word or item slots with nothing on the matching free list: reclaim everything stale right now
+    // (at most once per frame, it walks the whole cache) before deciding the cache is really full.
+    // HARDENING: the item slots (measureTextHashMapInternal) used to have no such emergency sweep, so a UI with lots
+    // of changing strings could fill them with dead entries and then fail to measure every new string.
+    if (context->generation != context->measureFullSweepGeneration &&
+        ((context->measuredWordsFreeList.length == 0 &&
+          context->measuredWords.length >= context->measuredWords.capacity - 256) ||
+         (context->measureTextHashMapInternalFreeList.length == 0 &&
+          context->measureTextHashMapInternal.length >= context->measureTextHashMapInternal.capacity - 16))) {
         context->measureFullSweepGeneration = context->generation;
-        Clay__SweepMeasureTextCache(context, context->maxMeasureTextCacheWordCount / 32);
+        Clay__SweepMeasureTextCache(context, bucketCount);
     }
     uint32_t id = Clay__HashStringContentsWithConfig(text, config);
-    uint32_t hashBucket = id % (context->maxMeasureTextCacheWordCount / 32);
-    int32_t elementIndexPrevious = 0;
+    uint32_t hashBucket = id % (uint32_t)bucketCount;
     int32_t elementIndex = context->measureTextHashMap.internalArray[hashBucket];
-    while (elementIndex != 0) {
-        Clay__MeasureTextCacheItem *hashEntry = Clay__MeasureTextCacheItemArray_Get(&context->measureTextHashMapInternal, elementIndex);
-        if (hashEntry->id == id) {
+    // HARDENING: bounded, range-checked walk of the bucket chain.
+    int32_t remainingSteps = context->measureTextHashMapInternal.length;
+    while (elementIndex > 0 && elementIndex < context->measureTextHashMapInternal.length && remainingSteps-- > 0) {
+        Clay__MeasureTextCacheItem *hashEntry = &context->measureTextHashMapInternal.internalArray[elementIndex];
+        // HARDENING: also compare the text length. Two different strings can share a 32-bit content hash; reusing the
+        // other string's measured word offsets could then point past the end of this one.
+        if (hashEntry->id == id && hashEntry->textLength == text->length) {
             hashEntry->generation = context->generation;
             return hashEntry;
         }
-        // This element hasn't been seen in a few frames, delete the hash map item
-        if (context->generation - hashEntry->generation > 2) {
-            // Add all the measured words that were included in this measurement to the freelist
-            int32_t nextWordIndex = hashEntry->measuredWordsStartIndex;
-            while (nextWordIndex != -1) {
-                Clay__MeasuredWord *measuredWord = Clay__MeasuredWordArray_Get(&context->measuredWords, nextWordIndex);
-                Clay__int32_tArray_Add(&context->measuredWordsFreeList, nextWordIndex);
-                nextWordIndex = measuredWord->next;
-            }
-
-            int32_t nextIndex = hashEntry->nextIndex;
-            Clay__MeasureTextCacheItemArray_Set(&context->measureTextHashMapInternal, elementIndex, CLAY__INIT(Clay__MeasureTextCacheItem) { .measuredWordsStartIndex = -1 });
-            Clay__int32_tArray_Add(&context->measureTextHashMapInternalFreeList, elementIndex);
-            if (elementIndexPrevious == 0) {
-                context->measureTextHashMap.internalArray[hashBucket] = nextIndex;
-            } else {
-                Clay__MeasureTextCacheItem *previousHashEntry = Clay__MeasureTextCacheItemArray_Get(&context->measureTextHashMapInternal, elementIndexPrevious);
-                previousHashEntry->nextIndex = nextIndex;
-            }
-            elementIndex = nextIndex;
-        } else {
-            elementIndexPrevious = elementIndex;
-            elementIndex = hashEntry->nextIndex;
-        }
+        elementIndex = hashEntry->nextIndex;
     }
+    // Not cached: drop whatever in this bucket hasn't been seen in a few frames before adding to it.
+    Clay__EvictStaleMeasureEntries(context, hashBucket);
 
     int32_t newItemIndex = 0;
-    Clay__MeasureTextCacheItem newCacheItem = { .measuredWordsStartIndex = -1, .id = id, .generation = context->generation };
+    Clay__MeasureTextCacheItem newCacheItem = { .measuredWordsStartIndex = -1, .id = id, .textLength = text->length, .generation = context->generation };
     Clay__MeasureTextCacheItem *measured = NULL;
     if (context->measureTextHashMapInternalFreeList.length > 0) {
         newItemIndex = Clay__int32_tArray_GetValue(&context->measureTextHashMapInternalFreeList, context->measureTextHashMapInternalFreeList.length - 1);
         context->measureTextHashMapInternalFreeList.length--;
+        if (newItemIndex <= 0 || newItemIndex >= context->measureTextHashMapInternal.capacity) {
+            return Clay__MeasureTextCacheItem_FailureSentinel();
+        }
         Clay__MeasureTextCacheItemArray_Set(&context->measureTextHashMapInternal, newItemIndex, newCacheItem);
         measured = Clay__MeasureTextCacheItemArray_Get(&context->measureTextHashMapInternal, newItemIndex);
     } else {
-        if (context->measureTextHashMapInternal.length == context->measureTextHashMapInternal.capacity - 1) {
+        if (context->measureTextHashMapInternal.length >= context->measureTextHashMapInternal.capacity - 1) {
+            context->usageMeasureItemFailures++;
             if (!context->booleanWarnings.maxTextMeasureCacheExceeded) {
-                context->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-                        .errorType = CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED,
-                        .errorText = CLAY_STRING("Clay ran out of capacity while attempting to measure text elements. Try using Clay_SetMaxElementCount() with a higher value."),
-                        .userData = context->errorHandler.userData });
+                CLAY__REPORT(CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED, CLAY_ERROR_DETAIL_TEXT_MEASURE_ITEMS,
+                             "The text measure cache has no free entry for another distinct string; text that is not cached measures as empty this frame.",
+                             context->measureTextHashMapInternal.length, context->measureTextHashMapInternal.capacity);
                 context->booleanWarnings.maxTextMeasureCacheExceeded = true;
             }
-            return &Clay__MeasureTextCacheItem_DEFAULT;
+            return Clay__MeasureTextCacheItem_FailureSentinel();
         }
         measured = Clay__MeasureTextCacheItemArray_Add(&context->measureTextHashMapInternal, newCacheItem);
         newItemIndex = context->measureTextHashMapInternal.length - 1;
@@ -1719,17 +2029,8 @@ Clay__MeasureTextCacheItem *Clay__MeasureTextCached(Clay_String *text, Clay_Text
     float spaceWidth = Clay__MeasureText(CLAY__INIT(Clay_StringSlice) { .length = 1, .chars = CLAY__SPACECHAR.chars, .baseChars = CLAY__SPACECHAR.chars }, config, context->measureTextUserData).width;
     Clay__MeasuredWord tempWord = { .next = -1 };
     Clay__MeasuredWord *previousWord = &tempWord;
-    while (end < text->length) {
-        if (context->measuredWords.length == context->measuredWords.capacity - 1) {
-            if (!context->booleanWarnings.maxTextMeasureCacheExceeded) {
-                context->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-                    .errorType = CLAY_ERROR_TYPE_TEXT_MEASUREMENT_CAPACITY_EXCEEDED,
-                    .errorText = CLAY_STRING("Clay has run out of space in it's internal text measurement cache. Try using Clay_SetMaxMeasureTextCacheWordCount() (default 16384, with 1 unit storing 1 measured word)."),
-                    .userData = context->errorHandler.userData });
-                context->booleanWarnings.maxTextMeasureCacheExceeded = true;
-            }
-            return &Clay__MeasureTextCacheItem_DEFAULT;
-        }
+    bool measureFailed = false;
+    while (end < text->length && !measureFailed) {
         char current = text->chars[end];
         if (current == ' ' || current == '\n') {
             int32_t length = end - start;
@@ -1738,14 +2039,20 @@ Clay__MeasureTextCacheItem *Clay__MeasureTextCached(Clay_String *text, Clay_Text
             measuredHeight = CLAY__MAX(measuredHeight, dimensions.height);
             if (current == ' ') {
                 dimensions.width += spaceWidth;
-                previousWord = Clay__AddMeasuredWord(CLAY__INIT(Clay__MeasuredWord) { .startOffset = start, .length = length + 1, .width = dimensions.width, .next = -1 }, previousWord);
+                Clay__MeasuredWord *added = Clay__AddMeasuredWord(CLAY__INIT(Clay__MeasuredWord) { .startOffset = start, .length = length + 1, .width = dimensions.width, .next = -1 }, previousWord);
+                if (added == NULL) { measureFailed = true; break; }
+                previousWord = added;
                 lineWidth += dimensions.width;
             }
             if (current == '\n') {
                 if (length > 0) {
-                    previousWord = Clay__AddMeasuredWord(CLAY__INIT(Clay__MeasuredWord) { .startOffset = start, .length = length, .width = dimensions.width, .next = -1 }, previousWord);
+                    Clay__MeasuredWord *added = Clay__AddMeasuredWord(CLAY__INIT(Clay__MeasuredWord) { .startOffset = start, .length = length, .width = dimensions.width, .next = -1 }, previousWord);
+                    if (added == NULL) { measureFailed = true; break; }
+                    previousWord = added;
                 }
-                previousWord = Clay__AddMeasuredWord(CLAY__INIT(Clay__MeasuredWord) { .startOffset = end + 1, .length = 0, .width = 0, .next = -1 }, previousWord);
+                Clay__MeasuredWord *addedBreak = Clay__AddMeasuredWord(CLAY__INIT(Clay__MeasuredWord) { .startOffset = end + 1, .length = 0, .width = 0, .next = -1 }, previousWord);
+                if (addedBreak == NULL) { measureFailed = true; break; }
+                previousWord = addedBreak;
                 lineWidth += dimensions.width;
                 measuredWidth = CLAY__MAX(lineWidth, measuredWidth);
                 measured->containsNewlines = true;
@@ -1755,12 +2062,39 @@ Clay__MeasureTextCacheItem *Clay__MeasureTextCached(Clay_String *text, Clay_Text
         }
         end++;
     }
-    if (end - start > 0) {
+    if (!measureFailed && end - start > 0) {
         Clay_Dimensions dimensions = Clay__MeasureText(CLAY__INIT(Clay_StringSlice) { .length = end - start, .chars = &text->chars[start], .baseChars = text->chars }, config, context->measureTextUserData);
-        Clay__AddMeasuredWord(CLAY__INIT(Clay__MeasuredWord) { .startOffset = start, .length = end - start, .width = dimensions.width, .next = -1 }, previousWord);
+        if (Clay__AddMeasuredWord(CLAY__INIT(Clay__MeasuredWord) { .startOffset = start, .length = end - start, .width = dimensions.width, .next = -1 }, previousWord) == NULL) {
+            measureFailed = true;
+        }
         lineWidth += dimensions.width;
         measuredHeight = CLAY__MAX(measuredHeight, dimensions.height);
         measured->minWidth = CLAY__MAX(dimensions.width, measured->minWidth);
+    }
+    if (measureFailed) {
+        // HARDENING: this used to return from the middle of the loop, leaking the cache item and every word linked so
+        // far (never reachable from a bucket, so never evicted). Retrying the same text every frame then drained the
+        // cache for good -- the "ran out of space in its text measurement cache" errors that never went away.
+        // Count how many words this string still needed, so a growable context can size the word cache in one step instead of
+        // doubling over many frames. (Words already stored for it were released by the rollback below, so count them too.)
+        context->usageMeasureWordFailures++;
+        {
+            int32_t wordsWanted = 1;
+            for (int32_t i = 0; i < text->length; i++) {
+                if (text->chars[i] == ' ' || text->chars[i] == '\n') { wordsWanted++; }
+            }
+            context->usageMeasureWordShortfall += wordsWanted;
+        }
+        if (!context->booleanWarnings.maxTextMeasureCacheExceeded) {
+            CLAY__REPORT(CLAY_ERROR_TYPE_TEXT_MEASUREMENT_CAPACITY_EXCEEDED, CLAY_ERROR_DETAIL_TEXT_MEASURE_WORDS,
+                         "The text measure cache has no room for the words of this string; it measures as empty this frame.",
+                         context->measuredWords.length, context->measuredWords.capacity);
+            context->booleanWarnings.maxTextMeasureCacheExceeded = true;
+        }
+        Clay__FreeMeasuredWordChain(context, tempWord.next);
+        Clay__MeasureTextCacheItemArray_Set(&context->measureTextHashMapInternal, newItemIndex, CLAY__INIT(Clay__MeasureTextCacheItem) { .measuredWordsStartIndex = -1 });
+        Clay__int32_tArray_Add(&context->measureTextHashMapInternalFreeList, newItemIndex);
+        return Clay__MeasureTextCacheItem_FailureSentinel();
     }
     measuredWidth = CLAY__MAX(lineWidth, measuredWidth) - config->letterSpacing;
 
@@ -1768,11 +2102,9 @@ Clay__MeasureTextCacheItem *Clay__MeasureTextCached(Clay_String *text, Clay_Text
     measured->unwrappedDimensions.width = measuredWidth;
     measured->unwrappedDimensions.height = measuredHeight;
 
-    if (elementIndexPrevious != 0) {
-        Clay__MeasureTextCacheItemArray_Get(&context->measureTextHashMapInternal, elementIndexPrevious)->nextIndex = newItemIndex;
-    } else {
-        context->measureTextHashMap.internalArray[hashBucket] = newItemIndex;
-    }
+    // Link the new item at the head of its bucket.
+    measured->nextIndex = context->measureTextHashMap.internalArray[hashBucket];
+    context->measureTextHashMap.internalArray[hashBucket] = newItemIndex;
     return measured;
 }
 
@@ -1780,11 +2112,89 @@ bool Clay__PointIsInsideRect(Clay_Vector2 point, Clay_BoundingBox rect) {
     return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
 }
 
+// HARDENING: the element id -> element map lives in persistent memory and entries were never removed, so every
+// distinct id an app ever declared (ids with a counter or a row key in them, tooltips, drag previews, ...) kept a slot
+// for the lifetime of the context. Once maxElementCount distinct ids had been seen, new elements stopped getting map
+// entries (no hover, bounds or scroll state) -- an "out of capacity" failure that no layout budget could prevent.
+// Called at the start of each frame: drops the entries that were not declared last frame (or since) and rebuilds the
+// bucket chains. Entries' `generation` is the frame (+1) in which the element was last declared.
+// Re-derives everything that is a function of the id map's item list: each item's debug slot and the bucket chains.
+static void Clay__RebuildElementHashMap(Clay_Context *context) {
+    Clay__LayoutElementHashMapItemArray *items = &context->layoutElementsHashMapInternal;
+    const int32_t kept = items->length;
+    // Per-item debug data is a parallel persistent array: hand each surviving item a fresh slot in the same order.
+    if (context->debugElementData.internalArray != NULL) {
+        int32_t debugKept = kept < context->debugElementData.capacity ? kept : context->debugElementData.capacity;
+        memset((void *)context->debugElementData.internalArray, 0, (size_t)debugKept * sizeof(Clay__DebugElementData));
+        context->debugElementData.length = debugKept;
+        for (int32_t i = 0; i < kept; i++) {
+            items->internalArray[i].debugData = i < debugKept ? &context->debugElementData.internalArray[i] : &Clay__DebugElementData_DEFAULT;
+        }
+    }
+    for (int32_t i = 0; i < context->layoutElementsHashMap.capacity; i++) {
+        context->layoutElementsHashMap.internalArray[i] = -1;
+    }
+    for (int32_t i = 0; i < kept; i++) {
+        // Entries may have moved: their stored id text lives inside the entry itself, so re-point at the new location.
+        if (items->internalArray[i].elementId.stringId.length > 0) {
+            items->internalArray[i].elementId.stringId.chars = items->internalArray[i].nameBuffer;
+        }
+        uint32_t bucket = items->internalArray[i].elementId.id % (uint32_t)context->layoutElementsHashMap.capacity;
+        items->internalArray[i].nextIndex = context->layoutElementsHashMap.internalArray[bucket];
+        context->layoutElementsHashMap.internalArray[bucket] = i;
+    }
+}
+
+static void Clay__CompactElementHashMap(Clay_Context *context, bool force) {
+    Clay__LayoutElementHashMapItemArray *items = &context->layoutElementsHashMapInternal;
+    if (items->internalArray == NULL || context->layoutElementsHashMap.internalArray == NULL ||
+        context->layoutElementsHashMap.capacity <= 0) {
+        return;
+    }
+    // Only pay for the pass once the map is getting full (or when a growable context that may shrink asks for a true live count).
+    if (!force && items->length < items->capacity - items->capacity / 4) {
+        return;
+    }
+    int32_t kept = 0;
+    for (int32_t i = 0; i < items->length; i++) {
+        if (items->internalArray[i].generation >= context->generation) {
+            if (kept != i) {
+                items->internalArray[kept] = items->internalArray[i];
+            }
+            kept++;
+        }
+    }
+    items->length = kept;
+    Clay__RebuildElementHashMap(context);
+}
+
+// Copies (the start of) `name` into the entry's own buffer and points the entry's stored id at it.
+static void Clay__StoreItemName(Clay_LayoutElementHashMapItem *item, Clay_String name) {
+    if (name.chars == NULL || name.length <= 0) {
+        item->elementId.stringId = CLAY__STRING_DEFAULT;
+        return;
+    }
+    const int32_t maxChars = (int32_t)sizeof(item->nameBuffer) - 1;
+    const int32_t length = name.length < maxChars ? name.length : maxChars;
+    memcpy(item->nameBuffer, name.chars, (size_t)length);
+    item->nameBuffer[length] = '\0';
+    item->elementId.stringId.isStaticallyAllocated = false;
+    item->elementId.stringId.length = length;
+    item->elementId.stringId.chars = item->nameBuffer;
+}
+
 Clay_LayoutElementHashMapItem* Clay__AddHashMapItem(Clay_ElementId elementId, Clay_LayoutElement* layoutElement, uint32_t idAlias) {
     Clay_Context* context = Clay_GetCurrentContext();
-    if (context->layoutElementsHashMapInternal.length == context->layoutElementsHashMapInternal.capacity - 1) {
+    if (context->layoutElementsHashMapInternal.length >= context->layoutElementsHashMapInternal.capacity - 1 ||
+        context->layoutElementsHashMap.capacity <= 0) {
         return NULL;
     }
+    // HARDENING+: the map outlives the frame, but the id's text belongs to whoever declared the element and is usually gone by the
+    // next frame. The entry keeps its own copy of the start of the text (Clay__StoreItemName) and the id passed on to anything
+    // else carries no string, so nothing that reads a stored id later can follow a dangling pointer. Per-frame name lookups
+    // use layoutElementIdStrings, which is rebuilt every layout.
+    const Clay_String declaredName = elementId.stringId;
+    elementId.stringId = CLAY__STRING_DEFAULT;
     Clay_LayoutElementHashMapItem item = { .elementId = elementId, .layoutElement = layoutElement, .nextIndex = -1, .generation = context->generation + 1, .idAlias = idAlias };
     uint32_t hashBucket = elementId.id % context->layoutElementsHashMap.capacity;
     int32_t hashItemPrevious = -1;
@@ -1795,6 +2205,7 @@ Clay_LayoutElementHashMapItem* Clay__AddHashMapItem(Clay_ElementId elementId, Cl
             item.nextIndex = hashItem->nextIndex;
             if (hashItem->generation <= context->generation) { // First collision - assume this is the "same" element
                 hashItem->elementId = elementId; // Make sure to copy this across. If the stringId reference has changed, we should update the hash item to use the new one.
+                Clay__StoreItemName(hashItem, declaredName);
                 hashItem->idAlias = idAlias;
                 hashItem->generation = context->generation + 1;
                 hashItem->layoutElement = layoutElement;
@@ -1802,10 +2213,9 @@ Clay_LayoutElementHashMapItem* Clay__AddHashMapItem(Clay_ElementId elementId, Cl
                 hashItem->onHoverFunction = NULL;
                 hashItem->hoverFunctionUserData = 0;
             } else { // Multiple collisions this frame - two elements have the same ID
-                context->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-                    .errorType = CLAY_ERROR_TYPE_DUPLICATE_ID,
-                    .errorText = CLAY_STRING("An element with this ID was already previously declared during this layout."),
-                    .userData = context->errorHandler.userData });
+                CLAY__REPORT(CLAY_ERROR_TYPE_DUPLICATE_ID, CLAY_ERROR_DETAIL_DUPLICATE_ID,
+                             "Two elements were declared with the same ID in one layout; hover, bounds and scroll state will follow only one of them. 'value' is the ID hash.",
+                             elementId.id, 0);
                 if (context->debugModeEnabled) {
                     hashItem->debugData->collision = true;
                 }
@@ -1816,6 +2226,7 @@ Clay_LayoutElementHashMapItem* Clay__AddHashMapItem(Clay_ElementId elementId, Cl
         hashItemIndex = hashItem->nextIndex;
     }
     Clay_LayoutElementHashMapItem *hashItem = Clay__LayoutElementHashMapItemArray_Add(&context->layoutElementsHashMapInternal, item);
+    Clay__StoreItemName(hashItem, declaredName);
     hashItem->debugData = Clay__DebugElementDataArray_Add(&context->debugElementData, CLAY__INIT(Clay__DebugElementData) CLAY__DEFAULT_STRUCT);
     if (hashItemPrevious != -1) {
         Clay__LayoutElementHashMapItemArray_Get(&context->layoutElementsHashMapInternal, hashItemPrevious)->nextIndex = (int32_t)context->layoutElementsHashMapInternal.length - 1;
@@ -1827,16 +2238,21 @@ Clay_LayoutElementHashMapItem* Clay__AddHashMapItem(Clay_ElementId elementId, Cl
 
 Clay_LayoutElementHashMapItem *Clay__GetHashMapItem(uint32_t id) {
     Clay_Context* context = Clay_GetCurrentContext();
-    uint32_t hashBucket = id % context->layoutElementsHashMap.capacity;
+    if (context->layoutElementsHashMap.capacity <= 0 || context->layoutElementsHashMap.internalArray == NULL) {
+        return Clay_LayoutElementHashMapItem_FailureSentinel();
+    }
+    uint32_t hashBucket = id % (uint32_t)context->layoutElementsHashMap.capacity;
     int32_t elementIndex = context->layoutElementsHashMap.internalArray[hashBucket];
-    while (elementIndex != -1) {
-        Clay_LayoutElementHashMapItem *hashEntry = Clay__LayoutElementHashMapItemArray_Get(&context->layoutElementsHashMapInternal, elementIndex);
+    // HARDENING: bounded, range-checked chain walk (a bad link used to read the sentinel, whose nextIndex of 0 can loop).
+    int32_t remainingSteps = context->layoutElementsHashMapInternal.length;
+    while (elementIndex >= 0 && elementIndex < context->layoutElementsHashMapInternal.length && remainingSteps-- > 0) {
+        Clay_LayoutElementHashMapItem *hashEntry = &context->layoutElementsHashMapInternal.internalArray[elementIndex];
         if (hashEntry->elementId.id == id) {
             return hashEntry;
         }
         elementIndex = hashEntry->nextIndex;
     }
-    return &Clay_LayoutElementHashMapItem_DEFAULT;
+    return Clay_LayoutElementHashMapItem_FailureSentinel();
 }
 
 Clay_ElementId Clay__GenerateIdForAnonymousElement(Clay_LayoutElement *openLayoutElement) {
@@ -1878,22 +2294,37 @@ void Clay__UpdateAspectRatioBox(Clay_LayoutElement *layoutElement) {
 
 void Clay__CloseElement(void) {
     Clay_Context* context = Clay_GetCurrentContext();
-    if (context->booleanWarnings.maxElementsExceeded) {
+    // HARDENING+: closing an element that was ignored for lack of room just balances its open.
+    if (context->ghostDepth > 0) {
+        context->ghostDepth--;
+        return;
+    }
+    // HARDENING: more closes than opens used to resolve to the zeroed sentinel element, whose layoutConfig is NULL.
+    if (context->openLayoutElementStack.length <= 0) {
+        if (!context->booleanWarnings.unbalancedClose) {
+            context->booleanWarnings.unbalancedClose = true;
+            CLAY__REPORT(CLAY_ERROR_TYPE_INVALID_USAGE, CLAY_ERROR_DETAIL_UNBALANCED_CLOSE,
+                         "An element was closed when none was open (more closes than opens). The extra close was ignored; check that every opened element is closed exactly once.",
+                         0, 0);
+        }
         return;
     }
     Clay_LayoutElement *openLayoutElement = Clay__GetOpenLayoutElement();
-    Clay_LayoutConfig *layoutConfig = openLayoutElement->layoutConfig;
+    Clay_LayoutConfig *layoutConfig = openLayoutElement->layoutConfig ? openLayoutElement->layoutConfig : &CLAY_LAYOUT_DEFAULT;
     bool elementHasScrollHorizontal = false;
     bool elementHasScrollVertical = false;
     for (int32_t i = 0; i < openLayoutElement->elementConfigs.length; i++) {
         Clay_ElementConfig *config = Clay__ElementConfigArraySlice_Get(&openLayoutElement->elementConfigs, i);
         if (config->type == CLAY__ELEMENT_CONFIG_TYPE_CLIP) {
-            elementHasScrollHorizontal = config->config.clipElementConfig->horizontal;
-            elementHasScrollVertical = config->config.clipElementConfig->vertical;
-            context->openClipElementStack.length--;
+            if (config->config.clipElementConfig != NULL) {
+                elementHasScrollHorizontal = config->config.clipElementConfig->horizontal;
+                elementHasScrollVertical = config->config.clipElementConfig->vertical;
+            }
+            // HARDENING: never let the stack length go negative (a negative length passed the Add capacity check).
+            if (context->openClipElementStack.length > 0) { context->openClipElementStack.length--; }
             break;
         } else if (config->type == CLAY__ELEMENT_CONFIG_TYPE_FLOATING) {
-            context->openClipElementStack.length--;
+            if (context->openClipElementStack.length > 0) { context->openClipElementStack.length--; }
         }
     }
 
@@ -1946,6 +2377,7 @@ void Clay__CloseElement(void) {
     }
 
     context->layoutElementChildrenBuffer.length -= openLayoutElement->childrenOrTextContent.children.length;
+    if (context->layoutElementChildrenBuffer.length < 0) { context->layoutElementChildrenBuffer.length = 0; }
 
     // Clamp element min and max width to the values configured in the layout
     if (layoutConfig->sizing.width.type != CLAY__SIZING_TYPE_PERCENT) {
@@ -2048,10 +2480,24 @@ bool Clay__MemCmp(const char *s1, const char *s2, int32_t length);
     }
 #endif
 
+// HARDENING+: the layout has no room for another element. Instead of abandoning the whole frame, the element (and everything declared
+// inside it) is ignored while the rest of the layout carries on, so the frame is a valid partial layout. `usageElements` keeps counting
+// so a growable context learns how many elements the frame really wanted.
+static void Clay__RejectElementForLackOfRoom(Clay_Context *context) {
+    context->ghostDepth++;
+    if (!context->booleanWarnings.maxElementsExceeded) {
+        context->booleanWarnings.maxElementsExceeded = true;
+        CLAY__REPORT(CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED, CLAY_ERROR_DETAIL_ELEMENTS,
+                     "Clay ran out of room for layout elements; the elements declared after this point are left out of this frame. A growable context fits itself to the layout on the next frame.",
+                     context->usageElements, context->layoutElements.capacity);
+    }
+}
+
 void Clay__OpenElement(void) {
     Clay_Context* context = Clay_GetCurrentContext();
-    if (context->layoutElements.length == context->layoutElements.capacity - 1 || context->booleanWarnings.maxElementsExceeded) {
-        context->booleanWarnings.maxElementsExceeded = true;
+    context->usageElements++;
+    if (context->ghostDepth > 0 || context->layoutElements.length >= context->layoutElements.capacity - 1 || context->booleanWarnings.maxElementsExceeded) {
+        Clay__RejectElementForLackOfRoom(context);
         return;
     }
     Clay_LayoutElement layoutElement = CLAY__DEFAULT_STRUCT;
@@ -2066,9 +2512,33 @@ void Clay__OpenElement(void) {
 
 void Clay__OpenTextElement(Clay_String text, Clay_TextElementConfig *textConfig) {
     Clay_Context* context = Clay_GetCurrentContext();
-    if (context->layoutElements.length == context->layoutElements.capacity - 1 || context->booleanWarnings.maxElementsExceeded) {
-        context->booleanWarnings.maxElementsExceeded = true;
+    context->usageElements++;
+    context->usageElementConfigs++;
+    if (context->ghostDepth > 0) {
+        return; // inside an ignored element
+    }
+    if (context->layoutElements.length >= context->layoutElements.capacity - 1 || context->booleanWarnings.maxElementsExceeded ||
+        context->elementConfigs.length >= context->elementConfigs.capacity || context->textElementData.length >= context->textElementData.capacity) {
+        // A text leaf has no matching close, so it is simply left out (rather than counted in ghostDepth).
+        if (!context->booleanWarnings.maxElementsExceeded) {
+            context->booleanWarnings.maxElementsExceeded = true;
+            CLAY__REPORT(CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED, CLAY_ERROR_DETAIL_ELEMENTS,
+                         "Clay ran out of room for layout elements; the elements declared after this point are left out of this frame. A growable context fits itself to the layout on the next frame.",
+                         context->usageElements, context->layoutElements.capacity);
+        }
         return;
+    }
+    // HARDENING: text outside any open element would mutate the shared sentinel element; a missing text config or a
+    // negative/NULL-backed string would reach the measure function and the hasher as-is.
+    if (context->openLayoutElementStack.length <= 0 || textConfig == NULL) {
+        CLAY__REPORT(CLAY_ERROR_TYPE_INVALID_USAGE, CLAY_ERROR_DETAIL_BAD_TEXT_ARGUMENT,
+                     "Text was declared with no open parent element or without a text configuration. The text was ignored.",
+                     0, 0);
+        return;
+    }
+    if (text.length < 0 || (text.length > 0 && text.chars == NULL)) {
+        text.length = 0;
+        text.chars = "";
     }
     Clay_LayoutElement *parentElement = Clay__GetOpenLayoutElement();
 
@@ -2100,14 +2570,16 @@ void Clay__OpenTextElement(Clay_String text, Clay_TextElementConfig *textConfig)
 
 Clay_ElementId Clay__AttachId(Clay_ElementId elementId) {
     Clay_Context* context = Clay_GetCurrentContext();
-    if (context->booleanWarnings.maxElementsExceeded) {
+    if (context->ghostDepth > 0 || context->openLayoutElementStack.length <= 0) {
         return Clay_ElementId_DEFAULT;
     }
     Clay_LayoutElement *openLayoutElement = Clay__GetOpenLayoutElement();
     uint32_t idAlias = openLayoutElement->id;
     openLayoutElement->id = elementId.id;
-    Clay__AddHashMapItem(elementId, openLayoutElement, idAlias);
-    Clay__StringArray_Set(&context->layoutElementIdStrings, context->layoutElements.length - 1, elementId.stringId);
+    Clay_LayoutElementHashMapItem *mapItem = Clay__AddHashMapItem(elementId, openLayoutElement, idAlias);
+    // HARDENING+: the per-frame id text points at the map entry's own copy (valid for the rest of this layout), never at the caller's
+    // string, which is usually a temporary that is gone by the time the debug view reads it at the end of the layout.
+    Clay__StringArray_Set(&context->layoutElementIdStrings, context->layoutElements.length - 1, mapItem != NULL ? mapItem->elementId.stringId : CLAY__STRING_DEFAULT);
     return elementId;
 }
 
@@ -2125,12 +2597,18 @@ void *Clay__GrowArrayStorage(void *internalArray, int32_t *capacity, int32_t len
     if (length < *capacity) {
         return internalArray;
     }
+    // HARDENING: `*capacity * 2` overflowed int32 for huge capacities; cap the growth instead.
+    if (*capacity >= (1 << 24) || length < 0) {
+        return internalArray;
+    }
     int32_t newCapacity = *capacity > 0 ? *capacity * 2 : 8;
     void *newArray = malloc((size_t)newCapacity * itemSize);
     if (newArray == NULL) {
         return internalArray; // Allocation failed -- the caller's existing capacity check reports this the same way it always has.
     }
-    memcpy(newArray, internalArray, (size_t)length * itemSize);
+    if (length > 0 && internalArray != NULL) {
+        memcpy(newArray, internalArray, (size_t)length * itemSize);
+    }
     const char *arenaBegin = arena->memory;
     const char *arenaEnd = arena->memory + arena->capacity;
     const bool isHeapOwned = !(arenaBegin != NULL && (const char *)internalArray >= arenaBegin && (const char *)internalArray < arenaEnd);
@@ -2211,18 +2689,25 @@ static Clay__ScrollContainerDataInternal *Clay__FindScrollContainer(Clay_Context
 
 void Clay__ConfigureOpenElementPtr(const Clay_ElementDeclaration *declaration) {
     Clay_Context* context = Clay_GetCurrentContext();
+    // HARDENING: once the element budget is blown the open element is no longer the one this declaration is for (the
+    // matching open was skipped), so configuring it would clobber an unrelated parent. The frame is discarded anyway.
+    if (context->ghostDepth > 0 || context->openLayoutElementStack.length <= 0) {
+        return;
+    }
     Clay_LayoutElement *openLayoutElement = Clay__GetOpenLayoutElement();
     openLayoutElement->layoutConfig = Clay__StoreLayoutConfig(declaration->layout);
     if ((declaration->layout.sizing.width.type == CLAY__SIZING_TYPE_PERCENT && declaration->layout.sizing.width.size.percent > 1) || (declaration->layout.sizing.height.type == CLAY__SIZING_TYPE_PERCENT && declaration->layout.sizing.height.size.percent > 1)) {
-        context->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-                .errorType = CLAY_ERROR_TYPE_PERCENTAGE_OVER_1,
-                .errorText = CLAY_STRING("An element was configured with CLAY_SIZING_PERCENT, but the provided percentage value was over 1.0. Clay expects a value between 0 and 1, i.e. 20% is 0.2."),
-                .userData = context->errorHandler.userData });
+        CLAY__REPORT(CLAY_ERROR_TYPE_PERCENTAGE_OVER_1, CLAY_ERROR_DETAIL_PERCENTAGE,
+                     "An element was configured with CLAY_SIZING_PERCENT, but the percentage was over 1.0. Clay expects a value between 0 and 1, i.e. 20% is 0.2.",
+                     0, 0);
     }
 
     Clay_ElementId openLayoutElementId = declaration->id;
 
-    openLayoutElement->elementConfigs.internalArray = &context->elementConfigs.internalArray[context->elementConfigs.length];
+    // HARDENING: this element's configs must be one contiguous run starting here. Reset the run so configuring an
+    // element a second time cannot leave a slice length longer than the run that actually follows this pointer.
+    openLayoutElement->elementConfigs.internalArray = context->elementConfigs.internalArray ? &context->elementConfigs.internalArray[context->elementConfigs.length] : NULL;
+    openLayoutElement->elementConfigs.length = 0;
     Clay_SharedElementConfig *sharedConfig = NULL;
     if (declaration->backgroundColor.a > 0) {
         sharedConfig = Clay__StoreSharedElementConfig(CLAY__INIT(Clay_SharedElementConfig) { .backgroundColor = declaration->backgroundColor });
@@ -2266,10 +2751,9 @@ void Clay__ConfigureOpenElementPtr(const Clay_ElementDeclaration *declaration) {
             } else if (declaration->floating.attachTo == CLAY_ATTACH_TO_ELEMENT_WITH_ID) {
                 Clay_LayoutElementHashMapItem *parentItem = Clay__GetHashMapItem(floatingConfig.parentId);
                 if (parentItem == &Clay_LayoutElementHashMapItem_DEFAULT) {
-                    context->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-                            .errorType = CLAY_ERROR_TYPE_FLOATING_CONTAINER_PARENT_NOT_FOUND,
-                            .errorText = CLAY_STRING("A floating element was declared with a parentId, but no element with that ID was found."),
-                            .userData = context->errorHandler.userData });
+                    CLAY__REPORT(CLAY_ERROR_TYPE_FLOATING_CONTAINER_PARENT_NOT_FOUND, CLAY_ERROR_DETAIL_FLOATING_PARENT,
+                                 "A floating element was attached to an element ID that has not been declared (yet) in this layout. 'value' is the missing ID hash; the parent must be declared before the floating element.",
+                                 floatingConfig.parentId, 0);
                 } else {
                     clipElementId = Clay__int32_tArray_GetValue(&context->layoutElementClipElementIds, (int32_t)(parentItem->layoutElement - context->layoutElements.internalArray));
                 }
@@ -2333,11 +2817,30 @@ void Clay__ConfigureOpenElement(const Clay_ElementDeclaration declaration) {
     Clay__ConfigureOpenElementPtr(&declaration);
 }
 
+// HARDENING: arrays that legitimately hold several entries per element (configs, wrapped text lines, render commands,
+// measure cache items) are sized as a multiple of maxElementCount. Saturates instead of overflowing int32.
+static int32_t Clay__ScaledCapacity(int32_t maxElementCount, int32_t factor) {
+    int64_t scaled = (int64_t)maxElementCount * (int64_t)factor;
+    return scaled > (int64_t)(1 << 26) ? (int32_t)(1 << 26) : (int32_t)scaled;
+}
+
+// HARDENING: bounds for the two user-settable sizes. Too small and bucket tables end up with zero buckets (a modulo by
+// zero); too large and the size math / int32 capacities overflow.
+static int32_t Clay__ClampMaxElementCount(int32_t value) {
+    return value < 16 ? 16 : (value > (1 << 20) ? (1 << 20) : value);
+}
+
+static int32_t Clay__ClampMaxMeasureTextWordCount(int32_t value) {
+    return value < 64 ? 64 : (value > (1 << 24) ? (1 << 24) : value);
+}
+
 void Clay__InitializeEphemeralMemory(Clay_Context* context) {
     int32_t maxElementCount = context->maxElementCount;
     // Ephemeral Memory - reset every frame
-    Clay_Arena *arena = &context->internalArena;
-    arena->nextAllocation = context->arenaResetOffset;
+    // HARDENING+: a growable context keeps its per-frame arrays in a block of their own (so they can be replaced between frames
+    // without moving anything persistent); a fixed-arena context carves them after the persistent ones as before.
+    Clay_Arena *arena = context->growable ? &context->ephemeralArena : &context->internalArena;
+    arena->nextAllocation = context->growable ? 0 : context->arenaResetOffset;
 
     context->layoutElementChildrenBuffer = Clay__int32_tArray_Allocate_Arena(maxElementCount, arena);
     context->layoutElements = Clay_LayoutElementArray_Allocate_Arena(maxElementCount, arena);
@@ -2348,7 +2851,9 @@ void Clay__InitializeEphemeralMemory(Clay_Context* context) {
         maxElementCount > 256 ? 256 : (maxElementCount < 100 ? 100 : maxElementCount), arena);
 
     context->layoutConfigs = Clay__LayoutConfigArray_Allocate_Arena(maxElementCount, arena);
-    context->elementConfigs = Clay__ElementConfigArray_Allocate_Arena(maxElementCount, arena);
+    // HARDENING: one entry per attached config (background, border, clip, text, ...), several per element -- with
+    // capacity == maxElementCount this overflowed long before the element budget did.
+    context->elementConfigs = Clay__ElementConfigArray_Allocate_Arena(Clay__ScaledCapacity(maxElementCount, 4), arena);
     context->textElementConfigs = Clay__TextElementConfigArray_Allocate_Arena(maxElementCount, arena);
     context->aspectRatioElementConfigs = Clay__AspectRatioElementConfigArray_Allocate_Arena(maxElementCount, arena);
     context->imageElementConfigs = Clay__ImageElementConfigArray_Allocate_Arena(maxElementCount, arena);
@@ -2359,14 +2864,19 @@ void Clay__InitializeEphemeralMemory(Clay_Context* context) {
     context->sharedElementConfigs = Clay__SharedElementConfigArray_Allocate_Arena(maxElementCount, arena);
 
     context->layoutElementIdStrings = Clay__StringArray_Allocate_Arena(maxElementCount, arena);
-    context->wrappedTextLines = Clay__WrappedTextLineArray_Allocate_Arena(maxElementCount, arena);
+    // HARDENING: one entry per wrapped *line*, not per element.
+    context->wrappedTextLines = Clay__WrappedTextLineArray_Allocate_Arena(Clay__ScaledCapacity(maxElementCount, 2), arena);
     context->layoutElementTreeNodeArray1 = Clay__LayoutElementTreeNodeArray_Allocate_Arena(maxElementCount, arena);
     context->layoutElementTreeRoots = Clay__LayoutElementTreeRootArray_Allocate_Arena(maxElementCount, arena);
     context->layoutElementChildren = Clay__int32_tArray_Allocate_Arena(maxElementCount, arena);
     context->openLayoutElementStack = Clay__int32_tArray_Allocate_Arena(maxElementCount, arena);
     context->textElementData = Clay__TextElementDataArray_Allocate_Arena(maxElementCount, arena);
     context->aspectRatioElementIndexes = Clay__int32_tArray_Allocate_Arena(maxElementCount, arena);
-    context->renderCommands = Clay_RenderCommandArray_Allocate_Arena(maxElementCount, arena);
+    // HARDENING: an element can emit a rectangle, a border, a scissor pair and between-children dividers, and every
+    // wrapped text line is a command of its own -- so this holds several commands per element. At capacity ==
+    // maxElementCount the buffer filled up on a few thousand styled elements ("ran out of capacity while attempting to
+    // create render commands") and the tail of the frame, including scissor ends, was silently dropped.
+    context->renderCommands = Clay_RenderCommandArray_Allocate_Arena(Clay__ScaledCapacity(maxElementCount, 6), arena);
     context->treeNodeVisited = Clay__boolArray_Allocate_Arena(maxElementCount, arena);
     context->treeNodeVisited.length = context->treeNodeVisited.capacity; // This array is accessed directly rather than behaving as a list
     context->openClipElementStack = Clay__int32_tArray_Allocate_Arena(maxElementCount, arena);
@@ -2379,7 +2889,7 @@ void Clay__InitializePersistentMemory(Clay_Context* context) {
     // Persistent memory - initialized once and not reset
     int32_t maxElementCount = context->maxElementCount;
     int32_t maxMeasureTextCacheWordCount = context->maxMeasureTextCacheWordCount;
-    Clay_Arena *arena = &context->internalArena;
+    Clay_Arena *arena = context->growable ? &context->persistentArena : &context->internalArena;
 
     // Was hardcoded to 10 regardless of maxElementCount, with no public API to configure it -- every
     // element with .clip.horizontal/.vertical set (any UI::graph(), any ScrollArea, not just "real"
@@ -2387,18 +2897,256 @@ void Clay__InitializePersistentMemory(Clay_Context* context) {
     // single frame silently overflowed this array with no diagnosable error (just a generic "out of
     // bounds array access"). Scaled with maxElementCount (capped, since needing this many CLIPPED
     // elements in one frame would be unusual) instead of a bare literal.
-    context->scrollContainerDatas = Clay__ScrollContainerDataInternalArray_Allocate_Arena(
-        maxElementCount > 256 ? 256 : (maxElementCount < 10 ? 10 : maxElementCount), arena);
+    // HARDENING+: a growable context keeps this array on the heap from the start (it already grows there on demand), so replacing the
+    // persistent block when the context resizes does not have to move scroll state.
+    if (!context->growable) {
+        context->scrollContainerDatas = Clay__ScrollContainerDataInternalArray_Allocate_Arena(
+            maxElementCount > 256 ? 256 : (maxElementCount < 10 ? 10 : maxElementCount), arena);
+    }
     context->layoutElementsHashMapInternal = Clay__LayoutElementHashMapItemArray_Allocate_Arena(maxElementCount, arena);
     context->layoutElementsHashMap = Clay__int32_tArray_Allocate_Arena(maxElementCount, arena);
-    context->measureTextHashMapInternal = Clay__MeasureTextCacheItemArray_Allocate_Arena(maxElementCount, arena);
-    context->measureTextHashMapInternalFreeList = Clay__int32_tArray_Allocate_Arena(maxElementCount, arena);
+    // HARDENING: entries live ~3 frames before they are evictable, so a UI whose strings all change every frame needs
+    // room for several frames' worth of distinct strings.
+    context->measureTextHashMapInternal = Clay__MeasureTextCacheItemArray_Allocate_Arena(Clay__ScaledCapacity(maxElementCount, 3), arena);
+    context->measureTextHashMapInternalFreeList = Clay__int32_tArray_Allocate_Arena(Clay__ScaledCapacity(maxElementCount, 3), arena);
     context->measuredWordsFreeList = Clay__int32_tArray_Allocate_Arena(maxMeasureTextCacheWordCount, arena);
     context->measureTextHashMap = Clay__int32_tArray_Allocate_Arena(maxElementCount, arena);
     context->measuredWords = Clay__MeasuredWordArray_Allocate_Arena(maxMeasureTextCacheWordCount, arena);
     context->pointerOverIds = Clay_ElementIdArray_Allocate_Arena(maxElementCount, arena);
     context->debugElementData = Clay__DebugElementDataArray_Allocate_Arena(maxElementCount, arena);
     context->arenaResetOffset = arena->nextAllocation;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// HARDENING+: growable contexts
+// ---------------------------------------------------------------------------------------------------------------------------
+
+static void *Clay__DefaultAllocate(size_t size, void *userData) {
+    (void)userData;
+    return malloc(size);
+}
+
+static void Clay__DefaultRelease(void *memory, size_t size, void *userData) {
+    (void)size;
+    (void)userData;
+    free(memory);
+}
+
+// Zero-filled block from the context's allocator; NULL if it refuses (or the size is unreasonable).
+static char *Clay__AllocateBlock(const Clay_Allocator *allocator, size_t size) {
+    if (size == 0) {
+        return NULL;
+    }
+    char *block = (char *)allocator->allocate(size, allocator->userData);
+    if (block != NULL) {
+        memset(block, 0, size);
+    }
+    return block;
+}
+
+static void Clay__ReleaseBlock(const Clay_Allocator *allocator, char *block, size_t size) {
+    if (block != NULL) {
+        allocator->release(block, size, allocator->userData);
+    }
+}
+
+// How many bytes the two blocks of a growable context need for a given element budget and word budget. Done by running the real carve
+// code against an arena with no memory behind it, so it can never disagree with what is actually carved.
+static void Clay__BlockSizesFor(int32_t elements, int32_t words, size_t *persistentBytes, size_t *ephemeralBytes) {
+    Clay_Context fake;
+    memset((void *)&fake, 0, sizeof(fake));
+    fake.growable = true;
+    fake.maxElementCount = elements;
+    fake.maxMeasureTextCacheWordCount = words;
+    fake.persistentArena.capacity = SIZE_MAX;
+    fake.ephemeralArena.capacity = SIZE_MAX;
+    Clay__InitializePersistentMemory(&fake);
+    Clay__InitializeEphemeralMemory(&fake);
+    *persistentBytes = (size_t)fake.persistentArena.nextAllocation + 128u;
+    *ephemeralBytes = (size_t)fake.ephemeralArena.nextAllocation + 128u;
+}
+
+// Replaces both blocks with ones sized for the new budgets, keeping what must survive a resize: the element-id map and the pointer-over
+// list (the measured-text cache is dropped and refills; scroll state is on the heap and untouched). Only ever called between layouts.
+// Returns false (leaving the context as it was) if the memory limit or the allocator forbids it.
+static bool Clay__ResizeGrowable(Clay_Context *context, int32_t newElements, int32_t newWords) {
+    newElements = Clay__ClampMaxElementCount(newElements);
+    newWords = Clay__ClampMaxMeasureTextWordCount(newWords);
+    size_t newPersistent = 0, newEphemeral = 0;
+    Clay__BlockSizesFor(newElements, newWords, &newPersistent, &newEphemeral);
+    if (newPersistent + newEphemeral > context->memoryLimitBytes) {
+        // Fit the largest budget the limit allows (scaling both budgets together), if that is still growth.
+        const double fraction = (double)context->memoryLimitBytes / (double)(newPersistent + newEphemeral);
+        const int32_t fitElements = Clay__ClampMaxElementCount((int32_t)((double)newElements * fraction));
+        const int32_t fitWords = Clay__ClampMaxMeasureTextWordCount((int32_t)((double)newWords * fraction));
+        const bool growsElements = fitElements > context->maxElementCount;
+        if (!growsElements && fitWords <= context->maxMeasureTextCacheWordCount) {
+            if (!context->memoryLimitReported) {
+                context->memoryLimitReported = true;
+                CLAY__REPORT(CLAY_ERROR_TYPE_MEMORY_LIMIT_REACHED, CLAY_ERROR_DETAIL_MEMORY_LIMIT,
+                             "The layout needs more memory than this context's limit allows, so it is truncated. Raise memoryLimitBytes (Clay_GrowableConfig) or declare fewer elements. 'value' is the bytes wanted, 'limit' the limit.",
+                             newPersistent + newEphemeral, context->memoryLimitBytes);
+            }
+            context->growthRetryAtGeneration = context->generation + 600;
+            return false;
+        }
+        newElements = growsElements ? fitElements : context->maxElementCount;
+        newWords = fitWords > context->maxMeasureTextCacheWordCount ? fitWords : context->maxMeasureTextCacheWordCount;
+        Clay__BlockSizesFor(newElements, newWords, &newPersistent, &newEphemeral);
+        if (!context->memoryLimitReported) {
+            context->memoryLimitReported = true;
+            CLAY__REPORT(CLAY_ERROR_TYPE_MEMORY_LIMIT_REACHED, CLAY_ERROR_DETAIL_MEMORY_LIMIT,
+                         "The layout wants more memory than this context's limit allows; it grew to the limit and may still be truncated. 'value' is the bytes it now holds, 'limit' the limit.",
+                         newPersistent + newEphemeral, context->memoryLimitBytes);
+        }
+    }
+    char *persistent = Clay__AllocateBlock(&context->allocator, newPersistent);
+    char *ephemeral = persistent != NULL ? Clay__AllocateBlock(&context->allocator, newEphemeral) : NULL;
+    if (persistent == NULL || ephemeral == NULL) {
+        Clay__ReleaseBlock(&context->allocator, persistent, newPersistent);
+        Clay__ReleaseBlock(&context->allocator, ephemeral, newEphemeral);
+        context->growthRetryAtGeneration = context->generation + 120;
+        CLAY__REPORT(CLAY_ERROR_TYPE_ALLOCATION_FAILED, CLAY_ERROR_DETAIL_ALLOCATION,
+                     "The allocator refused the memory a larger layout needs; the context keeps its current size and will retry. 'value' is the bytes requested.",
+                     newPersistent + newEphemeral, 0);
+        return false;
+    }
+
+    const int32_t previousElements = context->maxElementCount;
+    const int32_t previousWords = context->maxMeasureTextCacheWordCount;
+    const bool growing = newElements > previousElements || newWords > previousWords;
+
+    Clay__LayoutElementHashMapItemArray oldItems = context->layoutElementsHashMapInternal;
+    Clay_ElementIdArray oldPointerOver = context->pointerOverIds;
+    char *oldPersistent = context->persistentBlock;
+    const size_t oldPersistentSize = context->persistentBlockSize;
+
+    context->maxElementCount = newElements;
+    context->maxMeasureTextCacheWordCount = newWords;
+    context->persistentBlock = persistent;
+    context->persistentBlockSize = newPersistent;
+    context->persistentArena.memory = persistent;
+    context->persistentArena.capacity = newPersistent;
+    context->persistentArena.nextAllocation = 0;
+    context->arenaAllocationFailed = false;
+    Clay__InitializePersistentMemory(context);
+    for (int32_t i = 0; i < context->layoutElementsHashMap.capacity; ++i) {
+        context->layoutElementsHashMap.internalArray[i] = -1;
+    }
+    for (int32_t i = 0; i < context->measureTextHashMap.capacity; ++i) {
+        context->measureTextHashMap.internalArray[i] = 0;
+    }
+    context->measureTextHashMapInternal.length = 1; // 0 means "no next entry"
+    context->measureSweepBucket = 0;
+
+    int32_t keep = oldItems.length < context->layoutElementsHashMapInternal.capacity - 1 ? oldItems.length : context->layoutElementsHashMapInternal.capacity - 1;
+    if (keep > 0 && oldItems.internalArray != NULL) {
+        memcpy((void *)context->layoutElementsHashMapInternal.internalArray, oldItems.internalArray, (size_t)keep * sizeof(Clay_LayoutElementHashMapItem));
+        context->layoutElementsHashMapInternal.length = keep;
+        Clay__RebuildElementHashMap(context);
+    }
+    int32_t keepOver = oldPointerOver.length < context->pointerOverIds.capacity ? oldPointerOver.length : context->pointerOverIds.capacity;
+    if (keepOver > 0 && oldPointerOver.internalArray != NULL) {
+        memcpy((void *)context->pointerOverIds.internalArray, oldPointerOver.internalArray, (size_t)keepOver * sizeof(Clay_ElementId));
+        context->pointerOverIds.length = keepOver;
+    }
+    Clay__ReleaseBlock(&context->allocator, oldPersistent, oldPersistentSize);
+
+    // The old per-frame block stays alive for a couple of frames (scroll containers and the id map still point into it until the
+    // next layout re-registers them); anything older is released now.
+    Clay__ReleaseBlock(&context->allocator, context->retiredBlock, context->retiredBlockSize);
+    context->retiredBlock = context->ephemeralBlock;
+    context->retiredBlockSize = context->ephemeralBlockSize;
+    context->retiredAtGeneration = context->generation;
+    context->ephemeralBlock = ephemeral;
+    context->ephemeralBlockSize = newEphemeral;
+    context->ephemeralArena.memory = ephemeral;
+    context->ephemeralArena.capacity = newEphemeral;
+    context->ephemeralArena.nextAllocation = 0;
+
+    context->lowUsageFrames = 0;
+    if (growing) { context->growCount++; } else { context->shrinkCount++; }
+    if (growing) {
+        CLAY__REPORT(CLAY_ERROR_TYPE_RESIZED, CLAY_ERROR_DETAIL_GREW,
+                     "The layout context grew to fit the layout. 'value' is the new element budget, 'limit' the previous one.",
+                     newElements, previousElements);
+    } else {
+        CLAY__REPORT(CLAY_ERROR_TYPE_RESIZED, CLAY_ERROR_DETAIL_SHRANK,
+                     "The layout context gave memory back after sustained low use. 'value' is the new element budget, 'limit' the previous one.",
+                     newElements, previousElements);
+    }
+    return true;
+}
+
+// The ratio of what a buffer was asked for to what it holds.
+static double Clay__Utilisation(int64_t used, int64_t capacity) {
+    return capacity > 0 ? (double)used / (double)capacity : 1.0;
+}
+
+// Runs at the start of every layout of a growable context: decides, from what the previous layout asked for, whether the buffers are
+// about to be too small (grow, with room to spare) or have been far too large for a long time (shrink, if allowed).
+static void Clay__AdjustMemoryForNextLayout(Clay_Context *context) {
+    if (!context->growable || context->layoutElements.capacity <= 0) {
+        return;
+    }
+    if (context->retiredBlock != NULL && context->generation >= context->retiredAtGeneration + 3) {
+        Clay__ReleaseBlock(&context->allocator, context->retiredBlock, context->retiredBlockSize);
+        context->retiredBlock = NULL;
+        context->retiredBlockSize = 0;
+    }
+    if (context->generation < context->growthRetryAtGeneration) {
+        return;
+    }
+    double elementRatio = Clay__Utilisation(context->lastUsageElements, context->layoutElements.capacity);
+    double ratio = elementRatio;
+    double r;
+    r = Clay__Utilisation(context->lastUsageElementConfigs, context->elementConfigs.capacity); if (r > ratio) { ratio = r; }
+    r = Clay__Utilisation(context->lastUsageWrappedLines, context->wrappedTextLines.capacity); if (r > ratio) { ratio = r; }
+    r = Clay__Utilisation(context->lastUsageRenderCommands, context->renderCommands.capacity); if (r > ratio) { ratio = r; }
+    // Persistent tables: the id map holds one entry per live id, the measure cache one item per distinct string seen recently.
+    r = Clay__Utilisation(context->layoutElementsHashMapInternal.length, context->layoutElementsHashMapInternal.capacity); if (r > ratio) { ratio = r; }
+    r = Clay__Utilisation(context->measureTextHashMapInternal.length - context->measureTextHashMapInternalFreeList.length, context->measureTextHashMapInternal.capacity); if (r > ratio) { ratio = r; }
+    // Strings that did not fit count as demand: the cache wanted that many more items than it holds.
+    r = Clay__Utilisation((int64_t)context->measureTextHashMapInternal.length - context->measureTextHashMapInternalFreeList.length + context->usageMeasureItemFailures,
+                          context->measureTextHashMapInternal.capacity);
+    if (r > ratio) { ratio = r; }
+    // Words are budgeted separately because their count is not proportional to the element count; the words that did not fit are
+    // counted too, so one resize is enough.
+    double wordRatio = Clay__Utilisation((int64_t)context->measuredWords.length - context->measuredWordsFreeList.length + context->usageMeasureWordShortfall,
+                                         context->measuredWords.capacity);
+
+    int32_t newElements = context->maxElementCount;
+    int32_t newWords = context->maxMeasureTextCacheWordCount;
+    bool change = false;
+    if (ratio > 0.75) {
+        // Aim to sit at about half full at this load, never growing by less than half again.
+        double scale = ratio / 0.5;
+        if (scale < 1.5) { scale = 1.5; }
+        newElements = (int32_t)((double)context->maxElementCount * scale + 1.0);
+        change = true;
+    }
+    if (wordRatio > 0.75) {
+        double scale = wordRatio / 0.5;
+        if (scale < 1.5) { scale = 1.5; }
+        newWords = (int32_t)((double)context->maxMeasureTextCacheWordCount * scale + 1.0);
+        change = true;
+    }
+    if (!change && context->allowShrink &&
+        (context->maxElementCount > context->initialElements || context->maxMeasureTextCacheWordCount > context->initialWords) &&
+        ratio < 0.2 && wordRatio < 0.2) {
+        // About 30 seconds at 60 fps of the layout using under a fifth of what is held.
+        if (++context->lowUsageFrames > 1800) {
+            newElements = context->maxElementCount / 2 > context->initialElements ? context->maxElementCount / 2 : context->initialElements;
+            newWords = context->maxMeasureTextCacheWordCount / 2 > context->initialWords ? context->maxMeasureTextCacheWordCount / 2 : context->initialWords;
+            change = newElements != context->maxElementCount || newWords != context->maxMeasureTextCacheWordCount;
+            context->lowUsageFrames = 0;
+        }
+    } else if (!change) {
+        context->lowUsageFrames = 0;
+    }
+    if (change) {
+        (void)Clay__ResizeGrowable(context, newElements, newWords);
+    }
 }
 
 const float CLAY__EPSILON = 0.01;
@@ -2618,16 +3366,27 @@ Clay_String Clay__IntToString(int32_t integer) {
         return CLAY__INIT(Clay_String) { .length = 1, .chars = "0" };
     }
     Clay_Context* context = Clay_GetCurrentContext();
+    // HARDENING: an int32 needs at most 11 characters ("-2147483648"). The write used to be unchecked against the
+    // dynamic string buffer, and negating INT32_MIN overflowed.
+    enum { CLAY__INT_STRING_MAX_CHARS = 11 };
+    if (context->dynamicStringData.internalArray == NULL || context->dynamicStringData.length < 0 ||
+        context->dynamicStringData.length > context->dynamicStringData.capacity - CLAY__INT_STRING_MAX_CHARS) {
+        CLAY__REPORT(CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED, CLAY_ERROR_DETAIL_DYNAMIC_STRINGS,
+                     "Clay ran out of space for dynamically generated strings (debug view numbers); a '?' was drawn instead.",
+                     context->dynamicStringData.length, context->dynamicStringData.capacity);
+        return CLAY__INIT(Clay_String) { .length = 1, .chars = "?" };
+    }
     char *chars = (char *)(context->dynamicStringData.internalArray + context->dynamicStringData.length);
     int32_t length = 0;
-    int32_t sign = integer;
+    int64_t sign = integer;
+    int64_t magnitude = integer;
 
-    if (integer < 0) {
-        integer = -integer;
+    if (magnitude < 0) {
+        magnitude = -magnitude;
     }
-    while (integer > 0) {
-        chars[length++] = (char)(integer % 10 + '0');
-        integer /= 10;
+    while (magnitude > 0) {
+        chars[length++] = (char)(magnitude % 10 + '0');
+        magnitude /= 10;
     }
 
     if (sign < 0) {
@@ -2646,15 +3405,15 @@ Clay_String Clay__IntToString(int32_t integer) {
 
 void Clay__AddRenderCommand(Clay_RenderCommand renderCommand) {
     Clay_Context* context = Clay_GetCurrentContext();
+    context->usageRenderCommands++;
     if (context->renderCommands.length < context->renderCommands.capacity - 1) {
         Clay_RenderCommandArray_Add(&context->renderCommands, renderCommand);
     } else {
         if (!context->booleanWarnings.maxRenderCommandsExceeded) {
             context->booleanWarnings.maxRenderCommandsExceeded = true;
-            context->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-                .errorType = CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED,
-                .errorText = CLAY_STRING("Clay ran out of capacity while attempting to create render commands. This is usually caused by a large amount of wrapping text elements while close to the max element capacity. Try using Clay_SetMaxElementCount() with a higher value."),
-                .userData = context->errorHandler.userData });
+            CLAY__REPORT(CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED, CLAY_ERROR_DETAIL_RENDER_COMMANDS,
+                         "Clay ran out of room for render commands; the end of this frame's draw list was dropped.",
+                         context->usageRenderCommands, context->renderCommands.capacity);
         }
     }
 }
@@ -2671,6 +3430,45 @@ bool Clay__ElementIsOffscreen(Clay_BoundingBox *boundingBox) {
            (boundingBox->y + boundingBox->height < 0);
 }
 
+// HARDENING: pushes onto a layout DFS stack, keeping the parallel `treeNodeVisited` flags in step. The flags were
+// indexed by stack depth with no check, so a full stack wrote one past the end of the flag array.
+static bool Clay__PushTreeNode(Clay_Context *context, Clay__LayoutElementTreeNodeArray *dfsBuffer, Clay__LayoutElementTreeNode node) {
+    if (dfsBuffer->internalArray == NULL || context->treeNodeVisited.internalArray == NULL ||
+        dfsBuffer->length < 0 || dfsBuffer->length >= dfsBuffer->capacity || dfsBuffer->length >= context->treeNodeVisited.capacity) {
+        CLAY__REPORT(CLAY_ERROR_TYPE_INTERNAL_ERROR, CLAY_ERROR_DETAIL_TRAVERSAL_STACK,
+                     "Clay's layout traversal stack overflowed; part of the layout was skipped. This should not happen for a well-formed tree.",
+                     dfsBuffer->length, dfsBuffer->capacity);
+        return false;
+    }
+    context->treeNodeVisited.internalArray[dfsBuffer->length] = false;
+    Clay__LayoutElementTreeNodeArray_Add(dfsBuffer, node);
+    return true;
+}
+
+// HARDENING: appends a wrapped line and counts it on the text element -- but only if it was really stored (the shared
+// array has a fixed capacity; the old code counted lines it had dropped, so the element's line slice then ran past the
+// end of the array into neighbouring arena memory when the commands were generated). Also validates that the line lies
+// inside the element's own text, which is the invariant the renderer relies on when it reads the characters.
+static bool Clay__PushWrappedLine(Clay_Context *context, Clay__TextElementData *textElementData, Clay_Dimensions dimensions, int32_t startOffset, int32_t length) {
+    if (startOffset < 0 || length < 0 || (int64_t)startOffset + (int64_t)length > (int64_t)textElementData->text.length) {
+        return true; // Not representable; skip the line but keep going.
+    }
+    context->usageWrappedLines++;
+    if (context->wrappedTextLines.internalArray == NULL || context->wrappedTextLines.length >= context->wrappedTextLines.capacity) {
+        if (!context->booleanWarnings.maxWrappedLinesExceeded) {
+            context->booleanWarnings.maxWrappedLinesExceeded = true;
+            CLAY__REPORT(CLAY_ERROR_TYPE_ELEMENTS_CAPACITY_EXCEEDED, CLAY_ERROR_DETAIL_WRAPPED_TEXT_LINES,
+                         "Clay ran out of room for wrapped text lines; the rest of this frame's text is not drawn.",
+                         context->usageWrappedLines, context->wrappedTextLines.capacity);
+        }
+        return false;
+    }
+    const char *chars = textElementData->text.chars != NULL ? &textElementData->text.chars[startOffset] : "";
+    Clay__WrappedTextLineArray_Add(&context->wrappedTextLines, CLAY__INIT(Clay__WrappedTextLine) { dimensions, { .length = length, .chars = chars } });
+    textElementData->wrappedLines.length++;
+    return true;
+}
+
 void Clay__CalculateFinalLayout(void) {
     Clay_Context* context = Clay_GetCurrentContext();
     // Calculate sizing along the X axis
@@ -2679,39 +3477,45 @@ void Clay__CalculateFinalLayout(void) {
     // Wrap text
     for (int32_t textElementIndex = 0; textElementIndex < context->textElementData.length; ++textElementIndex) {
         Clay__TextElementData *textElementData = Clay__TextElementDataArray_Get(&context->textElementData, textElementIndex);
-        textElementData->wrappedLines = CLAY__INIT(Clay__WrappedTextLineArraySlice) { .length = 0, .internalArray = &context->wrappedTextLines.internalArray[context->wrappedTextLines.length] };
+        textElementData->wrappedLines = CLAY__INIT(Clay__WrappedTextLineArraySlice) { .length = 0, .internalArray = context->wrappedTextLines.internalArray ? &context->wrappedTextLines.internalArray[context->wrappedTextLines.length] : NULL };
         Clay_LayoutElement *containerElement = Clay_LayoutElementArray_Get(&context->layoutElements, (int)textElementData->elementIndex);
         Clay_TextElementConfig *textConfig = Clay__FindElementConfigWithType(containerElement, CLAY__ELEMENT_CONFIG_TYPE_TEXT).textElementConfig;
+        if (textConfig == NULL) {
+            continue;
+        }
         Clay__MeasureTextCacheItem *measureTextCacheItem = Clay__MeasureTextCached(&textElementData->text, textConfig);
         float lineWidth = 0;
         float lineHeight = textConfig->lineHeight > 0 ? (float)textConfig->lineHeight : textElementData->preferredDimensions.height;
         int32_t lineLengthChars = 0;
         int32_t lineStartOffset = 0;
         if (!measureTextCacheItem->containsNewlines && textElementData->preferredDimensions.width <= containerElement->dimensions.width) {
-            Clay__WrappedTextLineArray_Add(&context->wrappedTextLines, CLAY__INIT(Clay__WrappedTextLine) { containerElement->dimensions,  textElementData->text });
-            textElementData->wrappedLines.length++;
+            Clay__PushWrappedLine(context, textElementData, containerElement->dimensions, 0, textElementData->text.length);
             continue;
         }
         float spaceWidth = Clay__MeasureText(CLAY__INIT(Clay_StringSlice) { .length = 1, .chars = CLAY__SPACECHAR.chars, .baseChars = CLAY__SPACECHAR.chars }, textConfig, context->measureTextUserData).width;
         int32_t wordIndex = measureTextCacheItem->measuredWordsStartIndex;
-        while (wordIndex != -1) {
-            if (context->wrappedTextLines.length > context->wrappedTextLines.capacity - 1) {
+        // HARDENING: every iteration either consumes a word or emits a line, but cap the work anyway so a corrupt
+        // word chain can never hang the frame.
+        int64_t remainingIterations = (int64_t)context->measuredWords.length * 2 + 16;
+        while (wordIndex != -1 && remainingIterations-- > 0) {
+            Clay__MeasuredWord *measuredWord = Clay__GetMeasuredWordChecked(context, wordIndex);
+            if (measuredWord == NULL) {
                 break;
             }
-            Clay__MeasuredWord *measuredWord = Clay__MeasuredWordArray_Get(&context->measuredWords, wordIndex);
             // Only word on the line is too large, just render it anyway
             if (lineLengthChars == 0 && lineWidth + measuredWord->width > containerElement->dimensions.width) {
-                Clay__WrappedTextLineArray_Add(&context->wrappedTextLines, CLAY__INIT(Clay__WrappedTextLine) { { measuredWord->width, lineHeight }, { .length = measuredWord->length, .chars = &textElementData->text.chars[measuredWord->startOffset] } });
-                textElementData->wrappedLines.length++;
+                // A line that does not fit is dropped but still counted (the loop keeps going), so a growable context learns how many
+                // lines this frame really needed instead of only that it needed more than it had.
+                (void)Clay__PushWrappedLine(context, textElementData, CLAY__INIT(Clay_Dimensions) { measuredWord->width, lineHeight }, measuredWord->startOffset, measuredWord->length);
                 wordIndex = measuredWord->next;
                 lineStartOffset = measuredWord->startOffset + measuredWord->length;
             }
             // measuredWord->length == 0 means a newline character
             else if (measuredWord->length == 0 || lineWidth + measuredWord->width > containerElement->dimensions.width) {
-                // Wrapped text lines list has overflowed, just render out the line
-                bool finalCharIsSpace = textElementData->text.chars[lineStartOffset + lineLengthChars - 1] == ' ';
-                Clay__WrappedTextLineArray_Add(&context->wrappedTextLines, CLAY__INIT(Clay__WrappedTextLine) { { lineWidth + (finalCharIsSpace ? -spaceWidth : 0), lineHeight }, { .length = lineLengthChars + (finalCharIsSpace ? -1 : 0), .chars = &textElementData->text.chars[lineStartOffset] } });
-                textElementData->wrappedLines.length++;
+                // HARDENING: with nothing on the line yet (text that starts with a newline) this looked at text[-1].
+                int32_t lastCharOffset = lineStartOffset + lineLengthChars - 1;
+                bool finalCharIsSpace = lastCharOffset >= 0 && lastCharOffset < textElementData->text.length && textElementData->text.chars[lastCharOffset] == ' ';
+                (void)Clay__PushWrappedLine(context, textElementData, CLAY__INIT(Clay_Dimensions) { lineWidth + (finalCharIsSpace ? -spaceWidth : 0), lineHeight }, lineStartOffset, lineLengthChars + (finalCharIsSpace ? -1 : 0));
                 if (lineLengthChars == 0 || measuredWord->length == 0) {
                     wordIndex = measuredWord->next;
                 }
@@ -2725,8 +3529,7 @@ void Clay__CalculateFinalLayout(void) {
             }
         }
         if (lineLengthChars > 0) {
-            Clay__WrappedTextLineArray_Add(&context->wrappedTextLines, CLAY__INIT(Clay__WrappedTextLine) { { lineWidth - textConfig->letterSpacing, lineHeight }, {.length = lineLengthChars, .chars = &textElementData->text.chars[lineStartOffset] } });
-            textElementData->wrappedLines.length++;
+            Clay__PushWrappedLine(context, textElementData, CLAY__INIT(Clay_Dimensions) { lineWidth - textConfig->letterSpacing, lineHeight }, lineStartOffset, lineLengthChars);
         }
         containerElement->dimensions.height = lineHeight * (float)textElementData->wrappedLines.length;
     }
@@ -2744,8 +3547,7 @@ void Clay__CalculateFinalLayout(void) {
     dfsBuffer.length = 0;
     for (int32_t i = 0; i < context->layoutElementTreeRoots.length; ++i) {
         Clay__LayoutElementTreeRoot *root = Clay__LayoutElementTreeRootArray_Get(&context->layoutElementTreeRoots, i);
-        context->treeNodeVisited.internalArray[dfsBuffer.length] = false;
-        Clay__LayoutElementTreeNodeArray_Add(&dfsBuffer, CLAY__INIT(Clay__LayoutElementTreeNode) { .layoutElement = Clay_LayoutElementArray_Get(&context->layoutElements, (int)root->layoutElementIndex) });
+        Clay__PushTreeNode(context, &dfsBuffer, CLAY__INIT(Clay__LayoutElementTreeNode) { .layoutElement = Clay_LayoutElementArray_Get(&context->layoutElements, (int)root->layoutElementIndex) });
     }
     while (dfsBuffer.length > 0) {
         Clay__LayoutElementTreeNode *currentElementTreeNode = Clay__LayoutElementTreeNodeArray_Get(&dfsBuffer, (int)dfsBuffer.length - 1);
@@ -2759,8 +3561,7 @@ void Clay__CalculateFinalLayout(void) {
             }
             // Add the children to the DFS buffer (needs to be pushed in reverse so that stack traversal is in correct layout order)
             for (int32_t i = 0; i < currentElement->childrenOrTextContent.children.length; i++) {
-                context->treeNodeVisited.internalArray[dfsBuffer.length] = false;
-                Clay__LayoutElementTreeNodeArray_Add(&dfsBuffer, CLAY__INIT(Clay__LayoutElementTreeNode) { .layoutElement = Clay_LayoutElementArray_Get(&context->layoutElements, currentElement->childrenOrTextContent.children.elements[i]) });
+                Clay__PushTreeNode(context, &dfsBuffer, CLAY__INIT(Clay__LayoutElementTreeNode) { .layoutElement = Clay_LayoutElementArray_Get(&context->layoutElements, currentElement->childrenOrTextContent.children.elements[i]) });
             }
             continue;
         }
@@ -2875,17 +3676,21 @@ void Clay__CalculateFinalLayout(void) {
             targetAttachPosition.y += config->offset.y;
             rootPosition = targetAttachPosition;
         }
+        bool rootScissorOpened = false;
         if (root->clipElementId) {
             Clay_LayoutElementHashMapItem *clipHashMapItem = Clay__GetHashMapItem(root->clipElementId);
-            if (clipHashMapItem) {
+            // HARDENING: a missing lookup returns the sentinel (never NULL), whose layoutElement is NULL.
+            if (clipHashMapItem && clipHashMapItem != &Clay_LayoutElementHashMapItem_DEFAULT) {
                 // Floating elements that are attached to scrolling contents won't be correctly positioned if external scroll handling is enabled, fix here
                 if (context->externalScrollHandlingEnabled) {
-                    Clay_ClipElementConfig *clipConfig = Clay__FindElementConfigWithType(clipHashMapItem->layoutElement, CLAY__ELEMENT_CONFIG_TYPE_CLIP).clipElementConfig;
-                    if (clipConfig->horizontal) {
-                        rootPosition.x += clipConfig->childOffset.x;
-                    }
-                    if (clipConfig->vertical) {
-                        rootPosition.y += clipConfig->childOffset.y;
+                    Clay_ClipElementConfig *clipConfig = clipHashMapItem->layoutElement ? Clay__FindElementConfigWithType(clipHashMapItem->layoutElement, CLAY__ELEMENT_CONFIG_TYPE_CLIP).clipElementConfig : NULL;
+                    if (clipConfig) {
+                        if (clipConfig->horizontal) {
+                            rootPosition.x += clipConfig->childOffset.x;
+                        }
+                        if (clipConfig->vertical) {
+                            rootPosition.y += clipConfig->childOffset.y;
+                        }
                     }
                     break;
                 }
@@ -2903,11 +3708,11 @@ void Clay__CalculateFinalLayout(void) {
                     .zIndex = root->zIndex,
                     .commandType = CLAY_RENDER_COMMAND_TYPE_SCISSOR_START,
                 });
+                rootScissorOpened = true;
             }
         }
-        Clay__LayoutElementTreeNodeArray_Add(&dfsBuffer, CLAY__INIT(Clay__LayoutElementTreeNode) { .layoutElement = rootElement, .position = rootPosition, .nextChildOffset = { .x = (float)rootElement->layoutConfig->padding.left, .y = (float)rootElement->layoutConfig->padding.top } });
+        Clay__PushTreeNode(context, &dfsBuffer, CLAY__INIT(Clay__LayoutElementTreeNode) { .layoutElement = rootElement, .position = rootPosition, .nextChildOffset = { .x = (float)rootElement->layoutConfig->padding.left, .y = (float)rootElement->layoutConfig->padding.top } });
 
-        context->treeNodeVisited.internalArray[0] = false;
         while (dfsBuffer.length > 0) {
             Clay__LayoutElementTreeNode *currentElementTreeNode = Clay__LayoutElementTreeNodeArray_Get(&dfsBuffer, (int)dfsBuffer.length - 1);
             Clay_LayoutElement *currentElement = currentElementTreeNode->layoutElement;
@@ -2959,11 +3764,16 @@ void Clay__CalculateFinalLayout(void) {
                     }
                 }
 
-                int32_t sortedConfigIndexes[20];
-                for (int32_t elementConfigIndex = 0; elementConfigIndex < currentElement->elementConfigs.length; ++elementConfigIndex) {
+                // HARDENING: an element has at most one config of each kind (about 8), but the slice length is not
+                // otherwise bounded; never let it index past this fixed buffer.
+                enum { CLAY__MAX_SORTED_CONFIGS = 20 };
+                int32_t sortedConfigIndexes[CLAY__MAX_SORTED_CONFIGS];
+                int32_t sortedConfigCount = currentElement->elementConfigs.length < CLAY__MAX_SORTED_CONFIGS ? currentElement->elementConfigs.length : CLAY__MAX_SORTED_CONFIGS;
+                if (sortedConfigCount < 0) { sortedConfigCount = 0; }
+                for (int32_t elementConfigIndex = 0; elementConfigIndex < sortedConfigCount; ++elementConfigIndex) {
                     sortedConfigIndexes[elementConfigIndex] = elementConfigIndex;
                 }
-                sortMax = currentElement->elementConfigs.length - 1;
+                sortMax = sortedConfigCount - 1;
                 while (sortMax > 0) { // todo dumb bubble sort
                     for (int32_t i = 0; i < sortMax; ++i) {
                         int32_t current = sortedConfigIndexes[i];
@@ -2988,7 +3798,7 @@ void Clay__CalculateFinalLayout(void) {
                     emitRectangle = false;
                     sharedConfig = &Clay_SharedElementConfig_DEFAULT;
                 }
-                for (int32_t elementConfigIndex = 0; elementConfigIndex < currentElement->elementConfigs.length; ++elementConfigIndex) {
+                for (int32_t elementConfigIndex = 0; elementConfigIndex < sortedConfigCount; ++elementConfigIndex) {
                     Clay_ElementConfig *elementConfig = Clay__ElementConfigArraySlice_Get(&currentElement->elementConfigs, sortedConfigIndexes[elementConfigIndex]);
                     Clay_RenderCommand renderCommand = {
                         .boundingBox = currentElementBoundingBox,
@@ -3251,6 +4061,14 @@ void Clay__CalculateFinalLayout(void) {
 
             // Add children to the DFS buffer
             if (!Clay__ElementHasConfig(currentElement, CLAY__ELEMENT_CONFIG_TYPE_TEXT)) {
+                // HARDENING: the children are written straight into the stack at computed indices (and into the
+                // parallel visited flags); make sure the whole run fits in both before touching either.
+                const int32_t childCount = currentElement->childrenOrTextContent.children.length;
+                const int32_t stackLimit = dfsBuffer.capacity < context->treeNodeVisited.capacity ? dfsBuffer.capacity : context->treeNodeVisited.capacity;
+                if (childCount < 0 || dfsBuffer.internalArray == NULL || childCount > stackLimit - dfsBuffer.length) {
+                    Clay__ReportError(CLAY_ERROR_TYPE_INTERNAL_ERROR, CLAY_STRING("Clay layout traversal stack overflowed; part of the layout was skipped."));
+                    continue;
+                }
                 dfsBuffer.length += currentElement->childrenOrTextContent.children.length;
                 for (int32_t i = 0; i < currentElement->childrenOrTextContent.children.length; ++i) {
                     Clay_LayoutElement *childElement = Clay_LayoutElementArray_Get(&context->layoutElements, currentElement->childrenOrTextContent.children.elements[i]);
@@ -3297,7 +4115,7 @@ void Clay__CalculateFinalLayout(void) {
             }
         }
 
-        if (root->clipElementId) {
+        if (rootScissorOpened) {
             Clay__AddRenderCommand(CLAY__INIT(Clay_RenderCommand) { .id = Clay__HashNumber(rootElement->id, rootElement->childrenOrTextContent.children.length + 11).id, .commandType = CLAY_RENDER_COMMAND_TYPE_SCISSOR_END });
         }
     }
@@ -3420,7 +4238,7 @@ Clay__RenderDebugLayoutData Clay__RenderDebugLayoutElementsList(int32_t initialR
                         }
                     }
                 }
-                Clay_String idString = context->layoutElementIdStrings.internalArray[currentElementIndex];
+                Clay_String idString = Clay__StringArray_GetValue(&context->layoutElementIdStrings, currentElementIndex); // HARDENING: was an unchecked index
                 if (idString.length > 0) {
                     CLAY_TEXT(idString, offscreen ? CLAY_TEXT_CONFIG({ .textColor = CLAY__DEBUGVIEW_COLOR_3, .fontSize = 16 }) : &Clay__DebugView_TextNameConfig);
                 }
@@ -3478,8 +4296,11 @@ Clay__RenderDebugLayoutData Clay__RenderDebugLayoutElementsList(int32_t initialR
             layoutData.rowCount++;
             if (!(Clay__ElementHasConfig(currentElement, CLAY__ELEMENT_CONFIG_TYPE_TEXT) || (currentElementData && currentElementData->debugData->collapsed))) {
                 for (int32_t i = currentElement->childrenOrTextContent.children.length - 1; i >= 0; --i) {
-                    Clay__int32_tArray_Add(&dfsBuffer, currentElement->childrenOrTextContent.children.elements[i]);
-                    context->treeNodeVisited.internalArray[dfsBuffer.length - 1] = false; // TODO needs to be ranged checked
+                    // HARDENING: the visited flag was written at length-1 even when the push was rejected as full.
+                    if (dfsBuffer.length < dfsBuffer.capacity && dfsBuffer.length < context->treeNodeVisited.capacity) {
+                        Clay__int32_tArray_Add(&dfsBuffer, currentElement->childrenOrTextContent.children.elements[i]);
+                        context->treeNodeVisited.internalArray[dfsBuffer.length - 1] = false;
+                    }
                 }
             }
         }
@@ -4001,46 +4822,63 @@ void Clay__RenderDebugView(void) {
 uint32_t Clay__debugViewWidth = 400;
 Clay_Color Clay__debugViewHighlightColor = { 168, 66, 28, 100 };
 
+// HARDENING: reports an error through the current context's handler. Safe when there is no current context (the
+// failure paths below can run before one exists, or after it was cleared) and when the handler is somehow unset.
+static void Clay__ReportErrorEx(Clay_ErrorType errorType, Clay_ErrorDetail detail, Clay_String errorText, int64_t value, int64_t limit,
+                                const char *sourceFile, int32_t sourceLine, const char *sourceFunction) {
+    Clay_Context *context = Clay_GetCurrentContext();
+    if (context != NULL && context->errorHandler.errorHandlerFunction != NULL) {
+        context->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
+            .errorType = errorType,
+            .errorText = errorText,
+            .userData = context->errorHandler.userData,
+            .detail = detail,
+            .value = value,
+            .limit = limit,
+            .sourceFile = sourceFile,
+            .sourceFunction = sourceFunction,
+            .sourceLine = sourceLine,
+            .frame = context->generation });
+    }
+}
+
 Clay__WarningArray Clay__WarningArray_Allocate_Arena(int32_t capacity, Clay_Arena *arena) {
-    size_t totalSizeBytes = capacity * sizeof(Clay_String);
-    Clay__WarningArray array = {.capacity = capacity, .length = 0};
-    uintptr_t nextAllocOffset = arena->nextAllocation + (64 - (arena->nextAllocation % 64));
-    if (nextAllocOffset + totalSizeBytes <= arena->capacity) {
-        array.internalArray = (Clay__Warning*)((uintptr_t)arena->memory + (uintptr_t)nextAllocOffset);
-        arena->nextAllocation = nextAllocOffset + totalSizeBytes;
-    }
-    else {
-        Clay__currentContext->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-            .errorType = CLAY_ERROR_TYPE_ARENA_CAPACITY_EXCEEDED,
-            .errorText = CLAY_STRING("Clay attempted to allocate memory in its arena, but ran out of capacity. Try increasing the capacity of the arena passed to Clay_Initialize()"),
-            .userData = Clay__currentContext->errorHandler.userData });
-    }
+    // HARDENING: this used to size the allocation with sizeof(Clay_String) -- half of sizeof(Clay__Warning) -- so
+    // filling the array wrote past its slice into whatever the arena held next.
+    Clay__Warning *storage = (Clay__Warning *)Clay__Array_Allocate_Arena(capacity, (uint32_t)sizeof(Clay__Warning), arena);
+    Clay__WarningArray array = {.capacity = storage ? capacity : 0, .length = 0, .internalArray = storage};
     return array;
 }
 
 Clay__Warning *Clay__WarningArray_Add(Clay__WarningArray *array, Clay__Warning item)
 {
-    if (array->length < array->capacity) {
+    if (array->internalArray && array->length >= 0 && array->length < array->capacity) {
         array->internalArray[array->length++] = item;
         return &array->internalArray[array->length - 1];
     }
+    memset((void *)&CLAY__WARNING_DEFAULT, 0, sizeof(CLAY__WARNING_DEFAULT));
     return &CLAY__WARNING_DEFAULT;
 }
 
 void* Clay__Array_Allocate_Arena(int32_t capacity, uint32_t itemSize, Clay_Arena *arena)
 {
-    size_t totalSizeBytes = capacity * itemSize;
-    uintptr_t nextAllocOffset = arena->nextAllocation + (64 - (arena->nextAllocation % 64));
-    if (nextAllocOffset + totalSizeBytes <= arena->capacity) {
-        arena->nextAllocation = nextAllocOffset + totalSizeBytes;
-        return (void*)((uintptr_t)arena->memory + (uintptr_t)nextAllocOffset);
+    // HARDENING: do the size math in size_t (the product used to wrap in 32 bits), reject negative capacities and
+    // compare without adding (offset + size could wrap), and flag the failure so Clay_Initialize can refuse to
+    // hand out a half-built context.
+    if (arena != NULL && capacity >= 0) {
+        size_t totalSizeBytes = (size_t)capacity * (size_t)itemSize;
+        uintptr_t nextAllocOffset = arena->nextAllocation + (64 - (arena->nextAllocation % 64));
+        if (nextAllocOffset <= arena->capacity && totalSizeBytes <= arena->capacity - nextAllocOffset) {
+            arena->nextAllocation = nextAllocOffset + totalSizeBytes;
+            return (void*)((uintptr_t)arena->memory + (uintptr_t)nextAllocOffset);
+        }
     }
-    else {
-        Clay__currentContext->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-                .errorType = CLAY_ERROR_TYPE_ARENA_CAPACITY_EXCEEDED,
-                .errorText = CLAY_STRING("Clay attempted to allocate memory in its arena, but ran out of capacity. Try increasing the capacity of the arena passed to Clay_Initialize()"),
-                .userData = Clay__currentContext->errorHandler.userData });
+    if (Clay__currentContext != NULL) {
+        Clay__currentContext->arenaAllocationFailed = true;
     }
+    CLAY__REPORT(CLAY_ERROR_TYPE_ARENA_CAPACITY_EXCEEDED, CLAY_ERROR_DETAIL_ARENA_TOO_SMALL,
+                 "Clay could not fit its internal buffers in the memory it was given. Give it at least Clay_MinMemorySize() bytes, or use a growable context (Clay_InitializeGrowable).",
+                 arena != NULL ? (int64_t)arena->nextAllocation + (int64_t)capacity * (int64_t)itemSize : 0, arena != NULL ? (int64_t)arena->capacity : 0);
     return CLAY__NULL;
 }
 
@@ -4049,24 +4887,21 @@ bool Clay__Array_RangeCheck(int32_t index, int32_t length)
     if (index < length && index >= 0) {
         return true;
     }
-    Clay_Context* context = Clay_GetCurrentContext();
-    context->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-            .errorType = CLAY_ERROR_TYPE_INTERNAL_ERROR,
-            .errorText = CLAY_STRING("Clay attempted to make an out of bounds array access. This is an internal error and is likely a bug."),
-            .userData = context->errorHandler.userData });
+    CLAY__REPORT(CLAY_ERROR_TYPE_INTERNAL_ERROR, CLAY_ERROR_DETAIL_OUT_OF_BOUNDS_ACCESS,
+                 "Clay caught an out-of-bounds array read and returned a default value instead. This is an internal error and is likely a bug in Clay or in how it was driven; 'value' is the index, 'limit' the length.",
+                 index, length);
     return false;
 }
 
 bool Clay__Array_AddCapacityCheck(int32_t length, int32_t capacity)
 {
-    if (length < capacity) {
+    // HARDENING: a negative length (a decrement that ran past zero) used to pass this check and write at index -1.
+    if (length >= 0 && length < capacity) {
         return true;
     }
-    Clay_Context* context = Clay_GetCurrentContext();
-    context->errorHandler.errorHandlerFunction(CLAY__INIT(Clay_ErrorData) {
-        .errorType = CLAY_ERROR_TYPE_INTERNAL_ERROR,
-        .errorText = CLAY_STRING("Clay attempted to make an out of bounds array access. This is an internal error and is likely a bug."),
-        .userData = context->errorHandler.userData });
+    CLAY__REPORT(CLAY_ERROR_TYPE_INTERNAL_ERROR, CLAY_ERROR_DETAIL_OUT_OF_BOUNDS_ACCESS,
+                 "Clay caught a write past the end of an internal array and dropped it. This is an internal error and is likely a bug in Clay or in how it was driven; 'value' is the length, 'limit' the capacity.",
+                 length, capacity);
     return false;
 }
 
@@ -4088,10 +4923,14 @@ uint32_t Clay_MinMemorySize(void) {
         fakeContext.maxMeasureTextCacheWordCount = currentContext->maxMeasureTextCacheWordCount;
     }
     // Reserve space in the arena for the context, important for calculating min memory size correctly
+    fakeContext.maxElementCount = Clay__ClampMaxElementCount(fakeContext.maxElementCount);
+    fakeContext.maxMeasureTextCacheWordCount = Clay__ClampMaxMeasureTextWordCount(fakeContext.maxMeasureTextCacheWordCount);
     Clay__Context_Allocate_Arena(&fakeContext.internalArena);
     Clay__InitializePersistentMemory(&fakeContext);
     Clay__InitializeEphemeralMemory(&fakeContext);
-    return (uint32_t)fakeContext.internalArena.nextAllocation + 128;
+    // HARDENING: saturate instead of silently truncating a >4GiB requirement into a tiny (wrong) arena size.
+    const uint64_t required = (uint64_t)fakeContext.internalArena.nextAllocation + 128u;
+    return required > UINT32_MAX ? UINT32_MAX : (uint32_t)required;
 }
 
 CLAY_WASM_EXPORT("Clay_CreateArenaWithCapacityAndMemory")
@@ -4124,7 +4963,9 @@ void Clay_SetLayoutDimensions(Clay_Dimensions dimensions) {
 CLAY_WASM_EXPORT("Clay_SetPointerState")
 void Clay_SetPointerState(Clay_Vector2 position, bool isPointerDown) {
     Clay_Context* context = Clay_GetCurrentContext();
-    if (context->booleanWarnings.maxElementsExceeded) {
+    // HARDENING+: the previous layout is always a valid (if possibly partial) tree now, so hit testing no longer has to be skipped
+    // after an overflow. It only needs its buffers to exist.
+    if (context->treeNodeVisited.internalArray == NULL || context->layoutElementChildrenBuffer.internalArray == NULL) {
         return;
     }
     context->pointerInfo.position = position;
@@ -4134,6 +4975,9 @@ void Clay_SetPointerState(Clay_Vector2 position, bool isPointerDown) {
         dfsBuffer.length = 0;
         Clay__LayoutElementTreeRoot *root = Clay__LayoutElementTreeRootArray_Get(&context->layoutElementTreeRoots, rootIndex);
         Clay__int32_tArray_Add(&dfsBuffer, (int32_t)root->layoutElementIndex);
+        if (dfsBuffer.length <= 0 || context->treeNodeVisited.internalArray == NULL) {
+            continue;
+        }
         context->treeNodeVisited.internalArray[0] = false;
         bool found = false;
         while (dfsBuffer.length > 0) {
@@ -4150,11 +4994,16 @@ void Clay_SetPointerState(Clay_Vector2 position, bool isPointerDown) {
                 Clay_BoundingBox elementBox = mapItem->boundingBox;
                 elementBox.x -= root->pointerOffset.x;
                 elementBox.y -= root->pointerOffset.y;
-                if ((Clay__PointIsInsideRect(position, elementBox)) && (clipElementId == 0 || (Clay__PointIsInsideRect(position, clipItem->boundingBox)))) {
+                // HARDENING: a lookup miss yields the sentinel item (never NULL), which used to be hit-tested against
+                // its all-zero box (and could carry a stale hover callback); a miss is simply "not laid out".
+                if (mapItem != &Clay_LayoutElementHashMapItem_DEFAULT && (Clay__PointIsInsideRect(position, elementBox)) && (clipElementId == 0 || (clipItem != &Clay_LayoutElementHashMapItem_DEFAULT && Clay__PointIsInsideRect(position, clipItem->boundingBox)))) {
                     if (mapItem->onHoverFunction) {
                         mapItem->onHoverFunction(mapItem->elementId, context->pointerInfo, mapItem->hoverFunctionUserData);
                     }
-                    Clay_ElementIdArray_Add(&context->pointerOverIds, mapItem->elementId);
+                    // The stored id's text lives inside the map entry, which moves when the map is compacted; hand out the id without it.
+                    Clay_ElementId overId = mapItem->elementId;
+                    overId.stringId = CLAY__STRING_DEFAULT;
+                    Clay_ElementIdArray_Add(&context->pointerOverIds, overId);
                     found = true;
 
                     if (mapItem->idAlias != 0) {
@@ -4165,9 +5014,15 @@ void Clay_SetPointerState(Clay_Vector2 position, bool isPointerDown) {
                     dfsBuffer.length--;
                     continue;
                 }
-                for (int32_t i = currentElement->childrenOrTextContent.children.length - 1; i >= 0; --i) {
-                    Clay__int32_tArray_Add(&dfsBuffer, currentElement->childrenOrTextContent.children.elements[i]);
-                    context->treeNodeVisited.internalArray[dfsBuffer.length - 1] = false; // TODO needs to be ranged checked
+                // HARDENING: an element left open by an abandoned frame has a child count but no child list yet, and the
+                // visited flag was written at length-1 even when the push was rejected because the stack was full.
+                if (currentElement->childrenOrTextContent.children.elements != NULL) {
+                    for (int32_t i = currentElement->childrenOrTextContent.children.length - 1; i >= 0; --i) {
+                        if (dfsBuffer.length < dfsBuffer.capacity && dfsBuffer.length < context->treeNodeVisited.capacity) {
+                            Clay__int32_tArray_Add(&dfsBuffer, currentElement->childrenOrTextContent.children.elements[i]);
+                            context->treeNodeVisited.internalArray[dfsBuffer.length - 1] = false;
+                        }
+                    }
                 }
             } else {
                 dfsBuffer.length--;
@@ -4209,9 +5064,18 @@ Clay_Context* Clay_Initialize(Clay_Arena arena, Clay_Dimensions layoutDimensions
         .layoutDimensions = layoutDimensions,
         .internalArena = arena,
     };
+    // HARDENING: sanitize the sizes the arrays are derived from before anything is allocated from them.
+    context->maxElementCount = Clay__ClampMaxElementCount(context->maxElementCount);
+    context->maxMeasureTextCacheWordCount = Clay__ClampMaxMeasureTextWordCount(context->maxMeasureTextCacheWordCount);
     Clay_SetCurrentContext(context);
     Clay__InitializePersistentMemory(context);
     Clay__InitializeEphemeralMemory(context);
+    if (context->arenaAllocationFailed) {
+        // The arena was too small for the requested sizes: some arrays have no storage. Refuse to hand the context out
+        // (the old code returned it and the first write through a NULL array crashed), and restore the previous one.
+        Clay_SetCurrentContext(oldContext);
+        return NULL;
+    }
     for (int32_t i = 0; i < context->layoutElementsHashMap.capacity; ++i) {
         context->layoutElementsHashMap.internalArray[i] = -1;
     }
@@ -4221,6 +5085,158 @@ Clay_Context* Clay_Initialize(Clay_Arena arena, Clay_Dimensions layoutDimensions
     context->measureTextHashMapInternal.length = 1; // Reserve the 0 value to mean "no next element"
     context->layoutDimensions = layoutDimensions;
     return context;
+}
+
+CLAY_WASM_EXPORT("Clay_InitializeGrowable")
+Clay_Context* Clay_InitializeGrowable(const Clay_GrowableConfig *config) {
+    Clay_Context *previous = Clay_GetCurrentContext();
+    Clay_GrowableConfig cfg;
+    memset((void *)&cfg, 0, sizeof(cfg));
+    if (config != NULL) {
+        cfg = *config;
+    }
+    Clay_Allocator allocator = cfg.allocator;
+    if (allocator.allocate == NULL || allocator.release == NULL) {
+        allocator.allocate = Clay__DefaultAllocate;
+        allocator.release = Clay__DefaultRelease;
+        allocator.userData = NULL;
+    }
+    Clay_Context *context = (Clay_Context *)allocator.allocate(sizeof(Clay_Context), allocator.userData);
+    if (context == NULL) {
+        return NULL;
+    }
+    memset((void *)context, 0, sizeof(Clay_Context));
+    context->growable = true;
+    context->allocator = allocator;
+    context->allowShrink = cfg.allowShrink;
+    context->memoryLimitBytes = cfg.memoryLimitBytes != 0 ? cfg.memoryLimitBytes : ((size_t)1 << 30);
+    context->errorHandler = cfg.errorHandler.errorHandlerFunction ? cfg.errorHandler : CLAY__INIT(Clay_ErrorHandler) { Clay__ErrorHandlerFunctionDefault, 0 };
+    context->layoutDimensions = cfg.layoutDimensions;
+    context->initialElements = Clay__ClampMaxElementCount(cfg.initialElementCount != 0 ? cfg.initialElementCount : 2048);
+    context->initialWords = Clay__ClampMaxMeasureTextWordCount(cfg.initialMeasureWordCount != 0 ? cfg.initialMeasureWordCount : 16384);
+    context->maxElementCount = context->initialElements;
+    context->maxMeasureTextCacheWordCount = context->initialWords;
+
+    Clay__BlockSizesFor(context->maxElementCount, context->maxMeasureTextCacheWordCount, &context->persistentBlockSize, &context->ephemeralBlockSize);
+    context->persistentBlock = Clay__AllocateBlock(&allocator, context->persistentBlockSize);
+    context->ephemeralBlock = context->persistentBlock != NULL ? Clay__AllocateBlock(&allocator, context->ephemeralBlockSize) : NULL;
+    if (context->persistentBlock == NULL || context->ephemeralBlock == NULL) {
+        Clay__ReleaseBlock(&allocator, context->persistentBlock, context->persistentBlockSize);
+        Clay__ReleaseBlock(&allocator, context->ephemeralBlock, context->ephemeralBlockSize);
+        Clay_SetCurrentContext(context);
+        CLAY__REPORT(CLAY_ERROR_TYPE_ALLOCATION_FAILED, CLAY_ERROR_DETAIL_ALLOCATION,
+                     "The allocator refused the memory for a new layout context.", context->persistentBlockSize + context->ephemeralBlockSize, 0);
+        Clay_SetCurrentContext(previous);
+        allocator.release(context, sizeof(Clay_Context), allocator.userData);
+        return NULL;
+    }
+    context->persistentArena.memory = context->persistentBlock;
+    context->persistentArena.capacity = context->persistentBlockSize;
+    context->ephemeralArena.memory = context->ephemeralBlock;
+    context->ephemeralArena.capacity = context->ephemeralBlockSize;
+    Clay_SetCurrentContext(context);
+    Clay__InitializePersistentMemory(context);
+    Clay__InitializeEphemeralMemory(context);
+    for (int32_t i = 0; i < context->layoutElementsHashMap.capacity; ++i) {
+        context->layoutElementsHashMap.internalArray[i] = -1;
+    }
+    for (int32_t i = 0; i < context->measureTextHashMap.capacity; ++i) {
+        context->measureTextHashMap.internalArray[i] = 0;
+    }
+    context->measureTextHashMapInternal.length = 1;
+    return context;
+}
+
+CLAY_WASM_EXPORT("Clay_DestroyContext")
+void Clay_DestroyContext(Clay_Context* context) {
+    if (context == NULL) {
+        return;
+    }
+    const bool growable = context->growable;
+    const Clay_Allocator allocator = context->allocator;
+    char *persistent = context->persistentBlock;
+    char *ephemeral = context->ephemeralBlock;
+    char *retired = context->retiredBlock;
+    const size_t persistentSize = context->persistentBlockSize;
+    const size_t ephemeralSize = context->ephemeralBlockSize;
+    const size_t retiredSize = context->retiredBlockSize;
+    Clay_ReleaseContextResources(context);
+    if (growable) {
+        Clay__ReleaseBlock(&allocator, persistent, persistentSize);
+        Clay__ReleaseBlock(&allocator, ephemeral, ephemeralSize);
+        Clay__ReleaseBlock(&allocator, retired, retiredSize);
+        allocator.release(context, sizeof(Clay_Context), allocator.userData);
+    }
+}
+
+CLAY_WASM_EXPORT("Clay_SetErrorHandler")
+void Clay_SetErrorHandler(Clay_ErrorHandler errorHandler) {
+    Clay_Context *context = Clay_GetCurrentContext();
+    if (context != NULL) {
+        context->errorHandler = errorHandler.errorHandlerFunction ? errorHandler : CLAY__INIT(Clay_ErrorHandler) { Clay__ErrorHandlerFunctionDefault, 0 };
+    }
+}
+
+CLAY_WASM_EXPORT("Clay_GetMemoryStats")
+Clay_MemoryStats Clay_GetMemoryStats(void) {
+    Clay_MemoryStats stats;
+    memset((void *)&stats, 0, sizeof(stats));
+    Clay_Context *context = Clay_GetCurrentContext();
+    if (context == NULL) {
+        return stats;
+    }
+    stats.growable = context->growable;
+    stats.frame = context->generation;
+    stats.truncatedLastLayout = context->lastLayoutTruncated;
+    stats.bytesReserved = context->growable
+        ? context->persistentBlockSize + context->ephemeralBlockSize + context->retiredBlockSize
+        : (size_t)context->internalArena.capacity;
+    stats.bytesLimit = context->growable ? context->memoryLimitBytes : (size_t)context->internalArena.capacity;
+    stats.elementBudget = context->maxElementCount;
+    stats.measureWordBudget = context->maxMeasureTextCacheWordCount;
+    stats.usedElements = context->lastUsageElements;
+    stats.capacityElements = context->layoutElements.capacity;
+    stats.usedElementConfigs = context->lastUsageElementConfigs;
+    stats.capacityElementConfigs = context->elementConfigs.capacity;
+    stats.usedWrappedTextLines = context->lastUsageWrappedLines;
+    stats.capacityWrappedTextLines = context->wrappedTextLines.capacity;
+    stats.usedRenderCommands = context->lastUsageRenderCommands;
+    stats.capacityRenderCommands = context->renderCommands.capacity;
+    stats.growCount = context->growCount;
+    stats.shrinkCount = context->shrinkCount;
+    return stats;
+}
+
+CLAY_WASM_EXPORT("Clay_GetOpenElementPath")
+int32_t Clay_GetOpenElementPath(Clay_ElementPathEntry *out, int32_t capacity) {
+    Clay_Context *context = Clay_GetCurrentContext();
+    if (context == NULL || context->openLayoutElementStack.internalArray == NULL) {
+        return 0;
+    }
+    int32_t count = 0;
+    int32_t previousIndex = -1;
+    for (int32_t i = 0; i < context->openLayoutElementStack.length; i++) {
+        const int32_t elementIndex = context->openLayoutElementStack.internalArray[i];
+        if (elementIndex == previousIndex || elementIndex < 0 || elementIndex >= context->layoutElements.length) {
+            continue; // the layout root is on the stack twice by construction; skip stale indices defensively
+        }
+        previousIndex = elementIndex;
+        if (out != NULL && count < capacity) {
+            const Clay_LayoutElement *element = &context->layoutElements.internalArray[elementIndex];
+            out[count].id = element->id;
+            out[count].offset = 0;
+            out[count].childIndex = 0;
+            out[count].isText = 0;
+            if (i > 0) {
+                const int32_t parentIndex = context->openLayoutElementStack.internalArray[i - 1];
+                if (parentIndex >= 0 && parentIndex < context->layoutElements.length) {
+                    out[count].childIndex = context->layoutElements.internalArray[parentIndex].childrenOrTextContent.children.length;
+                }
+            }
+        }
+        count++;
+    }
+    return count;
 }
 
 CLAY_WASM_EXPORT("Clay_GetCurrentContext")
@@ -4236,7 +5252,7 @@ void Clay_SetCurrentContext(Clay_Context* context) {
 CLAY_WASM_EXPORT("Clay_GetScrollOffset")
 Clay_Vector2 Clay_GetScrollOffset(void) {
     Clay_Context* context = Clay_GetCurrentContext();
-    if (context->booleanWarnings.maxElementsExceeded) {
+    if (context->ghostDepth > 0 || context->openLayoutElementStack.length <= 0) {
         return CLAY__INIT(Clay_Vector2) CLAY__DEFAULT_STRUCT;
     }
     Clay_LayoutElement *openLayoutElement = Clay__GetOpenLayoutElement();
@@ -4270,14 +5286,17 @@ void Clay_UpdateScrollContainers(bool enableDragScrolling, Clay_Vector2 scrollDe
         if (!scrollData->openThisFrame) {
             Clay__ScrollContainerDataInternalArray_RemoveSwapback(&context->scrollContainerDatas, i);
             context->scrollIndexDirty = true;
+            i--; // HARDENING: the swapped-in last entry now sits at i and has not been visited yet
             continue;
         }
         scrollData->openThisFrame = false;
         Clay_LayoutElementHashMapItem *hashMapItem = Clay__GetHashMapItem(scrollData->elementId);
         // Element isn't rendered this frame but scroll offset has been retained
-        if (!hashMapItem) {
+        // HARDENING: a miss returns the sentinel, never NULL, so this removal never happened.
+        if (!hashMapItem || hashMapItem == &Clay_LayoutElementHashMapItem_DEFAULT) {
             Clay__ScrollContainerDataInternalArray_RemoveSwapback(&context->scrollContainerDatas, i);
             context->scrollIndexDirty = true;
+            i--;
             continue;
         }
 
@@ -4428,16 +5447,30 @@ void Clay_UpdateScrollContainers(bool enableDragScrolling, Clay_Vector2 scrollDe
 CLAY_WASM_EXPORT("Clay_BeginLayout")
 void Clay_BeginLayout(void) {
     Clay_Context* context = Clay_GetCurrentContext();
-    Clay__InitializeEphemeralMemory(context);
     context->generation++;
     context->dynamicElementIndex = 0;
     Clay__SweepMeasureTextCache(context, 64); // a slice of the measured-text cache per frame, so stale words are returned
+    // Forget element ids that were not declared last frame (see its comment). A context that may shrink also does it periodically
+    // regardless of fullness, so the live-id count the shrink decision reads is real rather than inflated by dead ids.
+    Clay__CompactElementHashMap(context, context->growable && context->allowShrink && (context->generation & 255u) == 0);
+    // HARDENING+: a growable context fits its buffers to what the previous layout needed -- here, between layouts, because the
+    // layout in progress holds pointers into them. (A fixed-arena context keeps the sizes it was given.)
+    Clay__AdjustMemoryForNextLayout(context);
+    Clay__InitializeEphemeralMemory(context);
     // Set up the root container that covers the entire window
     Clay_Dimensions rootDimensions = {context->layoutDimensions.width, context->layoutDimensions.height};
     if (context->debugModeEnabled) {
         rootDimensions.width -= (float)Clay__debugViewWidth;
     }
     context->booleanWarnings = CLAY__INIT(Clay_BooleanWarnings) CLAY__DEFAULT_STRUCT;
+    context->ghostDepth = 0;
+    context->usageElements = 0;
+    context->usageElementConfigs = 0;
+    context->usageWrappedLines = 0;
+    context->usageRenderCommands = 0;
+    context->usageMeasureItemFailures = 0;
+    context->usageMeasureWordFailures = 0;
+    context->usageMeasureWordShortfall = 0;
     Clay__OpenElement();
     Clay__ConfigureOpenElement(CLAY__INIT(Clay_ElementDeclaration) {
             .id = CLAY_ID("Clay__RootContainer"),
@@ -4451,27 +5484,23 @@ CLAY_WASM_EXPORT("Clay_EndLayout")
 Clay_RenderCommandArray Clay_EndLayout(void) {
     Clay_Context* context = Clay_GetCurrentContext();
     Clay__CloseElement();
-    bool elementsExceededBeforeDebugView = context->booleanWarnings.maxElementsExceeded;
-    if (context->debugModeEnabled && !elementsExceededBeforeDebugView) {
+    // HARDENING+: the debug view is an ordinary part of the layout that a host can switch on and off at runtime
+    // (Clay_SetDebugModeEnabled). It is skipped for a layout that is already truncated, since it would only add to the overflow.
+    if (context->debugModeEnabled && !context->booleanWarnings.maxElementsExceeded && context->ghostDepth == 0) {
         context->warningsEnabled = false;
         Clay__RenderDebugView();
         context->warningsEnabled = true;
     }
-    if (context->booleanWarnings.maxElementsExceeded) {
-        Clay_String message;
-        if (!elementsExceededBeforeDebugView) {
-            message = CLAY_STRING("Clay Error: Layout elements exceeded Clay__maxElementCount after adding the debug-view to the layout.");
-        } else {
-            message = CLAY_STRING("Clay Error: Layout elements exceeded Clay__maxElementCount");
-        }
-        Clay__AddRenderCommand(CLAY__INIT(Clay_RenderCommand ) {
-            .boundingBox = { context->layoutDimensions.width / 2 - 59 * 4, context->layoutDimensions.height / 2, 0, 0 },
-            .renderData = { .text = { .stringContents = CLAY__INIT(Clay_StringSlice) { .length = message.length, .chars = message.chars, .baseChars = message.chars }, .textColor = {255, 0, 0, 255}, .fontSize = 16 } },
-            .commandType = CLAY_RENDER_COMMAND_TYPE_TEXT
-        });
-    } else {
-        Clay__CalculateFinalLayout();
-    }
+    // HARDENING+: an overflow no longer replaces the whole frame with an error message. Elements past the limit were left out as
+    // they were declared, so what exists is a valid tree; lay it out and draw it, and let the reported error carry the news.
+    Clay__CalculateFinalLayout();
+    context->lastUsageElements = context->usageElements;
+    context->lastUsageElementConfigs = context->usageElementConfigs;
+    context->lastUsageWrappedLines = context->usageWrappedLines;
+    context->lastUsageRenderCommands = context->usageRenderCommands;
+    context->lastLayoutTruncated = context->booleanWarnings.maxElementsExceeded || context->booleanWarnings.maxElementConfigsExceeded ||
+                                   context->booleanWarnings.maxWrappedLinesExceeded || context->booleanWarnings.maxRenderCommandsExceeded ||
+                                   context->booleanWarnings.maxTextMeasureCacheExceeded;
     return context->renderCommands;
 }
 
@@ -4487,7 +5516,7 @@ Clay_ElementId Clay_GetElementIdWithIndex(Clay_String idString, uint32_t index) 
 
 bool Clay_Hovered(void) {
     Clay_Context* context = Clay_GetCurrentContext();
-    if (context->booleanWarnings.maxElementsExceeded) {
+    if (context->ghostDepth > 0 || context->openLayoutElementStack.length <= 0) {
         return false;
     }
     Clay_LayoutElement *openLayoutElement = Clay__GetOpenLayoutElement();
@@ -4505,7 +5534,7 @@ bool Clay_Hovered(void) {
 
 void Clay_OnHover(void (*onHoverFunction)(Clay_ElementId elementId, Clay_PointerData pointerInfo, intptr_t userData), intptr_t userData) {
     Clay_Context* context = Clay_GetCurrentContext();
-    if (context->booleanWarnings.maxElementsExceeded) {
+    if (context->ghostDepth > 0 || context->openLayoutElementStack.length <= 0) {
         return;
     }
     Clay_LayoutElement *openLayoutElement = Clay__GetOpenLayoutElement();
@@ -4513,6 +5542,10 @@ void Clay_OnHover(void (*onHoverFunction)(Clay_ElementId elementId, Clay_Pointer
         Clay__GenerateIdForAnonymousElement(openLayoutElement);
     }
     Clay_LayoutElementHashMapItem *hashMapItem = Clay__GetHashMapItem(openLayoutElement->id);
+    // HARDENING: a miss returns the shared sentinel; registering the callback on it would attach it to every later miss.
+    if (hashMapItem == &Clay_LayoutElementHashMapItem_DEFAULT) {
+        return;
+    }
     hashMapItem->onHoverFunction = onHoverFunction;
     hashMapItem->hoverFunctionUserData = userData;
 }
@@ -4534,7 +5567,7 @@ Clay_ScrollContainerData Clay_GetScrollContainerData(Clay_ElementId id) {
     for (int32_t i = 0; i < context->scrollContainerDatas.length; ++i) {
         Clay__ScrollContainerDataInternal *scrollContainerData = Clay__ScrollContainerDataInternalArray_Get(&context->scrollContainerDatas, i);
         if (scrollContainerData->elementId == id.id) {
-            Clay_ClipElementConfig *clipElementConfig = Clay__FindElementConfigWithType(scrollContainerData->layoutElement, CLAY__ELEMENT_CONFIG_TYPE_CLIP).clipElementConfig;
+            Clay_ClipElementConfig *clipElementConfig = scrollContainerData->layoutElement ? Clay__FindElementConfigWithType(scrollContainerData->layoutElement, CLAY__ELEMENT_CONFIG_TYPE_CLIP).clipElementConfig : NULL;
             if (!clipElementConfig) { // This can happen on the first frame before a scroll container is declared
                 return CLAY__INIT(Clay_ScrollContainerData) CLAY__DEFAULT_STRUCT;
             }
@@ -4596,11 +5629,21 @@ int32_t Clay_GetMaxElementCount(void) {
 CLAY_WASM_EXPORT("Clay_SetMaxElementCount")
 void Clay_SetMaxElementCount(int32_t maxElementCount) {
     Clay_Context* context = Clay_GetCurrentContext();
+    maxElementCount = Clay__ClampMaxElementCount(maxElementCount);
     if (context) {
+        // HARDENING: every array was already carved out of the arena for the old count; changing it afterwards made the
+        // next frame's per-frame allocations (and every capacity check) disagree with the persistent ones. Re-create the
+        // context (Clay_Initialize) to resize.
+        if (context->arenaResetOffset != 0) {
+            CLAY__REPORT(CLAY_ERROR_TYPE_INVALID_USAGE, CLAY_ERROR_DETAIL_SETTING_IGNORED,
+                         "Clay_SetMaxElementCount was called on an initialized context and was ignored; set it before Clay_Initialize(), or use a growable context, which resizes itself.",
+                         maxElementCount, context->maxElementCount);
+            return;
+        }
         context->maxElementCount = maxElementCount;
     } else {
         Clay__defaultMaxElementCount = maxElementCount; // TODO: Fix this
-        Clay__defaultMaxMeasureTextWordCacheCount = maxElementCount * 2;
+        Clay__defaultMaxMeasureTextWordCacheCount = Clay__ClampMaxMeasureTextWordCount(maxElementCount * 2);
     }
 }
 
@@ -4613,10 +5656,42 @@ int32_t Clay_GetMaxMeasureTextCacheWordCount(void) {
 CLAY_WASM_EXPORT("Clay_SetMaxMeasureTextCacheWordCount")
 void Clay_SetMaxMeasureTextCacheWordCount(int32_t maxMeasureTextCacheWordCount) {
     Clay_Context* context = Clay_GetCurrentContext();
+    maxMeasureTextCacheWordCount = Clay__ClampMaxMeasureTextWordCount(maxMeasureTextCacheWordCount);
     if (context) {
-        Clay__currentContext->maxMeasureTextCacheWordCount = maxMeasureTextCacheWordCount;
+        if (context->arenaResetOffset != 0) {
+            CLAY__REPORT(CLAY_ERROR_TYPE_INVALID_USAGE, CLAY_ERROR_DETAIL_SETTING_IGNORED,
+                         "Clay_SetMaxMeasureTextCacheWordCount was called on an initialized context and was ignored; set it before Clay_Initialize(), or use a growable context, which resizes itself.",
+                         maxMeasureTextCacheWordCount, context->maxMeasureTextCacheWordCount);
+            return;
+        }
+        context->maxMeasureTextCacheWordCount = maxMeasureTextCacheWordCount;
     } else {
         Clay__defaultMaxMeasureTextWordCacheCount = maxMeasureTextCacheWordCount; // TODO: Fix this
+    }
+}
+
+CLAY_WASM_EXPORT("Clay_ReleaseContextResources")
+void Clay_ReleaseContextResources(Clay_Context* context) {
+    if (context == NULL) {
+        return;
+    }
+    // scrollContainerDatas may have outgrown its arena slice (Clay__GrowArrayStorage) and now live on the heap; the
+    // arena owner cannot free that. Same "is it outside the arena" test the grow path uses.
+    const char *arenaBegin = context->internalArena.memory;
+    const char *arenaEnd = context->internalArena.memory + context->internalArena.capacity;
+    const char *scrollData = (const char *)context->scrollContainerDatas.internalArray;
+    if (scrollData != NULL && !(arenaBegin != NULL && scrollData >= arenaBegin && scrollData < arenaEnd)) {
+        free(context->scrollContainerDatas.internalArray);
+    }
+    context->scrollContainerDatas.internalArray = NULL;
+    context->scrollContainerDatas.capacity = 0;
+    context->scrollContainerDatas.length = 0;
+    free(context->scrollIndex);
+    context->scrollIndex = NULL;
+    context->scrollIndexMask = 0;
+    context->scrollIndexDirty = false;
+    if (Clay_GetCurrentContext() == context) {
+        Clay_SetCurrentContext(NULL);
     }
 }
 
