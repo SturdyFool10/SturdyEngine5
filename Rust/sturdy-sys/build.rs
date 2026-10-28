@@ -14,8 +14,8 @@
 //! adding a subsystem is "add the two files", not "edit build.rs".
 //!
 //! Environment knobs:
-//!   STURDY_RS_TARGET_CPU   `-march` value for the C++ side (default: `x86-64-v2` on x86_64, never
-//!                          `native`, which would make the binary crash on other machines)
+//!   STURDY_RS_TARGET_CPU   optional `-march` value for the C++ side; unset means the compiler's
+//!                          architecture baseline, never `native`
 //!   STURDY_RS_CMAKE_ARGS   extra whitespace-separated arguments for the CMake configure step
 //!   STURDY_RS_BUILD_TYPE   CMake build type for the engine (default: Release)
 //!   STURDY_RS_DEPS_DIR     directory for the engine's third-party sources (default: a per-build `OUT_DIR/deps`);
@@ -58,11 +58,23 @@ const HERMETIC_CMAKE_ARGS: &[&str] = &[
     "-Dlerc=OFF",
     "-DOPENEXR_FORCE_INTERNAL_IMATH=ON",
     "-DOPENEXR_FORCE_INTERNAL_OPENJPH=ON",
+    // The networking layer's optional extras are pkg-config libraries (nghttp2, ngtcp2/nghttp3, liburing) that distributions ship only
+    // as shared objects: leave them out of a build meant to be self-contained. HTTP/2, QUIC and HTTP/3 then report themselves
+    // unavailable (`features()`), io_uring falls back to the IO lane; everything else in `sturdy-net` works.
+    "-DSTURDY_ASYNC_WITH_HTTP2=OFF",
+    "-DSTURDY_ASYNC_WITH_QUIC=OFF",
+    "-DSTURDY_ASYNC_WITH_IO_URING=OFF",
+    // Boost.Process is a compiled (shared) Boost library on distributions; child-process support is therefore off in this build.
+    "-DSTURDY_ASYNC_WITH_PROCESS=OFF",
 ];
 
 /// System shared libraries the final binary is allowed to depend on: they are part of the OS
 /// graphics stack (like the GPU driver itself) and cannot be bundled.
-const ALLOWED_SYSTEM_LIBS: &[&str] = &["wayland-client"];
+///
+/// `ssl` / `crypto` (OpenSSL) are the one exception that is not graphics: TLS is security-critical, so it comes from the operating system
+/// (which patches it) rather than from a copy frozen into the executable, and the engine does no cryptography of its own. Distributions
+/// do not ship static OpenSSL, so the alternative is no TLS at all in the Rust build.
+const ALLOWED_SYSTEM_LIBS: &[&str] = &["wayland-client", "ssl", "crypto"];
 /// Linked by the engine's CMake but unnecessary: loaded at runtime through volk instead.
 const DROPPED_SYSTEM_LIBS: &[&str] = &["vulkan"];
 
@@ -223,6 +235,12 @@ fn feature_cmake_args() -> Vec<&'static str> {
     if env::var_os("CARGO_FEATURE_WEBGPU").is_some() {
         args.push("-DSTURDY_ENABLE_WEBGPU=ON");
     }
+    // The engine's own executables (its probes) follow the same choice as the Rust application's link.
+    args.push(if env::var_os("CARGO_FEATURE_EXPORT_SYMBOLS").is_some() {
+        "-DSTURDY_EXPORT_SYMBOLS=ON"
+    } else {
+        "-DSTURDY_EXPORT_SYMBOLS=OFF"
+    });
     if env::var_os("CARGO_FEATURE_GLFW").is_some() {
         args.push("-DSTURDY_BUILD_GLFW_WINDOW_PROVIDER=ON");
     }
@@ -243,13 +261,8 @@ fn configure(
     gen_dir: &Path,
     bridge_cc: &[PathBuf],
 ) {
-    let cpu = env::var("STURDY_RS_TARGET_CPU").ok().unwrap_or_else(|| {
-        match env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
-            Ok("x86_64") => "x86-64-v2".into(),
-            _ => String::new(),
-        }
-    });
-    // `native-cpu` opts out of the portable baseline; STURDY_RS_TARGET_CPU still wins if both are
+    let cpu = env::var("STURDY_RS_TARGET_CPU").unwrap_or_default();
+    // `native-cpu` is an explicit local-build opt-in; STURDY_RS_TARGET_CPU still wins if both are
     // set, since it's the more specific ask.
     let cpu = if env::var_os("CARGO_FEATURE_NATIVE_CPU").is_some() && env::var_os("STURDY_RS_TARGET_CPU").is_none() {
         "native".to_owned()
@@ -258,9 +271,8 @@ fn configure(
     };
     let build_type = env::var("STURDY_RS_BUILD_TYPE").unwrap_or_else(|_| "Release".into());
     // Deliberately explicit: a builder's CFLAGS/CXXFLAGS (commonly `-march=native`) must not leak
-    // into an artifact meant to run on other machines.
-    // `-mxsave` on x86: Foundation's CPUID probe reads XCR0 via `xgetbv` (after checking OSXSAVE),
-    // which clang only accepts with that feature enabled; `-march=native` used to imply it.
+    // into an artifact meant to run on other machines. The default adds no ISA flags; any wider
+    // instructions must live in separately dispatched kernel translation units.
     let toolchain = cross_toolchain_file();
     // clang-cl (the MSVC-style driver a Windows toolchain file selects) only takes GNU-style options behind `/clang:`.
     let clang_cl = toolchain.is_some() && target_is_msvc();
@@ -268,15 +280,11 @@ fn configure(
     // clang-cl puts `/clang:` options after everything else, so a `-march` there would override (and drop) the AVX a
     // source file's own `/arch:AVX2` asks for. Express the portable baseline as added features instead, which only
     // ever add to what each file enables.
-    let mut cxx_flags = match cpu.as_str() {
+    let cxx_flags = match cpu.as_str() {
         "" => String::new(),
         "x86-64-v2" if clang_cl => ["-msse4.2", "-mpopcnt", "-mcx16"].map(gnu).join(" "),
         _ => gnu(&format!("-march={cpu}")),
     };
-    if env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64") {
-        cxx_flags.push(' ');
-        cxx_flags.push_str(&gnu("-mxsave"));
-    }
 
     let shim_sources = shim_sources(manifest, bridge_cc)
         .into_iter()

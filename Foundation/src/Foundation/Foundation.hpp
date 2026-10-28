@@ -13,6 +13,7 @@
 #include <Foundation/Color.hpp>
 #include <Foundation/UString.hpp>
 #include <Foundation/Iter.hpp>
+#include <Foundation/ParIter.hpp>
 #include <Foundation/Embed.hpp>
 #include <Foundation/ConsoleDiagnostic.hpp>
 #include <Foundation/Log.hpp>

@@ -134,7 +134,33 @@ namespace SFT::RHI {
 
         f32 timestamp_period_ns = 0.0f;
         u32 timestamp_valid_bits = 0;
+
+        /// Largest anisotropy a sampler may use (`SamplerDesc::max_anisotropy` is clamped to it); 0 when anisotropic filtering
+        /// is unavailable.
+        f32 max_sampler_anisotropy = 0.0f;
     };
+
+    /// What a device can do with one texture format (optimally tiled 2D textures). Every flag is a guarantee: `false` means
+    /// unsupported *or not known*. A backend that cannot query reports `portable_format_capabilities`.
+    struct FormatCapabilities {
+        bool sampled = false;
+        /// Linear filtering when sampled.
+        bool filterable = false;
+        bool color_attachment = false;
+        /// Blending when used as a color attachment.
+        bool blendable = false;
+        /// Read-write storage-image access from shaders.
+        bool storage = false;
+        /// Sample counts it supports as a multisampled color attachment, as a mask whose bits are the counts (1 | 2 | 4 ...),
+        /// like `DeviceLimits::framebuffer_sample_counts`.
+        u32 sample_counts = 0;
+
+        friend bool operator==(const FormatCapabilities &, const FormatCapabilities &) = default;
+    };
+
+    /// What every backend supports for `format` (the WebGPU core guarantees, which Vulkan and D3D12 hardware meet): the floor a
+    /// device reports when it cannot be asked. All-false for formats outside the common colour set.
+    [[nodiscard]] FormatCapabilities portable_format_capabilities(Format format) noexcept;
 
 
     class RhiDevice {
@@ -182,6 +208,12 @@ namespace SFT::RHI {
         /// @note Concrete implementations define backend-specific failure details and must honor this declaration's result/error contract.
         /// @note This function does not throw exceptions.
         [[nodiscard]] virtual const DeviceLimits &limits() const noexcept = 0;
+
+        /// What this device can do with `format` (see `FormatCapabilities`). The default is `portable_format_capabilities`;
+        /// backends that can ask the driver override it.
+        [[nodiscard]] virtual FormatCapabilities format_capabilities(Format format) const noexcept {
+            return portable_format_capabilities(format);
+        }
 
 
         /// Returns the current or globally available feature negotiation report value.

@@ -96,7 +96,6 @@ namespace SFT::Async::Ranges {
     template <AsyncRuntime Rt = DefaultRuntime, std::ranges::random_access_range R, typename Pred>
         requires std::ranges::sized_range<R> && std::predicate<Pred &, std::ranges::range_reference_t<R>>
     [[nodiscard]] bool all(R &&range, Pred pred) {
-        using T = std::ranges::range_value_t<R>;
         const usize size = static_cast<usize>(std::ranges::size(range));
         if (!size) return true;
         const auto chunks = Detail::chunk_bounds(size, Detail::chunk_count_for<Rt>(size));

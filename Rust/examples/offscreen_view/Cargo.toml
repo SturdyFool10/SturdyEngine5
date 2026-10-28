@@ -8,3 +8,7 @@ publish = false
 # otherwise UI-only window (the shape of an embedded model/skin viewer). Run under a real (nested) display.
 [dependencies]
 sturdy = { path = "../../sturdy" }
+
+[build-dependencies]
+# Applies the `sturdy` crate's `export-symbols` link flag to this executable (see sturdy-build).
+sturdy-build = { path = "../../sturdy-build" }

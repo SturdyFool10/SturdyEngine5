@@ -2,6 +2,29 @@
 
 namespace SFT::RHI {
 
+FormatCapabilities portable_format_capabilities(Format format) noexcept {
+    // The WebGPU core texture-format table: sampled/filterable/renderable/blendable/storage, and 1x + 4x multisampling.
+    constexpr u32 one_and_four = 1u | 4u;
+    switch (format) {
+        case Format::RGBA8Unorm:
+        case Format::RGBA16Float:
+            return {.sampled = true, .filterable = true, .color_attachment = true, .blendable = true, .storage = true,
+                    .sample_counts = one_and_four};
+        case Format::RGBA8UnormSrgb:
+        case Format::BGRA8Unorm:
+        case Format::BGRA8UnormSrgb:
+        case Format::RGB10A2Unorm:
+            return {.sampled = true, .filterable = true, .color_attachment = true, .blendable = true, .storage = false,
+                    .sample_counts = one_and_four};
+        case Format::RGBA32Float:
+            // Filtering and blending of 32-bit floats are optional features in WebGPU.
+            return {.sampled = true, .filterable = false, .color_attachment = true, .blendable = false, .storage = true,
+                    .sample_counts = 1u};
+        default:
+            return {};
+    }
+}
+
 /// Reports whether enabled holds for this `RHI`.
 ///
 /// @param feature `feature` value used by the operation.

@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 37u
+#define STURDY_ABI_VERSION_MINOR 40u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -7036,6 +7036,1870 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_builder_finish(St
 /// Discards `builder` without registering anything. Safe to call on an already-finished or
 /// already-discarded builder (a no-op).
 STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_reflection_type_builder_discard(SturdyReflectionTypeBuilder builder);
+
+// ---------------------------------------------------------------------------------------------
+// Networking, files, processes and data parallelism (the engine's Tokio + Rayon)
+// ---------------------------------------------------------------------------------------------
+//
+// Everything that waits returns an **operation** (`SturdyAsyncOp`): poll it, wait on it with a timeout, cancel it, or attach a
+// completion callback. A finished operation holds a result — a status, an error, and some of {bytes, text, a number, named fields, a new
+// object} whose meaning each function documents. Long-lived things (a connection, a server, a file) are **objects** (`SturdyAsyncObject`)
+// that you release when done; releasing closes them. One model for every protocol, in every language.
+//
+// - Both handle kinds are owned by you and live until released, like `SturdyTask`. Tokens are never reused.
+// - Completion callbacks run on a network or timer thread, **not** on the engine's frame thread: keep them short, never wait on an
+//   operation inside one, and read results with the `sturdy_op_*` getters before returning.
+// - Do not wait on an operation from a scheduler worker that the operation might depend on. `sturdy_op_wait` blocks the caller.
+// - Option structs: zero-initialize, then set what you need. A null pointer means "all defaults". Zero in a numeric field means "the
+//   default" where one is documented; booleans are named so that zero is the safe default (`no_http2`, not `http2`).
+// - Strings you pass are copied. Strings and arrays the engine hands you in a callback are valid only during that callback.
+// - Security defaults match the C++ API: TLS verifies the chain and host name unless you pin a certificate; there is no switch that
+//   disables verification. `identify_peer_by_certificate_only` and `accept_any_client_certificate` are the two loud opt-ins for
+//   peer-to-peer identity by key, and then **you** must check the peer's fingerprint.
+
+/// A pending or finished operation. Owned until `sturdy_op_release`.
+typedef struct SturdyAsyncOp {
+    uint64_t token;
+} SturdyAsyncOp;
+
+/// A long-lived object (connection, listener, server, file, ...). Owned until `sturdy_object_release`, which closes it.
+typedef struct SturdyAsyncObject {
+    uint64_t token;
+} SturdyAsyncObject;
+
+/// Where an operation stands.
+typedef enum SturdyOpStatus {
+    STURDY_OP_PENDING = 0,
+    /// Finished with a result.
+    STURDY_OP_OK = 1,
+    /// Finished with an error: see `sturdy_op_error_code` / `sturdy_op_error_message`.
+    STURDY_OP_FAILED = 2,
+    /// Stopped by `sturdy_op_cancel` (or by releasing what it was waiting on) before it finished.
+    STURDY_OP_CANCELLED = 3,
+    STURDY_OP_STATUS_FORCE_U32 = 0x7fffffff
+} SturdyOpStatus;
+
+/// Why an operation failed.
+typedef enum SturdyIoError {
+    STURDY_IO_NONE = 0,
+    STURDY_IO_NOT_FOUND = 1,
+    STURDY_IO_PERMISSION_DENIED = 2,
+    STURDY_IO_ALREADY_EXISTS = 3,
+    STURDY_IO_INVALID_ARGUMENT = 4,
+    STURDY_IO_CONNECTION_REFUSED = 5,
+    STURDY_IO_CONNECTION_RESET = 6,
+    STURDY_IO_TIMED_OUT = 7,
+    STURDY_IO_UNSUPPORTED = 8,
+    STURDY_IO_UNKNOWN = 9,
+    /// The peer closed the stream before a fixed-size read was satisfied.
+    STURDY_IO_UNEXPECTED_EOF = 10,
+    /// The local object was closed before or during the operation.
+    STURDY_IO_CLOSED = 11,
+    STURDY_IO_TLS_FAILURE = 12,
+    /// A configured size or count limit was exceeded.
+    STURDY_IO_LIMIT_EXCEEDED = 13,
+    /// The peer violated the protocol.
+    STURDY_IO_PROTOCOL_ERROR = 14,
+    STURDY_IO_ERROR_FORCE_U32 = 0x7fffffff
+} SturdyIoError;
+
+/// A name/value pair (HTTP headers, environment variables). Both strings are null-terminated.
+typedef struct SturdyKeyValue {
+    const char *name;
+    const char *value;
+} SturdyKeyValue;
+
+/// Optional parts of the build / machine, as a bit set from `sturdy_async_features`.
+typedef enum SturdyAsyncFeature {
+    STURDY_ASYNC_FEATURE_QUIC = 1,
+    STURDY_ASYNC_FEATURE_HTTP2 = 2,
+    STURDY_ASYNC_FEATURE_HTTP3 = 4,
+    STURDY_ASYNC_FEATURE_IO_URING = 8,
+    STURDY_ASYNC_FEATURE_PROCESS = 16,
+    STURDY_ASYNC_FEATURE_GZIP = 32,
+    STURDY_ASYNC_FEATURE_NATIVE_FILE_WATCH = 64,
+    STURDY_ASYNC_FEATURE_FORCE_U32 = 0x7fffffff
+} SturdyAsyncFeature;
+
+/// Called when an operation finishes. Runs on a network, timer or worker thread. The op is still owned by you; read its result here or later.
+/// Called exactly once for every registration — also when the op was released or cancelled meanwhile, so the `user_data` you attached can always
+/// be freed here. In that case `op` is no longer a valid handle (its getters report an expired handle); check with `sturdy_op_status` first.
+typedef void(STURDY_ABI_CALL *SturdyAsyncOpFn)(void *user_data, SturdyAsyncOp op);
+
+// ---- operations --------------------------------------------------------------------------------
+
+/// Bit set of `SturdyAsyncFeature`: which optional protocols this build contains and whether this machine supports them.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_async_features(uint32_t *out_features);
+
+/// Reads an operation's status without blocking.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_status(SturdyAsyncOp op, SturdyOpStatus *out_status);
+
+/// Waits until the operation finishes or `timeout_ms` passes (negative: no limit). `out_done` says which.
+/// Blocks the calling thread; do not call it from a completion callback.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_wait(SturdyAsyncOp op, int64_t timeout_ms, SturdyBool *out_done);
+
+/// Waits for the first of `ops` to finish. `out_index` is its position, or -1 when `timeout_ms` passed first.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_wait_any(const SturdyAsyncOp *ops, uint32_t count, int64_t timeout_ms, int32_t *out_index);
+
+/// Asks the operation to stop. It then finishes as `STURDY_OP_CANCELLED` (or with its result, if it already had one). Harmless on a finished op.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_cancel(SturdyAsyncOp op);
+
+/// Runs `callback` when the operation finishes — at once, on this thread, if it already has.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_on_complete(SturdyAsyncOp op, SturdyAsyncOpFn callback, void *user_data);
+
+/// The failure kind of a `STURDY_OP_FAILED` op (`STURDY_IO_NONE` otherwise). `STURDY_ERROR_BUSY` while pending.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_error_code(SturdyAsyncOp op, SturdyIoError *out_code);
+
+/// The failure message of a failed op (empty otherwise), following the string-output convention.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_error_message(SturdyAsyncOp op, char *buffer, size_t capacity, size_t *out_length);
+
+/// The result's number (byte count, status code, port, ... — see the function that made the op).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_number(SturdyAsyncOp op, int64_t *out_number);
+
+/// The result's text, following the string-output convention.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_text(SturdyAsyncOp op, char *buffer, size_t capacity, size_t *out_length);
+
+/// The result's bytes. Pass a null buffer to learn the size; `out_length` always receives the full size, and
+/// `STURDY_ERROR_BUFFER_TOO_SMALL` is returned (after copying what fits) when the buffer was smaller. No terminator is added.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_bytes(SturdyAsyncOp op, uint8_t *buffer, size_t capacity, size_t *out_length);
+
+/// The object the operation produced (a connection, a file, ...), as a new handle you own. Calling it again returns the same handle.
+/// `STURDY_ERROR_NOT_AVAILABLE` when the op produced none. The object lives until **both** its handle and the operation are released, so a
+/// "permit" or a "mutex_guard" is only dropped once the op is released too — or release it explicitly with its own function.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_object(SturdyAsyncOp op, SturdyAsyncObject *out_object);
+
+/// How many named fields the result has.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_field_count(SturdyAsyncOp op, uint32_t *out_count);
+
+/// Name of field `index`, following the string-output convention.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_field_name(SturdyAsyncOp op, uint32_t index, char *buffer, size_t capacity, size_t *out_length);
+
+/// Value of field `index`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_field_value(SturdyAsyncOp op, uint32_t index, char *buffer, size_t capacity, size_t *out_length);
+
+/// Value of the first field called `name` (HTTP header lookup is case-insensitive; other fields are exact).
+/// `STURDY_ERROR_NOT_AVAILABLE` when there is none.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_field(SturdyAsyncOp op, const char *name, char *buffer, size_t capacity, size_t *out_length);
+
+/// Releases an operation. A pending one keeps running; its result is dropped.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_release(SturdyAsyncOp op);
+
+/// Releases an object, closing whatever it wraps. Operations still pending on it finish as closed or cancelled.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_object_release(SturdyAsyncObject object);
+
+/// The object's kind ("tcp", "websocket", "quic_stream", ...), following the string-output convention.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_object_kind(SturdyAsyncObject object, char *buffer, size_t capacity, size_t *out_length);
+
+// ---- timers, signals, DNS, STUN, identities ---------------------------------------------------
+
+/// Finishes (OK) after `milliseconds`, without occupying a thread.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_timer_sleep(int64_t milliseconds, SturdyAsyncOp *out_op);
+
+/// Finishes when the process receives SIGINT or SIGTERM (Ctrl+C / termination). Number: the signal.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_signal_shutdown(SturdyAsyncOp *out_op);
+
+/// Resolves a host name. Fields: one `address` per result (numeric text).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dns_resolve(const char *host, SturdyAsyncOp *out_op);
+
+/// Asks a STUN server what public address this machine appears as. Text: host. Number: port. `server` null: stun.l.google.com:19302.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stun_query(const char *server, uint16_t port, int64_t timeout_ms, SturdyAsyncOp *out_op);
+
+/// Generates a self-signed ECDSA P-256 identity (for peers and dev servers). Returns an already-finished op with fields
+/// `certificate_pem`, `private_key_pem`, `sha256`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tls_generate_identity(const char *common_name, uint32_t valid_days, SturdyAsyncOp *out_op);
+
+/// Hex SHA-256 of the first certificate in `certificate_pem`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tls_certificate_sha256(const char *certificate_pem, char *buffer, size_t capacity, size_t *out_length);
+
+/// How to verify a server (client side of TLS/QUIC/HTTPS/WSS). Chain and host name are always checked unless `pinned_sha256` names the
+/// exact certificate(s) accepted.
+typedef struct SturdyTlsClientOptions {
+    /// Name sent as SNI and checked against the certificate; null: the host being connected to.
+    const char *server_name;
+    /// Do not trust the operating system's roots (use `ca_pem` only).
+    SturdyBool no_system_roots;
+    /// Extra trusted CA certificates, PEM (may hold several). May be null.
+    const char *ca_pem;
+    /// Hex SHA-256 of acceptable leaf certificates; when present they replace chain validation.
+    const char *const *pinned_sha256;
+    uint32_t pinned_sha256_count;
+    /// Peer-to-peer opt-in: accept any certificate and let **you** compare `peer_sha256`. Never default.
+    SturdyBool identify_peer_by_certificate_only;
+    /// Client certificate for mutual TLS (both or neither).
+    const char *client_certificate_pem;
+    const char *client_private_key_pem;
+    /// ALPN protocols to offer, most preferred first.
+    const char *const *alpn;
+    uint32_t alpn_count;
+    /// Time allowed for the TLS handshake; 0: 10 s.
+    uint32_t handshake_timeout_ms;
+} SturdyTlsClientOptions;
+
+/// How to present and check identities on the accepting side.
+typedef struct SturdyTlsServerOptions {
+    const char *certificate_pem;
+    const char *private_key_pem;
+    /// CAs whose client certificates are accepted (mutual TLS). May be null.
+    const char *client_ca_pem;
+    SturdyBool require_client_certificate;
+    /// Peer-to-peer opt-in: accept any self-signed client certificate; authorise by `peer_sha256` yourself.
+    SturdyBool accept_any_client_certificate;
+    const char *const *pinned_client_sha256;
+    uint32_t pinned_client_sha256_count;
+    const char *const *alpn;
+    uint32_t alpn_count;
+    /// Time allowed for each client's TLS handshake; 0: 10 s.
+    uint32_t handshake_timeout_ms;
+} SturdyTlsServerOptions;
+
+// ---- TCP and TLS streams ------------------------------------------------------------------------
+
+/// Connects (resolving, trying each address). Object "tcp". `tls` null: plain TCP; otherwise a verified TLS handshake.
+/// `timeout_ms` 0: 30 seconds.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_connect(const char *host, uint16_t port, const SturdyTlsClientOptions *tls, int64_t timeout_ms, SturdyAsyncOp *out_op);
+
+/// Starts listening. Object "tcp_listener" (finished op). `tls` non-null: every accepted connection completes a TLS handshake first.
+/// `backlog` is the pending-connection queue length; 0: 1024.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_listen(const char *host, uint16_t port, const SturdyTlsServerOptions *tls, int32_t backlog, SturdyAsyncOp *out_op);
+
+/// Waits for the next connection. Object "tcp".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_accept(SturdyAsyncObject listener, SturdyAsyncOp *out_op);
+
+/// The port a listener is bound to.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_listener_port(SturdyAsyncObject listener, uint16_t *out_port);
+/// "host:port" the listener is bound to, following the string-output convention.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_listener_address(SturdyAsyncObject listener, char *buffer, size_t capacity, size_t *out_length);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_listener_is_open(SturdyAsyncObject listener, SturdyBool *out_open);
+
+/// Sends all of `data`. Number: bytes sent. The data is copied.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_send(SturdyAsyncObject connection, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+
+/// Receives 1..`max_bytes` bytes as soon as any arrive. Bytes: empty means the peer finished.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_receive(SturdyAsyncObject connection, size_t max_bytes, SturdyAsyncOp *out_op);
+
+/// Receives exactly `count` bytes (`STURDY_IO_UNEXPECTED_EOF` if the peer closes first).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_receive_exact(SturdyAsyncObject connection, size_t count, SturdyAsyncOp *out_op);
+
+/// Receives up to and including `delimiter` (a line, a header block); `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_receive_until(SturdyAsyncObject connection, const char *delimiter, size_t max_bytes, SturdyAsyncOp *out_op);
+
+/// Half-close: tells the peer no more data is coming while reads continue.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_shutdown_write(SturdyAsyncObject connection, SturdyAsyncOp *out_op);
+
+/// Upgrades an open, quiet connection to TLS in place (STARTTLS, after an HTTP CONNECT). Client or server role.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_start_tls_client(SturdyAsyncObject connection, const char *host, const SturdyTlsClientOptions *tls, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_start_tls_server(SturdyAsyncObject connection, const SturdyTlsServerOptions *tls, SturdyAsyncOp *out_op);
+
+/// Closes now (the object is still released separately).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_close(SturdyAsyncObject connection);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_listener_close(SturdyAsyncObject listener);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_is_open(SturdyAsyncObject connection, SturdyBool *out_open);
+/// Socket options; each finishes once applied (a failure is reported on the op).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_set_nodelay(SturdyAsyncObject connection, SturdyBool enabled, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_set_keepalive(SturdyAsyncObject connection, SturdyBool enabled, SturdyAsyncOp *out_op);
+
+/// Connection details as a finished op: fields `peer`, `local` ("host:port") and, over TLS, `protocol`, `cipher`, `alpn`, `peer_sha256`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tcp_info(SturdyAsyncObject connection, SturdyAsyncOp *out_op);
+
+// ---- UDP ----------------------------------------------------------------------------------------
+
+typedef struct SturdyUdpOptions {
+    SturdyBool reuse_address;
+    SturdyBool broadcast;
+    /// Kernel socket buffer sizes in bytes; 0: the OS default.
+    uint64_t receive_buffer;
+    uint64_t send_buffer;
+} SturdyUdpOptions;
+
+/// Binds a UDP socket. Object "udp". `host` null/empty: all interfaces. `port` 0: any. `options` may be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_bind(const char *host, uint16_t port, const SturdyUdpOptions *options, SturdyAsyncOp *out_op);
+
+/// Fixes the peer: `sturdy_udp_send` then needs no address and only that peer's datagrams are received.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_connect(SturdyAsyncObject socket, const char *host, uint16_t port, SturdyAsyncOp *out_op);
+
+/// Sends one datagram on a connected socket. Number: bytes sent.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_send(SturdyAsyncObject socket, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+
+/// Sends one datagram. Number: bytes sent.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_send_to(SturdyAsyncObject socket, const char *host, uint16_t port, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+
+/// Receives the next datagram (at most `max_bytes`). Bytes: the datagram. Text: sender host. Number: sender port.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_receive(SturdyAsyncObject socket, size_t max_bytes, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_port(SturdyAsyncObject socket, uint16_t *out_port);
+/// "host:port" the socket is bound to, following the string-output convention.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_address(SturdyAsyncObject socket, char *buffer, size_t capacity, size_t *out_length);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_set_broadcast(SturdyAsyncObject socket, SturdyBool enabled, SturdyAsyncOp *out_op);
+/// `interface_address` null/empty: the default interface.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_join_multicast(SturdyAsyncObject socket, const char *group, const char *interface_address, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_leave_multicast(SturdyAsyncObject socket, const char *group, const char *interface_address, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_set_multicast_loopback(SturdyAsyncObject socket, SturdyBool enabled, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_set_multicast_ttl(SturdyAsyncObject socket, uint32_t hops, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_close(SturdyAsyncObject socket);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_udp_is_open(SturdyAsyncObject socket, SturdyBool *out_open);
+
+// ---- HTTP client --------------------------------------------------------------------------------
+
+typedef struct SturdyHttpClientOptions {
+    /// Deadline for one request including redirects. 0: 30 s.
+    int64_t timeout_ms;
+    /// Redirects followed; -1: the default (5); 0: return the redirect itself.
+    int32_t max_redirects;
+    /// 0: 16 MiB. Larger responses fail with `STURDY_IO_LIMIT_EXCEEDED`.
+    uint64_t max_response_body_bytes;
+    SturdyBool no_keep_alive;
+    /// Do not ask for or decode gzip/deflate.
+    SturdyBool no_decompress;
+    /// Keep and send cookies (a private jar per client).
+    SturdyBool cookies;
+    SturdyBool no_http2;
+    /// Do not switch to HTTP/3 on `Alt-Svc`.
+    SturdyBool no_http3;
+    /// Try HTTP/3 first, before any `Alt-Svc` was seen.
+    SturdyBool http3_prior_knowledge;
+    const char *user_agent;
+    /// `http://[user:password@]host:port`; https targets go through CONNECT and stay verified end to end.
+    const char *proxy;
+    const char *const *no_proxy;
+    uint32_t no_proxy_count;
+    SturdyTlsClientOptions tls;
+    /// Follow an https -> http redirect (refused by default).
+    SturdyBool allow_https_downgrade;
+    /// 0: 64 KiB.
+    uint32_t max_response_header_bytes;
+    /// 0: 4.
+    uint32_t max_idle_connections_per_host;
+    /// 0: 30 s.
+    int64_t idle_connection_timeout_ms;
+    /// 0: 3 s before falling back from HTTP/3.
+    int64_t http3_connect_timeout_ms;
+    /// A "cookie_jar" to share or persist (implies `cookies`); the zero handle: a private jar when `cookies` is set.
+    SturdyAsyncObject cookie_jar;
+} SturdyHttpClientOptions;
+
+/// Creates a client with a connection pool (HTTP/1.1 keep-alive, HTTP/2 multiplexing, HTTP/3 after `Alt-Svc`). Object "http_client".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_client_create(const SturdyHttpClientOptions *options, SturdyAsyncObject *out_client);
+
+/// Sends a request. Number: status. Fields: the response headers. Bytes: the body. Text: the final URL after redirects. Non-2xx
+/// statuses are ordinary results; only transport, TLS, protocol, limit and timeout problems fail the op. `X-` headers etc. are yours;
+/// `Host`, `Content-Length`, `Connection` and `Transfer-Encoding` are managed by the client and ignored if supplied.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_client_request(SturdyAsyncObject client,
+                                                                  const char *method,
+                                                                  const char *url,
+                                                                  const SturdyKeyValue *headers,
+                                                                  uint32_t header_count,
+                                                                  const uint8_t *body,
+                                                                  size_t body_size,
+                                                                  SturdyAsyncOp *out_op);
+
+/// Closes idle pooled connections.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_client_close_idle(SturdyAsyncObject client);
+
+// ---- HTTP server --------------------------------------------------------------------------------
+
+/// One request, valid only during the handler call (copy what you keep).
+typedef struct SturdyHttpRequest {
+    const char *method;
+    const char *target;
+    /// The client's address (IPv4-mapped IPv6 normalised).
+    const char *remote_address;
+    /// 11 = HTTP/1.1, 20 = HTTP/2, 30 = HTTP/3.
+    uint32_t version;
+    const SturdyKeyValue *headers;
+    uint32_t header_count;
+    const uint8_t *body;
+    size_t body_size;
+    /// When the server spools large uploads to disk (`spool_requests_above`): the temporary file holding the body (`body_size` is then 0).
+    /// Deleted after the response is sent; null otherwise.
+    const char *body_file;
+    // Set when the request came through a router (null / 0 for a plain handler):
+    /// The percent-decoded path without the query.
+    const char *path;
+    /// The raw query string without '?'.
+    const char *query;
+    /// `:name` / `*name` captures of the matched pattern.
+    const SturdyKeyValue *params;
+    uint32_t param_count;
+} SturdyHttpRequest;
+
+/// Answers one request. Owned until `sturdy_http_respond` (which consumes it); never release it otherwise.
+typedef struct SturdyHttpResponder {
+    uint64_t token;
+} SturdyHttpResponder;
+
+/// Called for every request, on a handler thread (not the network thread). Call `sturdy_http_respond` exactly once with `responder`,
+/// now or later from any thread. A request that is never answered holds its connection until the client gives up.
+typedef void(STURDY_ABI_CALL *SturdyHttpHandlerFn)(void *user_data, const SturdyHttpRequest *request, SturdyHttpResponder responder);
+
+typedef struct SturdyHttpServerOptions {
+    /// null: "0.0.0.0".
+    const char *bind_address;
+    /// 0: any free port.
+    uint16_t port;
+    /// PEM files; both or neither (neither: plain HTTP).
+    const char *tls_certificate_chain_file;
+    const char *tls_private_key_file;
+    /// 0: a default sized to the machine.
+    uint32_t handler_threads;
+    /// 0: 256.
+    uint32_t max_connections;
+    /// 0: 1 MiB.
+    uint64_t max_request_body_bytes;
+    /// 0: 32 KiB.
+    uint32_t max_request_header_bytes;
+    /// 0: 8 MiB.
+    uint64_t max_response_body_bytes;
+    /// 0: unlimited.
+    uint32_t max_connections_per_ip;
+    SturdyBool no_http2;
+    /// Also serve HTTP/3 over QUIC (needs TLS) and advertise it with Alt-Svc.
+    SturdyBool enable_http3;
+    /// UDP port for HTTP/3; 0: the same number as the TCP port.
+    uint16_t http3_port;
+    /// Reactor threads serving the sockets; 0: automatic.
+    uint32_t io_threads;
+    /// Time allowed to drain active sessions on stop; 0: 5 s.
+    uint32_t shutdown_timeout_ms;
+    /// Request bodies larger than this go to a temporary file (`SturdyHttpRequest::body_file`) instead of memory; 0: always in memory.
+    uint64_t spool_requests_above;
+    /// Largest spooled upload (bigger ones get 413); 0: 1 GiB.
+    uint64_t max_spooled_body_bytes;
+    /// Streams one HTTP/2 connection may have in flight; 0: 100.
+    uint32_t http2_max_concurrent_streams;
+    /// 0: 100 / 1024 connections / 64 per address.
+    uint32_t http3_max_concurrent_streams;
+    uint64_t http3_max_connections;
+    uint64_t http3_max_connections_per_address;
+    // WebSockets upgraded through `sturdy_http_server_on_websocket`:
+    /// 0: 1 MiB.
+    uint64_t websocket_max_message_bytes;
+    /// 0: 4 MiB.
+    uint64_t websocket_max_queued_send_bytes;
+    /// 0: 60 s.
+    int64_t websocket_idle_timeout_ms;
+    SturdyBool websocket_compression;
+    /// If non-empty, an upgrade request carrying an Origin header must match one exactly.
+    const char *const *websocket_allowed_origins;
+    uint32_t websocket_allowed_origin_count;
+    /// Supported subprotocols, most preferred first.
+    const char *const *websocket_subprotocols;
+    uint32_t websocket_subprotocol_count;
+    /// Upgraded sockets alive at once; 0: 1024.
+    uint64_t max_websockets;
+} SturdyHttpServerOptions;
+
+/// Starts an HTTP(S) server. Object "http_server". Stops (and drains) when the object is released.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_start(const SturdyHttpServerOptions *options,
+                                                                SturdyHttpHandlerFn handler,
+                                                                void *user_data,
+                                                                SturdyAsyncObject *out_server);
+
+/// Sends the response for a request. `headers` may be null. CR/LF in a header makes the server answer 500 instead.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_respond(SturdyHttpResponder responder,
+                                                           uint32_t status,
+                                                           const SturdyKeyValue *headers,
+                                                           uint32_t header_count,
+                                                           const uint8_t *body,
+                                                           size_t body_size);
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_port(SturdyAsyncObject server, uint16_t *out_port);
+/// 0 when HTTP/3 is not served.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_http3_port(SturdyAsyncObject server, uint16_t *out_port);
+/// Counters as a finished op's fields (decimal text): connections_accepted, requests, responses_2xx..5xx, active_connections, ...
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_metrics(SturdyAsyncObject server, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_stop(SturdyAsyncObject server);
+
+/// Static server facts as a finished op's fields: `running`, `tls`, `http2` ("1"/"0"), `port`, `http3_port`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_info(SturdyAsyncObject server, SturdyAsyncOp *out_op);
+
+/// Creates a server without starting it, so WebSocket paths can be added first; `sturdy_http_server_begin` then starts it.
+/// Object "http_server". `handler` answers every request that is not a WebSocket upgrade.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_create(const SturdyHttpServerOptions *options,
+                                                                 SturdyHttpHandlerFn handler,
+                                                                 void *user_data,
+                                                                 SturdyAsyncObject *out_server);
+
+/// Same, serving a router (see below). The router may be released afterwards: the server keeps an immutable snapshot of it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_create_router(const SturdyHttpServerOptions *options,
+                                                                        SturdyAsyncObject router,
+                                                                        SturdyAsyncObject *out_server);
+
+/// `sturdy_http_server_create_router` and `sturdy_http_server_begin` in one step.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_start_router(const SturdyHttpServerOptions *options,
+                                                                       SturdyAsyncObject router,
+                                                                       SturdyAsyncObject *out_server);
+
+/// Called for each WebSocket upgraded on a path registered with `sturdy_http_server_on_websocket`, on a handler thread. `socket` is a new
+/// "websocket" object **you own** (release it when done; releasing closes the connection). `request` is valid only during the call.
+typedef void(STURDY_ABI_CALL *SturdyWebSocketFn)(void *user_data, SturdyAsyncObject socket, const SturdyHttpRequest *request);
+
+/// Upgrades requests whose path (without query) equals `path` to WebSockets, on the same port and over TLS when the server uses it. Call
+/// before `sturdy_http_server_begin`. `user_data` must stay valid until the server object is released.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_on_websocket(SturdyAsyncObject server, const char *path, SturdyWebSocketFn handler, void *user_data);
+
+/// Opens the listener and starts serving.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_server_begin(SturdyAsyncObject server);
+
+/// A complete response. Zero-initialize, then set what you need: a status, headers, and one body — bytes, a file, or a stream.
+typedef struct SturdyHttpResponse {
+    uint32_t status;
+    const SturdyKeyValue *headers;
+    uint32_t header_count;
+    const uint8_t *body;
+    size_t body_size;
+    /// Send `Connection: close` and drop the connection afterwards.
+    SturdyBool close_connection;
+    /// Serve the body from this file (streamed from disk, never fully loaded) instead of `body`; null otherwise.
+    const char *body_file;
+    /// With `body_file`: start at this byte...
+    uint64_t body_offset;
+    /// ...and send this many (needs `limit_body_length`); otherwise to the end of the file.
+    uint64_t body_length;
+    SturdyBool limit_body_length;
+    /// Stream the body with chunked transfer encoding: write chunks to the "http_body" object `sturdy_http_respond_ex` returns.
+    SturdyBool stream;
+    /// Server-Sent Events: implies `stream`, adds `Content-Type: text/event-stream`, `Cache-Control: no-cache` and `X-Accel-Buffering: no`.
+    SturdyBool sse;
+    /// Chunks buffered before a write waits for the client; 0: 16.
+    uint32_t stream_queue;
+} SturdyHttpResponse;
+
+/// Sends a response. Fails (without spending `responder`) with `STURDY_ERROR_INVALID_ARGUMENT` if more than one body is given. For `stream`
+/// or `sse` responses `out_body` receives the writer object (required then); otherwise it is ignored and may be null. The writer is yours to
+/// release; releasing it ends the body.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_respond_ex(SturdyHttpResponder responder, const SturdyHttpResponse *response, SturdyAsyncObject *out_body);
+
+typedef enum SturdyHttpResponseKind {
+    /// `text/plain; charset=utf-8`.
+    STURDY_HTTP_RESPONSE_TEXT = 0,
+    /// `text/html; charset=utf-8`.
+    STURDY_HTTP_RESPONSE_HTML = 1,
+    /// `application/json`; `body` must already be valid JSON text.
+    STURDY_HTTP_RESPONSE_JSON = 2,
+    /// `body` is the Location.
+    STURDY_HTTP_RESPONSE_REDIRECT = 3,
+    STURDY_HTTP_RESPONSE_KIND_FORCE_U32 = 0x7fffffff
+} SturdyHttpResponseKind;
+
+/// Sends a canned response of `kind` with `status` (a redirect usually 302/301/307/308) and the null-terminated `body`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_respond_canned(SturdyHttpResponder responder, SturdyHttpResponseKind kind, uint32_t status, const char *body);
+
+// ---- streamed response bodies (the "http_body" object `sturdy_http_respond_ex` returns) ----
+
+/// Queues a chunk. Finishes once it is accepted into the bounded queue (so a slow client paces the producer); fails with `STURDY_IO_CLOSED`
+/// once the client is gone or the body was finished.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_body_write(SturdyAsyncObject body, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+
+/// One Server-Sent Event. Line breaks in `event` and `id` are dropped, so a hostile value cannot inject fields.
+typedef struct SturdySseEvent {
+    /// May contain newlines; each line becomes a `data:` field. Null-terminated.
+    const char *data;
+    /// Optional event name and last-event-id.
+    const char *event;
+    const char *id;
+    /// Reconnect delay hint, sent when `has_retry`.
+    uint32_t retry_ms;
+    SturdyBool has_retry;
+} SturdySseEvent;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_body_write_sse(SturdyAsyncObject body, const SturdySseEvent *event, SturdyAsyncOp *out_op);
+/// Ends the body once queued chunks drain.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_body_finish(SturdyAsyncObject body);
+/// Finishes when the client disconnected or the server stopped, so a producer can stop. Cancelling it finishes it as cancelled.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_body_closed(SturdyAsyncObject body, SturdyAsyncOp *out_op);
+
+/// The wire format of one event, ending with the blank line that dispatches it (string-output convention).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_format_sse(const SturdySseEvent *event, char *buffer, size_t capacity, size_t *out_length);
+/// Percent-decodes `text` (string-output convention); `STURDY_ERROR_INVALID_ARGUMENT` on a malformed escape or an encoded NUL.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_percent_decode(const char *text, SturdyBool plus_is_space, char *buffer, size_t capacity, size_t *out_length);
+
+// ---- router -------------------------------------------------------------------------------------
+
+/// Static file serving options. Zero means the default noted.
+typedef struct SturdyStaticFilesOptions {
+    /// Directory served; files outside it are unreachable, including through symlinks. Required.
+    const char *root;
+    /// Served for a request naming a directory; null: "index.html".
+    const char *index_file;
+    /// Sent as Cache-Control; null: "public, max-age=300".
+    const char *cache_control;
+    /// Files and directories starting with '.' are hidden (404) unless set.
+    SturdyBool allow_dotfiles;
+    /// Allow symlinks that point outside `root` (a link planted in the tree must not expose the disk).
+    SturdyBool follow_symlinks;
+    /// Do not serve `name.br` / `name.gz` siblings to clients that accept them.
+    SturdyBool no_precompressed;
+    /// Served (status 200) when nothing matches a GET — single-page-app routing. null: 404.
+    const char *spa_fallback;
+    /// Extra or overriding MIME mappings (name = extension with dot, value = type).
+    const SturdyKeyValue *mime_types;
+    uint32_t mime_type_count;
+} SturdyStaticFilesOptions;
+
+/// Creates a URL router. Patterns are '/'-separated literals, `:name` (one segment) and a final `*name` (the rest); literals beat
+/// parameters, which beat wildcards. Object "router". HEAD requests reuse GET routes; unmatched methods on known paths get 405 with an
+/// Allow header; malformed paths get 400.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_router_create(SturdyAsyncObject *out_router);
+/// Adds a route (`method` upper-case, e.g. "GET"). `handler` runs on a handler thread, exactly like a server handler, with `path`, `query`
+/// and `params` filled in. `user_data` must stay valid until every server serving this router is released.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_router_route(SturdyAsyncObject router, const char *method, const char *pattern, SturdyHttpHandlerFn handler, void *user_data);
+/// Adds middleware that runs before every matching route. Call `sturdy_http_respond*` with the responder **before returning** to answer
+/// the request yourself (auth, rate limits); return without answering to let it continue. Answering later is ignored.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_router_use(SturdyAsyncObject router, SturdyHttpHandlerFn middleware, void *user_data);
+/// Serves files under `mount` (e.g. "/assets") from `options->root`, GET and HEAD only. `STURDY_ERROR_INVALID_ARGUMENT` when the root is not a directory.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_router_static_files(SturdyAsyncObject router, const char *mount, const SturdyStaticFilesOptions *options);
+/// Replaces the default 404. The handler must answer before it returns.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_router_not_found(SturdyAsyncObject router, SturdyHttpHandlerFn handler, void *user_data);
+/// Middleware answering 429 with Retry-After once one client address exceeds `rate_per_second` (bursts up to `burst`). `max_keys` 0: 10000.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_router_rate_limit(SturdyAsyncObject router, double rate_per_second, double burst, uint64_t max_keys);
+/// Runs one request through the router synchronously (tests, in-process calls). Number: status. Fields: headers. Bytes: body (a streamed body is not collected).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_router_dispatch(SturdyAsyncObject router,
+                                                              const char *method,
+                                                              const char *target,
+                                                              const char *remote_address,
+                                                              const SturdyKeyValue *headers,
+                                                              uint32_t header_count,
+                                                              const uint8_t *body,
+                                                              size_t body_size,
+                                                              SturdyAsyncOp *out_op);
+
+// ---- rate limiter and cookie jar ----------------------------------------------------------------
+
+/// A keyed token bucket: each key may use `rate_per_second` operations per second on average, with bursts up to `burst`. Thread-safe; memory is
+/// bounded by `max_keys` (0: 10000). Object "rate_limiter".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rate_limiter_create(double rate_per_second, double burst, uint64_t max_keys, SturdyAsyncObject *out_limiter);
+/// Takes `cost` tokens for `key` if available.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rate_limiter_try_acquire(SturdyAsyncObject limiter, const char *key, double cost, SturdyBool *out_acquired);
+/// Milliseconds until `key` could take `cost` tokens (0 if it could now).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rate_limiter_retry_after_ms(SturdyAsyncObject limiter, const char *key, double cost, int64_t *out_ms);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_rate_limiter_tracked_keys(SturdyAsyncObject limiter, uint64_t *out_keys);
+
+/// One cookie (RFC 6265).
+typedef struct SturdyCookie {
+    const char *name;
+    const char *value;
+    /// Lowercase, no leading dot.
+    const char *domain;
+    /// null: "/".
+    const char *path;
+    /// The Domain attribute was given: subdomains receive it too. Off: only the exact host.
+    SturdyBool domain_wide;
+    /// Only sent over https.
+    SturdyBool secure;
+    SturdyBool http_only;
+    /// Seconds since the Unix epoch; 0: a session cookie.
+    int64_t expires_unix;
+} SturdyCookie;
+
+/// A thread-safe cookie store: a client fills it from `Set-Cookie` and sends matching cookies. A Domain attribute must cover the request
+/// host and have at least two labels; IP hosts keep host-only cookies; the jar is capped (50 per domain, 3000 total). Object "cookie_jar".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cookie_jar_create(SturdyAsyncObject *out_jar);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cookie_jar_add(SturdyAsyncObject jar, const SturdyCookie *cookie);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cookie_jar_store_from_response(SturdyAsyncObject jar,
+                                                                             const char *host,
+                                                                             const char *path,
+                                                                             SturdyBool https,
+                                                                             const SturdyKeyValue *response_headers,
+                                                                             uint32_t header_count);
+/// "a=1; b=2" for the cookies that apply to a request (string-output convention; empty if none).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cookie_jar_header_for(SturdyAsyncObject jar, const char *host, const char *path, SturdyBool https, char *buffer, size_t capacity, size_t *out_length);
+/// Every stored cookie as a finished op's fields `name:N`, `value:N`, `domain:N`, `path:N`, `domain_wide:N`, `secure:N`, `http_only:N`, `expires:N` (N = 0, 1, ...).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cookie_jar_all(SturdyAsyncObject jar, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cookie_jar_clear(SturdyAsyncObject jar);
+/// The jar a client uses (shared, not a copy). `STURDY_ERROR_NOT_AVAILABLE` when cookies are off.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_http_client_cookie_jar(SturdyAsyncObject client, SturdyAsyncObject *out_jar);
+
+// ---- WebSocket ----------------------------------------------------------------------------------
+
+typedef struct SturdyWebSocketOptions {
+    /// 0: 1 MiB. Bigger incoming messages close the socket with 1009.
+    uint64_t max_message_bytes;
+    /// 0: 4 MiB of unsent data before `send` fails with `STURDY_IO_LIMIT_EXCEEDED`.
+    uint64_t max_queued_send_bytes;
+    /// 0: 60 s without inbound traffic drops the connection (pings keep healthy idle links alive).
+    int64_t idle_timeout_ms;
+    /// Negotiate permessage-deflate (the inflated size is bounded by `max_message_bytes`).
+    SturdyBool compression;
+    /// Received messages buffered before reading pauses; 0: 16.
+    uint64_t inbox_messages;
+    /// Time allowed for the opening handshake; 0: 10 s.
+    int64_t handshake_timeout_ms;
+} SturdyWebSocketOptions;
+
+typedef struct SturdyWebSocketClientOptions {
+    SturdyWebSocketOptions socket;
+    SturdyTlsClientOptions tls;
+    const SturdyKeyValue *headers;
+    uint32_t header_count;
+    const char *const *subprotocols;
+    uint32_t subprotocol_count;
+    /// 0: 30 s for resolve + connect + TLS + upgrade.
+    int64_t timeout_ms;
+} SturdyWebSocketClientOptions;
+
+typedef struct SturdyWebSocketServerOptions {
+    const char *bind_address;
+    uint16_t port;
+    SturdyWebSocketOptions socket;
+    /// Serve wss:// with `tls` instead of ws://.
+    SturdyBool use_tls;
+    SturdyTlsServerOptions tls;
+    const char *const *allowed_origins;
+    uint32_t allowed_origin_count;
+    const char *const *paths;
+    uint32_t path_count;
+    const char *const *subprotocols;
+    uint32_t subprotocol_count;
+    /// 0: 1024.
+    uint64_t max_connections;
+    /// 0: 16 KiB.
+    uint32_t max_request_header_bytes;
+} SturdyWebSocketServerOptions;
+
+/// Connects (`ws://` or `wss://`). Object "websocket". `options` may be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_connect(const char *url, const SturdyWebSocketClientOptions *options, SturdyAsyncOp *out_op);
+/// Starts a WebSocket server. Object "ws_server" (finished op).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_server_listen(const SturdyWebSocketServerOptions *options, SturdyAsyncOp *out_op);
+/// Waits for the next upgraded connection. Object "websocket".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_accept(SturdyAsyncObject server, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_server_port(SturdyAsyncObject server, uint16_t *out_port);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_server_close(SturdyAsyncObject server);
+/// Queues a text message (UTF-8, `size` bytes; no terminator needed). The data is copied.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_send_text(SturdyAsyncObject socket, const char *text, size_t size, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_send_binary(SturdyAsyncObject socket, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+/// Sends a ping (payload up to 125 bytes).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_ping(SturdyAsyncObject socket, const uint8_t *payload, size_t size, SturdyAsyncOp *out_op);
+/// Next data message. Bytes: payload. Number: 1 for text, 0 for binary. Fails with `STURDY_IO_CLOSED` once the connection ended.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_receive(SturdyAsyncObject socket, SturdyAsyncOp *out_op);
+/// Graceful close with an RFC 6455 code (1000 normal) and a reason of up to 123 bytes.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_close(SturdyAsyncObject socket, uint16_t code, const char *reason, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_is_open(SturdyAsyncObject socket, SturdyBool *out_open);
+/// Fields: `target`, `origin`, `subprotocol`, `header:<Name>` for each upgrade-request header, `peer` ("host:port"), the TLS fields over wss, and
+/// once closed `close_code`, `close_reason` (a finished op).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_info(SturdyAsyncObject socket, SturdyAsyncOp *out_op);
+/// Drops the connection without a closing handshake.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_websocket_abort(SturdyAsyncObject socket);
+
+// ---- QUIC ---------------------------------------------------------------------------------------
+
+/// Limits both QUIC endpoints advertise. Zero means the default noted.
+typedef struct SturdyQuicLimits {
+    /// 0: 30 s.
+    int64_t idle_timeout_ms;
+    /// Send keep-alives this often; 0: off. Keep it under the idle timeout and under your NAT's UDP timeout.
+    int64_t keep_alive_ms;
+    /// 0: 10 s.
+    int64_t handshake_timeout_ms;
+    /// Streams the peer may have open; 0: 100.
+    uint32_t max_bidirectional_streams;
+    uint32_t max_unidirectional_streams;
+    /// Receive windows; 0: 256 KiB per stream, 2 MiB per connection. Memory is bounded by these.
+    uint64_t stream_receive_window;
+    uint64_t connection_receive_window;
+    /// Do not offer unreliable datagrams.
+    SturdyBool no_datagrams;
+    /// Unacknowledged bytes one stream may buffer before `sturdy_quic_stream_send` waits; 0: 1 MiB.
+    uint64_t stream_send_buffer;
+    /// Datagrams buffered for `sturdy_quic_receive_datagram` / waiting to be sent; 0: 256 each.
+    uint64_t datagram_receive_queue;
+    uint64_t datagram_send_queue;
+} SturdyQuicLimits;
+
+typedef struct SturdyQuicClientOptions {
+    SturdyQuicLimits limits;
+    /// `alpn` is required.
+    SturdyTlsClientOptions tls;
+} SturdyQuicClientOptions;
+
+typedef struct SturdyQuicServerOptions {
+    SturdyQuicLimits limits;
+    /// Certificate, key and `alpn` are required.
+    SturdyTlsServerOptions tls;
+    const char *bind_address;
+    uint16_t port;
+    /// 0: 1024.
+    uint64_t max_connections;
+    /// 0: 32.
+    uint64_t max_connections_per_address;
+    /// Skip the Retry round trip that proves client addresses are real (trusted networks only).
+    SturdyBool no_address_validation;
+} SturdyQuicServerOptions;
+
+/// Connects and completes the TLS 1.3 handshake. Object "quic_conn". Datagrams and many streams, no head-of-line blocking.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_connect(const char *host, uint16_t port, const SturdyQuicClientOptions *options, SturdyAsyncOp *out_op);
+/// Starts a QUIC server. Object "quic_listener" (finished op).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_listen(const SturdyQuicServerOptions *options, SturdyAsyncOp *out_op);
+/// Next connection whose handshake completed. Object "quic_conn".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_accept(SturdyAsyncObject listener, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_listener_port(SturdyAsyncObject listener, uint16_t *out_port);
+/// Counters as a finished op's fields: connections_accepted, retries_sent, rejected_limit, ...
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_listener_metrics(SturdyAsyncObject listener, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_listener_stop(SturdyAsyncObject listener);
+/// Opens a stream (waits if the peer's stream limit is reached). Object "quic_stream".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_open_stream(SturdyAsyncObject connection, SturdyBool bidirectional, SturdyAsyncOp *out_op);
+/// Next stream the peer opened. Object "quic_stream".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_accept_stream(SturdyAsyncObject connection, SturdyAsyncOp *out_op);
+/// Sends one unreliable datagram; it may be lost or reordered. `STURDY_ERROR_OUT_OF_RANGE` when larger than the current maximum,
+/// `STURDY_ERROR_BUSY` when the send queue is full, `STURDY_ERROR_NOT_AVAILABLE` when the peer takes no datagrams.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_send_datagram(SturdyAsyncObject connection, const uint8_t *data, size_t size);
+/// Next received datagram. Bytes: the payload.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_receive_datagram(SturdyAsyncObject connection, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_max_datagram_size(SturdyAsyncObject connection, size_t *out_size);
+/// Closes the connection with an application error code (0 = clean).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_close(SturdyAsyncObject connection, uint64_t error_code, const char *reason);
+/// Finishes when the connection ends, for any reason. Number: the code. Text: the reason. Fields: `from_peer`, `application`, `timed_out` ("1"/"0").
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_closed(SturdyAsyncObject connection, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_is_open(SturdyAsyncObject connection, SturdyBool *out_open);
+/// Fields: `peer`, `local`, and once the handshake finished `protocol`, `alpn`, `peer_sha256`, `cipher` (a finished op).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_info(SturdyAsyncObject connection, SturdyAsyncOp *out_op);
+/// Fields (decimal): rtt_us, min_rtt_us, bytes_in_flight, cwnd, packets_lost, bytes_sent, bytes_received (a finished op).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_stats(SturdyAsyncObject connection, SturdyAsyncOp *out_op);
+/// Queues data on a stream; finishes once it fits under `stream_send_buffer` (so a slow peer paces the sender).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_stream_send(SturdyAsyncObject stream, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+/// Ends the sending side cleanly after everything queued.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_stream_finish(SturdyAsyncObject stream, SturdyAsyncOp *out_op);
+/// 1..`max_bytes` bytes as they arrive. Bytes: empty means the peer finished. Reading is what grants the peer more credit.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_stream_receive(SturdyAsyncObject stream, size_t max_bytes, SturdyAsyncOp *out_op);
+/// Abruptly stops sending (the peer's reads fail with `error_code`) / asks the peer to stop sending.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_stream_reset(SturdyAsyncObject stream, uint64_t error_code);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_stream_stop_sending(SturdyAsyncObject stream, uint64_t error_code);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_stream_id(SturdyAsyncObject stream, int64_t *out_id);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_quic_stream_is_bidirectional(SturdyAsyncObject stream, SturdyBool *out_bidirectional);
+
+// ---- peer-to-peer, relay, NAT traversal ---------------------------------------------------------
+
+typedef struct SturdyPeerOptions {
+    /// Required: peers only talk to nodes with the same network id.
+    const char *network_id;
+    const char *display_name;
+    /// Long-term identity (from `sturdy_tls_generate_identity`, persisted); both null: an ephemeral one.
+    const char *identity_certificate_pem;
+    const char *identity_private_key_pem;
+    /// Do not accept inbound connections.
+    SturdyBool no_listen;
+    const char *bind_address;
+    uint16_t port;
+    /// 0: 64.
+    uint64_t max_peers;
+    /// 0: 1 MiB.
+    uint64_t max_message_bytes;
+    /// If non-empty, only these peer ids may connect or be connected to.
+    const char *const *allowed_peers;
+    uint32_t allowed_peer_count;
+    SturdyBool no_peer_exchange;
+    /// Announce on the local network (multicast + broadcast).
+    SturdyBool lan_discovery;
+    SturdyBool no_auto_connect;
+    /// 0: 10 s.
+    int64_t handshake_timeout_ms;
+    /// Inbound links that may be mid-handshake at once; 0: 32.
+    uint64_t max_pending_inbound;
+    /// Keep-alive pings and the silence after which a link is dropped; 0: 15 s and 45 s.
+    int64_t ping_interval_ms;
+    int64_t idle_timeout_ms;
+    /// Events buffered for `sturdy_peer_next_event`; 0: 1024.
+    uint64_t event_queue;
+    /// LAN discovery: UDP port (0: 47831), multicast group (null: "239.255.83.31") and announce period (0: 5 s).
+    uint16_t discovery_port;
+    const char *discovery_group;
+    int64_t discovery_interval_ms;
+} SturdyPeerOptions;
+
+/// Starts a peer node: encrypted, mutually authenticated links with self-certifying ids. Object "peer"; text: our peer id.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_start(const SturdyPeerOptions *options, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_id(SturdyAsyncObject peer, char *buffer, size_t capacity, size_t *out_length);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_listen_port(SturdyAsyncObject peer, uint16_t *out_port);
+/// The node's identity as a finished op: fields `certificate_pem`, `private_key_pem`, `sha256`. Persist it to keep the same id.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_identity(SturdyAsyncObject peer, SturdyAsyncOp *out_op);
+/// Dials a peer. `expected_id` non-null pins it (the link is refused if someone else answers). Fields of the linked peer: id, name,
+/// address, inbound, listen_port.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_connect(SturdyAsyncObject peer, const char *host, uint16_t port, const char *expected_id, SturdyAsyncOp *out_op);
+/// Meets a peer through a relay when neither can be dialed. Both sides use the same `token` and opposite `dial`; the peer-to-peer TLS runs
+/// through the relay end to end. `relay_tls` non-null: the hop to the relay itself uses TLS too.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_connect_via_relay(SturdyAsyncObject peer,
+                                                                     const char *relay_host,
+                                                                     uint16_t relay_port,
+                                                                     const char *token,
+                                                                     SturdyBool dial,
+                                                                     const char *expected_id,
+                                                                     const SturdyTlsClientOptions *relay_tls,
+                                                                     SturdyAsyncOp *out_op);
+/// Sends a message on channel 0..0xFEFF to one peer.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_send(SturdyAsyncObject peer, const char *peer_id, uint16_t channel, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+/// Sends to every connected peer, except `except_peer_id` when non-null (forwarding what that peer just sent). Number: how many links took it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_broadcast(SturdyAsyncObject peer, uint16_t channel, const uint8_t *data, size_t size, const char *except_peer_id, SturdyAsyncOp *out_op);
+/// Next event. Number: 0 connected, 1 disconnected, 2 message, 3 discovered. Bytes: the message. Fields: peer, channel, name, address, reason, inbound.
+/// Not consuming events eventually stalls the peers' readers.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_next_event(SturdyAsyncObject peer, SturdyAsyncOp *out_op);
+/// Connected peers as a finished op: fields `id:N`, `name:N`, `address:N`, `inbound:N`, `listen_port:N` for N = 0, 1, ...
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_list(SturdyAsyncObject peer, SturdyAsyncOp *out_op);
+/// Drops a peer; `reason` (null: "disconnected by application") is what the other side sees.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_disconnect(SturdyAsyncObject peer, const char *peer_id, const char *reason);
+/// Refuses the peer from now on and drops it if connected.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_block(SturdyAsyncObject peer, const char *peer_id);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_peer_stop(SturdyAsyncObject peer);
+
+typedef struct SturdyRelayOptions {
+    const char *bind_address;
+    uint16_t port;
+    /// Wrap the hop to the relay in TLS (hides tokens and metadata from the network).
+    SturdyBool use_tls;
+    SturdyTlsServerOptions tls;
+    /// 0: 1024 joined sessions / 1024 waiting connections / 16 waiting per address.
+    uint64_t max_sessions;
+    uint64_t max_waiting;
+    uint64_t max_waiting_per_address;
+    /// 0: 30 s a peer waits for its partner; 0: 120 s idle limit on a joined session.
+    int64_t pair_timeout_ms;
+    int64_t idle_timeout_ms;
+    /// Cut a session after this many relayed bytes; 0: unlimited.
+    uint64_t max_session_bytes;
+    /// Longest rendezvous token accepted; 0: 128.
+    uint64_t max_token_bytes;
+} SturdyRelayOptions;
+
+/// Lets the relay authenticate clients. Called on a network thread (answer quickly) with the rendezvous token and the client's address; return
+/// non-zero to accept, zero to refuse. `user_data` must stay valid until the relay is released.
+typedef SturdyBool(STURDY_ABI_CALL *SturdyRelayAuthorizeFn)(void *user_data, const char *token, const char *client_address);
+
+/// Starts a rendezvous relay: pairs two connections that name the same token and forwards opaque bytes. It cannot read the peers' traffic
+/// when they run TLS through it. Object "relay_server". `authorize` may be null (any token is accepted).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_relay_server_start(const SturdyRelayOptions *options, SturdyRelayAuthorizeFn authorize, void *user_data, SturdyAsyncObject *out_relay);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_relay_server_port(SturdyAsyncObject relay, uint16_t *out_port);
+/// Counters as a finished op's fields: sessions_started, sessions_active, waiting, bytes_relayed, rejected, timed_out.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_relay_server_metrics(SturdyAsyncObject relay, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_relay_server_stop(SturdyAsyncObject relay);
+/// A fresh unguessable rendezvous token (32 hex characters).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_relay_random_token(char *buffer, size_t capacity, size_t *out_length);
+/// Connects to a relay and waits for the partner. Object "tcp" connected to the partner: start TLS on it before sending anything private.
+/// `relay_tls` non-null: TLS to the relay itself. `timeout_ms` 0: 35 s.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_relay_connect(const char *host,
+                                                            uint16_t port,
+                                                            const char *token,
+                                                            SturdyBool dial,
+                                                            const SturdyTlsClientOptions *relay_tls,
+                                                            int64_t timeout_ms,
+                                                            SturdyAsyncOp *out_op);
+
+/// Router port-mapping options. Zero means the default noted.
+typedef struct SturdyPortMapOptions {
+    /// Router address; null: the default gateway (found on Linux only).
+    const char *gateway;
+    /// 0: one hour.
+    int64_t lifetime_seconds;
+    /// 0: the same number as the internal port.
+    uint16_t external_port;
+    /// Per method; 0: 3 s.
+    int64_t timeout_ms;
+    /// Bit set: 1 PCP, 2 NAT-PMP, 4 UPnP. 0: all three, in that order.
+    uint32_t methods;
+    /// 0: 5351.
+    uint16_t gateway_port;
+    /// UPnP discovery target; null: the SSDP multicast group.
+    const char *ssdp_host;
+    /// 0: 1900.
+    uint16_t ssdp_port;
+} SturdyPortMapOptions;
+
+/// Asks the router to forward a public port to this machine (PCP, NAT-PMP or UPnP IGD). Object "mapping". Number: granted lifetime in
+/// seconds (0: permanent — remove it yourself). Fields: external_host, external_port, method, gateway. Renew before half the lifetime.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_nat_map_port(SturdyBool tcp, uint16_t internal_port, const SturdyPortMapOptions *options, SturdyAsyncOp *out_op);
+/// Removes a mapping made by `sturdy_nat_map_port`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_nat_unmap_port(SturdyAsyncObject mapping, const SturdyPortMapOptions *options, SturdyAsyncOp *out_op);
+/// The default gateway's address ("" when it cannot be determined).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_nat_default_gateway(char *buffer, size_t capacity, size_t *out_length);
+/// UDP hole punching: both peers call this at once with the other's candidate addresses ("host:port") and a shared secret. Text/number: the
+/// candidate that answered; keep using the same socket afterwards. Fails with `STURDY_IO_TIMED_OUT` (typical of symmetric NATs: use a relay).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_nat_punch_hole(SturdyAsyncObject udp_socket,
+                                                             const char *const *candidates,
+                                                             uint32_t candidate_count,
+                                                             const char *shared_secret,
+                                                             int64_t timeout_ms,
+                                                             SturdyAsyncOp *out_op);
+
+// ---- files, watching, processes -----------------------------------------------------------------
+
+typedef enum SturdyFileMode {
+    STURDY_FILE_READ = 1,
+    STURDY_FILE_WRITE = 2,
+    /// Create the file if missing (needs write or append).
+    STURDY_FILE_CREATE = 4,
+    STURDY_FILE_TRUNCATE = 8,
+    /// Every write goes to the end.
+    STURDY_FILE_APPEND = 16,
+    /// Create, failing if it exists (atomic).
+    STURDY_FILE_CREATE_NEW = 32,
+    STURDY_FILE_MODE_FORCE_U32 = 0x7fffffff
+} SturdyFileMode;
+
+/// Opens a file for streaming and random access. Object "file". `mode` is a bit set of `SturdyFileMode`. Positional reads and writes use
+/// io_uring on Linux when available; nothing occupies a worker thread while the kernel works.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_open(const char *path, uint32_t mode, SturdyAsyncOp *out_op);
+/// Reads up to `max_bytes` at the cursor (advancing it). Bytes: empty at end of file.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_read(SturdyAsyncObject file, size_t max_bytes, SturdyAsyncOp *out_op);
+/// Reads at `offset` without touching the cursor.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_read_at(SturdyAsyncObject file, uint64_t offset, size_t max_bytes, SturdyAsyncOp *out_op);
+/// Reads from the cursor to the end; fails with `STURDY_IO_INVALID_ARGUMENT` if more than `max_bytes` remain.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_read_to_end(SturdyAsyncObject file, size_t max_bytes, SturdyAsyncOp *out_op);
+/// Writes all of `data` at the cursor. Number: bytes written.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_write(SturdyAsyncObject file, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_write_at(SturdyAsyncObject file, uint64_t offset, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+/// Moves the cursor (`origin`: 0 start, 1 current, 2 end). Number: the new position.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_seek(SturdyAsyncObject file, int64_t offset, int32_t origin, SturdyAsyncOp *out_op);
+/// Number: the size in bytes.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_size(SturdyAsyncObject file, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_set_len(SturdyAsyncObject file, uint64_t length, SturdyAsyncOp *out_op);
+/// Flushes to stable storage (fsync, or fdatasync when `data_only`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_sync(SturdyAsyncObject file, SturdyBool data_only, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_close(SturdyAsyncObject file);
+
+typedef struct SturdyWatchOptions {
+    SturdyBool recursive;
+    /// Bursts of writes within this window become one event; 0: 50 ms.
+    int64_t debounce_ms;
+    /// Use the portable polling backend even where the OS offers events.
+    SturdyBool force_polling;
+    /// The polling backend's scan period; 0: 250 ms.
+    int64_t poll_interval_ms;
+    /// Events buffered before an overflow event is reported; 0: 4096.
+    uint64_t max_pending_events;
+} SturdyWatchOptions;
+
+/// Watches a path for changes (inotify on Linux, polling elsewhere). Object "watcher". `options` may be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_path(const char *path, const SturdyWatchOptions *options, SturdyAsyncObject *out_watcher);
+/// Whether the OS's event API is used (false: polling).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_uses_native_backend(SturdyAsyncObject watcher, SturdyBool *out_native);
+/// The remaining events as a "stream" object; each item is `sturdy_frames_pack` of {kind as decimal text, path, old_path, "1"/"0" for is_directory}.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_events_stream(SturdyAsyncObject watcher, SturdyAsyncObject *out_stream);
+/// Next change. Number: 0 created, 1 modified, 2 removed, 3 renamed, 4 overflow (rescan). Text: path. Fields: old_path, is_directory.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_next(SturdyAsyncObject watcher, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_close(SturdyAsyncObject watcher);
+
+typedef struct SturdyProcessOptions {
+    /// Executable name (PATH lookup when it has no directory) or path.
+    const char *program;
+    const char *const *args;
+    uint32_t arg_count;
+    /// null: inherit.
+    const char *working_directory;
+    /// Added to (or, with `clear_environment`, replacing) the environment.
+    const SturdyKeyValue *environment;
+    uint32_t environment_count;
+    SturdyBool clear_environment;
+    /// Terminate the child when its object is released while it still runs.
+    SturdyBool kill_on_release;
+    /// What the child's standard streams connect to (`SturdyStdioMode`; 0 is a pipe). For `sturdy_process_spawn`; `sturdy_process_run`
+    /// always pipes what it collects. A stream that is not a pipe cannot be read or written.
+    uint32_t stdin_mode;
+    uint32_t stdout_mode;
+    uint32_t stderr_mode;
+} SturdyProcessOptions;
+
+typedef enum SturdyStdioMode {
+    STURDY_STDIO_PIPE = 0,
+    /// The null device (reads end at once, writes vanish).
+    STURDY_STDIO_NULL = 1,
+    /// Shared with this process.
+    STURDY_STDIO_INHERIT = 2,
+    STURDY_STDIO_MODE_FORCE_U32 = 0x7fffffff
+} SturdyStdioMode;
+
+/// Runs a program to completion, feeding `stdin_data` and collecting stdout/stderr (bounded; the child is killed past `max_output_bytes`
+/// — 0: 16 MiB — or `timeout_ms` — 0: no limit). Bytes: stdout. Text: stderr. Number: exit code (the signal number if signalled).
+/// Fields: `signaled`, `success`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_process_run(const SturdyProcessOptions *options,
+                                                          const uint8_t *stdin_data,
+                                                          size_t stdin_size,
+                                                          int64_t timeout_ms,
+                                                          uint64_t max_output_bytes,
+                                                          SturdyAsyncOp *out_op);
+/// Starts a child (standard streams per the options, piped by default). Object "process".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_process_spawn(const SturdyProcessOptions *options, SturdyAsyncObject *out_process);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_process_write_stdin(SturdyAsyncObject process, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_process_close_stdin(SturdyAsyncObject process);
+/// Bytes: up to `max_bytes` from the child's stdout / stderr (empty at end).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_process_read_stdout(SturdyAsyncObject process, size_t max_bytes, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_process_read_stderr(SturdyAsyncObject process, size_t max_bytes, SturdyAsyncOp *out_op);
+/// Number: exit code (the signal number if signalled). Fields: `signaled`, `success`, `signal`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_process_wait(SturdyAsyncObject process, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_process_id(SturdyAsyncObject process, int64_t *out_id);
+/// Asks the child to exit (SIGTERM / a close request); `sturdy_process_kill` forces it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_process_request_exit(SturdyAsyncObject process);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_process_kill(SturdyAsyncObject process);
+
+// ---- data parallelism (Rayon) and thread pools --------------------------------------------------
+
+/// Body of `sturdy_par_for`: called once per index, on any worker thread. Must not unwind.
+typedef void(STURDY_ABI_CALL *SturdyParForFn)(void *user_data, uint64_t index);
+/// Body of `sturdy_par_for_chunks`: called with consecutive `[begin, end)` ranges.
+typedef void(STURDY_ABI_CALL *SturdyParChunkFn)(void *user_data, uint64_t begin, uint64_t end);
+
+/// Element type for `sturdy_par_sort`.
+typedef enum SturdyNumericType {
+    STURDY_NUMERIC_F32 = 0,
+    STURDY_NUMERIC_F64 = 1,
+    STURDY_NUMERIC_I32 = 2,
+    STURDY_NUMERIC_I64 = 3,
+    STURDY_NUMERIC_U32 = 4,
+    STURDY_NUMERIC_U64 = 5,
+    STURDY_NUMERIC_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyNumericType;
+
+/// Runs `body` for every index in `[0, count)` across the worker pool and returns when all are done (the caller helps, so it never
+/// deadlocks the pool). `min_chunk` is the smallest run of indices handed to one task (0/1: let the engine decide). Calling it from inside
+/// a body is fine.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_for(uint64_t count, uint64_t min_chunk, SturdyParForFn body, void *user_data);
+/// Runs `body` over consecutive ranges of at most `chunk` indices (`chunk` must be positive).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_for_chunks(uint64_t count, uint64_t chunk, SturdyParChunkFn body, void *user_data);
+/// Sorts `count` elements of `type` in place, ascending, in parallel.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_sort(SturdyNumericType type, void *data, uint64_t count);
+/// Parallel sums. Float sums use SIMD and may differ from a sequential sum by rounding.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_sum_f32(const float *data, uint64_t count, float *out_sum);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_sum_f64(const double *data, uint64_t count, double *out_sum);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_sum_i64(const int64_t *data, uint64_t count, int64_t *out_sum);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_sum_u64(const uint64_t *data, uint64_t count, uint64_t *out_sum);
+/// Parallel minimum and maximum. `STURDY_ERROR_OUT_OF_RANGE` when `count` is 0.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_min_max_f32(const float *data, uint64_t count, float *out_min, float *out_max);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_min_max_f64(const double *data, uint64_t count, double *out_min, double *out_max);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_min_max_i64(const int64_t *data, uint64_t count, int64_t *out_min, int64_t *out_max);
+
+/// Creates a separate worker pool (Rayon's `ThreadPoolBuilder`): work run through it stays on its own threads, so a long job cannot
+/// starve the engine's scheduler. `threads` 0: the machine's core count. Object "pool"; released objects shut their threads down.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_pool_create(uint32_t threads, const char *name, SturdyAsyncObject *out_pool);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_pool_threads(SturdyAsyncObject pool, uint32_t *out_threads);
+/// `sturdy_par_for` on the pool's own threads.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_pool_par_for(SturdyAsyncObject pool, uint64_t count, uint64_t min_chunk, SturdyParForFn body, void *user_data);
+/// Runs `task` on the pool and waits for it (anything it parallelises stays on the pool).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_pool_run(SturdyAsyncObject pool, SturdyTaskFn task, void *user_data);
+
+// ---- whole-file helpers, directories ------------------------------------------------------------
+
+/// Reads a whole file on the IO lane. Bytes: the content; `STURDY_IO_INVALID_ARGUMENT` when it is larger than `max_bytes` (0: unlimited).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_read_file(const char *path, uint64_t max_bytes, SturdyAsyncOp *out_op);
+/// Reads `byte_count` bytes at `offset` (fewer at the end of the file). Bytes: the content.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_read_range(const char *path, uint64_t offset, uint64_t byte_count, SturdyAsyncOp *out_op);
+/// Creates or replaces the file with `data`, or appends to it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_write_file(const char *path, const uint8_t *data, size_t size, SturdyBool append, SturdyAsyncOp *out_op);
+/// Number: the size in bytes.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_size(const char *path, SturdyAsyncOp *out_op);
+/// Number: 1 if the path exists, else 0.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_exists(const char *path, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_create_directories(const char *path, SturdyAsyncOp *out_op);
+/// Number: 1 if something was removed.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_remove_file(const char *path, SturdyAsyncOp *out_op);
+/// Removes a directory and everything in it. Number: 1 if something was removed.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_remove_directory(const char *path, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_copy(const char *source, const char *destination, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_rename(const char *source, const char *destination, SturdyAsyncOp *out_op);
+/// Entry paths of a directory. Bytes: the paths as packed frames (`sturdy_frames_count` / `sturdy_frames_get`). Number: how many.
+/// At most `max_entries` (0: 4096); more fail with `STURDY_IO_INVALID_ARGUMENT`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_fs_list(const char *path, uint64_t max_entries, SturdyBool recursive, SturdyAsyncOp *out_op);
+/// Walks a directory entry by entry. Object "dir_iter".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dir_iter_create(const char *path, SturdyBool recursive, SturdyAsyncObject *out_iter);
+/// Number: 1 and text: the next path, or number 0 at the end.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dir_iter_next(SturdyAsyncObject iter, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_file_is_open(SturdyAsyncObject file, SturdyBool *out_open);
+
+/// A read-only view of bytes.
+typedef struct SturdyBytesView {
+    const uint8_t *data;
+    size_t size;
+} SturdyBytesView;
+
+/// Several byte strings in one: a 32-bit little-endian count, then each as a 32-bit little-endian length and its bytes. Used where an
+/// operation or stream item carries more than one value. Packs `count` views (bytes-output convention: null buffer to learn the size).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frames_pack(const SturdyBytesView *frames, uint32_t count, uint8_t *buffer, size_t capacity, size_t *out_length);
+/// How many frames `packed` holds; `STURDY_ERROR_INVALID_ARGUMENT` when it is malformed.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frames_count(const uint8_t *packed, size_t size, uint32_t *out_count);
+/// Frame `index` (bytes-output convention).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_frames_get(const uint8_t *packed, size_t size, uint32_t index, uint8_t *buffer, size_t capacity, size_t *out_length);
+
+// ---- generic byte streams: copy, buffer, frame --------------------------------------------------
+//
+// Readers: "tcp", "file", "pipe_end", "memory_reader", "process" (stdout or stderr). Writers: "tcp", "file", "pipe_end", "memory_writer",
+// "process" (stdin). A `SturdyProcessStream` says which pipe of a "process" is meant and is ignored for every other kind.
+
+typedef enum SturdyProcessStream {
+    STURDY_PROCESS_STDOUT = 0,
+    STURDY_PROCESS_STDERR = 1,
+    STURDY_PROCESS_STDIN = 2,
+    STURDY_PROCESS_STREAM_FORCE_U32 = 0x7fffffff
+} SturdyProcessStream;
+
+typedef struct SturdyCopyOptions {
+    /// 0: 64 KiB.
+    uint64_t chunk_bytes;
+    /// Stop after this many bytes; 0: until the reader ends.
+    uint64_t limit;
+    /// Shut the writer down (close a TCP write side, sync a file, close a process's stdin) when done.
+    SturdyBool shutdown_writer;
+} SturdyCopyOptions;
+
+/// Copies until the reader ends, overlapping each read with the previous write. Number: bytes copied.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_io_copy(SturdyAsyncObject reader,
+                                                      SturdyProcessStream reader_stream,
+                                                      SturdyAsyncObject writer,
+                                                      SturdyProcessStream writer_stream,
+                                                      const SturdyCopyOptions *options,
+                                                      SturdyAsyncOp *out_op);
+/// Bytes: everything until the reader ends; `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes` (0: unlimited).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_io_read_to_end(SturdyAsyncObject reader, SturdyProcessStream stream, uint64_t max_bytes, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_io_write_all(SturdyAsyncObject writer, SturdyProcessStream stream, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+
+/// A reader over a copy of `data`. Object "memory_reader".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_memory_reader_create(const uint8_t *data, size_t size, SturdyAsyncObject *out_reader);
+/// A writer that collects what it is given. Object "memory_writer".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_memory_writer_create(SturdyAsyncObject *out_writer);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_memory_writer_bytes(SturdyAsyncObject writer, uint8_t *buffer, size_t capacity, size_t *out_length);
+/// Two connected in-memory ends ("pipe_end"): what one writes the other reads. `chunks`: messages buffered per direction (0: 8).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_memory_pipe_create(uint64_t chunks, SturdyAsyncObject *out_end_a, SturdyAsyncObject *out_end_b);
+
+/// Adds read-ahead to a reader (lines, delimiters, exact counts). One operation at a time per object. Object "buffered_reader".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_buffered_reader_create(SturdyAsyncObject reader, SturdyProcessStream stream, uint64_t chunk_bytes, SturdyAsyncObject *out_reader);
+/// Bytes: up to `max_bytes` (empty at the end).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_buffered_read_some(SturdyAsyncObject reader, uint64_t max_bytes, SturdyAsyncOp *out_op);
+/// Bytes: exactly `count`; `STURDY_IO_UNEXPECTED_EOF` when the stream ends first.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_buffered_read_exact(SturdyAsyncObject reader, uint64_t count, SturdyAsyncOp *out_op);
+/// Number 1 and bytes: up to and including `delimiter`; number 0 at a clean end of stream; `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_buffered_read_until(SturdyAsyncObject reader, const char *delimiter, uint64_t max_bytes, SturdyAsyncOp *out_op);
+/// Number 1 and text: one line without its terminator (LF or CRLF); number 0 at a clean end of stream. `max_bytes` 0: 64 KiB.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_buffered_read_line(SturdyAsyncObject reader, uint64_t max_bytes, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_buffered_reader_buffered(SturdyAsyncObject reader, uint64_t *out_bytes);
+/// Batches small writes. Object "buffered_writer". `capacity` 0: 16 KiB.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_buffered_writer_create(SturdyAsyncObject writer, SturdyProcessStream stream, uint64_t capacity, SturdyAsyncObject *out_writer);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_buffered_write(SturdyAsyncObject writer, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+/// Sends what is pending.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_buffered_flush(SturdyAsyncObject writer, SturdyAsyncOp *out_op);
+/// Flushes, then shuts the underlying writer down.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_buffered_shutdown(SturdyAsyncObject writer, SturdyAsyncOp *out_op);
+
+typedef enum SturdyFrameCodec {
+    /// A 4-byte big-endian length prefix, then the frame.
+    STURDY_FRAME_LENGTH_DELIMITED = 0,
+    /// One line per frame (no newline inside a frame).
+    STURDY_FRAME_LINES = 1,
+    STURDY_FRAME_CODEC_FORCE_U32 = 0x7fffffff
+} SturdyFrameCodec;
+
+/// Messages over a byte stream. `io` must read and write ("tcp", "file", "pipe_end"). `max_frame_bytes` 0: 8 MiB (64 KiB for lines).
+/// Object "framed".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_framed_create(SturdyAsyncObject io, SturdyFrameCodec codec, uint64_t max_frame_bytes, SturdyAsyncObject *out_framed);
+/// Number 1 and bytes: the next frame; number 0 at a clean end of stream.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_framed_next(SturdyAsyncObject framed, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_framed_send(SturdyAsyncObject framed, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+/// The remaining frames as a "stream" object (do not call `sturdy_framed_next` meanwhile).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_framed_stream(SturdyAsyncObject framed, SturdyAsyncObject *out_stream);
+
+// ---- cancellation -------------------------------------------------------------------------------
+
+/// A cancellation source and the tokens it hands out: cancel once, and everything armed on a token reacts. Objects "cancel_source" / "cancel_token".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cancel_source_create(SturdyAsyncObject *out_source);
+/// Cancels. `out_first` (may be null) says whether this call was the first.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cancel_source_cancel(SturdyAsyncObject source, SturdyBool *out_first);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cancel_source_is_cancelled(SturdyAsyncObject source, SturdyBool *out_cancelled);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cancel_source_token(SturdyAsyncObject source, SturdyAsyncObject *out_token);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cancel_token_is_cancelled(SturdyAsyncObject token, SturdyBool *out_cancelled);
+/// Finishes (OK) when the token is cancelled, at once if it already is.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_cancel_token_wait(SturdyAsyncObject token, SturdyAsyncOp *out_op);
+/// Cancelling `token` cancels `op`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_link_cancel(SturdyAsyncOp op, SturdyAsyncObject token);
+/// A new op that finishes as `op` does, or fails with `STURDY_IO_TIMED_OUT` after `timeout_ms` — cancelling `op` then. Cancelling the new op cancels `op`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_with_timeout(SturdyAsyncOp op, int64_t timeout_ms, SturdyAsyncOp *out_op);
+
+// ---- message channels and synchronisation (Tokio `sync`) ----------------------------------------
+//
+// Messages are byte strings. Waiting costs no thread. A "permit" or a guard unlocks when released — explicitly, or when its object *and* the op
+// that produced it are both released.
+
+/// Result of a non-blocking send or receive.
+typedef enum SturdyTryStatus {
+    STURDY_TRY_OK = 0,
+    /// Full (send) / empty (receive): try again later.
+    STURDY_TRY_WOULD_BLOCK = 1,
+    STURDY_TRY_CLOSED = 2,
+    STURDY_TRY_STATUS_FORCE_U32 = 0x7fffffff
+} SturdyTryStatus;
+
+/// Bounded multi-producer channel holding up to `capacity` messages (at least 1). Objects "channel_sender" / "channel_receiver". It closes when
+/// the last sender is released or `sturdy_channel_close` is called on either end; buffered messages are still delivered.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_channel_create(uint64_t capacity, SturdyAsyncObject *out_sender, SturdyAsyncObject *out_receiver);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_channel_sender_clone(SturdyAsyncObject sender, SturdyAsyncObject *out_sender);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_channel_receiver_clone(SturdyAsyncObject receiver, SturdyAsyncObject *out_receiver);
+/// Finishes once the message is buffered or handed to a receiver (waits while the channel is full); `STURDY_IO_CLOSED` when closed.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_channel_send(SturdyAsyncObject sender, const uint8_t *data, size_t size, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_channel_try_send(SturdyAsyncObject sender, const uint8_t *data, size_t size, SturdyTryStatus *out_status);
+/// Number 1 and bytes: the next message; number 0 once the channel is closed and drained.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_channel_recv(SturdyAsyncObject receiver, SturdyAsyncOp *out_op);
+/// Takes a buffered message if there is one: `out_status` says whether, and on `STURDY_TRY_OK` `out_op` is a finished op whose bytes are the message
+/// (otherwise `out_op` is the zero handle).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_channel_try_recv(SturdyAsyncObject receiver, SturdyAsyncOp *out_op, SturdyTryStatus *out_status);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_channel_close(SturdyAsyncObject end);
+
+/// One-shot value hand-off. Objects "oneshot_sender" / "oneshot_receiver". A sender released without sending fails the receiver with `STURDY_IO_CLOSED`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_oneshot_create(SturdyAsyncObject *out_sender, SturdyAsyncObject *out_receiver);
+/// `out_first` (may be null) says whether this call set the value.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_oneshot_send(SturdyAsyncObject sender, const uint8_t *data, size_t size, SturdyBool *out_first);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_oneshot_fail(SturdyAsyncObject sender, const char *message, SturdyBool *out_first);
+/// Bytes: the value. A receiver can be waited on once.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_oneshot_recv(SturdyAsyncObject receiver, SturdyAsyncOp *out_op);
+
+/// A single value many tasks observe. Objects "watch_sender" / "watch_receiver"; each receiver tracks what it has seen on its own.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_value_create(const uint8_t *initial, size_t size, SturdyAsyncObject *out_sender, SturdyAsyncObject *out_receiver);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_value_send(SturdyAsyncObject sender, const uint8_t *data, size_t size);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_value_subscribe(SturdyAsyncObject sender, SturdyAsyncObject *out_receiver);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_value_receiver_clone(SturdyAsyncObject receiver, SturdyAsyncObject *out_receiver);
+/// The current value (bytes-output convention); `_and_update` also marks it seen.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_value_borrow(SturdyAsyncObject receiver, uint8_t *buffer, size_t capacity, size_t *out_length);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_value_borrow_and_update(SturdyAsyncObject receiver, uint8_t *buffer, size_t capacity, size_t *out_length);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_value_has_changed(SturdyAsyncObject receiver, SturdyBool *out_changed);
+/// Finishes when the value changed since this receiver last looked; `STURDY_IO_CLOSED` once the sender is gone and nothing new remains.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_watch_value_changed(SturdyAsyncObject receiver, SturdyAsyncOp *out_op);
+
+/// Every receiver sees every message; one that falls `capacity` behind is told how many it missed. Objects "broadcast_sender" / "broadcast_receiver".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_broadcast_create(uint64_t capacity, SturdyAsyncObject *out_sender, SturdyAsyncObject *out_receiver);
+/// `out_receivers` (may be null): the number of live receivers.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_broadcast_send(SturdyAsyncObject sender, const uint8_t *data, size_t size, uint64_t *out_receivers);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_broadcast_subscribe(SturdyAsyncObject sender, SturdyAsyncObject *out_receiver);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_broadcast_receiver_clone(SturdyAsyncObject receiver, SturdyAsyncObject *out_receiver);
+/// Number 0 and bytes: a message; number 1 and field `skipped`: this receiver lagged; number 2: the sender is gone. Cannot be cancelled.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_broadcast_recv(SturdyAsyncObject receiver, SturdyAsyncOp *out_op);
+
+/// A counting semaphore. Object "semaphore".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_semaphore_create(uint64_t permits, SturdyAsyncObject *out_semaphore);
+/// Waits for `count` permits. Object "permit". `STURDY_IO_CLOSED` if the semaphore closes first.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_semaphore_acquire(SturdyAsyncObject semaphore, uint64_t count, SturdyAsyncOp *out_op);
+/// `out_permit` receives the zero handle when the permits are not available.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_semaphore_try_acquire(SturdyAsyncObject semaphore, uint64_t count, SturdyAsyncObject *out_permit);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_semaphore_add_permits(SturdyAsyncObject semaphore, uint64_t count);
+/// Fails every waiter and every future acquire.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_semaphore_close(SturdyAsyncObject semaphore);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_semaphore_available(SturdyAsyncObject semaphore, uint64_t *out_permits);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_semaphore_is_closed(SturdyAsyncObject semaphore, SturdyBool *out_closed);
+/// Returns the permits now.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_permit_release(SturdyAsyncObject permit);
+/// Keeps the permits consumed forever (they are never returned).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_permit_forget(SturdyAsyncObject permit);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_permit_count(SturdyAsyncObject permit, uint64_t *out_count);
+
+/// An async mutex / read-write lock protecting a byte-string value. Objects "async_mutex" / "async_rwlock".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_async_mutex_create(const uint8_t *initial, size_t size, SturdyAsyncObject *out_mutex);
+/// Waits for exclusive access. Object "mutex_guard".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_async_mutex_lock(SturdyAsyncObject mutex, SturdyAsyncOp *out_op);
+/// `out_guard` receives the zero handle when the mutex is held.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_async_mutex_try_lock(SturdyAsyncObject mutex, SturdyAsyncObject *out_guard);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_async_rwlock_create(const uint8_t *initial, size_t size, SturdyAsyncObject *out_lock);
+/// Many readers or one writer; waiters queue in order, so a waiting writer is not starved. Objects "rwlock_read_guard" / "rwlock_write_guard".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_async_rwlock_read(SturdyAsyncObject lock, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_async_rwlock_write(SturdyAsyncObject lock, SturdyAsyncOp *out_op);
+/// The protected value (bytes-output convention).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_guard_get(SturdyAsyncObject guard, uint8_t *buffer, size_t capacity, size_t *out_length);
+/// Replaces the value (mutex and write guards only).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_guard_set(SturdyAsyncObject guard, const uint8_t *data, size_t size);
+/// Unlocks now.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_guard_release(SturdyAsyncObject guard);
+
+/// A wake-up signal with at most one stored permit. Object "notify".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_notify_create(SturdyAsyncObject *out_notify);
+/// Finishes when notified; a `sturdy_notify_one` that happened earlier with nobody waiting is consumed first.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_notify_notified(SturdyAsyncObject notify, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_notify_one(SturdyAsyncObject notify);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_notify_waiters(SturdyAsyncObject notify);
+/// A rendezvous of `parties` callers. Object "barrier"; `sturdy_barrier_wait` has number 1 for exactly one of them (the last to arrive).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_barrier_create(uint64_t parties, SturdyAsyncObject *out_barrier);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_barrier_wait(SturdyAsyncObject barrier, SturdyAsyncOp *out_op);
+
+// ---- tasks --------------------------------------------------------------------------------------
+
+/// Where a task's result is written from inside its callback (copied immediately).
+typedef struct SturdyTaskOutput {
+    /// Engine-private; do not touch.
+    void *internal;
+} SturdyTaskOutput;
+
+/// Sets a task's result: a number, bytes and text; a non-null, non-empty `error` fails the task with that message.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_task_output_set(SturdyTaskOutput *output, int64_t number, const uint8_t *bytes, size_t size, const char *text, const char *error);
+
+/// The work of a task, run on a worker thread. `cancel_token` (a "cancel_token", valid only during the call) turns cancelled when the task's op is
+/// cancelled or its join set aborted: poll `sturdy_cancel_token_is_cancelled` to stop early. Fill `output` before returning. Must not unwind.
+typedef void(STURDY_ABI_CALL *SturdyTaskWorkFn)(void *user_data, SturdyAsyncObject cancel_token, SturdyTaskOutput *output);
+
+typedef enum SturdyTaskLane {
+    /// The worker pool, for short work.
+    STURDY_LANE_LIGHT = 0,
+    /// The worker pool, for long work.
+    STURDY_LANE_HEAVY = 1,
+    /// The bounded blocking-IO lane, for work that waits on the OS.
+    STURDY_LANE_BLOCKING = 2,
+    STURDY_TASK_LANE_FORCE_U32 = 0x7fffffff
+} SturdyTaskLane;
+
+/// Runs `work` and reports its result as an op: number, bytes and text as set; a task error fails the op. `user_data` must stay valid until the
+/// task finishes. Cancelling the op sets the token the work polls.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_task_spawn(SturdyTaskWorkFn work, void *user_data, SturdyTaskLane lane, SturdyAsyncOp *out_op);
+/// Same, on a custom pool (`sturdy_pool_create`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_task_spawn_on(SturdyAsyncObject pool, SturdyTaskWorkFn work, void *user_data, SturdyAsyncOp *out_op);
+
+/// A dynamic set of tasks joined in completion order. Object "join_set".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_join_set_create(SturdyAsyncObject *out_set);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_join_set_spawn(SturdyAsyncObject set, SturdyTaskWorkFn work, void *user_data, SturdyTaskLane lane);
+/// Finishes with the next task to complete. Field `outcome` is "ok", "failed" (field `error` says why) or "empty" (nothing left); number, bytes
+/// and text are the task's.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_join_set_join_next(SturdyAsyncObject set, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_join_set_len(SturdyAsyncObject set, uint64_t *out_len);
+/// Sets the cancel token of every running task in the set.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_join_set_abort_all(SturdyAsyncObject set);
+
+/// Tasks that run only on the thread that pumps the set. Object "local_set".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_local_set_create(SturdyAsyncObject *out_set);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_local_set_spawn(SturdyAsyncObject set, SturdyTaskWorkFn work, void *user_data, SturdyAsyncOp *out_op);
+/// Runs queued tasks on the calling thread until none are left. `out_ran` (may be null): how many.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_local_set_run_pending(SturdyAsyncObject set, uint64_t *out_ran);
+/// Runs queued tasks on the calling thread until `op` finishes (blocks).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_local_set_block_on(SturdyAsyncObject set, SturdyAsyncOp op);
+
+/// A named thread that runs submitted work one at a time, in order. Object "dedicated_thread".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dedicated_thread_create(const char *name, SturdyAsyncObject *out_thread);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dedicated_thread_run(SturdyAsyncObject thread, SturdyTaskWorkFn work, void *user_data, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dedicated_thread_pin_to_core(SturdyAsyncObject thread, uint32_t core_index, SturdyBool *out_pinned);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_dedicated_thread_pin_to_fastest_core(SturdyAsyncObject thread, SturdyBool *out_pinned);
+
+/// A value that follows the flow of work: tasks spawned while it is bound inherit it. Object "task_local".
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_task_local_create(SturdyAsyncObject *out_local);
+/// Runs `body` with `value` bound.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_task_local_scope(SturdyAsyncObject local, const uint8_t *value, size_t size, SturdyTaskFn body, void *user_data);
+/// The bound value (bytes-output convention); `STURDY_ERROR_NOT_AVAILABLE` when none is bound here.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_task_local_get(SturdyAsyncObject local, uint8_t *buffer, size_t capacity, size_t *out_length);
+
+/// Queues `fn` for the engine's main thread (run when it pumps). `user_data` must stay valid until `fn` has run.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_main_thread_run(SturdyTaskFn fn, void *user_data);
+/// Runs the queued main-thread work on the calling thread.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_main_thread_pump(void);
+/// Installs a callback run (on the posting thread) after every queued job, so a loop that blocks waiting for events can wake and pump. Null removes it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_main_thread_set_wake_hook(SturdyTaskFn hook, void *user_data);
+
+// ---- runtime, topology, timers, signals ---------------------------------------------------------
+
+/// Starts the worker pool (0 workers: one per hardware thread). The engine starts it on first use; call this only to choose the size
+/// first, or in a program that does not run the engine.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_scheduler_initialize(uint32_t workers);
+/// Stops the worker pool. The engine owns it: only a standalone program should call this.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_scheduler_shutdown(void);
+/// Tunes the blocking-IO lane (0 workers: automatic; 0 `max_pending`: 1024). `out_applied` says whether it took effect (false once it started).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_io_lane_configure(uint32_t workers, uint32_t max_pending, SturdyBool *out_applied);
+/// Fields `backend`, `workers`, `pending`, `capacity` (a finished op).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_io_lane_stats(SturdyAsyncOp *out_op);
+/// Sets the number of network reactor threads. `out_applied` says whether it took effect (false once the reactor is running).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_network_reactor_configure(uint32_t threads, SturdyBool *out_applied);
+/// Logical (or physical) cores ranked fastest first (bytes-output convention in `uint32_t` units: `out_count` always receives the number).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_topology_ranked_cores(SturdyBool physical, uint32_t *buffer, size_t capacity, size_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_thread_pin_current(uint32_t core_index, SturdyBool *out_pinned);
+
+/// Finishes at an absolute wall-clock time (milliseconds since the Unix epoch), at once if it has passed.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_timer_sleep_until(int64_t unix_ms, SturdyAsyncOp *out_op);
+/// A periodic timer that does not drift. Object "interval"; `sturdy_interval_tick` finishes at each period boundary.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_interval_create(int64_t period_ms, SturdyAsyncObject *out_interval);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_interval_tick(SturdyAsyncObject interval, SturdyAsyncOp *out_op);
+/// Number: the first of `signals` (SIGINT, SIGTERM, ...) delivered to the process.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_signal_wait(const int32_t *signals, uint32_t count, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_signal_ctrl_c(SturdyAsyncOp *out_op);
+
+// ---- streams of byte messages (the `Stream<T>` pipeline) ----------------------------------------
+//
+// A "stream" is consumed by the combinator or sink that takes it: using it afterwards fails with `STURDY_ERROR_INVALID_ARGUMENT`. Callbacks
+// run on whichever thread completed the previous stage; keep them short. Sinks other than `sturdy_stream_next` also stop when their op is
+// cancelled (as the next item arrives).
+
+/// Where a stream callback writes the item it produces (copied immediately).
+typedef struct SturdyBytesSink {
+    /// Engine-private; do not touch.
+    void *internal;
+} SturdyBytesSink;
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_bytes_sink_set(SturdyBytesSink *sink, const uint8_t *data, size_t size);
+
+typedef void(STURDY_ABI_CALL *SturdyStreamMapFn)(void *user_data, const uint8_t *data, size_t size, SturdyBytesSink *out);
+/// Returns non-zero to keep the item.
+typedef SturdyBool(STURDY_ABI_CALL *SturdyStreamPredicateFn)(void *user_data, const uint8_t *data, size_t size);
+/// Returns non-zero to emit what was written to `out`, zero to drop the item.
+typedef SturdyBool(STURDY_ABI_CALL *SturdyStreamFilterMapFn)(void *user_data, const uint8_t *data, size_t size, SturdyBytesSink *out);
+typedef void(STURDY_ABI_CALL *SturdyStreamEachFn)(void *user_data, const uint8_t *data, size_t size);
+typedef void(STURDY_ABI_CALL *SturdyStreamFoldFn)(void *user_data, const uint8_t *accumulator, size_t accumulator_size, const uint8_t *item, size_t item_size, SturdyBytesSink *out_accumulator);
+/// Called for each pull on a blocking-lane thread (it may block). Write the next item to `out` and return non-zero, or return zero to end the stream.
+typedef SturdyBool(STURDY_ABI_CALL *SturdyStreamSourceFn)(void *user_data, SturdyBytesSink *out);
+
+/// Sources. Every callback's `user_data` must stay valid until the stream is finished with.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_from_channel(SturdyAsyncObject receiver, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_of_items(const SturdyBytesView *items, uint32_t count, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_empty(SturdyAsyncObject *out_stream);
+/// Items are 8-byte little-endian steady-clock nanoseconds, one per period.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_interval(int64_t period_ms, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_generate(SturdyStreamSourceFn source, void *user_data, SturdyAsyncObject *out_stream);
+/// Adapters. Each takes (consumes) its input stream(s) and returns a new one.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_map(SturdyAsyncObject stream, SturdyStreamMapFn fn, void *user_data, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_filter(SturdyAsyncObject stream, SturdyStreamPredicateFn pred, void *user_data, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_filter_map(SturdyAsyncObject stream, SturdyStreamFilterMapFn fn, void *user_data, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_inspect(SturdyAsyncObject stream, SturdyStreamEachFn fn, void *user_data, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_take(SturdyAsyncObject stream, uint64_t count, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_skip(SturdyAsyncObject stream, uint64_t count, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_take_while(SturdyAsyncObject stream, SturdyStreamPredicateFn pred, void *user_data, SturdyAsyncObject *out_stream);
+/// Items become frames {index as 8-byte little-endian, item}.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_enumerate(SturdyAsyncObject stream, SturdyAsyncObject *out_stream);
+/// Items become packed frames of up to `count` items; the `_timeout` form also emits a partial batch once `max_wait_ms` passed since its first item.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_chunks(SturdyAsyncObject stream, uint64_t count, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_chunks_timeout(SturdyAsyncObject stream, uint64_t count, int64_t max_wait_ms, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_chain(SturdyAsyncObject first, SturdyAsyncObject second, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_merge(SturdyAsyncObject first, SturdyAsyncObject second, SturdyAsyncObject *out_stream);
+/// Items become frames {a, b}.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_zip(SturdyAsyncObject first, SturdyAsyncObject second, SturdyAsyncObject *out_stream);
+/// Runs `fn` on the worker pool for up to `concurrency` items at once (0: twice the worker count); `ordered` keeps the input order.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_map_concurrent(SturdyAsyncObject stream, SturdyStreamMapFn fn, void *user_data, uint64_t concurrency, SturdyBool ordered, SturdyAsyncObject *out_stream);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_throttle(SturdyAsyncObject stream, int64_t period_ms, SturdyAsyncObject *out_stream);
+/// An item that takes longer than `limit_ms` fails the next pull with `STURDY_IO_TIMED_OUT`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_timeout_each(SturdyAsyncObject stream, int64_t limit_ms, SturdyAsyncObject *out_stream);
+/// Sinks. Number 1 and bytes: the next item; number 0 at the end. (Not consuming; cannot be cancelled — close the source to stop it.)
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_next(SturdyAsyncObject stream, SturdyAsyncOp *out_op);
+/// Drains the stream. Bytes: the items as packed frames. Number: how many.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_collect(SturdyAsyncObject stream, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_for_each(SturdyAsyncObject stream, SturdyStreamEachFn fn, void *user_data, SturdyAsyncOp *out_op);
+/// Bytes: the final accumulator.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_fold(SturdyAsyncObject stream, const uint8_t *initial, size_t initial_size, SturdyStreamFoldFn fn, void *user_data, SturdyAsyncOp *out_op);
+/// Number: how many items.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_count(SturdyAsyncObject stream, SturdyAsyncOp *out_op);
+/// Number 1 and bytes: the last item; number 0 for an empty stream.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_last(SturdyAsyncObject stream, SturdyAsyncOp *out_op);
+/// Sends every item into a channel (does not close it).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_stream_forward(SturdyAsyncObject stream, SturdyAsyncObject sender, SturdyAsyncOp *out_op);
+
+// ---- more data parallelism ----------------------------------------------------------------------
+
+typedef SturdyBool(STURDY_ABI_CALL *SturdyParPredicateFn)(void *user_data, uint64_t index);
+typedef int64_t(STURDY_ABI_CALL *SturdyParMapI64Fn)(void *user_data, uint64_t index);
+typedef int64_t(STURDY_ABI_CALL *SturdyParReduceI64Fn)(void *user_data, int64_t a, int64_t b);
+typedef double(STURDY_ABI_CALL *SturdyParMapF64Fn)(void *user_data, uint64_t index);
+typedef double(STURDY_ABI_CALL *SturdyParReduceF64Fn)(void *user_data, double a, double b);
+/// Returns non-zero when the element at `a` sorts before the one at `b`.
+typedef SturdyBool(STURDY_ABI_CALL *SturdyParLessFn)(void *user_data, const void *a, const void *b);
+/// Body of `sturdy_par_scope`; `scope` ("par_scope") is valid until `sturdy_par_scope` returns.
+typedef void(STURDY_ABI_CALL *SturdyParScopeFn)(void *user_data, SturdyAsyncObject scope);
+
+/// The threads a parallel call can use right now.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_num_threads(uint32_t *out_threads);
+/// Runs `a` and `b` in parallel and returns when both are done.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_join(SturdyTaskFn a, void *a_user_data, SturdyTaskFn b, void *b_user_data);
+/// Runs `body` with a scope; every task spawned on the scope finishes before this returns.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_scope(SturdyParScopeFn body, void *user_data);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_scope_spawn(SturdyAsyncObject scope, SturdyTaskFn fn, void *user_data);
+/// Calls `body(begin)` for every window start in `[0, count - window]`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_for_windows(uint64_t count, uint64_t window, SturdyParForFn body, void *user_data);
+/// Parallel predicates over `[0, count)`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_any(uint64_t count, SturdyParPredicateFn pred, void *user_data, SturdyBool *out_result);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_all(uint64_t count, SturdyParPredicateFn pred, void *user_data, SturdyBool *out_result);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_count(uint64_t count, SturdyParPredicateFn pred, void *user_data, uint64_t *out_count);
+/// The lowest index for which `pred` holds (-1: none) / any such index.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_find_first(uint64_t count, SturdyParPredicateFn pred, void *user_data, int64_t *out_index);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_find_any(uint64_t count, SturdyParPredicateFn pred, void *user_data, int64_t *out_index);
+/// Maps every index and combines the results with an associative `reduce` that has `identity`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_map_reduce_i64(uint64_t count, SturdyParMapI64Fn map, int64_t identity, SturdyParReduceI64Fn reduce, void *user_data, int64_t *out_result);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_map_reduce_f64(uint64_t count, SturdyParMapF64Fn map, double identity, SturdyParReduceF64Fn reduce, void *user_data, double *out_result);
+/// Sorts `count` elements of `element_size` bytes in place with `less`; `stable` keeps equal elements in order.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_sort_by(void *data, uint64_t count, uint64_t element_size, SturdyBool stable, SturdyParLessFn less, void *user_data);
+
+typedef enum SturdyReduction {
+    STURDY_REDUCE_SUM = 0,
+    STURDY_REDUCE_PRODUCT = 1,
+    STURDY_REDUCE_MIN = 2,
+    STURDY_REDUCE_MAX = 3,
+    STURDY_REDUCTION_FORCE_U32 = 0x7fffffff
+} SturdyReduction;
+
+/// The result of `sturdy_par_reduce`: the field matching the element type (f32 and f64 use `f64`, i32 and i64 use `i64`, u32 and u64 use `u64`;
+/// 32-bit sums are accumulated in 64 bits).
+typedef struct SturdyNumericValue {
+    double f64;
+    int64_t i64;
+    uint64_t u64;
+} SturdyNumericValue;
+
+/// Reduces a typed array in parallel. `out_has_value` is false for an empty array with min/max.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_par_reduce(SturdyNumericType type, SturdyReduction reduction, const void *data, uint64_t count, SturdyNumericValue *out_value, SturdyBool *out_has_value);
+
+// ---- shared-state primitives: blocking mutex, SPSC ring, Arc, Promise, execution senders -------------------------------------
+//
+// The engine's own `Mutex<T>`, `SpscRingBuffer<T>`, `Arc<T>`, `Promise<T>` and `Execution` layer, specialised to byte strings so that code in
+// any language can use the same primitive the C++ code does. (Rust, Java and C# have their own mutexes and reference counts; these are for
+// state that must be shared *with the engine and with other languages*, and they show up in the profiler like the C++ ones.)
+
+/// A blocking mutex around a byte-string value, named for the profiler. Object "sync_mutex". It blocks the calling thread: never lock it on
+/// a network or timer thread, never hold it across a wait, and release a guard on the thread that locked it. (`sturdy_async_mutex_*` waits
+/// without a thread.)
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_sync_mutex_create(const uint8_t *initial, size_t size, const char *debug_name, SturdyAsyncObject *out_mutex);
+/// Blocks until the lock is free. Object "sync_guard": read and replace the value with `sturdy_guard_get` / `sturdy_guard_set`, unlock with
+/// `sturdy_guard_release`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_sync_mutex_lock(SturdyAsyncObject mutex, SturdyAsyncObject *out_guard);
+/// `out_guard` receives the zero handle when the lock is held.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_sync_mutex_try_lock(SturdyAsyncObject mutex, SturdyAsyncObject *out_guard);
+
+typedef enum SturdyRingStatus {
+    STURDY_RING_OK = 0,
+    /// A push found no room / a pop found nothing.
+    STURDY_RING_FULL = 1,
+    STURDY_RING_EMPTY = 2,
+    /// The item is larger than the ring's slot size.
+    STURDY_RING_TOO_LARGE = 3,
+    STURDY_RING_STATUS_FORCE_U32 = 0x7fffffff
+} SturdyRingStatus;
+
+/// A wait-free single-producer single-consumer ring of byte messages. Object "spsc_ring". Exactly one thread may push and exactly one
+/// (possibly another) may pop. Items are at most `max_item_bytes` (rounded up to 32, 128, 512, 2 Ki, 8 Ki or 64 Ki; 64 Ki is the limit); the
+/// capacity (1..16 Mi items) is rounded up to a power of two.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ring_create(uint64_t capacity, uint64_t max_item_bytes, SturdyAsyncObject *out_ring);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ring_try_push(SturdyAsyncObject ring, const uint8_t *data, size_t size, SturdyRingStatus *out_status);
+/// Pops the oldest item into `buffer`, which must hold at least `sturdy_ring_max_item_bytes` (a smaller one is refused before anything is
+/// popped). `out_length` receives the item's size. `out_status` is `STURDY_RING_EMPTY` when there was nothing.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ring_try_pop(SturdyAsyncObject ring, uint8_t *buffer, size_t capacity, size_t *out_length, SturdyRingStatus *out_status);
+/// Pops up to `max_items` (0: all) as a finished op: bytes are the items as packed frames (`sturdy_frames_count` / `sturdy_frames_get`), number is how many.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ring_drain(SturdyAsyncObject ring, uint64_t max_items, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ring_size(SturdyAsyncObject ring, uint64_t *out_size);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ring_capacity(SturdyAsyncObject ring, uint64_t *out_capacity);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_ring_max_item_bytes(SturdyAsyncObject ring, uint64_t *out_bytes);
+
+/// Frees a foreign pointer owned by an arc. Runs once, when the last reference goes away, on whichever thread dropped it.
+typedef void(STURDY_ABI_CALL *SturdyArcDestroyFn)(void *pointer);
+
+/// A shared, reference-counted value: every clone is another handle to the same data, which is destroyed with the last one. Object "arc".
+/// This one holds a copy of `data` (immutable).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_arc_create(const uint8_t *data, size_t size, SturdyAsyncObject *out_arc);
+/// An arc around a pointer of yours: share one native object (or a language runtime's handle to it) between languages and threads, with
+/// `destroy` called exactly once when the last handle is released. `destroy` may be null.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_arc_create_foreign(void *pointer, SturdyArcDestroyFn destroy, SturdyAsyncObject *out_arc);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_arc_clone(SturdyAsyncObject arc, SturdyAsyncObject *out_arc);
+/// How many references exist right now (a snapshot).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_arc_use_count(SturdyAsyncObject arc, uint64_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_arc_ptr_eq(SturdyAsyncObject a, SturdyAsyncObject b, SturdyBool *out_same);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_arc_bytes(SturdyAsyncObject arc, uint8_t *buffer, size_t capacity, size_t *out_length);
+/// The foreign pointer (null for a bytes arc).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_arc_pointer(SturdyAsyncObject arc, void **out_pointer);
+
+/// The producing half of an operation: something other than the engine finishes `out_future` by calling `sturdy_promise_set_*`. Object
+/// "promise"; `out_future` is an ordinary op (wait on it, attach a callback, link or time it out). Only the first completion wins; a promise
+/// released while pending fails its future with `STURDY_IO_CLOSED`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_promise_create(SturdyAsyncObject *out_promise, SturdyAsyncOp *out_future);
+/// Completes the future with a number, bytes and text. `out_first` (may be null) says whether this call completed it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_promise_set_value(SturdyAsyncObject promise, int64_t number, const uint8_t *data, size_t size, const char *text, SturdyBool *out_first);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_promise_set_error(SturdyAsyncObject promise, SturdyIoError code, const char *message, SturdyBool *out_first);
+/// Completes the future as cancelled.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_promise_cancel(SturdyAsyncObject promise, SturdyBool *out_first);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_promise_is_completed(SturdyAsyncObject promise, SturdyBool *out_completed);
+/// An already-finished op (Tokio's `ready`): useful to answer an operation-shaped API without work.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_ready(int64_t number, const uint8_t *data, size_t size, const char *text, SturdyAsyncOp *out_op);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_op_failed(SturdyIoError code, const char *message, SturdyAsyncOp *out_op);
+
+/// What the previous stage of an execution chain produced.
+typedef struct SturdyTaskInput {
+    int64_t number;
+    const uint8_t *bytes;
+    size_t size;
+    const char *text;
+} SturdyTaskInput;
+
+/// A later stage of an execution chain: gets the previous stage's result and writes its own (see `sturdy_task_output_set`).
+typedef void(STURDY_ABI_CALL *SturdyTaskThenFn)(void *user_data, SturdyAsyncObject cancel_token, const SturdyTaskInput *input, SturdyTaskOutput *output);
+
+/// Lazy descriptions of work that compose and run later (the `Execution` layer). Object "exec_sender"; a sender may be started any number of
+/// times. The `user_data` of every stage must stay valid until the sender is released and no run of it is still going.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_exec_just(SturdyTaskWorkFn work, void *user_data, SturdyTaskLane lane, SturdyAsyncObject *out_sender);
+/// A sender that runs `then` on `lane` with the result of `sender`. A failure upstream skips it and propagates.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_exec_then(SturdyAsyncObject sender, SturdyTaskThenFn then, void *user_data, SturdyTaskLane lane, SturdyAsyncObject *out_sender);
+/// Starts the chain. The op carries the last stage's number, bytes and text; cancelling it sets the token every stage receives.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_exec_submit(SturdyAsyncObject sender, SturdyAsyncOp *out_op);
+/// Starts the chain and blocks for it; `out_op` is a finished op (OK, or failed with the stage's error). Never call it from a worker thread.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_exec_sync_wait(SturdyAsyncObject sender, SturdyAsyncOp *out_op);
+
+// ---- scripts ------------------------------------------------------------------------------------------------------------------
+//
+// A *script* is a unit of game logic -- a module (see `SturdyGameModule`) -- written in any language, running next to scripts in other
+// languages in one game. Where its code comes from depends on the language:
+//
+//  * Compiled languages (Rust, Java, C#, C++, Zig, Go ...): fill a `SturdyScriptInstance` with your callbacks and make a module of it with
+//    `sturdy_script_module_create_native`. Nothing is interpreted.
+//  * Interpreted languages (JavaScript, Lua, Python ...): the *application* brings the interpreter. Register a `SturdyScriptLanguage` adapter;
+//    its `load` turns source text or bytecode into a `SturdyScriptInstance` whose callbacks run the script. The engine ships no interpreter,
+//    only this seam; a script then loads by name (`sturdy_script_module_create`, `sturdy_script_load`) or by file extension.
+//
+// What a script may do: everything this header offers, with the `SturdyEngine` handle its callbacks receive. `update` runs at the engine's
+// update boundary, when nothing else touches the world, so a script may spawn and destroy entities, change components and register systems
+// directly rather than through command buffers.
+//
+// **Threading.** Every callback of every script runs with one lock held (the script lock): an interpreter that is not thread-safe never sees
+// two threads at once. `start`, `update`, `on_message`, `call` and `stop` run on the thread that drives the engine's updates; `request_render_frame`
+// may run on a render thread (it takes the same lock). A script that needs parallelism is a native module, which is never serialized.
+//
+// **Reload.** `sturdy_script_reload` loads the new version first (a parse error leaves the old one running), then asks the old one for its state
+// (`save_state`), stops it, gives the state to the new one (`restore_state`) and starts it.
+//
+// **Hosting calls.** Scripts talk to the host application and to each other through byte strings: named host functions
+// (`sturdy_script_register_host_function`), calls by script and function name (`sturdy_script_call`), and messages (`sturdy_script_send`,
+// topics with `sturdy_script_publish` / `sturdy_script_subscribe`; delivered at the next update boundary, in send order). An adapter exposes
+// those to its language however suits it.
+
+/// Describes where a script comes from. Strings are copied unless noted.
+typedef struct SturdyScriptSource {
+    /// Set to `sizeof(SturdyScriptSource)`.
+    uint32_t struct_size;
+    uint32_t reserved;
+    /// Unique, non-empty. The script is a module of this name.
+    const char *name;
+    /// The language adapter ("lua", "js"). Null or empty: chosen from `path`'s extension.
+    const char *language;
+    /// A file the adapter may read, and the extension that picks a language. May be null.
+    const char *path;
+    /// The source text or bytecode. Empty (null): the adapter loads `path`.
+    const uint8_t *code;
+    size_t code_size;
+    /// Adapter-specific settings (a module root, strict mode, ...). May be null.
+    const SturdyKeyValue *options;
+    uint32_t option_count;
+} SturdyScriptSource;
+
+/// One engine update as a script sees it.
+typedef struct SturdyScriptTick {
+    double delta_seconds;
+    double elapsed_seconds;
+    uint64_t tick;
+} SturdyScriptTick;
+
+/// A message between scripts. Valid only during `on_message`.
+typedef struct SturdyScriptMessage {
+    /// The sending script; empty when the host application sent it.
+    const char *from;
+    const char *topic;
+    const uint8_t *payload;
+    size_t payload_size;
+} SturdyScriptMessage;
+
+/// A running script: callbacks plus the pointer they work on. Every callback may be null (a no-op). Fill it in `SturdyScriptLanguage::load`, or
+/// pass it to `sturdy_script_module_create_native`. Callbacks must not unwind.
+typedef struct SturdyScriptInstance {
+    /// Set to `sizeof(SturdyScriptInstance)`.
+    uint32_t struct_size;
+    uint32_t reserved;
+    /// Passed to every callback below.
+    void *user_data;
+    /// Runs once when the script starts. Return `STURDY_FALSE` to abort the load; write the reason to `error` (see `sturdy_bytes_sink_set`).
+    SturdyBool(STURDY_ABI_CALL *start)(SturdyEngine engine, void *user_data, SturdyBytesSink *error);
+    /// Runs once per engine update, at the update boundary, in module start order.
+    void(STURDY_ABI_CALL *update)(SturdyEngine engine, const SturdyScriptTick *tick, void *user_data);
+    /// Contributes to a frame exactly like `SturdyGameLogic::request_render_frame`. May run on a render thread.
+    SturdyBool(STURDY_ABI_CALL *request_render_frame)(SturdyEngine engine, SturdySurface surface, const SturdyFrameInput *input, SturdyFrame frame, void *user_data);
+    /// Runs once when the script is unloaded or replaced, after `save_state`.
+    void(STURDY_ABI_CALL *stop)(SturdyEngine engine, void *user_data);
+    /// Hot reload: write the state to hand to the replacement into `out` and return `STURDY_TRUE`, or return `STURDY_FALSE` for none.
+    SturdyBool(STURDY_ABI_CALL *save_state)(void *user_data, SturdyBytesSink *out);
+    /// Receives the previous version's state before `start`. Return `STURDY_FALSE` to refuse it (the reload fails and the script stays unloaded).
+    SturdyBool(STURDY_ABI_CALL *restore_state)(void *user_data, const uint8_t *state, size_t size);
+    /// Calls a function the script exposes. Write the result to `result` (or the reason to `error`) and return whether it worked.
+    SturdyBool(STURDY_ABI_CALL *call)(void *user_data, const char *function, const uint8_t *args, size_t args_size, SturdyBytesSink *result, SturdyBytesSink *error);
+    /// A message sent to this script or published on a topic it subscribed to.
+    void(STURDY_ABI_CALL *on_message)(void *user_data, const SturdyScriptMessage *message);
+    /// Releases `user_data`, exactly once, after `stop` (or if the script never started).
+    void(STURDY_ABI_CALL *destroy)(void *user_data);
+} SturdyScriptInstance;
+
+/// A language adapter an application registers to run scripts in an interpreter it provides.
+typedef struct SturdyScriptLanguage {
+    /// Set to `sizeof(SturdyScriptLanguage)`.
+    uint32_t struct_size;
+    uint32_t reserved;
+    /// The name `SturdyScriptSource::language` refers to. Copied.
+    const char *name;
+    /// File extensions with the dot (".lua") that select this language. May be null.
+    const char *const *extensions;
+    uint32_t extension_count;
+    void *user_data;
+    /// Parses or compiles `source` into `out_instance` (struct_size set by you). Return `STURDY_FALSE` with the reason in `error` when it does
+    /// not load. The instance must not start running yet. Called with the script lock held.
+    SturdyBool(STURDY_ABI_CALL *load)(void *user_data, const SturdyScriptSource *source, SturdyScriptInstance *out_instance, SturdyBytesSink *error);
+    /// Releases `user_data` once the adapter is unregistered and every script it loaded is gone. May be null.
+    void(STURDY_ABI_CALL *destroy)(void *user_data);
+} SturdyScriptLanguage;
+
+/// Registers a language adapter for the whole process (before the runtime starts, or while it runs).
+/// @return `STURDY_ERROR_INVALID_ARGUMENT` when a language of that name already exists; nothing is taken then (you keep `user_data`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_language_register(const SturdyScriptLanguage *language);
+/// Forgets a language. Scripts already running keep working until they are unloaded.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_language_unregister(const char *name);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_language_count(uint32_t *out_count);
+/// The name of language `index` (string-output convention).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_language_name(uint32_t index, char *buffer, size_t capacity, size_t *out_length);
+
+/// A host function: scripts call it by name with a byte string and get a byte string back. Write the result to `result` (or the reason to
+/// `error`) and return whether it worked. May be called on any thread a script runs on.
+typedef SturdyBool(STURDY_ABI_CALL *SturdyScriptHostFn)(void *user_data, const uint8_t *args, size_t args_size, SturdyBytesSink *result, SturdyBytesSink *error);
+/// Registers `function` under `name` for the whole process. `destroy` (may be null) releases `user_data` when the function is unregistered.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_register_host_function(const char *name, SturdyScriptHostFn function, void *user_data, void(STURDY_ABI_CALL *destroy)(void *user_data));
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_unregister_host_function(const char *name);
+/// Calls a host function (what an adapter does on a script's behalf). Returns a finished op: bytes on success, a failure otherwise.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_call_host_function(const char *name, const uint8_t *args, size_t args_size, SturdyAsyncOp *out_op);
+
+/// A script as a module: where it comes from and where it sits in the start order.
+typedef struct SturdyScriptModuleDesc {
+    /// Set to `sizeof(SturdyScriptModuleDesc)`.
+    uint32_t struct_size;
+    uint32_t reserved;
+    SturdyScriptSource source;
+    /// Modules that must start before this one (and shut down after it).
+    const char *const *after;
+    uint32_t after_count;
+    /// Nonzero: the script may supply the scene for a frame; zero (the usual): it never replaces the scene.
+    SturdyBool contributes_scene;
+} SturdyScriptModuleDesc;
+
+/// Makes the module for a script that loads through a registered language adapter when the game starts. Pass it to `sturdy_runtime_run_modules` or
+/// `sturdy_module_request_load`, or release it with `sturdy_script_module_discard` if you never will. The strings inside `out_module` stay valid until then.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_module_create(const SturdyScriptModuleDesc *desc, SturdyGameModule *out_module);
+
+/// A script built from callbacks directly (no language adapter): the way compiled languages write scripts.
+typedef struct SturdyNativeScriptDesc {
+    /// Set to `sizeof(SturdyNativeScriptDesc)`.
+    uint32_t struct_size;
+    uint32_t reserved;
+    const char *name;
+    /// Copied; its `destroy` runs exactly once.
+    SturdyScriptInstance instance;
+    const char *const *after;
+    uint32_t after_count;
+    SturdyBool contributes_scene;
+} SturdyNativeScriptDesc;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_module_create_native(const SturdyNativeScriptDesc *desc, SturdyGameModule *out_module);
+/// Destroys a module made by the functions above that was never handed to the engine.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_module_discard(SturdyGameModule *module);
+
+/// `sturdy_script_module_create` and `sturdy_module_request_load` in one step: adds a script to the running game at the next update boundary.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_load(SturdyEngine engine, const SturdyScriptModuleDesc *desc);
+/// Hot reload (see above). Takes effect at the next update boundary; a parse error is reported at once. Failures after that are reported through
+/// `sturdy_module_take_failure`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_reload(SturdyEngine engine, const SturdyScriptSource *source);
+/// Hot reload of a script built from callbacks: `instance` replaces the running one.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_reload_native(SturdyEngine engine, const char *name, const SturdyScriptInstance *instance);
+/// Removes a script (as `sturdy_module_request_unload`).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_unload(SturdyEngine engine, const char *name);
+
+/// How many scripts are loaded, and the name of script `index` (start order, string-output convention).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_count(SturdyEngine engine, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_name(SturdyEngine engine, uint32_t index, char *buffer, size_t capacity, size_t *out_length);
+/// A script's details as a finished op's fields: `language`, `path`, `generation` (1 + reloads), `healthy` ("1"/"0") and `failure`.
+/// `STURDY_ERROR_NOT_AVAILABLE` for an unknown script.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_info(SturdyEngine engine, const char *name, SturdyAsyncOp *out_op);
+
+/// Calls a function of a script now (taking the script lock, so it is safe from any thread). Returns a finished op: bytes on success, a failure
+/// otherwise (an unknown script or function, or the script's own error).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_call(SturdyEngine engine, const char *script, const char *function, const uint8_t *args, size_t args_size, SturdyAsyncOp *out_op);
+
+/// Queues a message for `to` (delivered at the next update boundary). `from` null: the host application. `STURDY_ERROR_NOT_AVAILABLE` when no such script is loaded.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_send(SturdyEngine engine, const char *from, const char *to, const char *topic, const uint8_t *payload, size_t size);
+/// Queues a message for every script subscribed to `topic` except `from`. `out_receivers` (may be null) receives how many.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_publish(SturdyEngine engine, const char *from, const char *topic, const uint8_t *payload, size_t size, uint32_t *out_receivers);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_subscribe(SturdyEngine engine, const char *script, const char *topic);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_script_unsubscribe(SturdyEngine engine, const char *script, const char *topic);
 
 #ifdef __cplusplus
 } // extern "C"

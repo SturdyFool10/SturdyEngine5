@@ -1,11 +1,13 @@
 #include <Foundation/Foundation.hpp>
 #include <Foundation/Cpu/CoreMap.hpp>
+#include <Foundation/Cpu/IsaScope.hpp>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
 #include <deque>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -70,28 +72,33 @@ namespace SFT::Async {
             ///
             /// @return Returns the current pop back value.
             /// @note This function does not throw exceptions.
-            [[nodiscard]] unique_ptr<Detail::TaskBase> pop_back() noexcept {
+            [[nodiscard]] unique_ptr<Detail::TaskBase> pop_back_eligible() noexcept {
                 auto guard = tasks_.lock();
-                if (guard->empty()) {
-                    return nullptr;
+                for (auto it = guard->rbegin(); it != guard->rend(); ++it) {
+                    if ((*it)->can_run_here()) {
+                        auto erase_it = std::prev(it.base());
+                        unique_ptr<Detail::TaskBase> task = std::move(*erase_it);
+                        guard->erase(erase_it);
+                        return task;
+                    }
                 }
-                unique_ptr<Detail::TaskBase> task = std::move(guard->back());
-                guard->pop_back();
-                return task;
+                return nullptr;
             }
 
             /// Returns the current or globally available steal value.
             ///
             /// @return Returns the current steal value.
             /// @note This function does not throw exceptions.
-            [[nodiscard]] unique_ptr<Detail::TaskBase> steal() noexcept {
+            [[nodiscard]] unique_ptr<Detail::TaskBase> steal_eligible() noexcept {
                 auto guard = tasks_.lock();
-                if (guard->empty()) {
-                    return nullptr;
+                for (auto it = guard->begin(); it != guard->end(); ++it) {
+                    if ((*it)->can_run_here()) {
+                        unique_ptr<Detail::TaskBase> task = std::move(*it);
+                        guard->erase(it);
+                        return task;
+                    }
                 }
-                unique_ptr<Detail::TaskBase> task = std::move(guard->front());
-                guard->pop_front();
-                return task;
+                return nullptr;
             }
 
             /// Clears the stored state or contents.
@@ -159,9 +166,9 @@ namespace SFT::Async {
         /// @return Returns exclusive ownership of the created object; destroying or resetting the returned pointer releases it.
         /// @note This function does not throw exceptions.
         [[nodiscard]] unique_ptr<Detail::TaskBase> try_take_task(Pool &p, u32 index) noexcept {
-            unique_ptr<Detail::TaskBase> task = p.deques[index]->pop_back();
+            unique_ptr<Detail::TaskBase> task = p.deques[index]->pop_back_eligible();
             if (!task) {
-                task = p.injector.steal();
+                task = p.injector.steal_eligible();
             }
             if (!task && p.deques.size() > 1) {
                 const auto worker_total = static_cast<u32>(p.deques.size());
@@ -173,7 +180,7 @@ namespace SFT::Async {
                 u32 victim = first_victim;
                 for (u32 offset = 0; offset < worker_total && !task; ++offset) {
                     if (victim != index) {
-                        task = p.deques[victim]->steal();
+                        task = p.deques[victim]->steal_eligible();
                     }
                     if (++victim == worker_total) {
                         victim = 0;
@@ -290,7 +297,21 @@ namespace SFT::Async {
         if (done.load(std::memory_order_acquire)) {
             return;
         }
+        Foundation::Cpu::IsaScopeSuspension isa_suspension;
         if (t_worker_index < 0) {
+            if (Detail::t_pool != nullptr) { // a user-pool thread: keep the pool busy while this task finishes
+                unsigned idle = 0;
+                while (!done.load(std::memory_order_acquire)) {
+                    if (Detail::t_pool->try_run_one()) {
+                        idle = 0;
+                    } else if (++idle < 64) {
+                        std::this_thread::yield();
+                    } else {
+                        std::this_thread::sleep_for(std::chrono::microseconds(50)); // nothing to help with: do not burn the core
+                    }
+                }
+                return;
+            }
             done.wait(false, std::memory_order_acquire);
             return;
         }
@@ -355,6 +376,7 @@ namespace SFT::Async {
         if (p.running.exchange(true, std::memory_order_acq_rel)) {
             return;
         }
+        Foundation::Cpu::IsaScopeSuspension isa_suspension;
 
         SchedulerConfig active_config = config;
 
@@ -394,27 +416,18 @@ namespace SFT::Async {
         }
 
 
-        const vector<u32> ranked_cores = ranked_physical_cores();
-        u32 pinned_count = 0;
-        if (!ranked_cores.empty()) {
-            for (u32 i = 0; i < worker_count; ++i) {
-                if (pin_thread_to_core(p.threads[i], ranked_cores[i % ranked_cores.size()])) {
-                    ++pinned_count;
-                }
-            }
-        }
+
         p.heavy_worker_count = std::max<usize>(1, worker_count / 4);
 
         const auto &core_map = Foundation::Cpu::CoreMap::instance();
         Foundation::log_info(
             "Async::Scheduler started {} worker thread(s) [spin={}, yield={}, sleep={}us], "
-            "{} pinned, {} heavy-preferred; topology: {} logical core(s), {} physical core(s), "
+            "ISA-compatible affinity is scoped per task; {} heavy-preferred; topology: {} logical core(s), {} physical core(s), "
             "{} distinct type(s), hybrid={}.",
             worker_count,
             active_config.idle_spin_iterations,
             active_config.idle_yield_iterations,
             active_config.idle_sleep_microseconds,
-            pinned_count,
             p.heavy_worker_count,
             core_map.core_count(),
             core_map.physical_core_count(),
@@ -511,6 +524,7 @@ namespace SFT::Async {
         return;
 #endif
 
+        const bool isa_constrained = task->has_isa_requirements();
         p.queued_count.fetch_add(1, std::memory_order_seq_cst);
 
 
@@ -528,7 +542,7 @@ namespace SFT::Async {
             // A parked worker checked the queue under the mutex; taking it here orders this notify after that check.
             { std::lock_guard<std::mutex> wake_lock(p.wake_mutex); }
         }
-        if (p.config.notify_all_on_enqueue) {
+        if (p.config.notify_all_on_enqueue || isa_constrained) {
             p.wake_cv.notify_all();
         } else {
             p.wake_cv.notify_one();
@@ -544,6 +558,7 @@ namespace SFT::Async {
             chunk = std::max<usize>(1, (count + workers * 4 - 1) / (workers * 4));
         }
         if (count <= chunk || Scheduler::is_worker_thread()) {
+            Foundation::Cpu::IsaScope isa_scope(Foundation::Cpu::IsaSet{});
             fn(0, count, user_data);
             return;
         }

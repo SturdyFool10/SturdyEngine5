@@ -59,6 +59,8 @@ function(sturdy_add_test package source)
   endif()
 
   add_executable("${_name}" "${_source}")
+  # Named frames in the traces tests print (and a failing test's trace is far easier to read).
+  sturdy_export_symbols("${_name}")
   # LINK first: static link order follows argument order.
   target_link_libraries("${_name}" PRIVATE ${TEST_LINK} "Sturdy::${package}")
   if(TEST_DEFINES)

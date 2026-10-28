@@ -9,7 +9,7 @@
 use core::ffi::{c_char, c_void};
 
 pub const ABI_VERSION_MAJOR: u32 = 0;
-pub const ABI_VERSION_MINOR: u32 = 37;
+pub const ABI_VERSION_MINOR: u32 = 40;
 
 /// Matches `RHI::AccelerationStructureCopyMode`.
 pub type SturdyAccelerationStructureCopyMode = i32;
@@ -59,6 +59,16 @@ pub const STURDY_AMBIENT_OCCLUSION_QUALITY_LOW: SturdyAmbientOcclusionQuality = 
 pub const STURDY_AMBIENT_OCCLUSION_QUALITY_MEDIUM: SturdyAmbientOcclusionQuality = 1;
 pub const STURDY_AMBIENT_OCCLUSION_QUALITY_HIGH: SturdyAmbientOcclusionQuality = 2;
 pub const STURDY_AMBIENT_OCCLUSION_QUALITY_ULTRA: SturdyAmbientOcclusionQuality = 3;
+
+/// Optional parts of the build / machine, as a bit set from `sturdy_async_features`.
+pub type SturdyAsyncFeature = i32;
+pub const STURDY_ASYNC_FEATURE_QUIC: SturdyAsyncFeature = 1;
+pub const STURDY_ASYNC_FEATURE_HTTP2: SturdyAsyncFeature = 2;
+pub const STURDY_ASYNC_FEATURE_HTTP3: SturdyAsyncFeature = 4;
+pub const STURDY_ASYNC_FEATURE_IO_URING: SturdyAsyncFeature = 8;
+pub const STURDY_ASYNC_FEATURE_PROCESS: SturdyAsyncFeature = 16;
+pub const STURDY_ASYNC_FEATURE_GZIP: SturdyAsyncFeature = 32;
+pub const STURDY_ASYNC_FEATURE_NATIVE_FILE_WATCH: SturdyAsyncFeature = 64;
 
 /// How a sound attached to an entity is anchored.
 pub type SturdyAudioAttachment = i32;
@@ -208,6 +218,14 @@ pub const STURDY_FIELD_U64: SturdyFieldKind = 8;
 pub const STURDY_FIELD_F32: SturdyFieldKind = 9;
 pub const STURDY_FIELD_F64: SturdyFieldKind = 10;
 
+pub type SturdyFileMode = i32;
+pub const STURDY_FILE_READ: SturdyFileMode = 1;
+pub const STURDY_FILE_WRITE: SturdyFileMode = 2;
+pub const STURDY_FILE_CREATE: SturdyFileMode = 4;
+pub const STURDY_FILE_TRUNCATE: SturdyFileMode = 8;
+pub const STURDY_FILE_APPEND: SturdyFileMode = 16;
+pub const STURDY_FILE_CREATE_NEW: SturdyFileMode = 32;
+
 pub type SturdyFilter = i32;
 pub const STURDY_FILTER_NEAREST: SturdyFilter = 0;
 pub const STURDY_FILTER_LINEAR: SturdyFilter = 1;
@@ -264,6 +282,10 @@ pub const STURDY_FORMAT_BC4_UNORM: SturdyFormat = 44;
 pub const STURDY_FORMAT_BC5_UNORM: SturdyFormat = 45;
 pub const STURDY_FORMAT_BC7_UNORM: SturdyFormat = 46;
 pub const STURDY_FORMAT_BC7_UNORM_SRGB: SturdyFormat = 47;
+
+pub type SturdyFrameCodec = i32;
+pub const STURDY_FRAME_LENGTH_DELIMITED: SturdyFrameCodec = 0;
+pub const STURDY_FRAME_LINES: SturdyFrameCodec = 1;
 
 /// The "FPS Limit" dial: how the render loop caps its own dispatch rate, independent of and composing with whatever the resolved present mode is already doing. Matches `Core::FrameRateLimitMode`.
 pub type SturdyFrameRateLimitMode = i32;
@@ -322,9 +344,33 @@ pub const STURDY_HDR_TRANSFER_FUNCTION_PQ_ST2084: SturdyHdrTransferFunction = 2;
 pub const STURDY_HDR_TRANSFER_FUNCTION_HLG: SturdyHdrTransferFunction = 3;
 pub const STURDY_HDR_TRANSFER_FUNCTION_LINEAR_EXTENDED: SturdyHdrTransferFunction = 4;
 
+pub type SturdyHttpResponseKind = i32;
+pub const STURDY_HTTP_RESPONSE_TEXT: SturdyHttpResponseKind = 0;
+pub const STURDY_HTTP_RESPONSE_HTML: SturdyHttpResponseKind = 1;
+pub const STURDY_HTTP_RESPONSE_JSON: SturdyHttpResponseKind = 2;
+pub const STURDY_HTTP_RESPONSE_REDIRECT: SturdyHttpResponseKind = 3;
+
 pub type SturdyIndexFormat = i32;
 pub const STURDY_INDEX_FORMAT_UINT16: SturdyIndexFormat = 0;
 pub const STURDY_INDEX_FORMAT_UINT32: SturdyIndexFormat = 1;
+
+/// Why an operation failed.
+pub type SturdyIoError = i32;
+pub const STURDY_IO_NONE: SturdyIoError = 0;
+pub const STURDY_IO_NOT_FOUND: SturdyIoError = 1;
+pub const STURDY_IO_PERMISSION_DENIED: SturdyIoError = 2;
+pub const STURDY_IO_ALREADY_EXISTS: SturdyIoError = 3;
+pub const STURDY_IO_INVALID_ARGUMENT: SturdyIoError = 4;
+pub const STURDY_IO_CONNECTION_REFUSED: SturdyIoError = 5;
+pub const STURDY_IO_CONNECTION_RESET: SturdyIoError = 6;
+pub const STURDY_IO_TIMED_OUT: SturdyIoError = 7;
+pub const STURDY_IO_UNSUPPORTED: SturdyIoError = 8;
+pub const STURDY_IO_UNKNOWN: SturdyIoError = 9;
+pub const STURDY_IO_UNEXPECTED_EOF: SturdyIoError = 10;
+pub const STURDY_IO_CLOSED: SturdyIoError = 11;
+pub const STURDY_IO_TLS_FAILURE: SturdyIoError = 12;
+pub const STURDY_IO_LIMIT_EXCEEDED: SturdyIoError = 13;
+pub const STURDY_IO_PROTOCOL_ERROR: SturdyIoError = 14;
 
 /// Presentation latency policy. Matches `Core::LatencyMode`.
 pub type SturdyLatencyMode = i32;
@@ -365,6 +411,22 @@ pub const STURDY_MOUSE_BUTTON_MIDDLE: SturdyMouseButton = 2;
 pub const STURDY_MOUSE_BUTTON_RIGHT: SturdyMouseButton = 3;
 pub const STURDY_MOUSE_BUTTON_EXTRA1: SturdyMouseButton = 4;
 pub const STURDY_MOUSE_BUTTON_EXTRA2: SturdyMouseButton = 5;
+
+/// Element type for `sturdy_par_sort`.
+pub type SturdyNumericType = i32;
+pub const STURDY_NUMERIC_F32: SturdyNumericType = 0;
+pub const STURDY_NUMERIC_F64: SturdyNumericType = 1;
+pub const STURDY_NUMERIC_I32: SturdyNumericType = 2;
+pub const STURDY_NUMERIC_I64: SturdyNumericType = 3;
+pub const STURDY_NUMERIC_U32: SturdyNumericType = 4;
+pub const STURDY_NUMERIC_U64: SturdyNumericType = 5;
+
+/// Where an operation stands.
+pub type SturdyOpStatus = i32;
+pub const STURDY_OP_PENDING: SturdyOpStatus = 0;
+pub const STURDY_OP_OK: SturdyOpStatus = 1;
+pub const STURDY_OP_FAILED: SturdyOpStatus = 2;
+pub const STURDY_OP_CANCELLED: SturdyOpStatus = 3;
 
 /// Matches `RHI::OpacityMicromapFormat`.
 pub type SturdyOpacityMicromapFormat = i32;
@@ -431,6 +493,11 @@ pub const STURDY_PRIMITIVE_TOPOLOGY_LINE_STRIP: SturdyPrimitiveTopology = 2;
 pub const STURDY_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST: SturdyPrimitiveTopology = 3;
 pub const STURDY_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP: SturdyPrimitiveTopology = 4;
 
+pub type SturdyProcessStream = i32;
+pub const STURDY_PROCESS_STDOUT: SturdyProcessStream = 0;
+pub const STURDY_PROCESS_STDERR: SturdyProcessStream = 1;
+pub const STURDY_PROCESS_STDIN: SturdyProcessStream = 2;
+
 /// Kind of work a query set records.
 pub type SturdyQueryType = i32;
 pub const STURDY_QUERY_TYPE_OCCLUSION: SturdyQueryType = 0;
@@ -462,6 +529,12 @@ pub type SturdyRayTracingShaderGroupType = i32;
 pub const STURDY_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL: SturdyRayTracingShaderGroupType = 0;
 pub const STURDY_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP: SturdyRayTracingShaderGroupType = 1;
 pub const STURDY_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP: SturdyRayTracingShaderGroupType = 2;
+
+pub type SturdyReduction = i32;
+pub const STURDY_REDUCE_SUM: SturdyReduction = 0;
+pub const STURDY_REDUCE_PRODUCT: SturdyReduction = 1;
+pub const STURDY_REDUCE_MIN: SturdyReduction = 2;
+pub const STURDY_REDUCE_MAX: SturdyReduction = 3;
 
 /// Render-graph stages that can be toggled per frame.
 pub type SturdyRenderFeature = i32;
@@ -511,6 +584,12 @@ pub const STURDY_ERROR_COMPONENT_PRESENT: SturdyResult = 15;
 pub const STURDY_ERROR_COMPONENT_NOT_BLITTABLE: SturdyResult = 16;
 pub const STURDY_ERROR_BUSY: SturdyResult = 17;
 pub const STURDY_ERROR_DEVICE_LOST: SturdyResult = 18;
+
+pub type SturdyRingStatus = i32;
+pub const STURDY_RING_OK: SturdyRingStatus = 0;
+pub const STURDY_RING_FULL: SturdyRingStatus = 1;
+pub const STURDY_RING_EMPTY: SturdyRingStatus = 2;
+pub const STURDY_RING_TOO_LARGE: SturdyRingStatus = 3;
 
 /// Rendering path the scene stage evaluates.
 pub type SturdySceneIntegrator = i32;
@@ -571,6 +650,11 @@ pub const STURDY_SHAPE_CONE: SturdyShape = 6;
 pub const STURDY_SHAPE_TORUS: SturdyShape = 7;
 pub const STURDY_SHAPE_TETRAHEDRON: SturdyShape = 8;
 
+pub type SturdyStdioMode = i32;
+pub const STURDY_STDIO_PIPE: SturdyStdioMode = 0;
+pub const STURDY_STDIO_NULL: SturdyStdioMode = 1;
+pub const STURDY_STDIO_INHERIT: SturdyStdioMode = 2;
+
 pub type SturdyStencilOp = i32;
 pub const STURDY_STENCIL_OP_KEEP: SturdyStencilOp = 0;
 pub const STURDY_STENCIL_OP_ZERO: SturdyStencilOp = 1;
@@ -584,6 +668,11 @@ pub const STURDY_STENCIL_OP_DECREMENT_WRAP: SturdyStencilOp = 7;
 pub type SturdyStoreOp = i32;
 pub const STURDY_STORE_OP_STORE: SturdyStoreOp = 0;
 pub const STURDY_STORE_OP_DONT_CARE: SturdyStoreOp = 1;
+
+pub type SturdyTaskLane = i32;
+pub const STURDY_LANE_LIGHT: SturdyTaskLane = 0;
+pub const STURDY_LANE_HEAVY: SturdyTaskLane = 1;
+pub const STURDY_LANE_BLOCKING: SturdyTaskLane = 2;
 
 /// How much work a task represents, which decides where the scheduler puts it.
 pub type SturdyTaskWeight = i32;
@@ -636,6 +725,12 @@ pub const STURDY_TRACE_FRAME_NATIVE: SturdyTraceFrameKind = 0;
 pub const STURDY_TRACE_FRAME_SCOPE: SturdyTraceFrameKind = 1;
 pub const STURDY_TRACE_FRAME_FOREIGN: SturdyTraceFrameKind = 2;
 pub const STURDY_TRACE_FRAME_UNWOUND: SturdyTraceFrameKind = 3;
+
+/// Result of a non-blocking send or receive.
+pub type SturdyTryStatus = i32;
+pub const STURDY_TRY_OK: SturdyTryStatus = 0;
+pub const STURDY_TRY_WOULD_BLOCK: SturdyTryStatus = 1;
+pub const STURDY_TRY_CLOSED: SturdyTryStatus = 2;
 
 /// Which way an element stacks its children.
 pub type SturdyUiDirection = i32;
@@ -734,6 +829,12 @@ pub const STURDY_WINDOW_REQUEST_SPAWN: SturdyWindowRequestKind = 0;
 pub const STURDY_WINDOW_REQUEST_RECREATE_PRIMARY: SturdyWindowRequestKind = 1;
 pub const STURDY_WINDOW_REQUEST_CLOSE: SturdyWindowRequestKind = 2;
 
+/// Frees a foreign pointer owned by an arc. Runs once, when the last reference goes away, on whichever thread dropped it.
+pub type SturdyArcDestroyFn = unsafe extern "C" fn(*mut c_void);
+
+/// Called when an operation finishes. Runs on a network, timer or worker thread. The op is still owned by you; read its result here or later. Called exactly once for every registration — also when the op was released or cancelled meanwhile, so the `user_data` you attached can always be freed here. In that case `op` is no longer a valid handle (its getters report an expired handle); check with `sturdy_op_status` first.
+pub type SturdyAsyncOpFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncOp);
+
 /// Receives mixed audio from a custom sink. Runs on a thread of the engine's, never the audio thread; `interleaved` holds `frames * channels` floats and is only valid during the call.
 pub type SturdyAudioSinkCallback = unsafe extern "C" fn(*mut c_void, *const f32, u32, u32, u32);
 
@@ -751,8 +852,33 @@ pub type SturdyChunkSystemFn = unsafe extern "C" fn(*const SturdyEntity, u32, *m
 /// While a visit is in progress the world is locked, so this callback must **not** call any other `sturdy_ecs_*` function; each returns `STURDY_ERROR_BUSY`. That guard is doing real work — the engine underneath treats a structural change made during iteration as a fatal contract violation, so without it a reentrant spawn would terminate the process rather than fail. Read and write through `components`; if you need to spawn or destroy, record what you want and do it after `sturdy_ecs_for_each` returns.
 pub type SturdyEcsVisitFn = unsafe extern "C" fn(SturdyEntity, *mut *mut c_void, *mut c_void);
 
+/// Called for every request, on a handler thread (not the network thread). Call `sturdy_http_respond` exactly once with `responder`, now or later from any thread. A request that is never answered holds its connection until the client gives up.
+pub type SturdyHttpHandlerFn = unsafe extern "C" fn(*mut c_void, *const SturdyHttpRequest, SturdyHttpResponder);
+
 /// Invoked once per log message after registration via `sturdy_log_add_sink`.
 pub type SturdyLogCallback = unsafe extern "C" fn(i32, *const c_char, u64, *mut c_void);
+
+/// Body of `sturdy_par_for_chunks`: called with consecutive `[begin, end)` ranges.
+pub type SturdyParChunkFn = unsafe extern "C" fn(*mut c_void, u64, u64);
+
+/// Body of `sturdy_par_for`: called once per index, on any worker thread. Must not unwind.
+pub type SturdyParForFn = unsafe extern "C" fn(*mut c_void, u64);
+
+/// Returns non-zero when the element at `a` sorts before the one at `b`.
+pub type SturdyParLessFn = unsafe extern "C" fn(*mut c_void, *const c_void, *const c_void) -> u8;
+
+pub type SturdyParMapF64Fn = unsafe extern "C" fn(*mut c_void, u64) -> f64;
+
+pub type SturdyParMapI64Fn = unsafe extern "C" fn(*mut c_void, u64) -> i64;
+
+pub type SturdyParPredicateFn = unsafe extern "C" fn(*mut c_void, u64) -> u8;
+
+pub type SturdyParReduceF64Fn = unsafe extern "C" fn(*mut c_void, f64, f64) -> f64;
+
+pub type SturdyParReduceI64Fn = unsafe extern "C" fn(*mut c_void, i64, i64) -> i64;
+
+/// Body of `sturdy_par_scope`; `scope` ("par_scope") is valid until `sturdy_par_scope` returns.
+pub type SturdyParScopeFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncObject);
 
 /// The one function a plugin exports, under the name `sturdy_plugin_entry`. Return `STURDY_OK` to accept the load; anything else aborts it, destroys any modules already added, and `UNLOAD` is *not* called. For `UNLOAD`, `host->context` is valid but `add_module` is refused, and `state` carries what the plugin stored.
 pub type SturdyPluginEntryFn = unsafe extern "C" fn(*const SturdyPluginHost, i32, *mut c_void) -> i32;
@@ -778,6 +904,27 @@ pub type SturdyReflectionMoveConstructFn = unsafe extern "C" fn(*mut c_void, *mu
 /// A type-erased *observer* body — used for both a method before/after hook and an event listener, which share this exact shape (unlike `SturdyReflectionMethodFn`, there is no `out_return`: neither a hook nor an event listener produces a value, only observes `args`). `object` is the method's receiver (null for a static method) or whatever `sturdy_reflection_fire_event` was called with; `args` is one already-typed pointer per parameter; `user_data` is whatever was passed to `_add_before_hook`/`_add_after_hook`/ `_subscribe_event`.
 pub type SturdyReflectionObserverFn = unsafe extern "C" fn(*mut c_void, *const *const c_void, *mut c_void);
 
+/// Lets the relay authenticate clients. Called on a network thread (answer quickly) with the rendezvous token and the client's address; return non-zero to accept, zero to refuse. `user_data` must stay valid until the relay is released.
+pub type SturdyRelayAuthorizeFn = unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char) -> u8;
+
+/// A host function: scripts call it by name with a byte string and get a byte string back. Write the result to `result` (or the reason to `error`) and return whether it worked. May be called on any thread a script runs on.
+pub type SturdyScriptHostFn = unsafe extern "C" fn(*mut c_void, *const u8, u64, *mut SturdyBytesSink, *mut SturdyBytesSink) -> u8;
+
+pub type SturdyStreamEachFn = unsafe extern "C" fn(*mut c_void, *const u8, u64);
+
+/// Returns non-zero to emit what was written to `out`, zero to drop the item.
+pub type SturdyStreamFilterMapFn = unsafe extern "C" fn(*mut c_void, *const u8, u64, *mut SturdyBytesSink) -> u8;
+
+pub type SturdyStreamFoldFn = unsafe extern "C" fn(*mut c_void, *const u8, u64, *const u8, u64, *mut SturdyBytesSink);
+
+pub type SturdyStreamMapFn = unsafe extern "C" fn(*mut c_void, *const u8, u64, *mut SturdyBytesSink);
+
+/// Returns non-zero to keep the item.
+pub type SturdyStreamPredicateFn = unsafe extern "C" fn(*mut c_void, *const u8, u64) -> u8;
+
+/// Called for each pull on a blocking-lane thread (it may block). Write the next item to `out` and return non-zero, or return zero to end the stream.
+pub type SturdyStreamSourceFn = unsafe extern "C" fn(*mut c_void, *mut SturdyBytesSink) -> u8;
+
 /// Body of a system registered with `sturdy_ecs_add_system`.
 ///
 /// `components` points at an array parallel to the access list the system was registered with, each entry addressing that component's storage for this entity. Write through the ones declared `STURDY_ACCESS_WRITE`; the pointers are valid only for this call.
@@ -791,6 +938,15 @@ pub type SturdySystemFn = unsafe extern "C" fn(SturdyEntity, *mut *mut c_void, S
 ///
 /// Nothing in this ABI is safe to call concurrently with the engine's own frame from a worker thread — the ECS and renderer entry points assume the caller is the thread the engine handed a handle to. Use tasks for work that does not touch the engine (loading, decoding, pathfinding, network), publish the result somewhere your game logic reads, and apply it from a system or frame callback.
 pub type SturdyTaskFn = unsafe extern "C" fn(*mut c_void);
+
+/// A later stage of an execution chain: gets the previous stage's result and writes its own (see `sturdy_task_output_set`).
+pub type SturdyTaskThenFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncObject, *const SturdyTaskInput, *mut SturdyTaskOutput);
+
+/// The work of a task, run on a worker thread. `cancel_token` (a "cancel_token", valid only during the call) turns cancelled when the task's op is cancelled or its join set aborted: poll `sturdy_cancel_token_is_cancelled` to stop early. Fill `output` before returning. Must not unwind.
+pub type SturdyTaskWorkFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncObject, *mut SturdyTaskOutput);
+
+/// Called for each WebSocket upgraded on a path registered with `sturdy_http_server_on_websocket`, on a handler thread. `socket` is a new "websocket" object **you own** (release it when done; releasing closes the connection). `request` is valid only during the call.
+pub type SturdyWebSocketFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncObject, *const SturdyHttpRequest);
 
 /// Handle to an acceleration structure. See the "Ray tracing" section header for its lifetime rules.
 #[repr(C)]
@@ -1190,6 +1346,36 @@ impl Default for SturdyAsset {
 }
 const _: () = assert!(core::mem::size_of::<SturdyAsset>() == 32 && core::mem::align_of::<SturdyAsset>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyAsset, opaque) == 0);
+
+/// A long-lived object (connection, listener, server, file, ...). Owned until `sturdy_object_release`, which closes it.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyAsyncObject {
+    pub token: u64,
+}
+impl Default for SturdyAsyncObject {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyAsyncObject>() == 8 && core::mem::align_of::<SturdyAsyncObject>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyAsyncObject, token) == 0);
+
+/// A pending or finished operation. Owned until `sturdy_op_release`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyAsyncOp {
+    pub token: u64,
+}
+impl Default for SturdyAsyncOp {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyAsyncOp>() == 8 && core::mem::align_of::<SturdyAsyncOp>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyAsyncOp, token) == 0);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -1626,6 +1812,38 @@ const _: () = assert!(core::mem::offset_of!(SturdyBufferTextureCopy, texture_z) 
 const _: () = assert!(core::mem::offset_of!(SturdyBufferTextureCopy, extent_width) == 40);
 const _: () = assert!(core::mem::offset_of!(SturdyBufferTextureCopy, extent_height) == 44);
 const _: () = assert!(core::mem::offset_of!(SturdyBufferTextureCopy, extent_depth_or_layers) == 48);
+
+/// Where a stream callback writes the item it produces (copied immediately).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyBytesSink {
+    pub internal: *mut c_void,
+}
+impl Default for SturdyBytesSink {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyBytesSink>() == 8 && core::mem::align_of::<SturdyBytesSink>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyBytesSink, internal) == 0);
+
+/// A read-only view of bytes.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyBytesView {
+    pub data: *const u8,
+    pub size: u64,
+}
+impl Default for SturdyBytesView {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyBytesView>() == 16 && core::mem::align_of::<SturdyBytesView>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyBytesView, data) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyBytesView, size) == 8);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -2067,6 +2285,53 @@ const _: () = assert!(core::mem::offset_of!(SturdyComputePipelineDesc, struct_si
 const _: () = assert!(core::mem::offset_of!(SturdyComputePipelineDesc, layout) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyComputePipelineDesc, compute) == 16);
 const _: () = assert!(core::mem::offset_of!(SturdyComputePipelineDesc, label) == 40);
+
+/// One cookie (RFC 6265).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyCookie {
+    pub name: *const c_char,
+    pub value: *const c_char,
+    pub domain: *const c_char,
+    pub path: *const c_char,
+    pub domain_wide: u8,
+    pub secure: u8,
+    pub http_only: u8,
+    pub expires_unix: i64,
+}
+impl Default for SturdyCookie {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyCookie>() == 48 && core::mem::align_of::<SturdyCookie>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyCookie, name) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyCookie, value) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyCookie, domain) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyCookie, path) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyCookie, domain_wide) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyCookie, secure) == 33);
+const _: () = assert!(core::mem::offset_of!(SturdyCookie, http_only) == 34);
+const _: () = assert!(core::mem::offset_of!(SturdyCookie, expires_unix) == 40);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyCopyOptions {
+    pub chunk_bytes: u64,
+    pub limit: u64,
+    pub shutdown_writer: u8,
+}
+impl Default for SturdyCopyOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyCopyOptions>() == 24 && core::mem::align_of::<SturdyCopyOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyCopyOptions, chunk_bytes) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyCopyOptions, limit) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyCopyOptions, shutdown_writer) == 16);
 
 /// The engine's raw D3D12 objects.
 ///
@@ -2738,6 +3003,275 @@ const _: () = assert!(core::mem::offset_of!(SturdyHdrPresentationMode, transfer)
 const _: () = assert!(core::mem::offset_of!(SturdyHdrPresentationMode, gamut) == 4);
 const _: () = assert!(core::mem::offset_of!(SturdyHdrPresentationMode, requires_os_hdr_mode) == 8);
 
+/// How to verify a server (client side of TLS/QUIC/HTTPS/WSS). Chain and host name are always checked unless `pinned_sha256` names the exact certificate(s) accepted.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyTlsClientOptions {
+    pub server_name: *const c_char,
+    pub no_system_roots: u8,
+    pub ca_pem: *const c_char,
+    pub pinned_sha256: *const *const c_char,
+    pub pinned_sha256_count: u32,
+    pub identify_peer_by_certificate_only: u8,
+    pub client_certificate_pem: *const c_char,
+    pub client_private_key_pem: *const c_char,
+    pub alpn: *const *const c_char,
+    pub alpn_count: u32,
+    pub handshake_timeout_ms: u32,
+}
+impl Default for SturdyTlsClientOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTlsClientOptions>() == 72 && core::mem::align_of::<SturdyTlsClientOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, server_name) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, no_system_roots) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, ca_pem) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, pinned_sha256) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, pinned_sha256_count) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, identify_peer_by_certificate_only) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, client_certificate_pem) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, client_private_key_pem) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, alpn) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, alpn_count) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsClientOptions, handshake_timeout_ms) == 68);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyHttpClientOptions {
+    pub timeout_ms: i64,
+    pub max_redirects: i32,
+    pub max_response_body_bytes: u64,
+    pub no_keep_alive: u8,
+    pub no_decompress: u8,
+    pub cookies: u8,
+    pub no_http2: u8,
+    pub no_http3: u8,
+    pub http3_prior_knowledge: u8,
+    pub user_agent: *const c_char,
+    pub proxy: *const c_char,
+    pub no_proxy: *const *const c_char,
+    pub no_proxy_count: u32,
+    pub tls: SturdyTlsClientOptions,
+    pub allow_https_downgrade: u8,
+    pub max_response_header_bytes: u32,
+    pub max_idle_connections_per_host: u32,
+    pub idle_connection_timeout_ms: i64,
+    pub http3_connect_timeout_ms: i64,
+    pub cookie_jar: SturdyAsyncObject,
+}
+impl Default for SturdyHttpClientOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyHttpClientOptions>() == 176 && core::mem::align_of::<SturdyHttpClientOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, timeout_ms) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, max_redirects) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, max_response_body_bytes) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, no_keep_alive) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, no_decompress) == 25);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, cookies) == 26);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, no_http2) == 27);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, no_http3) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, http3_prior_knowledge) == 29);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, user_agent) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, proxy) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, no_proxy) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, no_proxy_count) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, tls) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, allow_https_downgrade) == 136);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, max_response_header_bytes) == 140);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, max_idle_connections_per_host) == 144);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, idle_connection_timeout_ms) == 152);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, http3_connect_timeout_ms) == 160);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpClientOptions, cookie_jar) == 168);
+
+/// One request, valid only during the handler call (copy what you keep).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyHttpRequest {
+    pub method: *const c_char,
+    pub target: *const c_char,
+    pub remote_address: *const c_char,
+    pub version: u32,
+    pub headers: *const SturdyKeyValue,
+    pub header_count: u32,
+    pub body: *const u8,
+    pub body_size: u64,
+    pub body_file: *const c_char,
+    pub path: *const c_char,
+    pub query: *const c_char,
+    pub params: *const SturdyKeyValue,
+    pub param_count: u32,
+}
+impl Default for SturdyHttpRequest {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyHttpRequest>() == 104 && core::mem::align_of::<SturdyHttpRequest>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, method) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, target) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, remote_address) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, version) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, headers) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, header_count) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, body) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, body_size) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, body_file) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, path) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, query) == 80);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, params) == 88);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpRequest, param_count) == 96);
+
+/// Answers one request. Owned until `sturdy_http_respond` (which consumes it); never release it otherwise.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyHttpResponder {
+    pub token: u64,
+}
+impl Default for SturdyHttpResponder {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyHttpResponder>() == 8 && core::mem::align_of::<SturdyHttpResponder>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponder, token) == 0);
+
+/// A complete response. Zero-initialize, then set what you need: a status, headers, and one body — bytes, a file, or a stream.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyHttpResponse {
+    pub status: u32,
+    pub headers: *const SturdyKeyValue,
+    pub header_count: u32,
+    pub body: *const u8,
+    pub body_size: u64,
+    pub close_connection: u8,
+    pub body_file: *const c_char,
+    pub body_offset: u64,
+    pub body_length: u64,
+    pub limit_body_length: u8,
+    pub stream: u8,
+    pub sse: u8,
+    pub stream_queue: u32,
+}
+impl Default for SturdyHttpResponse {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyHttpResponse>() == 80 && core::mem::align_of::<SturdyHttpResponse>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, status) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, headers) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, header_count) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, body) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, body_size) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, close_connection) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, body_file) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, body_offset) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, body_length) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, limit_body_length) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, stream) == 73);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, sse) == 74);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpResponse, stream_queue) == 76);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyHttpServerOptions {
+    pub bind_address: *const c_char,
+    pub port: u16,
+    pub tls_certificate_chain_file: *const c_char,
+    pub tls_private_key_file: *const c_char,
+    pub handler_threads: u32,
+    pub max_connections: u32,
+    pub max_request_body_bytes: u64,
+    pub max_request_header_bytes: u32,
+    pub max_response_body_bytes: u64,
+    pub max_connections_per_ip: u32,
+    pub no_http2: u8,
+    pub enable_http3: u8,
+    pub http3_port: u16,
+    pub io_threads: u32,
+    pub shutdown_timeout_ms: u32,
+    pub spool_requests_above: u64,
+    pub max_spooled_body_bytes: u64,
+    pub http2_max_concurrent_streams: u32,
+    pub http3_max_concurrent_streams: u32,
+    pub http3_max_connections: u64,
+    pub http3_max_connections_per_address: u64,
+    pub websocket_max_message_bytes: u64,
+    pub websocket_max_queued_send_bytes: u64,
+    pub websocket_idle_timeout_ms: i64,
+    pub websocket_compression: u8,
+    pub websocket_allowed_origins: *const *const c_char,
+    pub websocket_allowed_origin_count: u32,
+    pub websocket_subprotocols: *const *const c_char,
+    pub websocket_subprotocol_count: u32,
+    pub max_websockets: u64,
+}
+impl Default for SturdyHttpServerOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyHttpServerOptions>() == 192 && core::mem::align_of::<SturdyHttpServerOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, bind_address) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, port) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, tls_certificate_chain_file) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, tls_private_key_file) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, handler_threads) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, max_connections) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, max_request_body_bytes) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, max_request_header_bytes) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, max_response_body_bytes) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, max_connections_per_ip) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, no_http2) == 68);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, enable_http3) == 69);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, http3_port) == 70);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, io_threads) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, shutdown_timeout_ms) == 76);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, spool_requests_above) == 80);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, max_spooled_body_bytes) == 88);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, http2_max_concurrent_streams) == 96);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, http3_max_concurrent_streams) == 100);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, http3_max_connections) == 104);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, http3_max_connections_per_address) == 112);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, websocket_max_message_bytes) == 120);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, websocket_max_queued_send_bytes) == 128);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, websocket_idle_timeout_ms) == 136);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, websocket_compression) == 144);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, websocket_allowed_origins) == 152);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, websocket_allowed_origin_count) == 160);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, websocket_subprotocols) == 168);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, websocket_subprotocol_count) == 176);
+const _: () = assert!(core::mem::offset_of!(SturdyHttpServerOptions, max_websockets) == 184);
+
+/// A name/value pair (HTTP headers, environment variables). Both strings are null-terminated.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyKeyValue {
+    pub name: *const c_char,
+    pub value: *const c_char,
+}
+impl Default for SturdyKeyValue {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyKeyValue>() == 16 && core::mem::align_of::<SturdyKeyValue>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyKeyValue, name) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyKeyValue, value) == 8);
+
 /// Clustered local lighting (since 0.32). Every spot and point light (nearest/brightest first, up to `max_lights`) is binned into screen tiles x depth slices so each pixel evaluates only the lights that reach it; with `clustered` off the deferred pass falls back to the first 8 spot + 8 point lights.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -2837,6 +3371,89 @@ const _: () = assert!(core::mem::offset_of!(SturdyMultisampleState, sample_mask)
 const _: () = assert!(core::mem::offset_of!(SturdyMultisampleState, alpha_to_coverage_enable) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyMultisampleState, reserved) == 9);
 
+/// A running script: callbacks plus the pointer they work on. Every callback may be null (a no-op). Fill it in `SturdyScriptLanguage::load`, or pass it to `sturdy_script_module_create_native`. Callbacks must not unwind.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyScriptInstance {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub user_data: *mut c_void,
+    pub start: Option<unsafe extern "C" fn(SturdyEngine, *mut c_void, *mut SturdyBytesSink) -> u8>,
+    pub update: Option<unsafe extern "C" fn(SturdyEngine, *const SturdyScriptTick, *mut c_void)>,
+    pub request_render_frame: Option<unsafe extern "C" fn(SturdyEngine, SturdySurface, *const SturdyFrameInput, SturdyFrame, *mut c_void) -> u8>,
+    pub stop: Option<unsafe extern "C" fn(SturdyEngine, *mut c_void)>,
+    pub save_state: Option<unsafe extern "C" fn(*mut c_void, *mut SturdyBytesSink) -> u8>,
+    pub restore_state: Option<unsafe extern "C" fn(*mut c_void, *const u8, u64) -> u8>,
+    pub call: Option<unsafe extern "C" fn(*mut c_void, *const c_char, *const u8, u64, *mut SturdyBytesSink, *mut SturdyBytesSink) -> u8>,
+    pub on_message: Option<unsafe extern "C" fn(*mut c_void, *const SturdyScriptMessage)>,
+    pub destroy: Option<unsafe extern "C" fn(*mut c_void)>,
+}
+impl Default for SturdyScriptInstance {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyScriptInstance>() == 88 && core::mem::align_of::<SturdyScriptInstance>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, reserved) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, user_data) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, start) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, update) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, request_render_frame) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, stop) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, save_state) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, restore_state) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, call) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, on_message) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptInstance, destroy) == 80);
+
+/// A script built from callbacks directly (no language adapter): the way compiled languages write scripts.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyNativeScriptDesc {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub name: *const c_char,
+    pub instance: SturdyScriptInstance,
+    pub after: *const *const c_char,
+    pub after_count: u32,
+    pub contributes_scene: u8,
+}
+impl Default for SturdyNativeScriptDesc {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyNativeScriptDesc>() == 120 && core::mem::align_of::<SturdyNativeScriptDesc>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyNativeScriptDesc, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyNativeScriptDesc, reserved) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyNativeScriptDesc, name) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyNativeScriptDesc, instance) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyNativeScriptDesc, after) == 104);
+const _: () = assert!(core::mem::offset_of!(SturdyNativeScriptDesc, after_count) == 112);
+const _: () = assert!(core::mem::offset_of!(SturdyNativeScriptDesc, contributes_scene) == 116);
+
+/// The result of `sturdy_par_reduce`: the field matching the element type (f32 and f64 use `f64`, i32 and i64 use `i64`, u32 and u64 use `u64`; 32-bit sums are accumulated in 64 bits).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyNumericValue {
+    pub f64: f64,
+    pub i64: i64,
+    pub u64: u64,
+}
+impl Default for SturdyNumericValue {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyNumericValue>() == 24 && core::mem::align_of::<SturdyNumericValue>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyNumericValue, f64) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyNumericValue, i64) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyNumericValue, u64) == 16);
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SturdyOpacityMicromapBuildDesc {
@@ -2917,6 +3534,62 @@ const _: () = assert!(core::mem::size_of::<SturdyOpacityMicromapUsageCount>() ==
 const _: () = assert!(core::mem::offset_of!(SturdyOpacityMicromapUsageCount, count) == 0);
 const _: () = assert!(core::mem::offset_of!(SturdyOpacityMicromapUsageCount, subdivision_level) == 4);
 const _: () = assert!(core::mem::offset_of!(SturdyOpacityMicromapUsageCount, format) == 8);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPeerOptions {
+    pub network_id: *const c_char,
+    pub display_name: *const c_char,
+    pub identity_certificate_pem: *const c_char,
+    pub identity_private_key_pem: *const c_char,
+    pub no_listen: u8,
+    pub bind_address: *const c_char,
+    pub port: u16,
+    pub max_peers: u64,
+    pub max_message_bytes: u64,
+    pub allowed_peers: *const *const c_char,
+    pub allowed_peer_count: u32,
+    pub no_peer_exchange: u8,
+    pub lan_discovery: u8,
+    pub no_auto_connect: u8,
+    pub handshake_timeout_ms: i64,
+    pub max_pending_inbound: u64,
+    pub ping_interval_ms: i64,
+    pub idle_timeout_ms: i64,
+    pub event_queue: u64,
+    pub discovery_port: u16,
+    pub discovery_group: *const c_char,
+    pub discovery_interval_ms: i64,
+}
+impl Default for SturdyPeerOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPeerOptions>() == 152 && core::mem::align_of::<SturdyPeerOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, network_id) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, display_name) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, identity_certificate_pem) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, identity_private_key_pem) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, no_listen) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, bind_address) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, port) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, max_peers) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, max_message_bytes) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, allowed_peers) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, allowed_peer_count) == 80);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, no_peer_exchange) == 84);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, lan_discovery) == 85);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, no_auto_connect) == 86);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, handshake_timeout_ms) == 88);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, max_pending_inbound) == 96);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, ping_interval_ms) == 104);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, idle_timeout_ms) == 112);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, event_queue) == 120);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, discovery_port) == 128);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, discovery_group) == 136);
+const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, discovery_interval_ms) == 144);
 
 /// Describes a pipeline layout to create.
 #[repr(C)]
@@ -3042,6 +3715,35 @@ const _: () = assert!(core::mem::offset_of!(SturdyPluginLoadDesc, flags) == 4);
 const _: () = assert!(core::mem::offset_of!(SturdyPluginLoadDesc, path) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyPluginLoadDesc, previous) == 16);
 
+/// Router port-mapping options. Zero means the default noted.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPortMapOptions {
+    pub gateway: *const c_char,
+    pub lifetime_seconds: i64,
+    pub external_port: u16,
+    pub timeout_ms: i64,
+    pub methods: u32,
+    pub gateway_port: u16,
+    pub ssdp_host: *const c_char,
+    pub ssdp_port: u16,
+}
+impl Default for SturdyPortMapOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPortMapOptions>() == 56 && core::mem::align_of::<SturdyPortMapOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, gateway) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, lifetime_seconds) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, external_port) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, timeout_ms) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, methods) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, gateway_port) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, ssdp_host) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyPortMapOptions, ssdp_port) == 48);
+
 /// What a `SturdyPresentationSettings` request actually resolved to on the active backend and display, including whether the requested strategy, composite alpha, or full-screen-exclusive state degraded to something else. Mirrors `RHI::PresentationResolution` field-for-field.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -3125,6 +3827,40 @@ const _: () = assert!(core::mem::offset_of!(SturdyPresentationSettings, frame_ra
 const _: () = assert!(core::mem::offset_of!(SturdyPresentationSettings, variable_refresh_margin_fps) == 56);
 const _: () = assert!(core::mem::offset_of!(SturdyPresentationSettings, unfocused_frame_rate_limit_fps) == 64);
 const _: () = assert!(core::mem::offset_of!(SturdyPresentationSettings, snap_frame_rate_limit_to_refresh) == 72);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyProcessOptions {
+    pub program: *const c_char,
+    pub args: *const *const c_char,
+    pub arg_count: u32,
+    pub working_directory: *const c_char,
+    pub environment: *const SturdyKeyValue,
+    pub environment_count: u32,
+    pub clear_environment: u8,
+    pub kill_on_release: u8,
+    pub stdin_mode: u32,
+    pub stdout_mode: u32,
+    pub stderr_mode: u32,
+}
+impl Default for SturdyProcessOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyProcessOptions>() == 64 && core::mem::align_of::<SturdyProcessOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, program) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, args) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, arg_count) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, working_directory) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, environment) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, environment_count) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, clear_environment) == 44);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, kill_on_release) == 45);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, stdin_mode) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, stdout_mode) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyProcessOptions, stderr_mode) == 56);
 
 /// One push-constant range within a pipeline layout.
 #[repr(C)]
@@ -3215,6 +3951,116 @@ const _: () = assert!(core::mem::offset_of!(SturdyQueueInfo, physical_group) == 
 const _: () = assert!(core::mem::offset_of!(SturdyQueueInfo, likely_parallel_with_graphics) == 20);
 const _: () = assert!(core::mem::offset_of!(SturdyQueueInfo, dedicated) == 21);
 const _: () = assert!(core::mem::offset_of!(SturdyQueueInfo, reserved) == 22);
+
+/// Limits both QUIC endpoints advertise. Zero means the default noted.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyQuicLimits {
+    pub idle_timeout_ms: i64,
+    pub keep_alive_ms: i64,
+    pub handshake_timeout_ms: i64,
+    pub max_bidirectional_streams: u32,
+    pub max_unidirectional_streams: u32,
+    pub stream_receive_window: u64,
+    pub connection_receive_window: u64,
+    pub no_datagrams: u8,
+    pub stream_send_buffer: u64,
+    pub datagram_receive_queue: u64,
+    pub datagram_send_queue: u64,
+}
+impl Default for SturdyQuicLimits {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyQuicLimits>() == 80 && core::mem::align_of::<SturdyQuicLimits>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, idle_timeout_ms) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, keep_alive_ms) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, handshake_timeout_ms) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, max_bidirectional_streams) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, max_unidirectional_streams) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, stream_receive_window) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, connection_receive_window) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, no_datagrams) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, stream_send_buffer) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, datagram_receive_queue) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicLimits, datagram_send_queue) == 72);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyQuicClientOptions {
+    pub limits: SturdyQuicLimits,
+    pub tls: SturdyTlsClientOptions,
+}
+impl Default for SturdyQuicClientOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyQuicClientOptions>() == 152 && core::mem::align_of::<SturdyQuicClientOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicClientOptions, limits) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicClientOptions, tls) == 80);
+
+/// How to present and check identities on the accepting side.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyTlsServerOptions {
+    pub certificate_pem: *const c_char,
+    pub private_key_pem: *const c_char,
+    pub client_ca_pem: *const c_char,
+    pub require_client_certificate: u8,
+    pub accept_any_client_certificate: u8,
+    pub pinned_client_sha256: *const *const c_char,
+    pub pinned_client_sha256_count: u32,
+    pub alpn: *const *const c_char,
+    pub alpn_count: u32,
+    pub handshake_timeout_ms: u32,
+}
+impl Default for SturdyTlsServerOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTlsServerOptions>() == 64 && core::mem::align_of::<SturdyTlsServerOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsServerOptions, certificate_pem) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsServerOptions, private_key_pem) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsServerOptions, client_ca_pem) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsServerOptions, require_client_certificate) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsServerOptions, accept_any_client_certificate) == 25);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsServerOptions, pinned_client_sha256) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsServerOptions, pinned_client_sha256_count) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsServerOptions, alpn) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsServerOptions, alpn_count) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyTlsServerOptions, handshake_timeout_ms) == 60);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyQuicServerOptions {
+    pub limits: SturdyQuicLimits,
+    pub tls: SturdyTlsServerOptions,
+    pub bind_address: *const c_char,
+    pub port: u16,
+    pub max_connections: u64,
+    pub max_connections_per_address: u64,
+    pub no_address_validation: u8,
+}
+impl Default for SturdyQuicServerOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyQuicServerOptions>() == 184 && core::mem::align_of::<SturdyQuicServerOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, limits) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, tls) == 80);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, bind_address) == 144);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, port) == 152);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, max_connections) == 160);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, max_connections_per_address) == 168);
+const _: () = assert!(core::mem::offset_of!(SturdyQuicServerOptions, no_address_validation) == 176);
 
 /// Rasterizer fixed-function state.
 #[repr(C)]
@@ -3496,6 +4342,40 @@ impl Default for SturdyReflectionTypeBuilder {
 }
 const _: () = assert!(core::mem::size_of::<SturdyReflectionTypeBuilder>() == 8 && core::mem::align_of::<SturdyReflectionTypeBuilder>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyReflectionTypeBuilder, token) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyRelayOptions {
+    pub bind_address: *const c_char,
+    pub port: u16,
+    pub use_tls: u8,
+    pub tls: SturdyTlsServerOptions,
+    pub max_sessions: u64,
+    pub max_waiting: u64,
+    pub max_waiting_per_address: u64,
+    pub pair_timeout_ms: i64,
+    pub idle_timeout_ms: i64,
+    pub max_session_bytes: u64,
+    pub max_token_bytes: u64,
+}
+impl Default for SturdyRelayOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyRelayOptions>() == 136 && core::mem::align_of::<SturdyRelayOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, bind_address) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, port) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, use_tls) == 10);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, tls) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, max_sessions) == 80);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, max_waiting) == 88);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, max_waiting_per_address) == 96);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, pair_timeout_ms) == 104);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, idle_timeout_ms) == 112);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, max_session_bytes) == 120);
+const _: () = assert!(core::mem::offset_of!(SturdyRelayOptions, max_token_bytes) == 128);
 
 /// Handle to a finished, replayable render bundle. Unlike the encoder that produced it, this carries no scope of its own — like `SturdyBuffer`, it is an informational identifier the RHI device owns and validates until `sturdy_rhi_destroy_render_bundle`.
 #[repr(C)]
@@ -3916,6 +4796,131 @@ const _: () = assert!(core::mem::offset_of!(SturdyScreenSpaceGiSettings, step_co
 const _: () = assert!(core::mem::offset_of!(SturdyScreenSpaceGiSettings, temporal_alpha) == 28);
 const _: () = assert!(core::mem::offset_of!(SturdyScreenSpaceGiSettings, max_radiance) == 32);
 
+/// A language adapter an application registers to run scripts in an interpreter it provides.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyScriptLanguage {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub name: *const c_char,
+    pub extensions: *const *const c_char,
+    pub extension_count: u32,
+    pub user_data: *mut c_void,
+    pub load: Option<unsafe extern "C" fn(*mut c_void, *const SturdyScriptSource, *mut SturdyScriptInstance, *mut SturdyBytesSink) -> u8>,
+    pub destroy: Option<unsafe extern "C" fn(*mut c_void)>,
+}
+impl Default for SturdyScriptLanguage {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyScriptLanguage>() == 56 && core::mem::align_of::<SturdyScriptLanguage>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptLanguage, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptLanguage, reserved) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptLanguage, name) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptLanguage, extensions) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptLanguage, extension_count) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptLanguage, user_data) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptLanguage, load) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptLanguage, destroy) == 48);
+
+/// A message between scripts. Valid only during `on_message`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyScriptMessage {
+    pub from: *const c_char,
+    pub topic: *const c_char,
+    pub payload: *const u8,
+    pub payload_size: u64,
+}
+impl Default for SturdyScriptMessage {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyScriptMessage>() == 32 && core::mem::align_of::<SturdyScriptMessage>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptMessage, from) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptMessage, topic) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptMessage, payload) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptMessage, payload_size) == 24);
+
+/// Describes where a script comes from. Strings are copied unless noted.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyScriptSource {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub name: *const c_char,
+    pub language: *const c_char,
+    pub path: *const c_char,
+    pub code: *const u8,
+    pub code_size: u64,
+    pub options: *const SturdyKeyValue,
+    pub option_count: u32,
+}
+impl Default for SturdyScriptSource {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyScriptSource>() == 64 && core::mem::align_of::<SturdyScriptSource>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptSource, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptSource, reserved) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptSource, name) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptSource, language) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptSource, path) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptSource, code) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptSource, code_size) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptSource, options) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptSource, option_count) == 56);
+
+/// A script as a module: where it comes from and where it sits in the start order.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyScriptModuleDesc {
+    pub struct_size: u32,
+    pub reserved: u32,
+    pub source: SturdyScriptSource,
+    pub after: *const *const c_char,
+    pub after_count: u32,
+    pub contributes_scene: u8,
+}
+impl Default for SturdyScriptModuleDesc {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyScriptModuleDesc>() == 88 && core::mem::align_of::<SturdyScriptModuleDesc>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptModuleDesc, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptModuleDesc, reserved) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptModuleDesc, source) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptModuleDesc, after) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptModuleDesc, after_count) == 80);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptModuleDesc, contributes_scene) == 84);
+
+/// One engine update as a script sees it.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyScriptTick {
+    pub delta_seconds: f64,
+    pub elapsed_seconds: f64,
+    pub tick: u64,
+}
+impl Default for SturdyScriptTick {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyScriptTick>() == 24 && core::mem::align_of::<SturdyScriptTick>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptTick, delta_seconds) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptTick, elapsed_seconds) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyScriptTick, tick) == 16);
+
 /// Handle to a timeline semaphore: a GPU-to-GPU (and GPU-to-host, via `sturdy_rhi_wait_semaphore`) synchronization primitive that counts up through a sequence of `u64` values rather than toggling once like a fence. Reach for this to order work across two queues (e.g. an upload on the transfer queue that a graphics-queue submission must wait on); use `SturdyFence` instead for the common "wait for this one submission to finish on the host" case. See the "RHI resources" section header for its lifetime rules.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -4194,6 +5199,60 @@ const _: () = assert!(core::mem::offset_of!(SturdySpawnOptions, speed) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdySpawnOptions, initial_clip) == 16);
 const _: () = assert!(core::mem::offset_of!(SturdySpawnOptions, transform) == 24);
 
+/// One Server-Sent Event. Line breaks in `event` and `id` are dropped, so a hostile value cannot inject fields.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdySseEvent {
+    pub data: *const c_char,
+    pub event: *const c_char,
+    pub id: *const c_char,
+    pub retry_ms: u32,
+    pub has_retry: u8,
+}
+impl Default for SturdySseEvent {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdySseEvent>() == 32 && core::mem::align_of::<SturdySseEvent>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdySseEvent, data) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdySseEvent, event) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdySseEvent, id) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdySseEvent, retry_ms) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdySseEvent, has_retry) == 28);
+
+/// Static file serving options. Zero means the default noted.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyStaticFilesOptions {
+    pub root: *const c_char,
+    pub index_file: *const c_char,
+    pub cache_control: *const c_char,
+    pub allow_dotfiles: u8,
+    pub follow_symlinks: u8,
+    pub no_precompressed: u8,
+    pub spa_fallback: *const c_char,
+    pub mime_types: *const SturdyKeyValue,
+    pub mime_type_count: u32,
+}
+impl Default for SturdyStaticFilesOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyStaticFilesOptions>() == 56 && core::mem::align_of::<SturdyStaticFilesOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyStaticFilesOptions, root) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyStaticFilesOptions, index_file) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyStaticFilesOptions, cache_control) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyStaticFilesOptions, allow_dotfiles) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyStaticFilesOptions, follow_symlinks) == 25);
+const _: () = assert!(core::mem::offset_of!(SturdyStaticFilesOptions, no_precompressed) == 26);
+const _: () = assert!(core::mem::offset_of!(SturdyStaticFilesOptions, spa_fallback) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyStaticFilesOptions, mime_types) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyStaticFilesOptions, mime_type_count) == 48);
+
 /// Identifies the render surface (window) a frame is being produced for.
 ///
 /// Opaque and informational in this ABI version: use it to tell surfaces apart across callbacks when an application has multiple windows. It carries no lifetime of its own.
@@ -4278,6 +5337,42 @@ impl Default for SturdyTask {
 }
 const _: () = assert!(core::mem::size_of::<SturdyTask>() == 8 && core::mem::align_of::<SturdyTask>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyTask, token) == 0);
+
+/// What the previous stage of an execution chain produced.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyTaskInput {
+    pub number: i64,
+    pub bytes: *const u8,
+    pub size: u64,
+    pub text: *const c_char,
+}
+impl Default for SturdyTaskInput {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTaskInput>() == 32 && core::mem::align_of::<SturdyTaskInput>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTaskInput, number) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyTaskInput, bytes) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTaskInput, size) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyTaskInput, text) == 24);
+
+/// Where a task's result is written from inside its callback (copied immediately).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyTaskOutput {
+    pub internal: *mut c_void,
+}
+impl Default for SturdyTaskOutput {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTaskOutput>() == 8 && core::mem::align_of::<SturdyTaskOutput>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTaskOutput, internal) == 0);
 
 /// Screen-space hint for where an IME should draw its candidate/composition window, in window coordinates (the same units as `SturdyWindowSnapshot::width`/`height` and mouse positions). `cursor_offset_x` is the caret's offset from `x` within that area, for IMEs that anchor the popup to caret position rather than the area's top-left corner.
 #[repr(C)]
@@ -4592,6 +5687,26 @@ const _: () = assert!(core::mem::offset_of!(SturdyTraceRaysDesc, callable) == 96
 const _: () = assert!(core::mem::offset_of!(SturdyTraceRaysDesc, width) == 128);
 const _: () = assert!(core::mem::offset_of!(SturdyTraceRaysDesc, height) == 132);
 const _: () = assert!(core::mem::offset_of!(SturdyTraceRaysDesc, depth) == 136);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyUdpOptions {
+    pub reuse_address: u8,
+    pub broadcast: u8,
+    pub receive_buffer: u64,
+    pub send_buffer: u64,
+}
+impl Default for SturdyUdpOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyUdpOptions>() == 24 && core::mem::align_of::<SturdyUdpOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUdpOptions, reuse_address) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyUdpOptions, broadcast) == 1);
+const _: () = assert!(core::mem::offset_of!(SturdyUdpOptions, receive_buffer) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyUdpOptions, send_buffer) == 16);
 
 /// One element in the layout tree.
 ///
@@ -5020,6 +6135,28 @@ const _: () = assert!(core::mem::offset_of!(SturdyVulkanHandles, physical_device
 const _: () = assert!(core::mem::offset_of!(SturdyVulkanHandles, device) == 24);
 const _: () = assert!(core::mem::offset_of!(SturdyVulkanHandles, graphics_queue) == 32);
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyWatchOptions {
+    pub recursive: u8,
+    pub debounce_ms: i64,
+    pub force_polling: u8,
+    pub poll_interval_ms: i64,
+    pub max_pending_events: u64,
+}
+impl Default for SturdyWatchOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyWatchOptions>() == 40 && core::mem::align_of::<SturdyWatchOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWatchOptions, recursive) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyWatchOptions, debounce_ms) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWatchOptions, force_polling) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyWatchOptions, poll_interval_ms) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyWatchOptions, max_pending_events) == 32);
+
 /// The engine's raw WebGPU objects.
 ///
 /// Fields are `void *` for the same reason as `SturdyVulkanHandles`/`SturdyD3D12Handles`, and carry the same borrowing rules. Unlike those two, this deliberately stops at the WebGPU objects themselves rather than reaching beneath them to whatever native API Dawn chose (Vulkan, Metal, or D3D12) -- that is fundamentally unavailable on the Web target (a browser's WebGPU implementation exposes no native handles to any embedder) and would defeat the point of the backend even on native Dawn. Cast each field to its documented `webgpu.h` type. There is exactly one queue: WebGPU has no separate graphics/compute/transfer queues to distinguish, so there is no `sturdy_native_webgpu_queue` counterpart to `sturdy_native_vulkan_queue`.
@@ -5046,6 +6183,94 @@ const _: () = assert!(core::mem::offset_of!(SturdyWebGpuHandles, instance) == 8)
 const _: () = assert!(core::mem::offset_of!(SturdyWebGpuHandles, adapter) == 16);
 const _: () = assert!(core::mem::offset_of!(SturdyWebGpuHandles, device) == 24);
 const _: () = assert!(core::mem::offset_of!(SturdyWebGpuHandles, queue) == 32);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyWebSocketOptions {
+    pub max_message_bytes: u64,
+    pub max_queued_send_bytes: u64,
+    pub idle_timeout_ms: i64,
+    pub compression: u8,
+    pub inbox_messages: u64,
+    pub handshake_timeout_ms: i64,
+}
+impl Default for SturdyWebSocketOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyWebSocketOptions>() == 48 && core::mem::align_of::<SturdyWebSocketOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketOptions, max_message_bytes) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketOptions, max_queued_send_bytes) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketOptions, idle_timeout_ms) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketOptions, compression) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketOptions, inbox_messages) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketOptions, handshake_timeout_ms) == 40);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyWebSocketClientOptions {
+    pub socket: SturdyWebSocketOptions,
+    pub tls: SturdyTlsClientOptions,
+    pub headers: *const SturdyKeyValue,
+    pub header_count: u32,
+    pub subprotocols: *const *const c_char,
+    pub subprotocol_count: u32,
+    pub timeout_ms: i64,
+}
+impl Default for SturdyWebSocketClientOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyWebSocketClientOptions>() == 160 && core::mem::align_of::<SturdyWebSocketClientOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketClientOptions, socket) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketClientOptions, tls) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketClientOptions, headers) == 120);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketClientOptions, header_count) == 128);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketClientOptions, subprotocols) == 136);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketClientOptions, subprotocol_count) == 144);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketClientOptions, timeout_ms) == 152);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyWebSocketServerOptions {
+    pub bind_address: *const c_char,
+    pub port: u16,
+    pub socket: SturdyWebSocketOptions,
+    pub use_tls: u8,
+    pub tls: SturdyTlsServerOptions,
+    pub allowed_origins: *const *const c_char,
+    pub allowed_origin_count: u32,
+    pub paths: *const *const c_char,
+    pub path_count: u32,
+    pub subprotocols: *const *const c_char,
+    pub subprotocol_count: u32,
+    pub max_connections: u64,
+    pub max_request_header_bytes: u32,
+}
+impl Default for SturdyWebSocketServerOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyWebSocketServerOptions>() == 200 && core::mem::align_of::<SturdyWebSocketServerOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, bind_address) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, port) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, socket) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, use_tls) == 64);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, tls) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, allowed_origins) == 136);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, allowed_origin_count) == 144);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, paths) == 152);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, path_count) == 160);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, subprotocols) == 168);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, subprotocol_count) == 176);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, max_connections) == 184);
+const _: () = assert!(core::mem::offset_of!(SturdyWebSocketServerOptions, max_request_header_bytes) == 192);
 
 /// Configuration for a new window, as handed to `sturdy_window_spawn` / `sturdy_window_recreate_primary`. The window's graphics API always matches the engine's active backend — there is no field for it here, since a second window using a different backend is not something this engine supports.
 #[repr(C)]
@@ -5197,6 +6422,19 @@ unsafe extern "C" {
     pub fn sturdy_animation_set_speed(engine: SturdyEngine, entity: SturdyEntity, speed: f32) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (1 MSAA sample, FXAA).
     pub fn sturdy_anti_aliasing_settings_init(settings: *mut SturdyAntiAliasingSettings) -> i32;
+    pub fn sturdy_arc_bytes(arc: SturdyAsyncObject, buffer: *mut u8, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_arc_clone(arc: SturdyAsyncObject, out_arc: *mut SturdyAsyncObject) -> i32;
+    /// A shared, reference-counted value: every clone is another handle to the same data, which is destroyed with the last one. Object "arc". This one holds a copy of `data` (immutable).
+    pub fn sturdy_arc_create(data: *const u8, size: u64, out_arc: *mut SturdyAsyncObject) -> i32;
+    /// An arc around a pointer of yours: share one native object (or a language runtime's handle to it) between languages and threads, with `destroy` called exactly once when the last handle is released. `destroy` may be null.
+    pub fn sturdy_arc_create_foreign(pointer: *mut c_void, destroy: Option<SturdyArcDestroyFn>, out_arc: *mut SturdyAsyncObject) -> i32;
+    /// The foreign pointer (null for a bytes arc).
+    pub fn sturdy_arc_pointer(arc: SturdyAsyncObject, out_pointer: *mut *mut c_void) -> i32;
+    pub fn sturdy_arc_ptr_eq(a: SturdyAsyncObject, b: SturdyAsyncObject, out_same: *mut u8) -> i32;
+    /// How many references exist right now (a snapshot).
+    pub fn sturdy_arc_use_count(arc: SturdyAsyncObject, out_count: *mut u64) -> i32;
+    /// Bit set of `SturdyAsyncFeature`: which optional protocols this build contains and whether this machine supports them.
+    pub fn sturdy_async_features(out_features: *mut u32) -> i32;
     /// Reports whether a task has finished.
     ///
     /// The non-blocking way to observe one: poll this from your frame callback rather than waiting.
@@ -5209,12 +6447,22 @@ unsafe extern "C" {
     ///
     /// Worth checking before doing anything that blocks: blocking a worker starves the pool it belongs to.
     pub fn sturdy_async_is_worker_thread(out_worker: *mut u8) -> i32;
+    /// An async mutex / read-write lock protecting a byte-string value. Objects "async_mutex" / "async_rwlock".
+    pub fn sturdy_async_mutex_create(initial: *const u8, size: u64, out_mutex: *mut SturdyAsyncObject) -> i32;
+    /// Waits for exclusive access. Object "mutex_guard".
+    pub fn sturdy_async_mutex_lock(mutex: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// `out_guard` receives the zero handle when the mutex is held.
+    pub fn sturdy_async_mutex_try_lock(mutex: SturdyAsyncObject, out_guard: *mut SturdyAsyncObject) -> i32;
     /// Releases a task handle.
     ///
     /// Does not cancel or wait. Releasing before the task finishes is fine and is the normal thing to do for fire-and-forget work; the task keeps running.
     ///
     /// Releasing twice reports `STURDY_ERROR_HANDLE_EXPIRED`, since task tokens are never reused.
     pub fn sturdy_async_release(task: SturdyTask) -> i32;
+    pub fn sturdy_async_rwlock_create(initial: *const u8, size: u64, out_lock: *mut SturdyAsyncObject) -> i32;
+    /// Many readers or one writer; waiters queue in order, so a waiting writer is not starved. Objects "rwlock_read_guard" / "rwlock_write_guard".
+    pub fn sturdy_async_rwlock_read(lock: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_async_rwlock_write(lock: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
     /// Runs `task` on a background thread.
     ///
     /// Starts the scheduler if it is not already running.
@@ -5265,14 +6513,85 @@ unsafe extern "C" {
     pub fn sturdy_audio_stream_release(stream: SturdyAudioStream) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (disabled — auto exposure is opt-in).
     pub fn sturdy_auto_exposure_settings_init(settings: *mut SturdyAutoExposureSettings) -> i32;
+    /// A rendezvous of `parties` callers. Object "barrier"; `sturdy_barrier_wait` has number 1 for exactly one of them (the last to arrive).
+    pub fn sturdy_barrier_create(parties: u64, out_barrier: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_barrier_wait(barrier: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults.
     pub fn sturdy_bloom_settings_init(settings: *mut SturdyBloomSettings) -> i32;
+    /// Every receiver sees every message; one that falls `capacity` behind is told how many it missed. Objects "broadcast_sender" / "broadcast_receiver".
+    pub fn sturdy_broadcast_create(capacity: u64, out_sender: *mut SturdyAsyncObject, out_receiver: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_broadcast_receiver_clone(receiver: SturdyAsyncObject, out_receiver: *mut SturdyAsyncObject) -> i32;
+    /// Number 0 and bytes: a message; number 1 and field `skipped`: this receiver lagged; number 2: the sender is gone. Cannot be cancelled.
+    pub fn sturdy_broadcast_recv(receiver: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// `out_receivers` (may be null): the number of live receivers.
+    pub fn sturdy_broadcast_send(sender: SturdyAsyncObject, data: *const u8, size: u64, out_receivers: *mut u64) -> i32;
+    pub fn sturdy_broadcast_subscribe(sender: SturdyAsyncObject, out_receiver: *mut SturdyAsyncObject) -> i32;
+    /// Sends what is pending.
+    pub fn sturdy_buffered_flush(writer: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Bytes: exactly `count`; `STURDY_IO_UNEXPECTED_EOF` when the stream ends first.
+    pub fn sturdy_buffered_read_exact(reader: SturdyAsyncObject, count: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Number 1 and text: one line without its terminator (LF or CRLF); number 0 at a clean end of stream. `max_bytes` 0: 64 KiB.
+    pub fn sturdy_buffered_read_line(reader: SturdyAsyncObject, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Bytes: up to `max_bytes` (empty at the end).
+    pub fn sturdy_buffered_read_some(reader: SturdyAsyncObject, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Number 1 and bytes: up to and including `delimiter`; number 0 at a clean end of stream; `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes`.
+    pub fn sturdy_buffered_read_until(reader: SturdyAsyncObject, delimiter: *const c_char, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_buffered_reader_buffered(reader: SturdyAsyncObject, out_bytes: *mut u64) -> i32;
+    /// Adds read-ahead to a reader (lines, delimiters, exact counts). One operation at a time per object. Object "buffered_reader".
+    pub fn sturdy_buffered_reader_create(reader: SturdyAsyncObject, stream: i32, chunk_bytes: u64, out_reader: *mut SturdyAsyncObject) -> i32;
+    /// Flushes, then shuts the underlying writer down.
+    pub fn sturdy_buffered_shutdown(writer: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_buffered_write(writer: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Batches small writes. Object "buffered_writer". `capacity` 0: 16 KiB.
+    pub fn sturdy_buffered_writer_create(writer: SturdyAsyncObject, stream: i32, capacity: u64, out_writer: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_bytes_sink_set(sink: *mut SturdyBytesSink, data: *const u8, size: u64) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (disabled — the body-camera look is opt-in).
     pub fn sturdy_camera_emulation_settings_init(settings: *mut SturdyCameraEmulationSettings) -> i32;
+    /// Cancels. `out_first` (may be null) says whether this call was the first.
+    pub fn sturdy_cancel_source_cancel(source: SturdyAsyncObject, out_first: *mut u8) -> i32;
+    /// A cancellation source and the tokens it hands out: cancel once, and everything armed on a token reacts. Objects "cancel_source" / "cancel_token".
+    pub fn sturdy_cancel_source_create(out_source: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_cancel_source_is_cancelled(source: SturdyAsyncObject, out_cancelled: *mut u8) -> i32;
+    pub fn sturdy_cancel_source_token(source: SturdyAsyncObject, out_token: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_cancel_token_is_cancelled(token: SturdyAsyncObject, out_cancelled: *mut u8) -> i32;
+    /// Finishes (OK) when the token is cancelled, at once if it already is.
+    pub fn sturdy_cancel_token_wait(token: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_channel_close(end: SturdyAsyncObject) -> i32;
+    /// Bounded multi-producer channel holding up to `capacity` messages (at least 1). Objects "channel_sender" / "channel_receiver". It closes when the last sender is released or `sturdy_channel_close` is called on either end; buffered messages are still delivered.
+    pub fn sturdy_channel_create(capacity: u64, out_sender: *mut SturdyAsyncObject, out_receiver: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_channel_receiver_clone(receiver: SturdyAsyncObject, out_receiver: *mut SturdyAsyncObject) -> i32;
+    /// Number 1 and bytes: the next message; number 0 once the channel is closed and drained.
+    pub fn sturdy_channel_recv(receiver: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Finishes once the message is buffered or handed to a receiver (waits while the channel is full); `STURDY_IO_CLOSED` when closed.
+    pub fn sturdy_channel_send(sender: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_channel_sender_clone(sender: SturdyAsyncObject, out_sender: *mut SturdyAsyncObject) -> i32;
+    /// Takes a buffered message if there is one: `out_status` says whether, and on `STURDY_TRY_OK` `out_op` is a finished op whose bytes are the message (otherwise `out_op` is the zero handle).
+    pub fn sturdy_channel_try_recv(receiver: SturdyAsyncObject, out_op: *mut SturdyAsyncOp, out_status: *mut i32) -> i32;
+    pub fn sturdy_channel_try_send(sender: SturdyAsyncObject, data: *const u8, size: u64, out_status: *mut i32) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (disabled, neutral).
     pub fn sturdy_color_grade_settings_init(settings: *mut SturdyColorGradeSettings) -> i32;
+    pub fn sturdy_cookie_jar_add(jar: SturdyAsyncObject, cookie: *const SturdyCookie) -> i32;
+    /// Every stored cookie as a finished op's fields `name:N`, `value:N`, `domain:N`, `path:N`, `domain_wide:N`, `secure:N`, `http_only:N`, `expires:N` (N = 0, 1, ...).
+    pub fn sturdy_cookie_jar_all(jar: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_cookie_jar_clear(jar: SturdyAsyncObject) -> i32;
+    /// A thread-safe cookie store: a client fills it from `Set-Cookie` and sends matching cookies. A Domain attribute must cover the request host and have at least two labels; IP hosts keep host-only cookies; the jar is capped (50 per domain, 3000 total). Object "cookie_jar".
+    pub fn sturdy_cookie_jar_create(out_jar: *mut SturdyAsyncObject) -> i32;
+    /// "a=1; b=2" for the cookies that apply to a request (string-output convention; empty if none).
+    pub fn sturdy_cookie_jar_header_for(jar: SturdyAsyncObject, host: *const c_char, path: *const c_char, https: u8, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_cookie_jar_store_from_response(jar: SturdyAsyncObject, host: *const c_char, path: *const c_char, https: u8, response_headers: *const SturdyKeyValue, header_count: u32) -> i32;
+    /// A named thread that runs submitted work one at a time, in order. Object "dedicated_thread".
+    pub fn sturdy_dedicated_thread_create(name: *const c_char, out_thread: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_dedicated_thread_pin_to_core(thread: SturdyAsyncObject, core_index: u32, out_pinned: *mut u8) -> i32;
+    pub fn sturdy_dedicated_thread_pin_to_fastest_core(thread: SturdyAsyncObject, out_pinned: *mut u8) -> i32;
+    pub fn sturdy_dedicated_thread_run(thread: SturdyAsyncObject, work: Option<SturdyTaskWorkFn>, user_data: *mut c_void, out_op: *mut SturdyAsyncOp) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (disabled).
     pub fn sturdy_depth_of_field_settings_init(settings: *mut SturdyDepthOfFieldSettings) -> i32;
+    /// Walks a directory entry by entry. Object "dir_iter".
+    pub fn sturdy_dir_iter_create(path: *const c_char, recursive: u8, out_iter: *mut SturdyAsyncObject) -> i32;
+    /// Number: 1 and text: the next path, or number 0 at the end.
+    pub fn sturdy_dir_iter_next(iter: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Resolves a host name. Fields: one `address` per result (numeric text).
+    pub fn sturdy_dns_resolve(host: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
     /// Registers a chunk system (since 0.35) with a removable handle. Declaration, ordering, conflict detection, `commands` and removal behave exactly as for `sturdy_ecs_add_system_ex`; only the body differs.
     pub fn sturdy_ecs_add_chunk_system_ex(engine: SturdyEngine, access: *const SturdySystemAccess, access_count: u32, resource_access: *const SturdySystemResourceAccess, resource_access_count: u32, system: Option<SturdyChunkSystemFn>, user_data: *mut c_void, out_system: *mut SturdySystem) -> i32;
     /// Attaches a component to an existing entity.
@@ -5415,6 +6734,34 @@ unsafe extern "C" {
     pub fn sturdy_engine_mouse_position(engine: SturdyEngine, out_x: *mut f32, out_y: *mut f32) -> i32;
     /// Reads scroll-wheel movement accumulated during this tick.
     pub fn sturdy_engine_wheel_delta(engine: SturdyEngine, out_x: *mut f32, out_y: *mut f32) -> i32;
+    /// Lazy descriptions of work that compose and run later (the `Execution` layer). Object "exec_sender"; a sender may be started any number of times. The `user_data` of every stage must stay valid until the sender is released and no run of it is still going.
+    pub fn sturdy_exec_just(work: Option<SturdyTaskWorkFn>, user_data: *mut c_void, lane: i32, out_sender: *mut SturdyAsyncObject) -> i32;
+    /// Starts the chain. The op carries the last stage's number, bytes and text; cancelling it sets the token every stage receives.
+    pub fn sturdy_exec_submit(sender: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Starts the chain and blocks for it; `out_op` is a finished op (OK, or failed with the stage's error). Never call it from a worker thread.
+    pub fn sturdy_exec_sync_wait(sender: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// A sender that runs `then` on `lane` with the result of `sender`. A failure upstream skips it and propagates.
+    pub fn sturdy_exec_then(sender: SturdyAsyncObject, then: Option<SturdyTaskThenFn>, user_data: *mut c_void, lane: i32, out_sender: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_file_close(file: SturdyAsyncObject) -> i32;
+    pub fn sturdy_file_is_open(file: SturdyAsyncObject, out_open: *mut u8) -> i32;
+    /// Opens a file for streaming and random access. Object "file". `mode` is a bit set of `SturdyFileMode`. Positional reads and writes use io_uring on Linux when available; nothing occupies a worker thread while the kernel works.
+    pub fn sturdy_file_open(path: *const c_char, mode: u32, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Reads up to `max_bytes` at the cursor (advancing it). Bytes: empty at end of file.
+    pub fn sturdy_file_read(file: SturdyAsyncObject, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Reads at `offset` without touching the cursor.
+    pub fn sturdy_file_read_at(file: SturdyAsyncObject, offset: u64, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Reads from the cursor to the end; fails with `STURDY_IO_INVALID_ARGUMENT` if more than `max_bytes` remain.
+    pub fn sturdy_file_read_to_end(file: SturdyAsyncObject, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Moves the cursor (`origin`: 0 start, 1 current, 2 end). Number: the new position.
+    pub fn sturdy_file_seek(file: SturdyAsyncObject, offset: i64, origin: i32, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_file_set_len(file: SturdyAsyncObject, length: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Number: the size in bytes.
+    pub fn sturdy_file_size(file: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Flushes to stable storage (fsync, or fdatasync when `data_only`).
+    pub fn sturdy_file_sync(file: SturdyAsyncObject, data_only: u8, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Writes all of `data` at the cursor. Number: bytes written.
+    pub fn sturdy_file_write(file: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_file_write_at(file: SturdyAsyncObject, offset: u64, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
     /// Points the camera at a world-space target, keeping `+Y` as up.
     pub fn sturdy_frame_camera_look_at(frame: SturdyFrame, x: f32, y: f32, z: f32) -> i32;
     /// Sets uniform ambient radiance and the scene exposure multiplier.
@@ -5469,6 +6816,38 @@ unsafe extern "C" {
     pub fn sturdy_frame_set_tone_mapping_settings(frame: SturdyFrame, settings: *const SturdyToneMappingSettings) -> i32;
     /// Replaces the volumetric-fog settings for the frame being built.
     pub fn sturdy_frame_set_volumetric_fog_settings(frame: SturdyFrame, settings: *const SturdyVolumetricFogSettings) -> i32;
+    /// Messages over a byte stream. `io` must read and write ("tcp", "file", "pipe_end"). `max_frame_bytes` 0: 8 MiB (64 KiB for lines). Object "framed".
+    pub fn sturdy_framed_create(io: SturdyAsyncObject, codec: i32, max_frame_bytes: u64, out_framed: *mut SturdyAsyncObject) -> i32;
+    /// Number 1 and bytes: the next frame; number 0 at a clean end of stream.
+    pub fn sturdy_framed_next(framed: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_framed_send(framed: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// The remaining frames as a "stream" object (do not call `sturdy_framed_next` meanwhile).
+    pub fn sturdy_framed_stream(framed: SturdyAsyncObject, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// How many frames `packed` holds; `STURDY_ERROR_INVALID_ARGUMENT` when it is malformed.
+    pub fn sturdy_frames_count(packed: *const u8, size: u64, out_count: *mut u32) -> i32;
+    /// Frame `index` (bytes-output convention).
+    pub fn sturdy_frames_get(packed: *const u8, size: u64, index: u32, buffer: *mut u8, capacity: u64, out_length: *mut u64) -> i32;
+    /// Several byte strings in one: a 32-bit little-endian count, then each as a 32-bit little-endian length and its bytes. Used where an operation or stream item carries more than one value. Packs `count` views (bytes-output convention: null buffer to learn the size).
+    pub fn sturdy_frames_pack(frames: *const SturdyBytesView, count: u32, buffer: *mut u8, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_fs_copy(source: *const c_char, destination: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_fs_create_directories(path: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Number: 1 if the path exists, else 0.
+    pub fn sturdy_fs_exists(path: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Entry paths of a directory. Bytes: the paths as packed frames (`sturdy_frames_count` / `sturdy_frames_get`). Number: how many. At most `max_entries` (0: 4096); more fail with `STURDY_IO_INVALID_ARGUMENT`.
+    pub fn sturdy_fs_list(path: *const c_char, max_entries: u64, recursive: u8, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Reads a whole file on the IO lane. Bytes: the content; `STURDY_IO_INVALID_ARGUMENT` when it is larger than `max_bytes` (0: unlimited).
+    pub fn sturdy_fs_read_file(path: *const c_char, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Reads `byte_count` bytes at `offset` (fewer at the end of the file). Bytes: the content.
+    pub fn sturdy_fs_read_range(path: *const c_char, offset: u64, byte_count: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Removes a directory and everything in it. Number: 1 if something was removed.
+    pub fn sturdy_fs_remove_directory(path: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Number: 1 if something was removed.
+    pub fn sturdy_fs_remove_file(path: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_fs_rename(source: *const c_char, destination: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Number: the size in bytes.
+    pub fn sturdy_fs_size(path: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Creates or replaces the file with `data`, or appends to it.
+    pub fn sturdy_fs_write_file(path: *const c_char, data: *const u8, size: u64, append: u8, out_op: *mut SturdyAsyncOp) -> i32;
     /// Imports a glTF or GLB file, creating a model asset for every mesh it contains.
     ///
     /// Importing does not put anything in the world — it produces assets and a description of how the file arranged them. Call `sturdy_gltf_spawn_all` to reproduce that arrangement, or walk the instances yourself if you want to filter or re-place them.
@@ -5501,6 +6880,77 @@ unsafe extern "C" {
     pub fn sturdy_gltf_spawn_all(engine: SturdyEngine, scene: SturdyGltfScene, out_spawned: *mut u32) -> i32;
     /// Enumerates every physical GPU this machine can create an engine on, across every graphics backend this build supports. Safe to call before `sturdy_runtime_run`, with no window or device yet — this is how an application builds its own GPU picker rather than guessing at `physical_device_id` values. Not free: it creates and immediately destroys a temporary graphics instance per backend, so call it once and cache the result rather than every frame.
     pub fn sturdy_gpu_enumerate(out_gpus: *mut SturdyGpuInfo, capacity: u32, out_count: *mut u32) -> i32;
+    /// The protected value (bytes-output convention).
+    pub fn sturdy_guard_get(guard: SturdyAsyncObject, buffer: *mut u8, capacity: u64, out_length: *mut u64) -> i32;
+    /// Unlocks now.
+    pub fn sturdy_guard_release(guard: SturdyAsyncObject) -> i32;
+    /// Replaces the value (mutex and write guards only).
+    pub fn sturdy_guard_set(guard: SturdyAsyncObject, data: *const u8, size: u64) -> i32;
+    /// Finishes when the client disconnected or the server stopped, so a producer can stop. Cancelling it finishes it as cancelled.
+    pub fn sturdy_http_body_closed(body: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Ends the body once queued chunks drain.
+    pub fn sturdy_http_body_finish(body: SturdyAsyncObject) -> i32;
+    /// Queues a chunk. Finishes once it is accepted into the bounded queue (so a slow client paces the producer); fails with `STURDY_IO_CLOSED` once the client is gone or the body was finished.
+    pub fn sturdy_http_body_write(body: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_http_body_write_sse(body: SturdyAsyncObject, event: *const SturdySseEvent, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Closes idle pooled connections.
+    pub fn sturdy_http_client_close_idle(client: SturdyAsyncObject) -> i32;
+    /// The jar a client uses (shared, not a copy). `STURDY_ERROR_NOT_AVAILABLE` when cookies are off.
+    pub fn sturdy_http_client_cookie_jar(client: SturdyAsyncObject, out_jar: *mut SturdyAsyncObject) -> i32;
+    /// Creates a client with a connection pool (HTTP/1.1 keep-alive, HTTP/2 multiplexing, HTTP/3 after `Alt-Svc`). Object "http_client".
+    pub fn sturdy_http_client_create(options: *const SturdyHttpClientOptions, out_client: *mut SturdyAsyncObject) -> i32;
+    /// Sends a request. Number: status. Fields: the response headers. Bytes: the body. Text: the final URL after redirects. Non-2xx statuses are ordinary results; only transport, TLS, protocol, limit and timeout problems fail the op. `X-` headers etc. are yours; `Host`, `Content-Length`, `Connection` and `Transfer-Encoding` are managed by the client and ignored if supplied.
+    pub fn sturdy_http_client_request(client: SturdyAsyncObject, method: *const c_char, url: *const c_char, headers: *const SturdyKeyValue, header_count: u32, body: *const u8, body_size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// The wire format of one event, ending with the blank line that dispatches it (string-output convention).
+    pub fn sturdy_http_format_sse(event: *const SturdySseEvent, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Percent-decodes `text` (string-output convention); `STURDY_ERROR_INVALID_ARGUMENT` on a malformed escape or an encoded NUL.
+    pub fn sturdy_http_percent_decode(text: *const c_char, plus_is_space: u8, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Sends the response for a request. `headers` may be null. CR/LF in a header makes the server answer 500 instead.
+    pub fn sturdy_http_respond(responder: SturdyHttpResponder, status: u32, headers: *const SturdyKeyValue, header_count: u32, body: *const u8, body_size: u64) -> i32;
+    /// Sends a canned response of `kind` with `status` (a redirect usually 302/301/307/308) and the null-terminated `body`.
+    pub fn sturdy_http_respond_canned(responder: SturdyHttpResponder, kind: i32, status: u32, body: *const c_char) -> i32;
+    /// Sends a response. Fails (without spending `responder`) with `STURDY_ERROR_INVALID_ARGUMENT` if more than one body is given. For `stream` or `sse` responses `out_body` receives the writer object (required then); otherwise it is ignored and may be null. The writer is yours to release; releasing it ends the body.
+    pub fn sturdy_http_respond_ex(responder: SturdyHttpResponder, response: *const SturdyHttpResponse, out_body: *mut SturdyAsyncObject) -> i32;
+    /// Opens the listener and starts serving.
+    pub fn sturdy_http_server_begin(server: SturdyAsyncObject) -> i32;
+    /// Creates a server without starting it, so WebSocket paths can be added first; `sturdy_http_server_begin` then starts it. Object "http_server". `handler` answers every request that is not a WebSocket upgrade.
+    pub fn sturdy_http_server_create(options: *const SturdyHttpServerOptions, handler: Option<SturdyHttpHandlerFn>, user_data: *mut c_void, out_server: *mut SturdyAsyncObject) -> i32;
+    /// Same, serving a router (see below). The router may be released afterwards: the server keeps an immutable snapshot of it.
+    pub fn sturdy_http_server_create_router(options: *const SturdyHttpServerOptions, router: SturdyAsyncObject, out_server: *mut SturdyAsyncObject) -> i32;
+    /// 0 when HTTP/3 is not served.
+    pub fn sturdy_http_server_http3_port(server: SturdyAsyncObject, out_port: *mut u16) -> i32;
+    /// Static server facts as a finished op's fields: `running`, `tls`, `http2` ("1"/"0"), `port`, `http3_port`.
+    pub fn sturdy_http_server_info(server: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Counters as a finished op's fields (decimal text): connections_accepted, requests, responses_2xx..5xx, active_connections, ...
+    pub fn sturdy_http_server_metrics(server: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Upgrades requests whose path (without query) equals `path` to WebSockets, on the same port and over TLS when the server uses it. Call before `sturdy_http_server_begin`. `user_data` must stay valid until the server object is released.
+    pub fn sturdy_http_server_on_websocket(server: SturdyAsyncObject, path: *const c_char, handler: Option<SturdyWebSocketFn>, user_data: *mut c_void) -> i32;
+    pub fn sturdy_http_server_port(server: SturdyAsyncObject, out_port: *mut u16) -> i32;
+    /// Starts an HTTP(S) server. Object "http_server". Stops (and drains) when the object is released.
+    pub fn sturdy_http_server_start(options: *const SturdyHttpServerOptions, handler: Option<SturdyHttpHandlerFn>, user_data: *mut c_void, out_server: *mut SturdyAsyncObject) -> i32;
+    /// `sturdy_http_server_create_router` and `sturdy_http_server_begin` in one step.
+    pub fn sturdy_http_server_start_router(options: *const SturdyHttpServerOptions, router: SturdyAsyncObject, out_server: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_http_server_stop(server: SturdyAsyncObject) -> i32;
+    /// A periodic timer that does not drift. Object "interval"; `sturdy_interval_tick` finishes at each period boundary.
+    pub fn sturdy_interval_create(period_ms: i64, out_interval: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_interval_tick(interval: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Copies until the reader ends, overlapping each read with the previous write. Number: bytes copied.
+    pub fn sturdy_io_copy(reader: SturdyAsyncObject, reader_stream: i32, writer: SturdyAsyncObject, writer_stream: i32, options: *const SturdyCopyOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Tunes the blocking-IO lane (0 workers: automatic; 0 `max_pending`: 1024). `out_applied` says whether it took effect (false once it started).
+    pub fn sturdy_io_lane_configure(workers: u32, max_pending: u32, out_applied: *mut u8) -> i32;
+    /// Fields `backend`, `workers`, `pending`, `capacity` (a finished op).
+    pub fn sturdy_io_lane_stats(out_op: *mut SturdyAsyncOp) -> i32;
+    /// Bytes: everything until the reader ends; `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes` (0: unlimited).
+    pub fn sturdy_io_read_to_end(reader: SturdyAsyncObject, stream: i32, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_io_write_all(writer: SturdyAsyncObject, stream: i32, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Sets the cancel token of every running task in the set.
+    pub fn sturdy_join_set_abort_all(set: SturdyAsyncObject) -> i32;
+    /// A dynamic set of tasks joined in completion order. Object "join_set".
+    pub fn sturdy_join_set_create(out_set: *mut SturdyAsyncObject) -> i32;
+    /// Finishes with the next task to complete. Field `outcome` is "ok", "failed" (field `error` says why) or "empty" (nothing left); number, bytes and text are the task's.
+    pub fn sturdy_join_set_join_next(set: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_join_set_len(set: SturdyAsyncObject, out_len: *mut u64) -> i32;
+    pub fn sturdy_join_set_spawn(set: SturdyAsyncObject, work: Option<SturdyTaskWorkFn>, user_data: *mut c_void, lane: i32) -> i32;
     /// Detail for the most recent failing call **on the calling thread**.
     pub fn sturdy_last_error_message() -> *const c_char;
     /// The whole trace as readable text, one frame per line, with the usual size-query convention (see `copy_string_out` in the ABI notes: pass a null buffer to learn the size; a short buffer gets a truncated, terminated result and `STURDY_ERROR_BUFFER_TOO_SMALL`).
@@ -5511,10 +6961,30 @@ unsafe extern "C" {
     pub fn sturdy_last_error_trace_frame_count(out_count: *mut u32) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (clustered on).
     pub fn sturdy_lighting_settings_init(settings: *mut SturdyLightingSettings) -> i32;
+    /// Runs queued tasks on the calling thread until `op` finishes (blocks).
+    pub fn sturdy_local_set_block_on(set: SturdyAsyncObject, op: SturdyAsyncOp) -> i32;
+    /// Tasks that run only on the thread that pumps the set. Object "local_set".
+    pub fn sturdy_local_set_create(out_set: *mut SturdyAsyncObject) -> i32;
+    /// Runs queued tasks on the calling thread until none are left. `out_ran` (may be null): how many.
+    pub fn sturdy_local_set_run_pending(set: SturdyAsyncObject, out_ran: *mut u64) -> i32;
+    pub fn sturdy_local_set_spawn(set: SturdyAsyncObject, work: Option<SturdyTaskWorkFn>, user_data: *mut c_void, out_op: *mut SturdyAsyncOp) -> i32;
     /// Registers a callback to receive every subsequent log message.
     pub fn sturdy_log_add_sink(callback: Option<SturdyLogCallback>, user_data: *mut c_void, out_sink: *mut SturdyLogSink) -> i32;
     /// Unregisters a sink added by `sturdy_log_add_sink`. A null/zero handle, or one already removed, is a no-op.
     pub fn sturdy_log_remove_sink(sink: SturdyLogSink) -> i32;
+    /// Runs the queued main-thread work on the calling thread.
+    pub fn sturdy_main_thread_pump() -> i32;
+    /// Queues `fn` for the engine's main thread (run when it pumps). `user_data` must stay valid until `fn` has run.
+    pub fn sturdy_main_thread_run(r#fn: Option<SturdyTaskFn>, user_data: *mut c_void) -> i32;
+    /// Installs a callback run (on the posting thread) after every queued job, so a loop that blocks waiting for events can wake and pump. Null removes it.
+    pub fn sturdy_main_thread_set_wake_hook(hook: Option<SturdyTaskFn>, user_data: *mut c_void) -> i32;
+    /// Two connected in-memory ends ("pipe_end"): what one writes the other reads. `chunks`: messages buffered per direction (0: 8).
+    pub fn sturdy_memory_pipe_create(chunks: u64, out_end_a: *mut SturdyAsyncObject, out_end_b: *mut SturdyAsyncObject) -> i32;
+    /// A reader over a copy of `data`. Object "memory_reader".
+    pub fn sturdy_memory_reader_create(data: *const u8, size: u64, out_reader: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_memory_writer_bytes(writer: SturdyAsyncObject, buffer: *mut u8, capacity: u64, out_length: *mut u64) -> i32;
+    /// A writer that collects what it is given. Object "memory_writer".
+    pub fn sturdy_memory_writer_create(out_writer: *mut SturdyAsyncObject) -> i32;
     /// Imports a model file of any supported format, chosen from its extension: `.gltf`/`.glb`, `.fbx`, `.obj`. Same ownership and release rules as `sturdy_gltf_import`; the handle works with every `sturdy_gltf_*` call.
     pub fn sturdy_model_import(engine: SturdyEngine, source: *const c_char, shader: SturdyAsset, out_scene: *mut SturdyGltfScene) -> i32;
     /// How many modules are loaded.
@@ -5531,6 +7001,14 @@ unsafe extern "C" {
     pub fn sturdy_module_take_failure(engine: SturdyEngine, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (disabled — motion blur is opt-in).
     pub fn sturdy_motion_blur_settings_init(settings: *mut SturdyMotionBlurSettings) -> i32;
+    /// The default gateway's address ("" when it cannot be determined).
+    pub fn sturdy_nat_default_gateway(buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Asks the router to forward a public port to this machine (PCP, NAT-PMP or UPnP IGD). Object "mapping". Number: granted lifetime in seconds (0: permanent — remove it yourself). Fields: external_host, external_port, method, gateway. Renew before half the lifetime.
+    pub fn sturdy_nat_map_port(tcp: u8, internal_port: u16, options: *const SturdyPortMapOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    /// UDP hole punching: both peers call this at once with the other's candidate addresses ("host:port") and a shared secret. Text/number: the candidate that answered; keep using the same socket afterwards. Fails with `STURDY_IO_TIMED_OUT` (typical of symmetric NATs: use a relay).
+    pub fn sturdy_nat_punch_hole(udp_socket: SturdyAsyncObject, candidates: *const *const c_char, candidate_count: u32, shared_secret: *const c_char, timeout_ms: i64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Removes a mapping made by `sturdy_nat_map_port`.
+    pub fn sturdy_nat_unmap_port(mapping: SturdyAsyncObject, options: *const SturdyPortMapOptions, out_op: *mut SturdyAsyncOp) -> i32;
     /// Reports whether raw native handles are available.
     ///
     /// False when `SturdyRuntimeConfig::enable_native_access` was not set, or when the backend could not publish them. Check this before calling the getters below rather than treating their failure as fatal.
@@ -5545,6 +7023,130 @@ unsafe extern "C" {
     pub fn sturdy_native_vulkan_queue(engine: SturdyEngine, queue_class: i32, lane_index: u32, out_queue: *mut *mut c_void, out_queue_family_index: *mut u32) -> i32;
     /// Reads the engine's raw WebGPU objects.
     pub fn sturdy_native_webgpu(engine: SturdyEngine, out_handles: *mut SturdyWebGpuHandles) -> i32;
+    /// Sets the number of network reactor threads. `out_applied` says whether it took effect (false once the reactor is running).
+    pub fn sturdy_network_reactor_configure(threads: u32, out_applied: *mut u8) -> i32;
+    /// A wake-up signal with at most one stored permit. Object "notify".
+    pub fn sturdy_notify_create(out_notify: *mut SturdyAsyncObject) -> i32;
+    /// Finishes when notified; a `sturdy_notify_one` that happened earlier with nobody waiting is consumed first.
+    pub fn sturdy_notify_notified(notify: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_notify_one(notify: SturdyAsyncObject) -> i32;
+    pub fn sturdy_notify_waiters(notify: SturdyAsyncObject) -> i32;
+    /// The object's kind ("tcp", "websocket", "quic_stream", ...), following the string-output convention.
+    pub fn sturdy_object_kind(object: SturdyAsyncObject, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Releases an object, closing whatever it wraps. Operations still pending on it finish as closed or cancelled.
+    pub fn sturdy_object_release(object: SturdyAsyncObject) -> i32;
+    /// One-shot value hand-off. Objects "oneshot_sender" / "oneshot_receiver". A sender released without sending fails the receiver with `STURDY_IO_CLOSED`.
+    pub fn sturdy_oneshot_create(out_sender: *mut SturdyAsyncObject, out_receiver: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_oneshot_fail(sender: SturdyAsyncObject, message: *const c_char, out_first: *mut u8) -> i32;
+    /// Bytes: the value. A receiver can be waited on once.
+    pub fn sturdy_oneshot_recv(receiver: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// `out_first` (may be null) says whether this call set the value.
+    pub fn sturdy_oneshot_send(sender: SturdyAsyncObject, data: *const u8, size: u64, out_first: *mut u8) -> i32;
+    /// The result's bytes. Pass a null buffer to learn the size; `out_length` always receives the full size, and `STURDY_ERROR_BUFFER_TOO_SMALL` is returned (after copying what fits) when the buffer was smaller. No terminator is added.
+    pub fn sturdy_op_bytes(op: SturdyAsyncOp, buffer: *mut u8, capacity: u64, out_length: *mut u64) -> i32;
+    /// Asks the operation to stop. It then finishes as `STURDY_OP_CANCELLED` (or with its result, if it already had one). Harmless on a finished op.
+    pub fn sturdy_op_cancel(op: SturdyAsyncOp) -> i32;
+    /// The failure kind of a `STURDY_OP_FAILED` op (`STURDY_IO_NONE` otherwise). `STURDY_ERROR_BUSY` while pending.
+    pub fn sturdy_op_error_code(op: SturdyAsyncOp, out_code: *mut i32) -> i32;
+    /// The failure message of a failed op (empty otherwise), following the string-output convention.
+    pub fn sturdy_op_error_message(op: SturdyAsyncOp, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_op_failed(code: i32, message: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Value of the first field called `name` (HTTP header lookup is case-insensitive; other fields are exact). `STURDY_ERROR_NOT_AVAILABLE` when there is none.
+    pub fn sturdy_op_field(op: SturdyAsyncOp, name: *const c_char, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// How many named fields the result has.
+    pub fn sturdy_op_field_count(op: SturdyAsyncOp, out_count: *mut u32) -> i32;
+    /// Name of field `index`, following the string-output convention.
+    pub fn sturdy_op_field_name(op: SturdyAsyncOp, index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Value of field `index`.
+    pub fn sturdy_op_field_value(op: SturdyAsyncOp, index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Cancelling `token` cancels `op`.
+    pub fn sturdy_op_link_cancel(op: SturdyAsyncOp, token: SturdyAsyncObject) -> i32;
+    /// The result's number (byte count, status code, port, ... — see the function that made the op).
+    pub fn sturdy_op_number(op: SturdyAsyncOp, out_number: *mut i64) -> i32;
+    /// The object the operation produced (a connection, a file, ...), as a new handle you own. Calling it again returns the same handle. `STURDY_ERROR_NOT_AVAILABLE` when the op produced none. The object lives until **both** its handle and the operation are released, so a "permit" or a "mutex_guard" is only dropped once the op is released too — or release it explicitly with its own function.
+    pub fn sturdy_op_object(op: SturdyAsyncOp, out_object: *mut SturdyAsyncObject) -> i32;
+    /// Runs `callback` when the operation finishes — at once, on this thread, if it already has.
+    pub fn sturdy_op_on_complete(op: SturdyAsyncOp, callback: Option<SturdyAsyncOpFn>, user_data: *mut c_void) -> i32;
+    /// An already-finished op (Tokio's `ready`): useful to answer an operation-shaped API without work.
+    pub fn sturdy_op_ready(number: i64, data: *const u8, size: u64, text: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Releases an operation. A pending one keeps running; its result is dropped.
+    pub fn sturdy_op_release(op: SturdyAsyncOp) -> i32;
+    /// Reads an operation's status without blocking.
+    pub fn sturdy_op_status(op: SturdyAsyncOp, out_status: *mut i32) -> i32;
+    /// The result's text, following the string-output convention.
+    pub fn sturdy_op_text(op: SturdyAsyncOp, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Waits until the operation finishes or `timeout_ms` passes (negative: no limit). `out_done` says which. Blocks the calling thread; do not call it from a completion callback.
+    pub fn sturdy_op_wait(op: SturdyAsyncOp, timeout_ms: i64, out_done: *mut u8) -> i32;
+    /// Waits for the first of `ops` to finish. `out_index` is its position, or -1 when `timeout_ms` passed first.
+    pub fn sturdy_op_wait_any(ops: *const SturdyAsyncOp, count: u32, timeout_ms: i64, out_index: *mut i32) -> i32;
+    /// A new op that finishes as `op` does, or fails with `STURDY_IO_TIMED_OUT` after `timeout_ms` — cancelling `op` then. Cancelling the new op cancels `op`.
+    pub fn sturdy_op_with_timeout(op: SturdyAsyncOp, timeout_ms: i64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_par_all(count: u64, pred: Option<SturdyParPredicateFn>, user_data: *mut c_void, out_result: *mut u8) -> i32;
+    /// Parallel predicates over `[0, count)`.
+    pub fn sturdy_par_any(count: u64, pred: Option<SturdyParPredicateFn>, user_data: *mut c_void, out_result: *mut u8) -> i32;
+    pub fn sturdy_par_count(count: u64, pred: Option<SturdyParPredicateFn>, user_data: *mut c_void, out_count: *mut u64) -> i32;
+    pub fn sturdy_par_find_any(count: u64, pred: Option<SturdyParPredicateFn>, user_data: *mut c_void, out_index: *mut i64) -> i32;
+    /// The lowest index for which `pred` holds (-1: none) / any such index.
+    pub fn sturdy_par_find_first(count: u64, pred: Option<SturdyParPredicateFn>, user_data: *mut c_void, out_index: *mut i64) -> i32;
+    /// Runs `body` for every index in `[0, count)` across the worker pool and returns when all are done (the caller helps, so it never deadlocks the pool). `min_chunk` is the smallest run of indices handed to one task (0/1: let the engine decide). Calling it from inside a body is fine.
+    pub fn sturdy_par_for(count: u64, min_chunk: u64, body: Option<SturdyParForFn>, user_data: *mut c_void) -> i32;
+    /// Runs `body` over consecutive ranges of at most `chunk` indices (`chunk` must be positive).
+    pub fn sturdy_par_for_chunks(count: u64, chunk: u64, body: Option<SturdyParChunkFn>, user_data: *mut c_void) -> i32;
+    /// Calls `body(begin)` for every window start in `[0, count - window]`.
+    pub fn sturdy_par_for_windows(count: u64, window: u64, body: Option<SturdyParForFn>, user_data: *mut c_void) -> i32;
+    /// Runs `a` and `b` in parallel and returns when both are done.
+    pub fn sturdy_par_join(a: Option<SturdyTaskFn>, a_user_data: *mut c_void, b: Option<SturdyTaskFn>, b_user_data: *mut c_void) -> i32;
+    pub fn sturdy_par_map_reduce_f64(count: u64, map: Option<SturdyParMapF64Fn>, identity: f64, reduce: Option<SturdyParReduceF64Fn>, user_data: *mut c_void, out_result: *mut f64) -> i32;
+    /// Maps every index and combines the results with an associative `reduce` that has `identity`.
+    pub fn sturdy_par_map_reduce_i64(count: u64, map: Option<SturdyParMapI64Fn>, identity: i64, reduce: Option<SturdyParReduceI64Fn>, user_data: *mut c_void, out_result: *mut i64) -> i32;
+    /// Parallel minimum and maximum. `STURDY_ERROR_OUT_OF_RANGE` when `count` is 0.
+    pub fn sturdy_par_min_max_f32(data: *const f32, count: u64, out_min: *mut f32, out_max: *mut f32) -> i32;
+    pub fn sturdy_par_min_max_f64(data: *const f64, count: u64, out_min: *mut f64, out_max: *mut f64) -> i32;
+    pub fn sturdy_par_min_max_i64(data: *const i64, count: u64, out_min: *mut i64, out_max: *mut i64) -> i32;
+    /// The threads a parallel call can use right now.
+    pub fn sturdy_par_num_threads(out_threads: *mut u32) -> i32;
+    /// Reduces a typed array in parallel. `out_has_value` is false for an empty array with min/max.
+    pub fn sturdy_par_reduce(r#type: i32, reduction: i32, data: *const c_void, count: u64, out_value: *mut SturdyNumericValue, out_has_value: *mut u8) -> i32;
+    /// Runs `body` with a scope; every task spawned on the scope finishes before this returns.
+    pub fn sturdy_par_scope(body: Option<SturdyParScopeFn>, user_data: *mut c_void) -> i32;
+    pub fn sturdy_par_scope_spawn(scope: SturdyAsyncObject, r#fn: Option<SturdyTaskFn>, user_data: *mut c_void) -> i32;
+    /// Sorts `count` elements of `type` in place, ascending, in parallel.
+    pub fn sturdy_par_sort(r#type: i32, data: *mut c_void, count: u64) -> i32;
+    /// Sorts `count` elements of `element_size` bytes in place with `less`; `stable` keeps equal elements in order.
+    pub fn sturdy_par_sort_by(data: *mut c_void, count: u64, element_size: u64, stable: u8, less: Option<SturdyParLessFn>, user_data: *mut c_void) -> i32;
+    /// Parallel sums. Float sums use SIMD and may differ from a sequential sum by rounding.
+    pub fn sturdy_par_sum_f32(data: *const f32, count: u64, out_sum: *mut f32) -> i32;
+    pub fn sturdy_par_sum_f64(data: *const f64, count: u64, out_sum: *mut f64) -> i32;
+    pub fn sturdy_par_sum_i64(data: *const i64, count: u64, out_sum: *mut i64) -> i32;
+    pub fn sturdy_par_sum_u64(data: *const u64, count: u64, out_sum: *mut u64) -> i32;
+    /// Refuses the peer from now on and drops it if connected.
+    pub fn sturdy_peer_block(peer: SturdyAsyncObject, peer_id: *const c_char) -> i32;
+    /// Sends to every connected peer, except `except_peer_id` when non-null (forwarding what that peer just sent). Number: how many links took it.
+    pub fn sturdy_peer_broadcast(peer: SturdyAsyncObject, channel: u16, data: *const u8, size: u64, except_peer_id: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Dials a peer. `expected_id` non-null pins it (the link is refused if someone else answers). Fields of the linked peer: id, name, address, inbound, listen_port.
+    pub fn sturdy_peer_connect(peer: SturdyAsyncObject, host: *const c_char, port: u16, expected_id: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Meets a peer through a relay when neither can be dialed. Both sides use the same `token` and opposite `dial`; the peer-to-peer TLS runs through the relay end to end. `relay_tls` non-null: the hop to the relay itself uses TLS too.
+    pub fn sturdy_peer_connect_via_relay(peer: SturdyAsyncObject, relay_host: *const c_char, relay_port: u16, token: *const c_char, dial: u8, expected_id: *const c_char, relay_tls: *const SturdyTlsClientOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Drops a peer; `reason` (null: "disconnected by application") is what the other side sees.
+    pub fn sturdy_peer_disconnect(peer: SturdyAsyncObject, peer_id: *const c_char, reason: *const c_char) -> i32;
+    pub fn sturdy_peer_id(peer: SturdyAsyncObject, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// The node's identity as a finished op: fields `certificate_pem`, `private_key_pem`, `sha256`. Persist it to keep the same id.
+    pub fn sturdy_peer_identity(peer: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Connected peers as a finished op: fields `id:N`, `name:N`, `address:N`, `inbound:N`, `listen_port:N` for N = 0, 1, ...
+    pub fn sturdy_peer_list(peer: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_peer_listen_port(peer: SturdyAsyncObject, out_port: *mut u16) -> i32;
+    /// Next event. Number: 0 connected, 1 disconnected, 2 message, 3 discovered. Bytes: the message. Fields: peer, channel, name, address, reason, inbound. Not consuming events eventually stalls the peers' readers.
+    pub fn sturdy_peer_next_event(peer: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Sends a message on channel 0..0xFEFF to one peer.
+    pub fn sturdy_peer_send(peer: SturdyAsyncObject, peer_id: *const c_char, channel: u16, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Starts a peer node: encrypted, mutually authenticated links with self-certifying ids. Object "peer"; text: our peer id.
+    pub fn sturdy_peer_start(options: *const SturdyPeerOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_peer_stop(peer: SturdyAsyncObject) -> i32;
+    pub fn sturdy_permit_count(permit: SturdyAsyncObject, out_count: *mut u64) -> i32;
+    /// Keeps the permits consumed forever (they are never returned).
+    pub fn sturdy_permit_forget(permit: SturdyAsyncObject) -> i32;
+    /// Returns the permits now.
+    pub fn sturdy_permit_release(permit: SturdyAsyncObject) -> i32;
     /// The language the plugin reported through `set_info`, empty when it did not. See the string-output convention above.
     pub fn sturdy_plugin_language(plugin: SturdyPlugin, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
     /// Opens a plugin library and runs its entry point with `STURDY_PLUGIN_LOAD`, collecting its modules (nothing is started).
@@ -5565,8 +7167,84 @@ unsafe extern "C" {
     pub fn sturdy_plugin_request_unload(engine: SturdyEngine, plugin: SturdyPlugin) -> i32;
     /// Hands the plugin's modules to the caller, to pass to `sturdy_runtime_run_modules` (the returned strings and arrays stay valid until `sturdy_plugin_release`). Each module's ownership moves to whatever consumes it, so this works once per plugin: a second call returns `STURDY_ERROR_BUSY`. If `capacity` is smaller than the module count, `STURDY_ERROR_BUFFER_TOO_SMALL` is returned and nothing is handed out; `out_count` always receives the count.
     pub fn sturdy_plugin_take_modules(plugin: SturdyPlugin, out_modules: *mut SturdyGameModule, capacity: u32, out_count: *mut u32) -> i32;
+    /// Creates a separate worker pool (Rayon's `ThreadPoolBuilder`): work run through it stays on its own threads, so a long job cannot starve the engine's scheduler. `threads` 0: the machine's core count. Object "pool"; released objects shut their threads down.
+    pub fn sturdy_pool_create(threads: u32, name: *const c_char, out_pool: *mut SturdyAsyncObject) -> i32;
+    /// `sturdy_par_for` on the pool's own threads.
+    pub fn sturdy_pool_par_for(pool: SturdyAsyncObject, count: u64, min_chunk: u64, body: Option<SturdyParForFn>, user_data: *mut c_void) -> i32;
+    /// Runs `task` on the pool and waits for it (anything it parallelises stays on the pool).
+    pub fn sturdy_pool_run(pool: SturdyAsyncObject, task: Option<SturdyTaskFn>, user_data: *mut c_void) -> i32;
+    pub fn sturdy_pool_threads(pool: SturdyAsyncObject, out_threads: *mut u32) -> i32;
     /// Fills `settings` with `struct_size` and the engine's defaults (vsync on, no HDR, opaque composition, automatic image count).
     pub fn sturdy_presentation_settings_init(settings: *mut SturdyPresentationSettings) -> i32;
+    pub fn sturdy_process_close_stdin(process: SturdyAsyncObject) -> i32;
+    pub fn sturdy_process_id(process: SturdyAsyncObject, out_id: *mut i64) -> i32;
+    pub fn sturdy_process_kill(process: SturdyAsyncObject) -> i32;
+    pub fn sturdy_process_read_stderr(process: SturdyAsyncObject, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Bytes: up to `max_bytes` from the child's stdout / stderr (empty at end).
+    pub fn sturdy_process_read_stdout(process: SturdyAsyncObject, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Asks the child to exit (SIGTERM / a close request); `sturdy_process_kill` forces it.
+    pub fn sturdy_process_request_exit(process: SturdyAsyncObject) -> i32;
+    /// Runs a program to completion, feeding `stdin_data` and collecting stdout/stderr (bounded; the child is killed past `max_output_bytes` — 0: 16 MiB — or `timeout_ms` — 0: no limit). Bytes: stdout. Text: stderr. Number: exit code (the signal number if signalled). Fields: `signaled`, `success`.
+    pub fn sturdy_process_run(options: *const SturdyProcessOptions, stdin_data: *const u8, stdin_size: u64, timeout_ms: i64, max_output_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Starts a child (standard streams per the options, piped by default). Object "process".
+    pub fn sturdy_process_spawn(options: *const SturdyProcessOptions, out_process: *mut SturdyAsyncObject) -> i32;
+    /// Number: exit code (the signal number if signalled). Fields: `signaled`, `success`, `signal`.
+    pub fn sturdy_process_wait(process: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_process_write_stdin(process: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Completes the future as cancelled.
+    pub fn sturdy_promise_cancel(promise: SturdyAsyncObject, out_first: *mut u8) -> i32;
+    /// The producing half of an operation: something other than the engine finishes `out_future` by calling `sturdy_promise_set_*`. Object "promise"; `out_future` is an ordinary op (wait on it, attach a callback, link or time it out). Only the first completion wins; a promise released while pending fails its future with `STURDY_IO_CLOSED`.
+    pub fn sturdy_promise_create(out_promise: *mut SturdyAsyncObject, out_future: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_promise_is_completed(promise: SturdyAsyncObject, out_completed: *mut u8) -> i32;
+    pub fn sturdy_promise_set_error(promise: SturdyAsyncObject, code: i32, message: *const c_char, out_first: *mut u8) -> i32;
+    /// Completes the future with a number, bytes and text. `out_first` (may be null) says whether this call completed it.
+    pub fn sturdy_promise_set_value(promise: SturdyAsyncObject, number: i64, data: *const u8, size: u64, text: *const c_char, out_first: *mut u8) -> i32;
+    /// Next connection whose handshake completed. Object "quic_conn".
+    pub fn sturdy_quic_accept(listener: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Next stream the peer opened. Object "quic_stream".
+    pub fn sturdy_quic_accept_stream(connection: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Closes the connection with an application error code (0 = clean).
+    pub fn sturdy_quic_close(connection: SturdyAsyncObject, error_code: u64, reason: *const c_char) -> i32;
+    /// Finishes when the connection ends, for any reason. Number: the code. Text: the reason. Fields: `from_peer`, `application`, `timed_out` ("1"/"0").
+    pub fn sturdy_quic_closed(connection: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Connects and completes the TLS 1.3 handshake. Object "quic_conn". Datagrams and many streams, no head-of-line blocking.
+    pub fn sturdy_quic_connect(host: *const c_char, port: u16, options: *const SturdyQuicClientOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Fields: `peer`, `local`, and once the handshake finished `protocol`, `alpn`, `peer_sha256`, `cipher` (a finished op).
+    pub fn sturdy_quic_info(connection: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_quic_is_open(connection: SturdyAsyncObject, out_open: *mut u8) -> i32;
+    /// Starts a QUIC server. Object "quic_listener" (finished op).
+    pub fn sturdy_quic_listen(options: *const SturdyQuicServerOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Counters as a finished op's fields: connections_accepted, retries_sent, rejected_limit, ...
+    pub fn sturdy_quic_listener_metrics(listener: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_quic_listener_port(listener: SturdyAsyncObject, out_port: *mut u16) -> i32;
+    pub fn sturdy_quic_listener_stop(listener: SturdyAsyncObject) -> i32;
+    pub fn sturdy_quic_max_datagram_size(connection: SturdyAsyncObject, out_size: *mut u64) -> i32;
+    /// Opens a stream (waits if the peer's stream limit is reached). Object "quic_stream".
+    pub fn sturdy_quic_open_stream(connection: SturdyAsyncObject, bidirectional: u8, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Next received datagram. Bytes: the payload.
+    pub fn sturdy_quic_receive_datagram(connection: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Sends one unreliable datagram; it may be lost or reordered. `STURDY_ERROR_OUT_OF_RANGE` when larger than the current maximum, `STURDY_ERROR_BUSY` when the send queue is full, `STURDY_ERROR_NOT_AVAILABLE` when the peer takes no datagrams.
+    pub fn sturdy_quic_send_datagram(connection: SturdyAsyncObject, data: *const u8, size: u64) -> i32;
+    /// Fields (decimal): rtt_us, min_rtt_us, bytes_in_flight, cwnd, packets_lost, bytes_sent, bytes_received (a finished op).
+    pub fn sturdy_quic_stats(connection: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Ends the sending side cleanly after everything queued.
+    pub fn sturdy_quic_stream_finish(stream: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_quic_stream_id(stream: SturdyAsyncObject, out_id: *mut i64) -> i32;
+    pub fn sturdy_quic_stream_is_bidirectional(stream: SturdyAsyncObject, out_bidirectional: *mut u8) -> i32;
+    /// 1..`max_bytes` bytes as they arrive. Bytes: empty means the peer finished. Reading is what grants the peer more credit.
+    pub fn sturdy_quic_stream_receive(stream: SturdyAsyncObject, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Abruptly stops sending (the peer's reads fail with `error_code`) / asks the peer to stop sending.
+    pub fn sturdy_quic_stream_reset(stream: SturdyAsyncObject, error_code: u64) -> i32;
+    /// Queues data on a stream; finishes once it fits under `stream_send_buffer` (so a slow peer paces the sender).
+    pub fn sturdy_quic_stream_send(stream: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_quic_stream_stop_sending(stream: SturdyAsyncObject, error_code: u64) -> i32;
+    /// A keyed token bucket: each key may use `rate_per_second` operations per second on average, with bursts up to `burst`. Thread-safe; memory is bounded by `max_keys` (0: 10000). Object "rate_limiter".
+    pub fn sturdy_rate_limiter_create(rate_per_second: f64, burst: f64, max_keys: u64, out_limiter: *mut SturdyAsyncObject) -> i32;
+    /// Milliseconds until `key` could take `cost` tokens (0 if it could now).
+    pub fn sturdy_rate_limiter_retry_after_ms(limiter: SturdyAsyncObject, key: *const c_char, cost: f64, out_ms: *mut i64) -> i32;
+    pub fn sturdy_rate_limiter_tracked_keys(limiter: SturdyAsyncObject, out_keys: *mut u64) -> i32;
+    /// Takes `cost` tokens for `key` if available.
+    pub fn sturdy_rate_limiter_try_acquire(limiter: SturdyAsyncObject, key: *const c_char, cost: f64, out_acquired: *mut u8) -> i32;
     /// Adds a listener that fires just after a method returns. See `sturdy_reflection_add_before_hook`.
     pub fn sturdy_reflection_add_after_hook(r#type: SturdyReflectionId, method: SturdyReflectionId, hook: Option<SturdyReflectionObserverFn>, user_data: *mut c_void, out_subscription: *mut SturdyReflectionSubscription) -> i32;
     /// Adds a listener that fires just before a method runs (with the same `args` the real call receives), in addition to — not instead of — the real implementation/override. Unlike `sturdy_reflection_register_override`, any number of mods may add hooks without clobbering each other's.
@@ -5638,6 +7316,16 @@ unsafe extern "C" {
     pub fn sturdy_reflection_unregister_type(r#type: SturdyReflectionId) -> i32;
     /// Removes a listener added by `sturdy_reflection_subscribe_event`.
     pub fn sturdy_reflection_unsubscribe_event(r#type: SturdyReflectionId, event: SturdyReflectionId, subscription: SturdyReflectionSubscription) -> i32;
+    /// Connects to a relay and waits for the partner. Object "tcp" connected to the partner: start TLS on it before sending anything private. `relay_tls` non-null: TLS to the relay itself. `timeout_ms` 0: 35 s.
+    pub fn sturdy_relay_connect(host: *const c_char, port: u16, token: *const c_char, dial: u8, relay_tls: *const SturdyTlsClientOptions, timeout_ms: i64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// A fresh unguessable rendezvous token (32 hex characters).
+    pub fn sturdy_relay_random_token(buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Counters as a finished op's fields: sessions_started, sessions_active, waiting, bytes_relayed, rejected, timed_out.
+    pub fn sturdy_relay_server_metrics(relay: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_relay_server_port(relay: SturdyAsyncObject, out_port: *mut u16) -> i32;
+    /// Starts a rendezvous relay: pairs two connections that name the same token and forwards opaque bytes. It cannot read the peers' traffic when they run TLS through it. Object "relay_server". `authorize` may be null (any token is accepted).
+    pub fn sturdy_relay_server_start(options: *const SturdyRelayOptions, authorize: Option<SturdyRelayAuthorizeFn>, user_data: *mut c_void, out_relay: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_relay_server_stop(relay: SturdyAsyncObject) -> i32;
     /// Creates a renderable model from your own geometry.
     pub fn sturdy_render_create_mesh_model(engine: SturdyEngine, vertices: *const SturdyVertex, vertex_count: u32, indices: *const u32, index_count: u32, shader: SturdyAsset, label: *const c_char, out_model: *mut SturdyAsset) -> i32;
     /// Creates a renderable model from a built-in shape.
@@ -5977,6 +7665,30 @@ unsafe extern "C" {
     pub fn sturdy_rhi_write_buffer(engine: SturdyEngine, buffer: SturdyBuffer, offset: u64, data: *const c_void, data_size: u64) -> i32;
     /// Reads `group_count` shader group handles starting at `first_group`, into `dst` (which must be at least `group_count * sturdy_rhi_ray_tracing_properties`'s `shader_group_handle_size` bytes). Write these into a shader binding table buffer at `shader_group_base_alignment`-aligned offsets to build `SturdyShaderBindingTableRegion`s for `sturdy_rhi_command_encoder_trace_rays`.
     pub fn sturdy_rhi_write_ray_tracing_shader_group_handles(engine: SturdyEngine, pipeline: SturdyRayTracingPipeline, first_group: u32, group_count: u32, dst: *mut c_void, dst_size: u64) -> i32;
+    pub fn sturdy_ring_capacity(ring: SturdyAsyncObject, out_capacity: *mut u64) -> i32;
+    /// A wait-free single-producer single-consumer ring of byte messages. Object "spsc_ring". Exactly one thread may push and exactly one (possibly another) may pop. Items are at most `max_item_bytes` (rounded up to 32, 128, 512, 2 Ki, 8 Ki or 64 Ki; 64 Ki is the limit); the capacity (1..16 Mi items) is rounded up to a power of two.
+    pub fn sturdy_ring_create(capacity: u64, max_item_bytes: u64, out_ring: *mut SturdyAsyncObject) -> i32;
+    /// Pops up to `max_items` (0: all) as a finished op: bytes are the items as packed frames (`sturdy_frames_count` / `sturdy_frames_get`), number is how many.
+    pub fn sturdy_ring_drain(ring: SturdyAsyncObject, max_items: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_ring_max_item_bytes(ring: SturdyAsyncObject, out_bytes: *mut u64) -> i32;
+    pub fn sturdy_ring_size(ring: SturdyAsyncObject, out_size: *mut u64) -> i32;
+    /// Pops the oldest item into `buffer`, which must hold at least `sturdy_ring_max_item_bytes` (a smaller one is refused before anything is popped). `out_length` receives the item's size. `out_status` is `STURDY_RING_EMPTY` when there was nothing.
+    pub fn sturdy_ring_try_pop(ring: SturdyAsyncObject, buffer: *mut u8, capacity: u64, out_length: *mut u64, out_status: *mut i32) -> i32;
+    pub fn sturdy_ring_try_push(ring: SturdyAsyncObject, data: *const u8, size: u64, out_status: *mut i32) -> i32;
+    /// Creates a URL router. Patterns are '/'-separated literals, `:name` (one segment) and a final `*name` (the rest); literals beat parameters, which beat wildcards. Object "router". HEAD requests reuse GET routes; unmatched methods on known paths get 405 with an Allow header; malformed paths get 400.
+    pub fn sturdy_router_create(out_router: *mut SturdyAsyncObject) -> i32;
+    /// Runs one request through the router synchronously (tests, in-process calls). Number: status. Fields: headers. Bytes: body (a streamed body is not collected).
+    pub fn sturdy_router_dispatch(router: SturdyAsyncObject, method: *const c_char, target: *const c_char, remote_address: *const c_char, headers: *const SturdyKeyValue, header_count: u32, body: *const u8, body_size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Replaces the default 404. The handler must answer before it returns.
+    pub fn sturdy_router_not_found(router: SturdyAsyncObject, handler: Option<SturdyHttpHandlerFn>, user_data: *mut c_void) -> i32;
+    /// Middleware answering 429 with Retry-After once one client address exceeds `rate_per_second` (bursts up to `burst`). `max_keys` 0: 10000.
+    pub fn sturdy_router_rate_limit(router: SturdyAsyncObject, rate_per_second: f64, burst: f64, max_keys: u64) -> i32;
+    /// Adds a route (`method` upper-case, e.g. "GET"). `handler` runs on a handler thread, exactly like a server handler, with `path`, `query` and `params` filled in. `user_data` must stay valid until every server serving this router is released.
+    pub fn sturdy_router_route(router: SturdyAsyncObject, method: *const c_char, pattern: *const c_char, handler: Option<SturdyHttpHandlerFn>, user_data: *mut c_void) -> i32;
+    /// Serves files under `mount` (e.g. "/assets") from `options->root`, GET and HEAD only. `STURDY_ERROR_INVALID_ARGUMENT` when the root is not a directory.
+    pub fn sturdy_router_static_files(router: SturdyAsyncObject, mount: *const c_char, options: *const SturdyStaticFilesOptions) -> i32;
+    /// Adds middleware that runs before every matching route. Call `sturdy_http_respond*` with the responder **before returning** to answer the request yourself (auth, rate limits); return without answering to let it continue. Answering later is ignored.
+    pub fn sturdy_router_use(router: SturdyAsyncObject, middleware: Option<SturdyHttpHandlerFn>, user_data: *mut c_void) -> i32;
     /// Fills `config` with engine defaults and the correct `struct_size`.
     ///
     /// Always call this before setting fields. It is what makes a binding compiled against an older header keep working against a newer engine: fields you have never heard of still get sane values instead of whatever was on your stack.
@@ -6003,10 +7715,68 @@ unsafe extern "C" {
     pub fn sturdy_scene_settings_init(settings: *mut SturdySceneSettings) -> i32;
     /// Spawns every model and light of the scene with its animation wired up: skinned characters get a private deformable copy and an animator, blend-shape meshes likewise, and plain animated nodes follow the file's node animation. `sturdy_gltf_spawn_all` is this with default options.
     pub fn sturdy_scene_spawn(engine: SturdyEngine, scene: SturdyGltfScene, options: *const SturdySpawnOptions, out_entities: *mut SturdyEntity, capacity: u32, out_count: *mut u32) -> i32;
+    /// Starts the worker pool (0 workers: one per hardware thread). The engine starts it on first use; call this only to choose the size first, or in a program that does not run the engine.
+    pub fn sturdy_scheduler_initialize(workers: u32) -> i32;
+    /// Stops the worker pool. The engine owns it: only a standalone program should call this.
+    pub fn sturdy_scheduler_shutdown() -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (disabled).
     pub fn sturdy_screen_space_gi_settings_init(settings: *mut SturdyScreenSpaceGiSettings) -> i32;
+    /// Calls a function of a script now (taking the script lock, so it is safe from any thread). Returns a finished op: bytes on success, a failure otherwise (an unknown script or function, or the script's own error).
+    pub fn sturdy_script_call(engine: SturdyEngine, script: *const c_char, function: *const c_char, args: *const u8, args_size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Calls a host function (what an adapter does on a script's behalf). Returns a finished op: bytes on success, a failure otherwise.
+    pub fn sturdy_script_call_host_function(name: *const c_char, args: *const u8, args_size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// How many scripts are loaded, and the name of script `index` (start order, string-output convention).
+    pub fn sturdy_script_count(engine: SturdyEngine, out_count: *mut u32) -> i32;
+    /// A script's details as a finished op's fields: `language`, `path`, `generation` (1 + reloads), `healthy` ("1"/"0") and `failure`. `STURDY_ERROR_NOT_AVAILABLE` for an unknown script.
+    pub fn sturdy_script_info(engine: SturdyEngine, name: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_script_language_count(out_count: *mut u32) -> i32;
+    /// The name of language `index` (string-output convention).
+    pub fn sturdy_script_language_name(index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Registers a language adapter for the whole process (before the runtime starts, or while it runs).
+    pub fn sturdy_script_language_register(language: *const SturdyScriptLanguage) -> i32;
+    /// Forgets a language. Scripts already running keep working until they are unloaded.
+    pub fn sturdy_script_language_unregister(name: *const c_char) -> i32;
+    /// `sturdy_script_module_create` and `sturdy_module_request_load` in one step: adds a script to the running game at the next update boundary.
+    pub fn sturdy_script_load(engine: SturdyEngine, desc: *const SturdyScriptModuleDesc) -> i32;
+    /// Makes the module for a script that loads through a registered language adapter when the game starts. Pass it to `sturdy_runtime_run_modules` or `sturdy_module_request_load`, or release it with `sturdy_script_module_discard` if you never will. The strings inside `out_module` stay valid until then.
+    pub fn sturdy_script_module_create(desc: *const SturdyScriptModuleDesc, out_module: *mut SturdyGameModule) -> i32;
+    pub fn sturdy_script_module_create_native(desc: *const SturdyNativeScriptDesc, out_module: *mut SturdyGameModule) -> i32;
+    /// Destroys a module made by the functions above that was never handed to the engine.
+    pub fn sturdy_script_module_discard(module: *mut SturdyGameModule) -> i32;
+    pub fn sturdy_script_name(engine: SturdyEngine, index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Queues a message for every script subscribed to `topic` except `from`. `out_receivers` (may be null) receives how many.
+    pub fn sturdy_script_publish(engine: SturdyEngine, from: *const c_char, topic: *const c_char, payload: *const u8, size: u64, out_receivers: *mut u32) -> i32;
+    /// Registers `function` under `name` for the whole process. `destroy` (may be null) releases `user_data` when the function is unregistered.
+    pub fn sturdy_script_register_host_function(name: *const c_char, function: Option<SturdyScriptHostFn>, user_data: *mut c_void, destroy: Option<unsafe extern "C" fn(*mut c_void)>) -> i32;
+    /// Hot reload (see above). Takes effect at the next update boundary; a parse error is reported at once. Failures after that are reported through `sturdy_module_take_failure`.
+    pub fn sturdy_script_reload(engine: SturdyEngine, source: *const SturdyScriptSource) -> i32;
+    /// Hot reload of a script built from callbacks: `instance` replaces the running one.
+    pub fn sturdy_script_reload_native(engine: SturdyEngine, name: *const c_char, instance: *const SturdyScriptInstance) -> i32;
+    /// Queues a message for `to` (delivered at the next update boundary). `from` null: the host application. `STURDY_ERROR_NOT_AVAILABLE` when no such script is loaded.
+    pub fn sturdy_script_send(engine: SturdyEngine, from: *const c_char, to: *const c_char, topic: *const c_char, payload: *const u8, size: u64) -> i32;
+    pub fn sturdy_script_subscribe(engine: SturdyEngine, script: *const c_char, topic: *const c_char) -> i32;
+    /// Removes a script (as `sturdy_module_request_unload`).
+    pub fn sturdy_script_unload(engine: SturdyEngine, name: *const c_char) -> i32;
+    pub fn sturdy_script_unregister_host_function(name: *const c_char) -> i32;
+    pub fn sturdy_script_unsubscribe(engine: SturdyEngine, script: *const c_char, topic: *const c_char) -> i32;
+    /// Waits for `count` permits. Object "permit". `STURDY_IO_CLOSED` if the semaphore closes first.
+    pub fn sturdy_semaphore_acquire(semaphore: SturdyAsyncObject, count: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_semaphore_add_permits(semaphore: SturdyAsyncObject, count: u64) -> i32;
+    pub fn sturdy_semaphore_available(semaphore: SturdyAsyncObject, out_permits: *mut u64) -> i32;
+    /// Fails every waiter and every future acquire.
+    pub fn sturdy_semaphore_close(semaphore: SturdyAsyncObject) -> i32;
+    /// A counting semaphore. Object "semaphore".
+    pub fn sturdy_semaphore_create(permits: u64, out_semaphore: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_semaphore_is_closed(semaphore: SturdyAsyncObject, out_closed: *mut u8) -> i32;
+    /// `out_permit` receives the zero handle when the permits are not available.
+    pub fn sturdy_semaphore_try_acquire(semaphore: SturdyAsyncObject, count: u64, out_permit: *mut SturdyAsyncObject) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (4 cascades, 4096 atlas, contact shadows on, contact hardening off).
     pub fn sturdy_shadow_settings_init(settings: *mut SturdyShadowSettings) -> i32;
+    pub fn sturdy_signal_ctrl_c(out_op: *mut SturdyAsyncOp) -> i32;
+    /// Finishes when the process receives SIGINT or SIGTERM (Ctrl+C / termination). Number: the signal.
+    pub fn sturdy_signal_shutdown(out_op: *mut SturdyAsyncOp) -> i32;
+    /// Number: the first of `signals` (SIGINT, SIGTERM, ...) delivered to the process.
+    pub fn sturdy_signal_wait(signals: *const i32, count: u32, out_op: *mut SturdyAsyncOp) -> i32;
     /// Decodes a file (any supported codec; cached by path) without playing it.
     pub fn sturdy_sound_load(engine: SturdyEngine, path: *const c_char, out_sound: *mut SturdySound) -> i32;
     /// Plays a loaded sound. `out_voice` may be null for fire-and-forget; a returned voice must still be released.
@@ -6014,6 +7784,50 @@ unsafe extern "C" {
     pub fn sturdy_sound_release(sound: SturdySound) -> i32;
     /// Fills `options` with the defaults: auto-play, looping, speed 1, first clip, identity transform.
     pub fn sturdy_spawn_options_init(options: *mut SturdySpawnOptions) -> i32;
+    pub fn sturdy_stream_chain(first: SturdyAsyncObject, second: SturdyAsyncObject, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Items become packed frames of up to `count` items; the `_timeout` form also emits a partial batch once `max_wait_ms` passed since its first item.
+    pub fn sturdy_stream_chunks(stream: SturdyAsyncObject, count: u64, out_stream: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_stream_chunks_timeout(stream: SturdyAsyncObject, count: u64, max_wait_ms: i64, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Drains the stream. Bytes: the items as packed frames. Number: how many.
+    pub fn sturdy_stream_collect(stream: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Number: how many items.
+    pub fn sturdy_stream_count(stream: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_stream_empty(out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Items become frames {index as 8-byte little-endian, item}.
+    pub fn sturdy_stream_enumerate(stream: SturdyAsyncObject, out_stream: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_stream_filter(stream: SturdyAsyncObject, pred: Option<SturdyStreamPredicateFn>, user_data: *mut c_void, out_stream: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_stream_filter_map(stream: SturdyAsyncObject, r#fn: Option<SturdyStreamFilterMapFn>, user_data: *mut c_void, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Bytes: the final accumulator.
+    pub fn sturdy_stream_fold(stream: SturdyAsyncObject, initial: *const u8, initial_size: u64, r#fn: Option<SturdyStreamFoldFn>, user_data: *mut c_void, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_stream_for_each(stream: SturdyAsyncObject, r#fn: Option<SturdyStreamEachFn>, user_data: *mut c_void, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Sends every item into a channel (does not close it).
+    pub fn sturdy_stream_forward(stream: SturdyAsyncObject, sender: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Sources. Every callback's `user_data` must stay valid until the stream is finished with.
+    pub fn sturdy_stream_from_channel(receiver: SturdyAsyncObject, out_stream: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_stream_generate(source: Option<SturdyStreamSourceFn>, user_data: *mut c_void, out_stream: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_stream_inspect(stream: SturdyAsyncObject, r#fn: Option<SturdyStreamEachFn>, user_data: *mut c_void, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Items are 8-byte little-endian steady-clock nanoseconds, one per period.
+    pub fn sturdy_stream_interval(period_ms: i64, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Number 1 and bytes: the last item; number 0 for an empty stream.
+    pub fn sturdy_stream_last(stream: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Adapters. Each takes (consumes) its input stream(s) and returns a new one.
+    pub fn sturdy_stream_map(stream: SturdyAsyncObject, r#fn: Option<SturdyStreamMapFn>, user_data: *mut c_void, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Runs `fn` on the worker pool for up to `concurrency` items at once (0: twice the worker count); `ordered` keeps the input order.
+    pub fn sturdy_stream_map_concurrent(stream: SturdyAsyncObject, r#fn: Option<SturdyStreamMapFn>, user_data: *mut c_void, concurrency: u64, ordered: u8, out_stream: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_stream_merge(first: SturdyAsyncObject, second: SturdyAsyncObject, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Sinks. Number 1 and bytes: the next item; number 0 at the end. (Not consuming; cannot be cancelled — close the source to stop it.)
+    pub fn sturdy_stream_next(stream: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_stream_of_items(items: *const SturdyBytesView, count: u32, out_stream: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_stream_skip(stream: SturdyAsyncObject, count: u64, out_stream: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_stream_take(stream: SturdyAsyncObject, count: u64, out_stream: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_stream_take_while(stream: SturdyAsyncObject, pred: Option<SturdyStreamPredicateFn>, user_data: *mut c_void, out_stream: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_stream_throttle(stream: SturdyAsyncObject, period_ms: i64, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// An item that takes longer than `limit_ms` fails the next pull with `STURDY_IO_TIMED_OUT`.
+    pub fn sturdy_stream_timeout_each(stream: SturdyAsyncObject, limit_ms: i64, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Items become frames {a, b}.
+    pub fn sturdy_stream_zip(first: SturdyAsyncObject, second: SturdyAsyncObject, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Asks a STUN server what public address this machine appears as. Text: host. Number: port. `server` null: stun.l.google.com:19302.
+    pub fn sturdy_stun_query(server: *const c_char, port: u16, timeout_ms: i64, out_op: *mut SturdyAsyncOp) -> i32;
     /// Reads what `surface`'s presentation policy actually resolved to.
     pub fn sturdy_surface_presentation_resolution(engine: SturdyEngine, surface: SturdySurface, out_resolution: *mut SturdyPresentationResolution) -> i32;
     /// Reads `surface`'s current presentation policy: the last value `sturdy_surface_set_presentation_settings` accepted, or the app-wide default if never overridden.
@@ -6024,6 +7838,58 @@ unsafe extern "C" {
     pub fn sturdy_surface_set_presentation_settings(engine: SturdyEngine, surface: SturdySurface, settings: *const SturdyPresentationSettings) -> i32;
     /// Updates HDR10 static content light level metadata (MaxCLL/MaxFALL) on `surface`'s live swapchain, without recreating it.
     pub fn sturdy_surface_update_hdr_content_light_level(engine: SturdyEngine, surface: SturdySurface, max_content_light_level_nits: f32, max_frame_average_light_level_nits: f32) -> i32;
+    /// A blocking mutex around a byte-string value, named for the profiler. Object "sync_mutex". It blocks the calling thread: never lock it on a network or timer thread, never hold it across a wait, and release a guard on the thread that locked it. (`sturdy_async_mutex_*` waits without a thread.)
+    pub fn sturdy_sync_mutex_create(initial: *const u8, size: u64, debug_name: *const c_char, out_mutex: *mut SturdyAsyncObject) -> i32;
+    /// Blocks until the lock is free. Object "sync_guard": read and replace the value with `sturdy_guard_get` / `sturdy_guard_set`, unlock with `sturdy_guard_release`.
+    pub fn sturdy_sync_mutex_lock(mutex: SturdyAsyncObject, out_guard: *mut SturdyAsyncObject) -> i32;
+    /// `out_guard` receives the zero handle when the lock is held.
+    pub fn sturdy_sync_mutex_try_lock(mutex: SturdyAsyncObject, out_guard: *mut SturdyAsyncObject) -> i32;
+    /// A value that follows the flow of work: tasks spawned while it is bound inherit it. Object "task_local".
+    pub fn sturdy_task_local_create(out_local: *mut SturdyAsyncObject) -> i32;
+    /// The bound value (bytes-output convention); `STURDY_ERROR_NOT_AVAILABLE` when none is bound here.
+    pub fn sturdy_task_local_get(local: SturdyAsyncObject, buffer: *mut u8, capacity: u64, out_length: *mut u64) -> i32;
+    /// Runs `body` with `value` bound.
+    pub fn sturdy_task_local_scope(local: SturdyAsyncObject, value: *const u8, size: u64, body: Option<SturdyTaskFn>, user_data: *mut c_void) -> i32;
+    /// Sets a task's result: a number, bytes and text; a non-null, non-empty `error` fails the task with that message.
+    pub fn sturdy_task_output_set(output: *mut SturdyTaskOutput, number: i64, bytes: *const u8, size: u64, text: *const c_char, error: *const c_char) -> i32;
+    /// Runs `work` and reports its result as an op: number, bytes and text as set; a task error fails the op. `user_data` must stay valid until the task finishes. Cancelling the op sets the token the work polls.
+    pub fn sturdy_task_spawn(work: Option<SturdyTaskWorkFn>, user_data: *mut c_void, lane: i32, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Same, on a custom pool (`sturdy_pool_create`).
+    pub fn sturdy_task_spawn_on(pool: SturdyAsyncObject, work: Option<SturdyTaskWorkFn>, user_data: *mut c_void, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Waits for the next connection. Object "tcp".
+    pub fn sturdy_tcp_accept(listener: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Closes now (the object is still released separately).
+    pub fn sturdy_tcp_close(connection: SturdyAsyncObject) -> i32;
+    /// Connects (resolving, trying each address). Object "tcp". `tls` null: plain TCP; otherwise a verified TLS handshake. `timeout_ms` 0: 30 seconds.
+    pub fn sturdy_tcp_connect(host: *const c_char, port: u16, tls: *const SturdyTlsClientOptions, timeout_ms: i64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Connection details as a finished op: fields `peer`, `local` ("host:port") and, over TLS, `protocol`, `cipher`, `alpn`, `peer_sha256`.
+    pub fn sturdy_tcp_info(connection: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_tcp_is_open(connection: SturdyAsyncObject, out_open: *mut u8) -> i32;
+    /// Starts listening. Object "tcp_listener" (finished op). `tls` non-null: every accepted connection completes a TLS handshake first. `backlog` is the pending-connection queue length; 0: 1024.
+    pub fn sturdy_tcp_listen(host: *const c_char, port: u16, tls: *const SturdyTlsServerOptions, backlog: i32, out_op: *mut SturdyAsyncOp) -> i32;
+    /// "host:port" the listener is bound to, following the string-output convention.
+    pub fn sturdy_tcp_listener_address(listener: SturdyAsyncObject, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_tcp_listener_close(listener: SturdyAsyncObject) -> i32;
+    pub fn sturdy_tcp_listener_is_open(listener: SturdyAsyncObject, out_open: *mut u8) -> i32;
+    /// The port a listener is bound to.
+    pub fn sturdy_tcp_listener_port(listener: SturdyAsyncObject, out_port: *mut u16) -> i32;
+    /// Receives 1..`max_bytes` bytes as soon as any arrive. Bytes: empty means the peer finished.
+    pub fn sturdy_tcp_receive(connection: SturdyAsyncObject, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Receives exactly `count` bytes (`STURDY_IO_UNEXPECTED_EOF` if the peer closes first).
+    pub fn sturdy_tcp_receive_exact(connection: SturdyAsyncObject, count: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Receives up to and including `delimiter` (a line, a header block); `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes`.
+    pub fn sturdy_tcp_receive_until(connection: SturdyAsyncObject, delimiter: *const c_char, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Sends all of `data`. Number: bytes sent. The data is copied.
+    pub fn sturdy_tcp_send(connection: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_tcp_set_keepalive(connection: SturdyAsyncObject, enabled: u8, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Socket options; each finishes once applied (a failure is reported on the op).
+    pub fn sturdy_tcp_set_nodelay(connection: SturdyAsyncObject, enabled: u8, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Half-close: tells the peer no more data is coming while reads continue.
+    pub fn sturdy_tcp_shutdown_write(connection: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Upgrades an open, quiet connection to TLS in place (STARTTLS, after an HTTP CONNECT). Client or server role.
+    pub fn sturdy_tcp_start_tls_client(connection: SturdyAsyncObject, host: *const c_char, tls: *const SturdyTlsClientOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_tcp_start_tls_server(connection: SturdyAsyncObject, tls: *const SturdyTlsServerOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_thread_pin_current(core_index: u32, out_pinned: *mut u8) -> i32;
     /// Reads the time step for the current tick, after the time scale is applied.
     ///
     /// This is the value gameplay should integrate against. It differs from `SturdyFrameInput`'s `delta_seconds`, which is raw per-surface frame time and ignores the scale entirely.
@@ -6038,8 +7904,18 @@ unsafe extern "C" {
     ///
     /// Use this for anything that must keep running at real speed while the game is slowed or paused — UI animation, profiling, input smoothing.
     pub fn sturdy_time_unscaled_delta_seconds(engine: SturdyEngine, out_seconds: *mut f64) -> i32;
+    /// Finishes (OK) after `milliseconds`, without occupying a thread.
+    pub fn sturdy_timer_sleep(milliseconds: i64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Finishes at an absolute wall-clock time (milliseconds since the Unix epoch), at once if it has passed.
+    pub fn sturdy_timer_sleep_until(unix_ms: i64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Hex SHA-256 of the first certificate in `certificate_pem`.
+    pub fn sturdy_tls_certificate_sha256(certificate_pem: *const c_char, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Generates a self-signed ECDSA P-256 identity (for peers and dev servers). Returns an already-finished op with fields `certificate_pem`, `private_key_pem`, `sha256`.
+    pub fn sturdy_tls_generate_identity(common_name: *const c_char, valid_days: u32, out_op: *mut SturdyAsyncOp) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (AGX operator, no look, neutral PsychoV/Hermite curve parameters).
     pub fn sturdy_tone_mapping_settings_init(settings: *mut SturdyToneMappingSettings) -> i32;
+    /// Logical (or physical) cores ranked fastest first (bytes-output convention in `uint32_t` units: `out_count` always receives the number).
+    pub fn sturdy_topology_ranked_cores(physical: u8, buffer: *mut u32, capacity: u64, out_count: *mut u64) -> i32;
     /// Replaces the calling thread's trace with the stack at this call (foreign site, engine scopes, native stack per the detail setting). For a foreign language that wants the engine's side of a stack at a moment of its choosing, such as a panic hook.
     pub fn sturdy_trace_capture() -> i32;
     /// Forgets the calling thread's foreign call site.
@@ -6052,6 +7928,27 @@ unsafe extern "C" {
     pub fn sturdy_trace_set_detail(detail: i32) -> i32;
     /// Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.
     pub fn sturdy_trace_set_foreign_call_site(language: *const c_char, language_length: u32, file: *const c_char, file_length: u32, line: u32, column: u32, function: *const c_char, function_length: u32) -> i32;
+    /// "host:port" the socket is bound to, following the string-output convention.
+    pub fn sturdy_udp_address(socket: SturdyAsyncObject, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// Binds a UDP socket. Object "udp". `host` null/empty: all interfaces. `port` 0: any. `options` may be null.
+    pub fn sturdy_udp_bind(host: *const c_char, port: u16, options: *const SturdyUdpOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_udp_close(socket: SturdyAsyncObject) -> i32;
+    /// Fixes the peer: `sturdy_udp_send` then needs no address and only that peer's datagrams are received.
+    pub fn sturdy_udp_connect(socket: SturdyAsyncObject, host: *const c_char, port: u16, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_udp_is_open(socket: SturdyAsyncObject, out_open: *mut u8) -> i32;
+    /// `interface_address` null/empty: the default interface.
+    pub fn sturdy_udp_join_multicast(socket: SturdyAsyncObject, group: *const c_char, interface_address: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_udp_leave_multicast(socket: SturdyAsyncObject, group: *const c_char, interface_address: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_udp_port(socket: SturdyAsyncObject, out_port: *mut u16) -> i32;
+    /// Receives the next datagram (at most `max_bytes`). Bytes: the datagram. Text: sender host. Number: sender port.
+    pub fn sturdy_udp_receive(socket: SturdyAsyncObject, max_bytes: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Sends one datagram on a connected socket. Number: bytes sent.
+    pub fn sturdy_udp_send(socket: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Sends one datagram. Number: bytes sent.
+    pub fn sturdy_udp_send_to(socket: SturdyAsyncObject, host: *const c_char, port: u16, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_udp_set_broadcast(socket: SturdyAsyncObject, enabled: u8, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_udp_set_multicast_loopback(socket: SturdyAsyncObject, enabled: u8, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_udp_set_multicast_ttl(socket: SturdyAsyncObject, hops: u32, out_op: *mut SturdyAsyncOp) -> i32;
     /// Opens a UI frame, to be built and then closed with `sturdy_ui_end`.
     ///
     /// Call this from `request_render_frame` before building any UI. It readies the UI renderer, starts a layout pass sized to the surface, and picks up this frame's pointer state so hover and click queries work.
@@ -6119,6 +8016,48 @@ unsafe extern "C" {
     pub fn sturdy_voice_stop(voice: SturdyVoice, fade_seconds: f32) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (disabled — fog is opt-in).
     pub fn sturdy_volumetric_fog_settings_init(settings: *mut SturdyVolumetricFogSettings) -> i32;
+    pub fn sturdy_watch_close(watcher: SturdyAsyncObject) -> i32;
+    /// The remaining events as a "stream" object; each item is `sturdy_frames_pack` of {kind as decimal text, path, old_path, "1"/"0" for is_directory}.
+    pub fn sturdy_watch_events_stream(watcher: SturdyAsyncObject, out_stream: *mut SturdyAsyncObject) -> i32;
+    /// Next change. Number: 0 created, 1 modified, 2 removed, 3 renamed, 4 overflow (rescan). Text: path. Fields: old_path, is_directory.
+    pub fn sturdy_watch_next(watcher: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Watches a path for changes (inotify on Linux, polling elsewhere). Object "watcher". `options` may be null.
+    pub fn sturdy_watch_path(path: *const c_char, options: *const SturdyWatchOptions, out_watcher: *mut SturdyAsyncObject) -> i32;
+    /// Whether the OS's event API is used (false: polling).
+    pub fn sturdy_watch_uses_native_backend(watcher: SturdyAsyncObject, out_native: *mut u8) -> i32;
+    /// The current value (bytes-output convention); `_and_update` also marks it seen.
+    pub fn sturdy_watch_value_borrow(receiver: SturdyAsyncObject, buffer: *mut u8, capacity: u64, out_length: *mut u64) -> i32;
+    pub fn sturdy_watch_value_borrow_and_update(receiver: SturdyAsyncObject, buffer: *mut u8, capacity: u64, out_length: *mut u64) -> i32;
+    /// Finishes when the value changed since this receiver last looked; `STURDY_IO_CLOSED` once the sender is gone and nothing new remains.
+    pub fn sturdy_watch_value_changed(receiver: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// A single value many tasks observe. Objects "watch_sender" / "watch_receiver"; each receiver tracks what it has seen on its own.
+    pub fn sturdy_watch_value_create(initial: *const u8, size: u64, out_sender: *mut SturdyAsyncObject, out_receiver: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_watch_value_has_changed(receiver: SturdyAsyncObject, out_changed: *mut u8) -> i32;
+    pub fn sturdy_watch_value_receiver_clone(receiver: SturdyAsyncObject, out_receiver: *mut SturdyAsyncObject) -> i32;
+    pub fn sturdy_watch_value_send(sender: SturdyAsyncObject, data: *const u8, size: u64) -> i32;
+    pub fn sturdy_watch_value_subscribe(sender: SturdyAsyncObject, out_receiver: *mut SturdyAsyncObject) -> i32;
+    /// Drops the connection without a closing handshake.
+    pub fn sturdy_websocket_abort(socket: SturdyAsyncObject) -> i32;
+    /// Waits for the next upgraded connection. Object "websocket".
+    pub fn sturdy_websocket_accept(server: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Graceful close with an RFC 6455 code (1000 normal) and a reason of up to 123 bytes.
+    pub fn sturdy_websocket_close(socket: SturdyAsyncObject, code: u16, reason: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Connects (`ws://` or `wss://`). Object "websocket". `options` may be null.
+    pub fn sturdy_websocket_connect(url: *const c_char, options: *const SturdyWebSocketClientOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Fields: `target`, `origin`, `subprotocol`, `header: <Name >` for each upgrade-request header, `peer` ("host:port"), the TLS fields over wss, and once closed `close_code`, `close_reason` (a finished op).
+    pub fn sturdy_websocket_info(socket: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_websocket_is_open(socket: SturdyAsyncObject, out_open: *mut u8) -> i32;
+    /// Sends a ping (payload up to 125 bytes).
+    pub fn sturdy_websocket_ping(socket: SturdyAsyncObject, payload: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Next data message. Bytes: payload. Number: 1 for text, 0 for binary. Fails with `STURDY_IO_CLOSED` once the connection ended.
+    pub fn sturdy_websocket_receive(socket: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_websocket_send_binary(socket: SturdyAsyncObject, data: *const u8, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    /// Queues a text message (UTF-8, `size` bytes; no terminator needed). The data is copied.
+    pub fn sturdy_websocket_send_text(socket: SturdyAsyncObject, text: *const c_char, size: u64, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_websocket_server_close(server: SturdyAsyncObject) -> i32;
+    /// Starts a WebSocket server. Object "ws_server" (finished op).
+    pub fn sturdy_websocket_server_listen(options: *const SturdyWebSocketServerOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_websocket_server_port(server: SturdyAsyncObject, out_port: *mut u16) -> i32;
     /// Fills `config` with the engine's default window configuration (1280x720, windowed, decorated, visible, resizable, OS-placed).
     pub fn sturdy_window_config_init(config: *mut SturdyWindowConfig) -> i32;
     /// Reads the UI scale the OS asks for on the display the window is on (1.0 at 100%, 2.0 at 200%). Updated when the window moves to a display with a different scale.

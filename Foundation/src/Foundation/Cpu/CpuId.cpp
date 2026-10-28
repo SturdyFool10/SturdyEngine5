@@ -1,4 +1,5 @@
 #include <Foundation/Cpu/CpuId.hpp>
+#include <Foundation/Cpu/IsaSet.hpp>
 
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
     #define STURDY_CPU_X86 1
@@ -73,7 +74,15 @@ namespace SFT::Foundation::Cpu {
 
                 const bool osxsave = (ecx >> 27) & 1;
                 if (osxsave) {
-                    const unsigned long long xcr0 = _xgetbv(0);
+                    unsigned long long xcr0 = 0;
+#if defined(_MSC_VER)
+                    xcr0 = _xgetbv(0);
+#else
+                    unsigned int xcr0_low = 0;
+                    unsigned int xcr0_high = 0;
+                    __asm__ volatile("xgetbv" : "=a"(xcr0_low), "=d"(xcr0_high) : "c"(0));
+                    xcr0 = (static_cast<unsigned long long>(xcr0_high) << 32) | xcr0_low;
+#endif
 
                     result.os_supports_avx = (xcr0 & 0x6ULL) == 0x6ULL;
 
@@ -124,17 +133,16 @@ namespace SFT::Foundation::Cpu {
     /// @return Returns the current best simd level value.
     /// @note This function does not throw exceptions.
     SimdLevel best_simd_level() noexcept {
-        const CpuFeatures &f = features();
-        if (f.avx512f && f.os_supports_avx512) {
-            return SimdLevel::AVX512;
+        switch (best_tier(current_core_isa_set())) {
+            case IsaTier::X86Avx512:
+                return SimdLevel::AVX512;
+            case IsaTier::X86Avx2:
+                return SimdLevel::AVX2;
+            case IsaTier::X86Avx:
+                return SimdLevel::AVX;
+            default:
+                return SimdLevel::Scalar;
         }
-        if (f.avx2 && f.fma3 && f.os_supports_avx) {
-            return SimdLevel::AVX2;
-        }
-        if (f.avx && f.os_supports_avx) {
-            return SimdLevel::AVX;
-        }
-        return SimdLevel::Scalar;
     }
 
 #elif defined(STURDY_CPU_ARM64)
@@ -158,7 +166,11 @@ namespace SFT::Foundation::Cpu {
     ///
     /// @return Returns the current best simd level value.
     /// @note This function does not throw exceptions.
-    SimdLevel best_simd_level() noexcept { return SimdLevel::NEON; }
+    SimdLevel best_simd_level() noexcept {
+        return best_tier(current_core_isa_set()) == IsaTier::ArmNeon || best_tier(current_core_isa_set()) == IsaTier::ArmSve2
+                   ? SimdLevel::NEON
+                   : SimdLevel::Scalar;
+    }
 
 #elif defined(STURDY_CPU_RISCV64)
 
@@ -194,7 +206,9 @@ namespace SFT::Foundation::Cpu {
     ///
     /// @return Returns the current best simd level value.
     /// @note This function does not throw exceptions.
-    SimdLevel best_simd_level() noexcept { return features().rvv ? SimdLevel::RVV : SimdLevel::Scalar; }
+    SimdLevel best_simd_level() noexcept {
+        return best_tier(current_core_isa_set()) == IsaTier::RiscvV ? SimdLevel::RVV : SimdLevel::Scalar;
+    }
 
 #else
 

@@ -54,10 +54,20 @@ namespace SFT::Async {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename F>
         [[nodiscard]] auto run(F &&fn) {
+            return run(std::forward<F>(fn), Foundation::Cpu::IsaSet{});
+        }
+
+        template <typename F>
+        [[nodiscard]] auto run(F &&fn, const Foundation::Cpu::IsaSet &required_isa) {
             using R = std::invoke_result_t<std::decay_t<F>>;
             auto state = std::make_shared<Detail::TaskState<R>>();
-            auto task = std::make_unique<Detail::ConcreteTask<std::decay_t<F>, R>>(std::forward<F>(fn), state);
-            enqueue(std::move(task));
+            auto task = std::make_unique<Detail::ConcreteTask<std::decay_t<F>, R>>(
+                std::forward<F>(fn), state, required_isa);
+            if (task->can_run_anywhere()) {
+                enqueue(std::move(task));
+            } else {
+                task->fail_isa_requirements();
+            }
             return TaskHandle<R>(std::move(state));
         }
 

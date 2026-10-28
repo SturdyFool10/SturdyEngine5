@@ -2,6 +2,7 @@
 
 #include <Foundation/Cpu/CpuTopology.hpp>
 #include <Foundation/Cpu/Extensions.hpp>
+#include <Foundation/Cpu/IsaSet.hpp>
 #include <Foundation/Types.hpp>
 
 #include <utility>
@@ -17,7 +18,12 @@ namespace SFT::Foundation::Cpu {
         usize l2_bytes = 0;
         usize l3_bytes = 0;
         u32 x2apic_id = 0;
+        u32 logical_cpu = 0;
+        u16 processor_group = 0;
         CoreType type = CoreType::Unknown;
+        bool os_supports_avx = false;
+        bool os_supports_avx512 = false;
+        bool per_thread_isa_detected = false;
 
         /// Performs the has operation for `CoreCapabilities` using the supplied arguments.
         ///
@@ -26,6 +32,8 @@ namespace SFT::Foundation::Cpu {
         /// @return Returns the boolean result of the operation.
         /// @note This function does not throw exceptions.
         [[nodiscard]] bool has(Extension extension) const noexcept;
+        [[nodiscard]] IsaSet isa_set() const noexcept;
+        [[nodiscard]] bool supports_isa(const IsaSet &required) const noexcept;
     };
 
 

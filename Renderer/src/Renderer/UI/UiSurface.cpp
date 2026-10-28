@@ -16,14 +16,8 @@ namespace SFT::UI {
         }
         create_attempted_ = true;
 
-        if (!context_created_) {
-            auto context = Context::create(Context::Config{});
-            if (!context) {
-                Foundation::log_error("UI::UiSurface: failed to create UI::Context: {}", context.error().message);
-                return false;
-            }
-            context_ = std::move(*context);
-            context_created_ = true;
+        if (!ensure_context()) {
+            return false;
         }
 
         auto renderer = UiRenderer::create(device, color_format);
@@ -35,6 +29,20 @@ namespace SFT::UI {
         auto guard = renderer_state_->renderer.lock();
         *guard = std::move(*renderer);
         renderer_state_->format.store(color_format);
+        return true;
+    }
+
+    bool UiSurface::ensure_context() {
+        if (context_created_) {
+            return true;
+        }
+        auto context = Context::create(Context::Config{});
+        if (!context) {
+            Foundation::log_error("UI::UiSurface: failed to create UI::Context: {}", context.error().message);
+            return false;
+        }
+        context_ = std::move(*context);
+        context_created_ = true;
         return true;
     }
 
@@ -60,6 +68,11 @@ namespace SFT::UI {
     Renderer::OverlayPass UiSurface::overlay_for_snapshot(std::shared_ptr<FrameSnapshot> snapshot,
                                                           Renderer::Renderer *texture_resolver, OverlayOptions options) {
         input_.end_text_frame(); // the frame's widgets have read what was typed
+        return make_overlay(std::move(snapshot), texture_resolver, std::move(options));
+    }
+
+    Renderer::OverlayPass UiSurface::make_overlay(std::shared_ptr<FrameSnapshot> snapshot, Renderer::Renderer *texture_resolver,
+                                                  OverlayOptions options) const {
         Renderer::OverlayPass overlay;
         overlay.name = std::move(options.name);
         overlay.hdr_reference_white_scale = options.hdr_reference_white_scale;

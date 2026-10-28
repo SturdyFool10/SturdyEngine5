@@ -62,6 +62,10 @@ namespace SFT::UI {
         [[nodiscard]] bool ensure_ready(RHI::RhiDevice &device, RHI::Format color_format);
         [[nodiscard]] bool ready() const;
 
+        /// Creates the layout context only (no GPU objects), so a UI can be laid out before a device exists or with
+        /// none at all (headless trees, tests). `ensure_ready` does this too. Returns false, and logs why, on failure.
+        [[nodiscard]] bool ensure_context();
+
         [[nodiscard]] Context &context() noexcept { return context_; }
         [[nodiscard]] UiInput &input() noexcept { return input_; }
         [[nodiscard]] const UiInput &input() const noexcept { return input_; }
@@ -93,6 +97,12 @@ namespace SFT::UI {
         [[nodiscard]] Renderer::OverlayPass overlay_for_snapshot(std::shared_ptr<FrameSnapshot> snapshot,
                                                                  Renderer::Renderer *texture_resolver,
                                                                  OverlayOptions options = {});
+
+        /// The overlay that draws `snapshot`, with no effect on `input()`. Unlike `overlay_for_snapshot` this does not end the
+        /// input's text frame, so the same snapshot can be drawn on several frames (a UI that was not rebuilt) or attached
+        /// later than it was finished. The caller ends the text frame once, when it finishes the layout.
+        [[nodiscard]] Renderer::OverlayPass make_overlay(std::shared_ptr<FrameSnapshot> snapshot, Renderer::Renderer *texture_resolver,
+                                                         OverlayOptions options = {}) const;
 
         /// Releases the GPU renderer only (a graphics reconstruction, an HDR toggle). The layout `Context` - fonts,
         /// text caches, widget state - is kept, so nothing has to be re-registered, and snapshots already handed to

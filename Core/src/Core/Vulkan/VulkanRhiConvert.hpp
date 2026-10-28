@@ -614,6 +614,17 @@ namespace SFT::Core::Vulkan {
         if (rhi::has_any(stages, S::RayTracingShader)) out |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
         if (rhi::has_any(stages, S::AccelerationStructureBuild))
             out |= VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+        // "Every graphics stage" must not name stages the device has not enabled (geometry, tessellation, task/mesh): validation
+        // rejects those bits without their features. ALL_GRAPHICS means exactly "every supported graphics stage".
+        if (rhi::has_all(stages, S::AllGraphics)) {
+            out &= ~(VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
+                     VK_PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT | VK_PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT |
+                     VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                     VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
+                     VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT |
+                     VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT);
+            out |= VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+        }
         if (stages == S::AllCommands) out = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         return out;
     }

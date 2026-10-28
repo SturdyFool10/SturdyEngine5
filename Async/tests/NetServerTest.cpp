@@ -57,6 +57,19 @@ int main() {
         check(server.send(bytes_of("pong")).wait().has_value(), "server send");
         auto reply = client.receive(16).wait();
         check(reply.has_value() && text_of(*reply) == "pong", "client must receive the server's reply");
+
+        CancellationSource receive_cancellation;
+        auto cancelled_receive = server.receive(16, receive_cancellation.token());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        check(receive_cancellation.cancel(), "TCP receive cancellation must transition exactly once");
+        bool cancellation_reported = false;
+        try {
+            (void)cancelled_receive.wait();
+        } catch (const IoOperationCancelled &) {
+            cancellation_reported = true;
+        }
+        check(cancellation_reported, "cancelling a pending TCP receive must report IoOperationCancelled");
+        check(server.is_open(), "cancelling TCP receive must not close the connection");
     }
 
     // A pending accept ends when the listener is closed.
@@ -66,6 +79,25 @@ int main() {
     auto ended = pending.wait();
     check(!ended.has_value(), "closing the listener must end a pending accept with an error");
     check(!listener.is_open(), "a closed listener reports closed");
+
+    auto cancellable_listener_result = TcpListener::listen("127.0.0.1", 0).wait();
+    check(cancellable_listener_result.has_value(), "a second listener must bind for cancellation testing");
+    if (cancellable_listener_result) {
+        TcpListener cancellable_listener = std::move(*cancellable_listener_result);
+        CancellationSource cancellation;
+        auto cancelled_accept = cancellable_listener.accept(cancellation.token());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        check(cancellation.cancel(), "accept cancellation must transition exactly once");
+        bool cancellation_reported = false;
+        try {
+            (void)cancelled_accept.wait();
+        } catch (const IoOperationCancelled &) {
+            cancellation_reported = true;
+        }
+        check(cancellation_reported, "cancelling a pending accept must report IoOperationCancelled");
+        check(cancellable_listener.is_open(), "cancelling accept must not close the listener");
+        cancellable_listener.close();
+    }
 
     // UDP: two sockets exchange a datagram; sender identity is reported.
     auto receiver_result = UdpSocket::bind("127.0.0.1", 0).wait();
@@ -82,6 +114,19 @@ int main() {
         check(datagram.has_value() && text_of(datagram->data) == "datagram", "the datagram must arrive intact");
         check(datagram.has_value() && datagram->sender_port == *sender_port && datagram->sender_host == "127.0.0.1",
               "the datagram must report who sent it");
+
+        CancellationSource receive_cancellation;
+        auto cancelled_receive = receiver.receive_from(64, receive_cancellation.token());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        check(receive_cancellation.cancel(), "UDP receive cancellation must transition exactly once");
+        bool receive_cancellation_reported = false;
+        try {
+            (void)cancelled_receive.wait();
+        } catch (const IoOperationCancelled &) {
+            receive_cancellation_reported = true;
+        }
+        check(receive_cancellation_reported, "cancelling a pending UDP receive must report IoOperationCancelled");
+        check(receiver.is_open(), "cancelling UDP receive must not close the socket");
 
         auto blocked = receiver.receive_from(64);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));

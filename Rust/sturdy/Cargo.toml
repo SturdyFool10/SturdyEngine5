@@ -7,6 +7,10 @@ authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Ergonomic Rust API for SturdyEngine 5, statically bundled"
+# Lets this crate publish build metadata to its dependents (see build.rs and the sturdy-build crate: the `export-symbols` feature needs a
+# linker flag that only the final executable can carry).
+links = "sturdy_rs"
+build = "build.rs"
 keywords = ["gamedev", "engine", "vulkan", "rhi"]
 categories = ["game-engines", "api-bindings", "rendering::engine"]
 
@@ -15,6 +19,11 @@ sturdy-sys = { path = "../sturdy-sys" }
 # Backs `#[derive(sturdy::Bundle)]` / `#[derive(Bundle)]` (via the prelude); see src/ecs.rs's
 # `Bundle` trait for what it generates.
 sturdy-macros = { path = "../sturdy-macros" }
+# Networking / files / processes / parallelism over the engine's C ABI (see `sturdy::net`). The C functions it declares are satisfied by the
+# engine static library `sturdy-sys` links (the FFI package is part of the shim's link line).
+sturdy-net = { path = "../sturdy-net" }
+# Scripts over the same C ABI (see `sturdy::script`).
+sturdy-script = { path = "../sturdy-script" }
 # Needed to name `cxx::UniquePtr<...>` in the RHI command-encoder RAII wrappers (sturdy-sys already
 # depends on this same version; see src/rhi.rs).
 cxx = "1"
@@ -38,6 +47,13 @@ raw-window-handle = { version = "0.6", optional = true }
 # Passthrough: an application picks its engine build configuration here instead of ever touching
 # sturdy-sys or CMake directly. See sturdy-sys/Cargo.toml for what each one maps to.
 [features]
+default = ["export-symbols"]
+## Exports the executable's symbols to its dynamic symbol table (`-rdynamic` / `--export-dynamic`, `-export_dynamic` on macOS) so the engine's
+## native stack traces (`sturdy::trace`, the crash handler, `sturdy::trace::install_panic_hook`) name functions at runtime, even in a release
+## build with `strip = "symbols"`. Costs a larger dynamic symbol table and symbols the linker cannot drop as unused. The flag has to be on the
+## final link line, which a library cannot arrange: add `sturdy-build` as a build-dependency and call `sturdy_build::emit()` from your
+## build.rs. Turn this off (`default-features = false`) for the smallest binary; traces still resolve offline from module offsets.
+export-symbols = ["sturdy-sys/export-symbols"]
 webgpu = ["sturdy-sys/webgpu"]
 glfw = ["sturdy-sys/glfw"]
 tracy = ["sturdy-sys/tracy"]

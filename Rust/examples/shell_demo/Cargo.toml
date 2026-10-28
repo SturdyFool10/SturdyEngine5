@@ -11,3 +11,7 @@ publish = false
 [dependencies]
 sturdy = { path = "../../sturdy" }
 glam = { version = "0.33", features = ["scalar-math"] }
+
+[build-dependencies]
+# Applies the `sturdy` crate's `export-symbols` link flag to this executable (see sturdy-build).
+sturdy-build = { path = "../../sturdy-build" }

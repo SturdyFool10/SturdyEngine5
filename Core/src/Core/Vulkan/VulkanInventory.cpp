@@ -58,6 +58,8 @@ namespace SFT::Core::Vulkan {
                 limits_.max_vertex_attributes = properties.limits.maxVertexInputAttributes;
                 limits_.max_color_attachments = properties.limits.maxColorAttachments;
                 limits_.timestamp_period_ns = properties.limits.timestampPeriod;
+                limits_.max_sampler_anisotropy =
+                    device_.features().samplerAnisotropy == VK_TRUE ? properties.limits.maxSamplerAnisotropy : 0.0f;
                 queues_.push_back({.queue = RHI::QueueClass::Graphics,
                                    .capabilities = RHI::QueueCapability::Graphics | RHI::QueueCapability::Compute |
                                                    RHI::QueueCapability::Transfer,

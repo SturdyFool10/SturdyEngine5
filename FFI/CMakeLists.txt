@@ -69,9 +69,10 @@ endif()
 # CPU state, so EcsFfiTest exercises real behavior, not just argument validation, with no GPU or
 # window.) ReflectionFfiTest needs neither: TypeRegistry is a process-wide singleton rather than
 # something owned by a SturdyEngine session, so it builds in both configurations.
-set(_sturdy_ffi_static_only_tests AbiContractTest EcsFfiTest AnimationFfiTest AudioFfiTest)
+set(_sturdy_ffi_static_only_tests AbiContractTest EcsFfiTest AnimationFfiTest AudioFfiTest ScriptFfiTest)
 # PluginFfiTest is registered separately below: it needs the path of the fixture plugin it loads.
-set(_sturdy_ffi_excluded_tests PluginFfiTest)
+# NetRustFixtureTest and ScriptRustFixtureTest likewise take the path of the Rust library they load.
+set(_sturdy_ffi_excluded_tests PluginFfiTest NetRustFixtureTest ScriptRustFixtureTest)
 if(STURDY_BUILD_SHARED_LIBS)
     list(APPEND _sturdy_ffi_excluded_tests ${_sturdy_ffi_static_only_tests})
 endif()
@@ -84,12 +85,20 @@ sturdy_add_tests(FFI
         AnimationFfiTest=FfiAnimationTest
         AudioFfiTest=FfiAudioTest
         ReflectionFfiTest=FfiReflectionTest
-        TraceFfiTest=FfiTraceTest)
+        TraceFfiTest=FfiTraceTest
+        AsyncNetFfiTest=FfiAsyncNetTest
+        AsyncServeFfiTest=FfiAsyncServeTest
+        ScriptFfiTest=FfiScriptTest)
 
 # Native plugins: a plugin is a shared library that exports `sturdy_plugin_entry` and knows the engine only through Sturdy.h, so the fixture
 # is plain C built as a loadable module (like the hot-reload fixtures) and the test opens it with a real dlopen/LoadLibrary. Static-only for
 # the same reason as the other tests that mint an engine handle.
 if(STURDY_TESTS_ENABLED AND NOT STURDY_BUILD_SHARED_LIBS)
+    # The documented template for a JavaScript / Lua / ... language adapter (FFI/examples/script_adapter) is compiled so it cannot rot.
+    add_library(FfiScriptAdapterSkeleton OBJECT examples/script_adapter/adapter_skeleton.c)
+    set_target_properties(FfiScriptAdapterSkeleton PROPERTIES C_STANDARD 99)
+    target_include_directories(FfiScriptAdapterSkeleton PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_options(FfiScriptAdapterSkeleton PRIVATE -Wall -Wextra -Werror)
     add_library(FfiPluginFixture MODULE tests/fixtures/PluginFixture.c)
     set_target_properties(FfiPluginFixture PROPERTIES C_VISIBILITY_PRESET hidden C_STANDARD 99)
     target_include_directories(FfiPluginFixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -121,7 +130,7 @@ if(STURDY_TESTS_ENABLED AND NOT STURDY_BUILD_SHARED_LIBS)
     if(STURDY_CARGO)
         set(_rust_safe_target "${CMAKE_CURRENT_BINARY_DIR}/rust_target")
         set(_rust_safe_plugin "${_rust_safe_target}/release/${CMAKE_SHARED_LIBRARY_PREFIX}plugin_fixture${CMAKE_SHARED_LIBRARY_SUFFIX}")
-        sturdy_glob(_rust_safe_sources RECURSE "${PROJECT_SOURCE_DIR}/Rust/sturdy-plugin/src/*.rs" "${PROJECT_SOURCE_DIR}/Rust/examples/plugin_fixture/src/*.rs")
+        sturdy_glob(_rust_safe_sources RECURSE "${PROJECT_SOURCE_DIR}/Rust/sturdy-plugin/src/*.rs" "${PROJECT_SOURCE_DIR}/Rust/sturdy-net/src/*.rs" "${PROJECT_SOURCE_DIR}/Rust/examples/plugin_fixture/src/*.rs")
         add_custom_command(OUTPUT "${_rust_safe_plugin}"
             COMMAND ${STURDY_CARGO} build --offline --release -p plugin_fixture --target-dir "${_rust_safe_target}"
                     --manifest-path "${PROJECT_SOURCE_DIR}/Rust/Cargo.toml"
@@ -133,6 +142,38 @@ if(STURDY_TESTS_ENABLED AND NOT STURDY_BUILD_SHARED_LIBS)
         set_tests_properties(FfiPluginSafeRustTest PROPERTIES TIMEOUT 120)
     else()
         message(STATUS "FfiPluginSafeRustTest skipped: cargo not found")
+    endif()
+
+    # The `sturdy-net` crate (Rust/sturdy-net: the networking / files / processes / parallelism C ABI behind safe async Rust) self-tests as a
+    # cdylib that this host loads and runs against the real engine. Needs no GPU or window. Skipped without cargo.
+    if(STURDY_CARGO AND NOT WIN32)
+        set(_rust_net_target "${CMAKE_CURRENT_BINARY_DIR}/rust_net_target")
+        set(_rust_net_lib "${_rust_net_target}/release/${CMAKE_SHARED_LIBRARY_PREFIX}net_fixture${CMAKE_SHARED_LIBRARY_SUFFIX}")
+        sturdy_glob(_rust_net_sources RECURSE "${PROJECT_SOURCE_DIR}/Rust/sturdy-net/src/*.rs" "${PROJECT_SOURCE_DIR}/Rust/examples/net_fixture/src/*.rs")
+        add_custom_command(OUTPUT "${_rust_net_lib}"
+            COMMAND ${STURDY_CARGO} build --offline --release -p net_fixture --target-dir "${_rust_net_target}"
+                    --manifest-path "${PROJECT_SOURCE_DIR}/Rust/Cargo.toml"
+            DEPENDS ${_rust_net_sources} "${CMAKE_CURRENT_SOURCE_DIR}/bindings/rust/sturdy_ffi.rs"
+            COMMENT "Building the sturdy-net self-test library")
+        add_custom_target(FfiNetRustFixture DEPENDS "${_rust_net_lib}")
+        sturdy_add_test(FFI tests/NetRustFixtureTest.cpp NAME FfiNetRustTest NO_TEST DEPENDS FfiNetRustFixture)
+        add_test(NAME FfiNetRustTest COMMAND FfiNetRustTest "${_rust_net_lib}")
+        set_tests_properties(FfiNetRustTest PROPERTIES TIMEOUT 120)
+
+        # The `sturdy-script` crate (Rust/sturdy-script) the same way: a Rust script, a language adapter and a host function, driven by a
+        # headless engine with a running composite game.
+        set(_rust_script_target "${CMAKE_CURRENT_BINARY_DIR}/rust_script_target")
+        set(_rust_script_lib "${_rust_script_target}/release/${CMAKE_SHARED_LIBRARY_PREFIX}script_fixture${CMAKE_SHARED_LIBRARY_SUFFIX}")
+        sturdy_glob(_rust_script_sources RECURSE "${PROJECT_SOURCE_DIR}/Rust/sturdy-net/src/*.rs" "${PROJECT_SOURCE_DIR}/Rust/sturdy-script/src/*.rs" "${PROJECT_SOURCE_DIR}/Rust/examples/script_fixture/src/*.rs")
+        add_custom_command(OUTPUT "${_rust_script_lib}"
+            COMMAND ${STURDY_CARGO} build --offline --release -p script_fixture --target-dir "${_rust_script_target}"
+                    --manifest-path "${PROJECT_SOURCE_DIR}/Rust/Cargo.toml"
+            DEPENDS ${_rust_script_sources} "${CMAKE_CURRENT_SOURCE_DIR}/bindings/rust/sturdy_ffi.rs"
+            COMMENT "Building the sturdy-script self-test library")
+        add_custom_target(FfiScriptRustFixture DEPENDS "${_rust_script_lib}")
+        sturdy_add_test(FFI tests/ScriptRustFixtureTest.cpp NAME FfiScriptRustTest NO_TEST DEPENDS FfiScriptRustFixture)
+        add_test(NAME FfiScriptRustTest COMMAND FfiScriptRustTest "${_rust_script_lib}")
+        set_tests_properties(FfiScriptRustTest PROPERTIES TIMEOUT 120)
     endif()
 endif()
 

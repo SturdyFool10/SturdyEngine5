@@ -84,6 +84,25 @@ namespace SFT::Ffi {
 
     } // namespace
 
+    namespace {
+        thread_local std::string t_callback_failure_detail;
+    } // namespace
+
+    void set_callback_failure_detail(std::string message) noexcept {
+        try {
+            t_callback_failure_detail = std::move(message);
+        } catch (...) {
+        }
+    }
+
+    std::string take_callback_failure_detail() noexcept {
+        try {
+            return std::exchange(t_callback_failure_detail, std::string{});
+        } catch (...) {
+            return {};
+        }
+    }
+
     SturdyResult set_error(SturdyResult result, std::string_view message) noexcept {
         return report_failure(result, message, false);
     }

@@ -1,0 +1,14 @@
+[package]
+name = "script_fixture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+description = "Self-test cdylib for sturdy-script (loaded by FFI/tests/ScriptRustFixtureTest.cpp)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sturdy-script = { path = "../../sturdy-script" }

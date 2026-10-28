@@ -66,6 +66,8 @@ namespace SFT::Renderer {
         RHI::Format output_format = RHI::Format::Undefined;
         bool hdr_output = false;
         Core::HdrColorSpaceMode hdr_color_space{};
+        /// The output is a float off-screen target that takes linear, unclamped values (see `OffscreenRenderTargetDescription`).
+        bool linear_output = false;
         /// True when the frame is only a UI overlay drawn straight onto the target (no scene, no tone
         /// mapping): the scene-side features have nothing to do.
         bool direct_overlay_presentation = false;

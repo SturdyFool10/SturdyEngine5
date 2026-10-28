@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["sturdy-sys", "sturdy", "sturdy-macros", "sturdy-plugin", "examples/hello", "examples/hot_module", "examples/plugin_fixture", "examples/plugin_demo", "examples/ui_idle", "examples/shell_demo", "examples/offscreen_view", "examples/webgpu_overlay"]
+members = ["sturdy-sys", "sturdy", "sturdy-build", "sturdy-macros", "sturdy-plugin", "sturdy-net", "sturdy-script", "examples/net_fixture", "examples/script_fixture", "examples/hello", "examples/hot_module", "examples/plugin_fixture", "examples/plugin_demo", "examples/ui_idle", "examples/shell_demo", "examples/offscreen_view", "examples/webgpu_overlay"]
 
 [workspace.package]
 # Tracks the vendored engine's own `project(SturdyEngine5 VERSION ...)` in

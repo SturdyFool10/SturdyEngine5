@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class Sturdy {
     public static final int ABI_MAJOR = 0;
-    public static final int ABI_MINOR = 37;
+    public static final int ABI_MINOR = 40;
 
     private Sturdy() {}
 
@@ -89,6 +89,18 @@ public final class Sturdy {
         public static final int STURDY_AMBIENT_OCCLUSION_QUALITY_MEDIUM = 1;
         public static final int STURDY_AMBIENT_OCCLUSION_QUALITY_HIGH = 2;
         public static final int STURDY_AMBIENT_OCCLUSION_QUALITY_ULTRA = 3;
+    }
+
+    /** Optional parts of the build / machine, as a bit set from `sturdy_async_features`. */
+    public static final class SturdyAsyncFeature {
+        private SturdyAsyncFeature() {}
+        public static final int STURDY_ASYNC_FEATURE_QUIC = 1;
+        public static final int STURDY_ASYNC_FEATURE_HTTP2 = 2;
+        public static final int STURDY_ASYNC_FEATURE_HTTP3 = 4;
+        public static final int STURDY_ASYNC_FEATURE_IO_URING = 8;
+        public static final int STURDY_ASYNC_FEATURE_PROCESS = 16;
+        public static final int STURDY_ASYNC_FEATURE_GZIP = 32;
+        public static final int STURDY_ASYNC_FEATURE_NATIVE_FILE_WATCH = 64;
     }
 
     /** How a sound attached to an entity is anchored. */
@@ -272,6 +284,17 @@ public final class Sturdy {
         public static final int STURDY_FIELD_F64 = 10;
     }
 
+    /** SturdyFileMode */
+    public static final class SturdyFileMode {
+        private SturdyFileMode() {}
+        public static final int STURDY_FILE_READ = 1;
+        public static final int STURDY_FILE_WRITE = 2;
+        public static final int STURDY_FILE_CREATE = 4;
+        public static final int STURDY_FILE_TRUNCATE = 8;
+        public static final int STURDY_FILE_APPEND = 16;
+        public static final int STURDY_FILE_CREATE_NEW = 32;
+    }
+
     /** SturdyFilter */
     public static final class SturdyFilter {
         private SturdyFilter() {}
@@ -330,6 +353,13 @@ public final class Sturdy {
         public static final int STURDY_FORMAT_BC5_UNORM = 45;
         public static final int STURDY_FORMAT_BC7_UNORM = 46;
         public static final int STURDY_FORMAT_BC7_UNORM_SRGB = 47;
+    }
+
+    /** SturdyFrameCodec */
+    public static final class SturdyFrameCodec {
+        private SturdyFrameCodec() {}
+        public static final int STURDY_FRAME_LENGTH_DELIMITED = 0;
+        public static final int STURDY_FRAME_LINES = 1;
     }
 
     /** The "FPS Limit" dial: how the render loop caps its own dispatch rate, independent of and composing with whatever the resolved present mode is already doing. Matches `Core::FrameRateLimitMode`. */
@@ -405,11 +435,40 @@ public final class Sturdy {
         public static final int STURDY_HDR_TRANSFER_FUNCTION_LINEAR_EXTENDED = 4;
     }
 
+    /** SturdyHttpResponseKind */
+    public static final class SturdyHttpResponseKind {
+        private SturdyHttpResponseKind() {}
+        public static final int STURDY_HTTP_RESPONSE_TEXT = 0;
+        public static final int STURDY_HTTP_RESPONSE_HTML = 1;
+        public static final int STURDY_HTTP_RESPONSE_JSON = 2;
+        public static final int STURDY_HTTP_RESPONSE_REDIRECT = 3;
+    }
+
     /** SturdyIndexFormat */
     public static final class SturdyIndexFormat {
         private SturdyIndexFormat() {}
         public static final int STURDY_INDEX_FORMAT_UINT16 = 0;
         public static final int STURDY_INDEX_FORMAT_UINT32 = 1;
+    }
+
+    /** Why an operation failed. */
+    public static final class SturdyIoError {
+        private SturdyIoError() {}
+        public static final int STURDY_IO_NONE = 0;
+        public static final int STURDY_IO_NOT_FOUND = 1;
+        public static final int STURDY_IO_PERMISSION_DENIED = 2;
+        public static final int STURDY_IO_ALREADY_EXISTS = 3;
+        public static final int STURDY_IO_INVALID_ARGUMENT = 4;
+        public static final int STURDY_IO_CONNECTION_REFUSED = 5;
+        public static final int STURDY_IO_CONNECTION_RESET = 6;
+        public static final int STURDY_IO_TIMED_OUT = 7;
+        public static final int STURDY_IO_UNSUPPORTED = 8;
+        public static final int STURDY_IO_UNKNOWN = 9;
+        public static final int STURDY_IO_UNEXPECTED_EOF = 10;
+        public static final int STURDY_IO_CLOSED = 11;
+        public static final int STURDY_IO_TLS_FAILURE = 12;
+        public static final int STURDY_IO_LIMIT_EXCEEDED = 13;
+        public static final int STURDY_IO_PROTOCOL_ERROR = 14;
     }
 
     /** Presentation latency policy. Matches `Core::LatencyMode`. */
@@ -463,6 +522,26 @@ public final class Sturdy {
         public static final int STURDY_MOUSE_BUTTON_RIGHT = 3;
         public static final int STURDY_MOUSE_BUTTON_EXTRA1 = 4;
         public static final int STURDY_MOUSE_BUTTON_EXTRA2 = 5;
+    }
+
+    /** Element type for `sturdy_par_sort`. */
+    public static final class SturdyNumericType {
+        private SturdyNumericType() {}
+        public static final int STURDY_NUMERIC_F32 = 0;
+        public static final int STURDY_NUMERIC_F64 = 1;
+        public static final int STURDY_NUMERIC_I32 = 2;
+        public static final int STURDY_NUMERIC_I64 = 3;
+        public static final int STURDY_NUMERIC_U32 = 4;
+        public static final int STURDY_NUMERIC_U64 = 5;
+    }
+
+    /** Where an operation stands. */
+    public static final class SturdyOpStatus {
+        private SturdyOpStatus() {}
+        public static final int STURDY_OP_PENDING = 0;
+        public static final int STURDY_OP_OK = 1;
+        public static final int STURDY_OP_FAILED = 2;
+        public static final int STURDY_OP_CANCELLED = 3;
     }
 
     /** Matches `RHI::OpacityMicromapFormat`. */
@@ -553,6 +632,14 @@ public final class Sturdy {
         public static final int STURDY_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP = 4;
     }
 
+    /** SturdyProcessStream */
+    public static final class SturdyProcessStream {
+        private SturdyProcessStream() {}
+        public static final int STURDY_PROCESS_STDOUT = 0;
+        public static final int STURDY_PROCESS_STDERR = 1;
+        public static final int STURDY_PROCESS_STDIN = 2;
+    }
+
     /** Kind of work a query set records. */
     public static final class SturdyQueryType {
         private SturdyQueryType() {}
@@ -591,6 +678,15 @@ public final class Sturdy {
         public static final int STURDY_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL = 0;
         public static final int STURDY_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP = 1;
         public static final int STURDY_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP = 2;
+    }
+
+    /** SturdyReduction */
+    public static final class SturdyReduction {
+        private SturdyReduction() {}
+        public static final int STURDY_REDUCE_SUM = 0;
+        public static final int STURDY_REDUCE_PRODUCT = 1;
+        public static final int STURDY_REDUCE_MIN = 2;
+        public static final int STURDY_REDUCE_MAX = 3;
     }
 
     /** Render-graph stages that can be toggled per frame. */
@@ -647,6 +743,15 @@ public final class Sturdy {
         public static final int STURDY_ERROR_COMPONENT_NOT_BLITTABLE = 16;
         public static final int STURDY_ERROR_BUSY = 17;
         public static final int STURDY_ERROR_DEVICE_LOST = 18;
+    }
+
+    /** SturdyRingStatus */
+    public static final class SturdyRingStatus {
+        private SturdyRingStatus() {}
+        public static final int STURDY_RING_OK = 0;
+        public static final int STURDY_RING_FULL = 1;
+        public static final int STURDY_RING_EMPTY = 2;
+        public static final int STURDY_RING_TOO_LARGE = 3;
     }
 
     /** Rendering path the scene stage evaluates. */
@@ -714,6 +819,14 @@ public final class Sturdy {
         public static final int STURDY_SHAPE_TETRAHEDRON = 8;
     }
 
+    /** SturdyStdioMode */
+    public static final class SturdyStdioMode {
+        private SturdyStdioMode() {}
+        public static final int STURDY_STDIO_PIPE = 0;
+        public static final int STURDY_STDIO_NULL = 1;
+        public static final int STURDY_STDIO_INHERIT = 2;
+    }
+
     /** SturdyStencilOp */
     public static final class SturdyStencilOp {
         private SturdyStencilOp() {}
@@ -732,6 +845,14 @@ public final class Sturdy {
         private SturdyStoreOp() {}
         public static final int STURDY_STORE_OP_STORE = 0;
         public static final int STURDY_STORE_OP_DONT_CARE = 1;
+    }
+
+    /** SturdyTaskLane */
+    public static final class SturdyTaskLane {
+        private SturdyTaskLane() {}
+        public static final int STURDY_LANE_LIGHT = 0;
+        public static final int STURDY_LANE_HEAVY = 1;
+        public static final int STURDY_LANE_BLOCKING = 2;
     }
 
     /** How much work a task represents, which decides where the scheduler puts it. */
@@ -800,6 +921,14 @@ public final class Sturdy {
         public static final int STURDY_TRACE_FRAME_SCOPE = 1;
         public static final int STURDY_TRACE_FRAME_FOREIGN = 2;
         public static final int STURDY_TRACE_FRAME_UNWOUND = 3;
+    }
+
+    /** Result of a non-blocking send or receive. */
+    public static final class SturdyTryStatus {
+        private SturdyTryStatus() {}
+        public static final int STURDY_TRY_OK = 0;
+        public static final int STURDY_TRY_WOULD_BLOCK = 1;
+        public static final int STURDY_TRY_CLOSED = 2;
     }
 
     /** Which way an element stacks its children. */
@@ -1173,6 +1302,18 @@ public final class Sturdy {
     public static final long OFFSET_SturdyAsset_opaque = 0L;
     public static final long SIZE_SturdyAsset = 32L;
 
+    /** A long-lived object (connection, listener, server, file, ...). Owned until `sturdy_object_release`, which closes it. (size 8, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyAsyncObject = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("token")).withName("SturdyAsyncObject");
+    public static final long OFFSET_SturdyAsyncObject_token = 0L;
+    public static final long SIZE_SturdyAsyncObject = 8L;
+
+    /** A pending or finished operation. Owned until `sturdy_op_release`. (size 8, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyAsyncOp = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("token")).withName("SturdyAsyncOp");
+    public static final long OFFSET_SturdyAsyncOp_token = 0L;
+    public static final long SIZE_SturdyAsyncOp = 8L;
+
     /** SturdyAudioCapture (size 8, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyAudioCapture = MemoryLayout.structLayout(
             ValueLayout.JAVA_LONG.withName("token")).withName("SturdyAudioCapture");
@@ -1450,6 +1591,20 @@ public final class Sturdy {
     public static final long OFFSET_SturdyBufferTextureCopy_extent_depth_or_layers = 48L;
     public static final long SIZE_SturdyBufferTextureCopy = 56L;
 
+    /** Where a stream callback writes the item it produces (copied immediately). (size 8, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyBytesSink = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("internal")).withName("SturdyBytesSink");
+    public static final long OFFSET_SturdyBytesSink_internal = 0L;
+    public static final long SIZE_SturdyBytesSink = 8L;
+
+    /** A read-only view of bytes. (size 16, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyBytesView = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("data"),
+            ValueLayout.JAVA_LONG.withName("size")).withName("SturdyBytesView");
+    public static final long OFFSET_SturdyBytesView_data = 0L;
+    public static final long OFFSET_SturdyBytesView_size = 8L;
+    public static final long SIZE_SturdyBytesView = 16L;
+
     /** SturdyCameraEmulationSettings (size 52, alignment 4) */
     public static final MemoryLayout LAYOUT_SturdyCameraEmulationSettings = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
@@ -1716,6 +1871,38 @@ public final class Sturdy {
     public static final long OFFSET_SturdyComputePipelineDesc_compute = 16L;
     public static final long OFFSET_SturdyComputePipelineDesc_label = 40L;
     public static final long SIZE_SturdyComputePipelineDesc = 48L;
+
+    /** One cookie (RFC 6265). (size 48, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyCookie = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("name"),
+            ValueLayout.ADDRESS.withName("value"),
+            ValueLayout.ADDRESS.withName("domain"),
+            ValueLayout.ADDRESS.withName("path"),
+            ValueLayout.JAVA_BYTE.withName("domain_wide"),
+            ValueLayout.JAVA_BYTE.withName("secure"),
+            ValueLayout.JAVA_BYTE.withName("http_only"),
+            MemoryLayout.paddingLayout(5),
+            ValueLayout.JAVA_LONG.withName("expires_unix")).withName("SturdyCookie");
+    public static final long OFFSET_SturdyCookie_name = 0L;
+    public static final long OFFSET_SturdyCookie_value = 8L;
+    public static final long OFFSET_SturdyCookie_domain = 16L;
+    public static final long OFFSET_SturdyCookie_path = 24L;
+    public static final long OFFSET_SturdyCookie_domain_wide = 32L;
+    public static final long OFFSET_SturdyCookie_secure = 33L;
+    public static final long OFFSET_SturdyCookie_http_only = 34L;
+    public static final long OFFSET_SturdyCookie_expires_unix = 40L;
+    public static final long SIZE_SturdyCookie = 48L;
+
+    /** SturdyCopyOptions (size 24, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyCopyOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("chunk_bytes"),
+            ValueLayout.JAVA_LONG.withName("limit"),
+            ValueLayout.JAVA_BYTE.withName("shutdown_writer"),
+            MemoryLayout.paddingLayout(7)).withName("SturdyCopyOptions");
+    public static final long OFFSET_SturdyCopyOptions_chunk_bytes = 0L;
+    public static final long OFFSET_SturdyCopyOptions_limit = 8L;
+    public static final long OFFSET_SturdyCopyOptions_shutdown_writer = 16L;
+    public static final long SIZE_SturdyCopyOptions = 24L;
 
     /** The engine's raw D3D12 objects. (size 40, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyD3D12Handles = MemoryLayout.structLayout(
@@ -2141,6 +2328,233 @@ public final class Sturdy {
     public static final long OFFSET_SturdyHdrPresentationMode_requires_os_hdr_mode = 8L;
     public static final long SIZE_SturdyHdrPresentationMode = 12L;
 
+    /** How to verify a server (client side of TLS/QUIC/HTTPS/WSS). Chain and host name are always checked unless `pinned_sha256` names the exact certificate(s) accepted. (size 72, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyTlsClientOptions = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("server_name"),
+            ValueLayout.JAVA_BYTE.withName("no_system_roots"),
+            MemoryLayout.paddingLayout(7),
+            ValueLayout.ADDRESS.withName("ca_pem"),
+            ValueLayout.ADDRESS.withName("pinned_sha256"),
+            ValueLayout.JAVA_INT.withName("pinned_sha256_count"),
+            ValueLayout.JAVA_BYTE.withName("identify_peer_by_certificate_only"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.ADDRESS.withName("client_certificate_pem"),
+            ValueLayout.ADDRESS.withName("client_private_key_pem"),
+            ValueLayout.ADDRESS.withName("alpn"),
+            ValueLayout.JAVA_INT.withName("alpn_count"),
+            ValueLayout.JAVA_INT.withName("handshake_timeout_ms")).withName("SturdyTlsClientOptions");
+    public static final long OFFSET_SturdyTlsClientOptions_server_name = 0L;
+    public static final long OFFSET_SturdyTlsClientOptions_no_system_roots = 8L;
+    public static final long OFFSET_SturdyTlsClientOptions_ca_pem = 16L;
+    public static final long OFFSET_SturdyTlsClientOptions_pinned_sha256 = 24L;
+    public static final long OFFSET_SturdyTlsClientOptions_pinned_sha256_count = 32L;
+    public static final long OFFSET_SturdyTlsClientOptions_identify_peer_by_certificate_only = 36L;
+    public static final long OFFSET_SturdyTlsClientOptions_client_certificate_pem = 40L;
+    public static final long OFFSET_SturdyTlsClientOptions_client_private_key_pem = 48L;
+    public static final long OFFSET_SturdyTlsClientOptions_alpn = 56L;
+    public static final long OFFSET_SturdyTlsClientOptions_alpn_count = 64L;
+    public static final long OFFSET_SturdyTlsClientOptions_handshake_timeout_ms = 68L;
+    public static final long SIZE_SturdyTlsClientOptions = 72L;
+
+    /** SturdyHttpClientOptions (size 176, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyHttpClientOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("timeout_ms"),
+            ValueLayout.JAVA_INT.withName("max_redirects"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.JAVA_LONG.withName("max_response_body_bytes"),
+            ValueLayout.JAVA_BYTE.withName("no_keep_alive"),
+            ValueLayout.JAVA_BYTE.withName("no_decompress"),
+            ValueLayout.JAVA_BYTE.withName("cookies"),
+            ValueLayout.JAVA_BYTE.withName("no_http2"),
+            ValueLayout.JAVA_BYTE.withName("no_http3"),
+            ValueLayout.JAVA_BYTE.withName("http3_prior_knowledge"),
+            MemoryLayout.paddingLayout(2),
+            ValueLayout.ADDRESS.withName("user_agent"),
+            ValueLayout.ADDRESS.withName("proxy"),
+            ValueLayout.ADDRESS.withName("no_proxy"),
+            ValueLayout.JAVA_INT.withName("no_proxy_count"),
+            MemoryLayout.paddingLayout(4),
+            LAYOUT_SturdyTlsClientOptions.withName("tls"),
+            ValueLayout.JAVA_BYTE.withName("allow_https_downgrade"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_INT.withName("max_response_header_bytes"),
+            ValueLayout.JAVA_INT.withName("max_idle_connections_per_host"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.JAVA_LONG.withName("idle_connection_timeout_ms"),
+            ValueLayout.JAVA_LONG.withName("http3_connect_timeout_ms"),
+            LAYOUT_SturdyAsyncObject.withName("cookie_jar")).withName("SturdyHttpClientOptions");
+    public static final long OFFSET_SturdyHttpClientOptions_timeout_ms = 0L;
+    public static final long OFFSET_SturdyHttpClientOptions_max_redirects = 8L;
+    public static final long OFFSET_SturdyHttpClientOptions_max_response_body_bytes = 16L;
+    public static final long OFFSET_SturdyHttpClientOptions_no_keep_alive = 24L;
+    public static final long OFFSET_SturdyHttpClientOptions_no_decompress = 25L;
+    public static final long OFFSET_SturdyHttpClientOptions_cookies = 26L;
+    public static final long OFFSET_SturdyHttpClientOptions_no_http2 = 27L;
+    public static final long OFFSET_SturdyHttpClientOptions_no_http3 = 28L;
+    public static final long OFFSET_SturdyHttpClientOptions_http3_prior_knowledge = 29L;
+    public static final long OFFSET_SturdyHttpClientOptions_user_agent = 32L;
+    public static final long OFFSET_SturdyHttpClientOptions_proxy = 40L;
+    public static final long OFFSET_SturdyHttpClientOptions_no_proxy = 48L;
+    public static final long OFFSET_SturdyHttpClientOptions_no_proxy_count = 56L;
+    public static final long OFFSET_SturdyHttpClientOptions_tls = 64L;
+    public static final long OFFSET_SturdyHttpClientOptions_allow_https_downgrade = 136L;
+    public static final long OFFSET_SturdyHttpClientOptions_max_response_header_bytes = 140L;
+    public static final long OFFSET_SturdyHttpClientOptions_max_idle_connections_per_host = 144L;
+    public static final long OFFSET_SturdyHttpClientOptions_idle_connection_timeout_ms = 152L;
+    public static final long OFFSET_SturdyHttpClientOptions_http3_connect_timeout_ms = 160L;
+    public static final long OFFSET_SturdyHttpClientOptions_cookie_jar = 168L;
+    public static final long SIZE_SturdyHttpClientOptions = 176L;
+
+    /** One request, valid only during the handler call (copy what you keep). (size 104, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyHttpRequest = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("method"),
+            ValueLayout.ADDRESS.withName("target"),
+            ValueLayout.ADDRESS.withName("remote_address"),
+            ValueLayout.JAVA_INT.withName("version"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("headers"),
+            ValueLayout.JAVA_INT.withName("header_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("body"),
+            ValueLayout.JAVA_LONG.withName("body_size"),
+            ValueLayout.ADDRESS.withName("body_file"),
+            ValueLayout.ADDRESS.withName("path"),
+            ValueLayout.ADDRESS.withName("query"),
+            ValueLayout.ADDRESS.withName("params"),
+            ValueLayout.JAVA_INT.withName("param_count"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyHttpRequest");
+    public static final long OFFSET_SturdyHttpRequest_method = 0L;
+    public static final long OFFSET_SturdyHttpRequest_target = 8L;
+    public static final long OFFSET_SturdyHttpRequest_remote_address = 16L;
+    public static final long OFFSET_SturdyHttpRequest_version = 24L;
+    public static final long OFFSET_SturdyHttpRequest_headers = 32L;
+    public static final long OFFSET_SturdyHttpRequest_header_count = 40L;
+    public static final long OFFSET_SturdyHttpRequest_body = 48L;
+    public static final long OFFSET_SturdyHttpRequest_body_size = 56L;
+    public static final long OFFSET_SturdyHttpRequest_body_file = 64L;
+    public static final long OFFSET_SturdyHttpRequest_path = 72L;
+    public static final long OFFSET_SturdyHttpRequest_query = 80L;
+    public static final long OFFSET_SturdyHttpRequest_params = 88L;
+    public static final long OFFSET_SturdyHttpRequest_param_count = 96L;
+    public static final long SIZE_SturdyHttpRequest = 104L;
+
+    /** Answers one request. Owned until `sturdy_http_respond` (which consumes it); never release it otherwise. (size 8, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyHttpResponder = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("token")).withName("SturdyHttpResponder");
+    public static final long OFFSET_SturdyHttpResponder_token = 0L;
+    public static final long SIZE_SturdyHttpResponder = 8L;
+
+    /** A complete response. Zero-initialize, then set what you need: a status, headers, and one body — bytes, a file, or a stream. (size 80, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyHttpResponse = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("status"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("headers"),
+            ValueLayout.JAVA_INT.withName("header_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("body"),
+            ValueLayout.JAVA_LONG.withName("body_size"),
+            ValueLayout.JAVA_BYTE.withName("close_connection"),
+            MemoryLayout.paddingLayout(7),
+            ValueLayout.ADDRESS.withName("body_file"),
+            ValueLayout.JAVA_LONG.withName("body_offset"),
+            ValueLayout.JAVA_LONG.withName("body_length"),
+            ValueLayout.JAVA_BYTE.withName("limit_body_length"),
+            ValueLayout.JAVA_BYTE.withName("stream"),
+            ValueLayout.JAVA_BYTE.withName("sse"),
+            MemoryLayout.paddingLayout(1),
+            ValueLayout.JAVA_INT.withName("stream_queue")).withName("SturdyHttpResponse");
+    public static final long OFFSET_SturdyHttpResponse_status = 0L;
+    public static final long OFFSET_SturdyHttpResponse_headers = 8L;
+    public static final long OFFSET_SturdyHttpResponse_header_count = 16L;
+    public static final long OFFSET_SturdyHttpResponse_body = 24L;
+    public static final long OFFSET_SturdyHttpResponse_body_size = 32L;
+    public static final long OFFSET_SturdyHttpResponse_close_connection = 40L;
+    public static final long OFFSET_SturdyHttpResponse_body_file = 48L;
+    public static final long OFFSET_SturdyHttpResponse_body_offset = 56L;
+    public static final long OFFSET_SturdyHttpResponse_body_length = 64L;
+    public static final long OFFSET_SturdyHttpResponse_limit_body_length = 72L;
+    public static final long OFFSET_SturdyHttpResponse_stream = 73L;
+    public static final long OFFSET_SturdyHttpResponse_sse = 74L;
+    public static final long OFFSET_SturdyHttpResponse_stream_queue = 76L;
+    public static final long SIZE_SturdyHttpResponse = 80L;
+
+    /** SturdyHttpServerOptions (size 192, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyHttpServerOptions = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("bind_address"),
+            ValueLayout.JAVA_SHORT.withName("port"),
+            MemoryLayout.paddingLayout(6),
+            ValueLayout.ADDRESS.withName("tls_certificate_chain_file"),
+            ValueLayout.ADDRESS.withName("tls_private_key_file"),
+            ValueLayout.JAVA_INT.withName("handler_threads"),
+            ValueLayout.JAVA_INT.withName("max_connections"),
+            ValueLayout.JAVA_LONG.withName("max_request_body_bytes"),
+            ValueLayout.JAVA_INT.withName("max_request_header_bytes"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.JAVA_LONG.withName("max_response_body_bytes"),
+            ValueLayout.JAVA_INT.withName("max_connections_per_ip"),
+            ValueLayout.JAVA_BYTE.withName("no_http2"),
+            ValueLayout.JAVA_BYTE.withName("enable_http3"),
+            ValueLayout.JAVA_SHORT.withName("http3_port"),
+            ValueLayout.JAVA_INT.withName("io_threads"),
+            ValueLayout.JAVA_INT.withName("shutdown_timeout_ms"),
+            ValueLayout.JAVA_LONG.withName("spool_requests_above"),
+            ValueLayout.JAVA_LONG.withName("max_spooled_body_bytes"),
+            ValueLayout.JAVA_INT.withName("http2_max_concurrent_streams"),
+            ValueLayout.JAVA_INT.withName("http3_max_concurrent_streams"),
+            ValueLayout.JAVA_LONG.withName("http3_max_connections"),
+            ValueLayout.JAVA_LONG.withName("http3_max_connections_per_address"),
+            ValueLayout.JAVA_LONG.withName("websocket_max_message_bytes"),
+            ValueLayout.JAVA_LONG.withName("websocket_max_queued_send_bytes"),
+            ValueLayout.JAVA_LONG.withName("websocket_idle_timeout_ms"),
+            ValueLayout.JAVA_BYTE.withName("websocket_compression"),
+            MemoryLayout.paddingLayout(7),
+            ValueLayout.ADDRESS.withName("websocket_allowed_origins"),
+            ValueLayout.JAVA_INT.withName("websocket_allowed_origin_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("websocket_subprotocols"),
+            ValueLayout.JAVA_INT.withName("websocket_subprotocol_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.JAVA_LONG.withName("max_websockets")).withName("SturdyHttpServerOptions");
+    public static final long OFFSET_SturdyHttpServerOptions_bind_address = 0L;
+    public static final long OFFSET_SturdyHttpServerOptions_port = 8L;
+    public static final long OFFSET_SturdyHttpServerOptions_tls_certificate_chain_file = 16L;
+    public static final long OFFSET_SturdyHttpServerOptions_tls_private_key_file = 24L;
+    public static final long OFFSET_SturdyHttpServerOptions_handler_threads = 32L;
+    public static final long OFFSET_SturdyHttpServerOptions_max_connections = 36L;
+    public static final long OFFSET_SturdyHttpServerOptions_max_request_body_bytes = 40L;
+    public static final long OFFSET_SturdyHttpServerOptions_max_request_header_bytes = 48L;
+    public static final long OFFSET_SturdyHttpServerOptions_max_response_body_bytes = 56L;
+    public static final long OFFSET_SturdyHttpServerOptions_max_connections_per_ip = 64L;
+    public static final long OFFSET_SturdyHttpServerOptions_no_http2 = 68L;
+    public static final long OFFSET_SturdyHttpServerOptions_enable_http3 = 69L;
+    public static final long OFFSET_SturdyHttpServerOptions_http3_port = 70L;
+    public static final long OFFSET_SturdyHttpServerOptions_io_threads = 72L;
+    public static final long OFFSET_SturdyHttpServerOptions_shutdown_timeout_ms = 76L;
+    public static final long OFFSET_SturdyHttpServerOptions_spool_requests_above = 80L;
+    public static final long OFFSET_SturdyHttpServerOptions_max_spooled_body_bytes = 88L;
+    public static final long OFFSET_SturdyHttpServerOptions_http2_max_concurrent_streams = 96L;
+    public static final long OFFSET_SturdyHttpServerOptions_http3_max_concurrent_streams = 100L;
+    public static final long OFFSET_SturdyHttpServerOptions_http3_max_connections = 104L;
+    public static final long OFFSET_SturdyHttpServerOptions_http3_max_connections_per_address = 112L;
+    public static final long OFFSET_SturdyHttpServerOptions_websocket_max_message_bytes = 120L;
+    public static final long OFFSET_SturdyHttpServerOptions_websocket_max_queued_send_bytes = 128L;
+    public static final long OFFSET_SturdyHttpServerOptions_websocket_idle_timeout_ms = 136L;
+    public static final long OFFSET_SturdyHttpServerOptions_websocket_compression = 144L;
+    public static final long OFFSET_SturdyHttpServerOptions_websocket_allowed_origins = 152L;
+    public static final long OFFSET_SturdyHttpServerOptions_websocket_allowed_origin_count = 160L;
+    public static final long OFFSET_SturdyHttpServerOptions_websocket_subprotocols = 168L;
+    public static final long OFFSET_SturdyHttpServerOptions_websocket_subprotocol_count = 176L;
+    public static final long OFFSET_SturdyHttpServerOptions_max_websockets = 184L;
+    public static final long SIZE_SturdyHttpServerOptions = 192L;
+
+    /** A name/value pair (HTTP headers, environment variables). Both strings are null-terminated. (size 16, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyKeyValue = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("name"),
+            ValueLayout.ADDRESS.withName("value")).withName("SturdyKeyValue");
+    public static final long OFFSET_SturdyKeyValue_name = 0L;
+    public static final long OFFSET_SturdyKeyValue_value = 8L;
+    public static final long SIZE_SturdyKeyValue = 16L;
+
     /** Clustered local lighting (since 0.32). Every spot and point light (nearest/brightest first, up to `max_lights`) is binned into screen tiles x depth slices so each pixel evaluates only the lights that reach it; with `clustered` off the deferred pass falls back to the first 8 spot + 8 point lights. (size 28, alignment 4) */
     public static final MemoryLayout LAYOUT_SturdyLightingSettings = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
@@ -2205,6 +2619,63 @@ public final class Sturdy {
     public static final long OFFSET_SturdyMultisampleState_reserved = 9L;
     public static final long SIZE_SturdyMultisampleState = 12L;
 
+    /** A running script: callbacks plus the pointer they work on. Every callback may be null (a no-op). Fill it in `SturdyScriptLanguage::load`, or pass it to `sturdy_script_module_create_native`. Callbacks must not unwind. (size 88, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyScriptInstance = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("reserved"),
+            ValueLayout.ADDRESS.withName("user_data"),
+            ValueLayout.ADDRESS.withName("start"),
+            ValueLayout.ADDRESS.withName("update"),
+            ValueLayout.ADDRESS.withName("request_render_frame"),
+            ValueLayout.ADDRESS.withName("stop"),
+            ValueLayout.ADDRESS.withName("save_state"),
+            ValueLayout.ADDRESS.withName("restore_state"),
+            ValueLayout.ADDRESS.withName("call"),
+            ValueLayout.ADDRESS.withName("on_message"),
+            ValueLayout.ADDRESS.withName("destroy")).withName("SturdyScriptInstance");
+    public static final long OFFSET_SturdyScriptInstance_struct_size = 0L;
+    public static final long OFFSET_SturdyScriptInstance_reserved = 4L;
+    public static final long OFFSET_SturdyScriptInstance_user_data = 8L;
+    public static final long OFFSET_SturdyScriptInstance_start = 16L;
+    public static final long OFFSET_SturdyScriptInstance_update = 24L;
+    public static final long OFFSET_SturdyScriptInstance_request_render_frame = 32L;
+    public static final long OFFSET_SturdyScriptInstance_stop = 40L;
+    public static final long OFFSET_SturdyScriptInstance_save_state = 48L;
+    public static final long OFFSET_SturdyScriptInstance_restore_state = 56L;
+    public static final long OFFSET_SturdyScriptInstance_call = 64L;
+    public static final long OFFSET_SturdyScriptInstance_on_message = 72L;
+    public static final long OFFSET_SturdyScriptInstance_destroy = 80L;
+    public static final long SIZE_SturdyScriptInstance = 88L;
+
+    /** A script built from callbacks directly (no language adapter): the way compiled languages write scripts. (size 120, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyNativeScriptDesc = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("reserved"),
+            ValueLayout.ADDRESS.withName("name"),
+            LAYOUT_SturdyScriptInstance.withName("instance"),
+            ValueLayout.ADDRESS.withName("after"),
+            ValueLayout.JAVA_INT.withName("after_count"),
+            ValueLayout.JAVA_BYTE.withName("contributes_scene"),
+            MemoryLayout.paddingLayout(3)).withName("SturdyNativeScriptDesc");
+    public static final long OFFSET_SturdyNativeScriptDesc_struct_size = 0L;
+    public static final long OFFSET_SturdyNativeScriptDesc_reserved = 4L;
+    public static final long OFFSET_SturdyNativeScriptDesc_name = 8L;
+    public static final long OFFSET_SturdyNativeScriptDesc_instance = 16L;
+    public static final long OFFSET_SturdyNativeScriptDesc_after = 104L;
+    public static final long OFFSET_SturdyNativeScriptDesc_after_count = 112L;
+    public static final long OFFSET_SturdyNativeScriptDesc_contributes_scene = 116L;
+    public static final long SIZE_SturdyNativeScriptDesc = 120L;
+
+    /** The result of `sturdy_par_reduce`: the field matching the element type (f32 and f64 use `f64`, i32 and i64 use `i64`, u32 and u64 use `u64`; 32-bit sums are accumulated in 64 bits). (size 24, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyNumericValue = MemoryLayout.structLayout(
+            ValueLayout.JAVA_DOUBLE.withName("f64"),
+            ValueLayout.JAVA_LONG.withName("i64"),
+            ValueLayout.JAVA_LONG.withName("u64")).withName("SturdyNumericValue");
+    public static final long OFFSET_SturdyNumericValue_f64 = 0L;
+    public static final long OFFSET_SturdyNumericValue_i64 = 8L;
+    public static final long OFFSET_SturdyNumericValue_u64 = 16L;
+    public static final long SIZE_SturdyNumericValue = 24L;
+
     /** SturdyOpacityMicromapBuildDesc (size 56, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyOpacityMicromapBuildDesc = MemoryLayout.structLayout(
             LAYOUT_SturdyOpacityMicromap.withName("dst"),
@@ -2253,6 +2724,58 @@ public final class Sturdy {
     public static final long OFFSET_SturdyOpacityMicromapUsageCount_subdivision_level = 4L;
     public static final long OFFSET_SturdyOpacityMicromapUsageCount_format = 8L;
     public static final long SIZE_SturdyOpacityMicromapUsageCount = 12L;
+
+    /** SturdyPeerOptions (size 152, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyPeerOptions = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("network_id"),
+            ValueLayout.ADDRESS.withName("display_name"),
+            ValueLayout.ADDRESS.withName("identity_certificate_pem"),
+            ValueLayout.ADDRESS.withName("identity_private_key_pem"),
+            ValueLayout.JAVA_BYTE.withName("no_listen"),
+            MemoryLayout.paddingLayout(7),
+            ValueLayout.ADDRESS.withName("bind_address"),
+            ValueLayout.JAVA_SHORT.withName("port"),
+            MemoryLayout.paddingLayout(6),
+            ValueLayout.JAVA_LONG.withName("max_peers"),
+            ValueLayout.JAVA_LONG.withName("max_message_bytes"),
+            ValueLayout.ADDRESS.withName("allowed_peers"),
+            ValueLayout.JAVA_INT.withName("allowed_peer_count"),
+            ValueLayout.JAVA_BYTE.withName("no_peer_exchange"),
+            ValueLayout.JAVA_BYTE.withName("lan_discovery"),
+            ValueLayout.JAVA_BYTE.withName("no_auto_connect"),
+            MemoryLayout.paddingLayout(1),
+            ValueLayout.JAVA_LONG.withName("handshake_timeout_ms"),
+            ValueLayout.JAVA_LONG.withName("max_pending_inbound"),
+            ValueLayout.JAVA_LONG.withName("ping_interval_ms"),
+            ValueLayout.JAVA_LONG.withName("idle_timeout_ms"),
+            ValueLayout.JAVA_LONG.withName("event_queue"),
+            ValueLayout.JAVA_SHORT.withName("discovery_port"),
+            MemoryLayout.paddingLayout(6),
+            ValueLayout.ADDRESS.withName("discovery_group"),
+            ValueLayout.JAVA_LONG.withName("discovery_interval_ms")).withName("SturdyPeerOptions");
+    public static final long OFFSET_SturdyPeerOptions_network_id = 0L;
+    public static final long OFFSET_SturdyPeerOptions_display_name = 8L;
+    public static final long OFFSET_SturdyPeerOptions_identity_certificate_pem = 16L;
+    public static final long OFFSET_SturdyPeerOptions_identity_private_key_pem = 24L;
+    public static final long OFFSET_SturdyPeerOptions_no_listen = 32L;
+    public static final long OFFSET_SturdyPeerOptions_bind_address = 40L;
+    public static final long OFFSET_SturdyPeerOptions_port = 48L;
+    public static final long OFFSET_SturdyPeerOptions_max_peers = 56L;
+    public static final long OFFSET_SturdyPeerOptions_max_message_bytes = 64L;
+    public static final long OFFSET_SturdyPeerOptions_allowed_peers = 72L;
+    public static final long OFFSET_SturdyPeerOptions_allowed_peer_count = 80L;
+    public static final long OFFSET_SturdyPeerOptions_no_peer_exchange = 84L;
+    public static final long OFFSET_SturdyPeerOptions_lan_discovery = 85L;
+    public static final long OFFSET_SturdyPeerOptions_no_auto_connect = 86L;
+    public static final long OFFSET_SturdyPeerOptions_handshake_timeout_ms = 88L;
+    public static final long OFFSET_SturdyPeerOptions_max_pending_inbound = 96L;
+    public static final long OFFSET_SturdyPeerOptions_ping_interval_ms = 104L;
+    public static final long OFFSET_SturdyPeerOptions_idle_timeout_ms = 112L;
+    public static final long OFFSET_SturdyPeerOptions_event_queue = 120L;
+    public static final long OFFSET_SturdyPeerOptions_discovery_port = 128L;
+    public static final long OFFSET_SturdyPeerOptions_discovery_group = 136L;
+    public static final long OFFSET_SturdyPeerOptions_discovery_interval_ms = 144L;
+    public static final long SIZE_SturdyPeerOptions = 152L;
 
     /** Describes a pipeline layout to create. (size 40, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyPipelineLayoutDesc = MemoryLayout.structLayout(
@@ -2335,6 +2858,29 @@ public final class Sturdy {
     public static final long OFFSET_SturdyPluginLoadDesc_previous = 16L;
     public static final long SIZE_SturdyPluginLoadDesc = 24L;
 
+    /** Router port-mapping options. Zero means the default noted. (size 56, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyPortMapOptions = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("gateway"),
+            ValueLayout.JAVA_LONG.withName("lifetime_seconds"),
+            ValueLayout.JAVA_SHORT.withName("external_port"),
+            MemoryLayout.paddingLayout(6),
+            ValueLayout.JAVA_LONG.withName("timeout_ms"),
+            ValueLayout.JAVA_INT.withName("methods"),
+            ValueLayout.JAVA_SHORT.withName("gateway_port"),
+            MemoryLayout.paddingLayout(2),
+            ValueLayout.ADDRESS.withName("ssdp_host"),
+            ValueLayout.JAVA_SHORT.withName("ssdp_port"),
+            MemoryLayout.paddingLayout(6)).withName("SturdyPortMapOptions");
+    public static final long OFFSET_SturdyPortMapOptions_gateway = 0L;
+    public static final long OFFSET_SturdyPortMapOptions_lifetime_seconds = 8L;
+    public static final long OFFSET_SturdyPortMapOptions_external_port = 16L;
+    public static final long OFFSET_SturdyPortMapOptions_timeout_ms = 24L;
+    public static final long OFFSET_SturdyPortMapOptions_methods = 32L;
+    public static final long OFFSET_SturdyPortMapOptions_gateway_port = 36L;
+    public static final long OFFSET_SturdyPortMapOptions_ssdp_host = 40L;
+    public static final long OFFSET_SturdyPortMapOptions_ssdp_port = 48L;
+    public static final long SIZE_SturdyPortMapOptions = 56L;
+
     /** What a `SturdyPresentationSettings` request actually resolved to on the active backend and display, including whether the requested strategy, composite alpha, or full-screen-exclusive state degraded to something else. Mirrors `RHI::PresentationResolution` field-for-field. (size 36, alignment 4) */
     public static final MemoryLayout LAYOUT_SturdyPresentationResolution = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
@@ -2406,6 +2952,35 @@ public final class Sturdy {
     public static final long OFFSET_SturdyPresentationSettings_snap_frame_rate_limit_to_refresh = 72L;
     public static final long SIZE_SturdyPresentationSettings = 80L;
 
+    /** SturdyProcessOptions (size 64, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyProcessOptions = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("program"),
+            ValueLayout.ADDRESS.withName("args"),
+            ValueLayout.JAVA_INT.withName("arg_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("working_directory"),
+            ValueLayout.ADDRESS.withName("environment"),
+            ValueLayout.JAVA_INT.withName("environment_count"),
+            ValueLayout.JAVA_BYTE.withName("clear_environment"),
+            ValueLayout.JAVA_BYTE.withName("kill_on_release"),
+            MemoryLayout.paddingLayout(2),
+            ValueLayout.JAVA_INT.withName("stdin_mode"),
+            ValueLayout.JAVA_INT.withName("stdout_mode"),
+            ValueLayout.JAVA_INT.withName("stderr_mode"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyProcessOptions");
+    public static final long OFFSET_SturdyProcessOptions_program = 0L;
+    public static final long OFFSET_SturdyProcessOptions_args = 8L;
+    public static final long OFFSET_SturdyProcessOptions_arg_count = 16L;
+    public static final long OFFSET_SturdyProcessOptions_working_directory = 24L;
+    public static final long OFFSET_SturdyProcessOptions_environment = 32L;
+    public static final long OFFSET_SturdyProcessOptions_environment_count = 40L;
+    public static final long OFFSET_SturdyProcessOptions_clear_environment = 44L;
+    public static final long OFFSET_SturdyProcessOptions_kill_on_release = 45L;
+    public static final long OFFSET_SturdyProcessOptions_stdin_mode = 48L;
+    public static final long OFFSET_SturdyProcessOptions_stdout_mode = 52L;
+    public static final long OFFSET_SturdyProcessOptions_stderr_mode = 56L;
+    public static final long SIZE_SturdyProcessOptions = 64L;
+
     /** One push-constant range within a pipeline layout. (size 20, alignment 4) */
     public static final MemoryLayout LAYOUT_SturdyPushConstantRange = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("stages"),
@@ -2459,6 +3034,87 @@ public final class Sturdy {
     public static final long OFFSET_SturdyQueueInfo_dedicated = 21L;
     public static final long OFFSET_SturdyQueueInfo_reserved = 22L;
     public static final long SIZE_SturdyQueueInfo = 24L;
+
+    /** Limits both QUIC endpoints advertise. Zero means the default noted. (size 80, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyQuicLimits = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("idle_timeout_ms"),
+            ValueLayout.JAVA_LONG.withName("keep_alive_ms"),
+            ValueLayout.JAVA_LONG.withName("handshake_timeout_ms"),
+            ValueLayout.JAVA_INT.withName("max_bidirectional_streams"),
+            ValueLayout.JAVA_INT.withName("max_unidirectional_streams"),
+            ValueLayout.JAVA_LONG.withName("stream_receive_window"),
+            ValueLayout.JAVA_LONG.withName("connection_receive_window"),
+            ValueLayout.JAVA_BYTE.withName("no_datagrams"),
+            MemoryLayout.paddingLayout(7),
+            ValueLayout.JAVA_LONG.withName("stream_send_buffer"),
+            ValueLayout.JAVA_LONG.withName("datagram_receive_queue"),
+            ValueLayout.JAVA_LONG.withName("datagram_send_queue")).withName("SturdyQuicLimits");
+    public static final long OFFSET_SturdyQuicLimits_idle_timeout_ms = 0L;
+    public static final long OFFSET_SturdyQuicLimits_keep_alive_ms = 8L;
+    public static final long OFFSET_SturdyQuicLimits_handshake_timeout_ms = 16L;
+    public static final long OFFSET_SturdyQuicLimits_max_bidirectional_streams = 24L;
+    public static final long OFFSET_SturdyQuicLimits_max_unidirectional_streams = 28L;
+    public static final long OFFSET_SturdyQuicLimits_stream_receive_window = 32L;
+    public static final long OFFSET_SturdyQuicLimits_connection_receive_window = 40L;
+    public static final long OFFSET_SturdyQuicLimits_no_datagrams = 48L;
+    public static final long OFFSET_SturdyQuicLimits_stream_send_buffer = 56L;
+    public static final long OFFSET_SturdyQuicLimits_datagram_receive_queue = 64L;
+    public static final long OFFSET_SturdyQuicLimits_datagram_send_queue = 72L;
+    public static final long SIZE_SturdyQuicLimits = 80L;
+
+    /** SturdyQuicClientOptions (size 152, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyQuicClientOptions = MemoryLayout.structLayout(
+            LAYOUT_SturdyQuicLimits.withName("limits"),
+            LAYOUT_SturdyTlsClientOptions.withName("tls")).withName("SturdyQuicClientOptions");
+    public static final long OFFSET_SturdyQuicClientOptions_limits = 0L;
+    public static final long OFFSET_SturdyQuicClientOptions_tls = 80L;
+    public static final long SIZE_SturdyQuicClientOptions = 152L;
+
+    /** How to present and check identities on the accepting side. (size 64, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyTlsServerOptions = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("certificate_pem"),
+            ValueLayout.ADDRESS.withName("private_key_pem"),
+            ValueLayout.ADDRESS.withName("client_ca_pem"),
+            ValueLayout.JAVA_BYTE.withName("require_client_certificate"),
+            ValueLayout.JAVA_BYTE.withName("accept_any_client_certificate"),
+            MemoryLayout.paddingLayout(6),
+            ValueLayout.ADDRESS.withName("pinned_client_sha256"),
+            ValueLayout.JAVA_INT.withName("pinned_client_sha256_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("alpn"),
+            ValueLayout.JAVA_INT.withName("alpn_count"),
+            ValueLayout.JAVA_INT.withName("handshake_timeout_ms")).withName("SturdyTlsServerOptions");
+    public static final long OFFSET_SturdyTlsServerOptions_certificate_pem = 0L;
+    public static final long OFFSET_SturdyTlsServerOptions_private_key_pem = 8L;
+    public static final long OFFSET_SturdyTlsServerOptions_client_ca_pem = 16L;
+    public static final long OFFSET_SturdyTlsServerOptions_require_client_certificate = 24L;
+    public static final long OFFSET_SturdyTlsServerOptions_accept_any_client_certificate = 25L;
+    public static final long OFFSET_SturdyTlsServerOptions_pinned_client_sha256 = 32L;
+    public static final long OFFSET_SturdyTlsServerOptions_pinned_client_sha256_count = 40L;
+    public static final long OFFSET_SturdyTlsServerOptions_alpn = 48L;
+    public static final long OFFSET_SturdyTlsServerOptions_alpn_count = 56L;
+    public static final long OFFSET_SturdyTlsServerOptions_handshake_timeout_ms = 60L;
+    public static final long SIZE_SturdyTlsServerOptions = 64L;
+
+    /** SturdyQuicServerOptions (size 184, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyQuicServerOptions = MemoryLayout.structLayout(
+            LAYOUT_SturdyQuicLimits.withName("limits"),
+            LAYOUT_SturdyTlsServerOptions.withName("tls"),
+            ValueLayout.ADDRESS.withName("bind_address"),
+            ValueLayout.JAVA_SHORT.withName("port"),
+            MemoryLayout.paddingLayout(6),
+            ValueLayout.JAVA_LONG.withName("max_connections"),
+            ValueLayout.JAVA_LONG.withName("max_connections_per_address"),
+            ValueLayout.JAVA_BYTE.withName("no_address_validation"),
+            MemoryLayout.paddingLayout(7)).withName("SturdyQuicServerOptions");
+    public static final long OFFSET_SturdyQuicServerOptions_limits = 0L;
+    public static final long OFFSET_SturdyQuicServerOptions_tls = 80L;
+    public static final long OFFSET_SturdyQuicServerOptions_bind_address = 144L;
+    public static final long OFFSET_SturdyQuicServerOptions_port = 152L;
+    public static final long OFFSET_SturdyQuicServerOptions_max_connections = 160L;
+    public static final long OFFSET_SturdyQuicServerOptions_max_connections_per_address = 168L;
+    public static final long OFFSET_SturdyQuicServerOptions_no_address_validation = 176L;
+    public static final long SIZE_SturdyQuicServerOptions = 184L;
 
     /** Rasterizer fixed-function state. (size 32, alignment 4) */
     public static final MemoryLayout LAYOUT_SturdyRasterizationState = MemoryLayout.structLayout(
@@ -2641,6 +3297,33 @@ public final class Sturdy {
             ValueLayout.JAVA_LONG.withName("token")).withName("SturdyReflectionTypeBuilder");
     public static final long OFFSET_SturdyReflectionTypeBuilder_token = 0L;
     public static final long SIZE_SturdyReflectionTypeBuilder = 8L;
+
+    /** SturdyRelayOptions (size 136, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyRelayOptions = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("bind_address"),
+            ValueLayout.JAVA_SHORT.withName("port"),
+            ValueLayout.JAVA_BYTE.withName("use_tls"),
+            MemoryLayout.paddingLayout(5),
+            LAYOUT_SturdyTlsServerOptions.withName("tls"),
+            ValueLayout.JAVA_LONG.withName("max_sessions"),
+            ValueLayout.JAVA_LONG.withName("max_waiting"),
+            ValueLayout.JAVA_LONG.withName("max_waiting_per_address"),
+            ValueLayout.JAVA_LONG.withName("pair_timeout_ms"),
+            ValueLayout.JAVA_LONG.withName("idle_timeout_ms"),
+            ValueLayout.JAVA_LONG.withName("max_session_bytes"),
+            ValueLayout.JAVA_LONG.withName("max_token_bytes")).withName("SturdyRelayOptions");
+    public static final long OFFSET_SturdyRelayOptions_bind_address = 0L;
+    public static final long OFFSET_SturdyRelayOptions_port = 8L;
+    public static final long OFFSET_SturdyRelayOptions_use_tls = 10L;
+    public static final long OFFSET_SturdyRelayOptions_tls = 16L;
+    public static final long OFFSET_SturdyRelayOptions_max_sessions = 80L;
+    public static final long OFFSET_SturdyRelayOptions_max_waiting = 88L;
+    public static final long OFFSET_SturdyRelayOptions_max_waiting_per_address = 96L;
+    public static final long OFFSET_SturdyRelayOptions_pair_timeout_ms = 104L;
+    public static final long OFFSET_SturdyRelayOptions_idle_timeout_ms = 112L;
+    public static final long OFFSET_SturdyRelayOptions_max_session_bytes = 120L;
+    public static final long OFFSET_SturdyRelayOptions_max_token_bytes = 128L;
+    public static final long SIZE_SturdyRelayOptions = 136L;
 
     /** Handle to a finished, replayable render bundle. Unlike the encoder that produced it, this carries no scope of its own — like `SturdyBuffer`, it is an informational identifier the RHI device owns and validates until `sturdy_rhi_destroy_render_bundle`. (size 8, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyRenderBundle = MemoryLayout.structLayout(
@@ -2936,6 +3619,89 @@ public final class Sturdy {
     public static final long OFFSET_SturdyScreenSpaceGiSettings_max_radiance = 32L;
     public static final long SIZE_SturdyScreenSpaceGiSettings = 36L;
 
+    /** A language adapter an application registers to run scripts in an interpreter it provides. (size 56, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyScriptLanguage = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("reserved"),
+            ValueLayout.ADDRESS.withName("name"),
+            ValueLayout.ADDRESS.withName("extensions"),
+            ValueLayout.JAVA_INT.withName("extension_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("user_data"),
+            ValueLayout.ADDRESS.withName("load"),
+            ValueLayout.ADDRESS.withName("destroy")).withName("SturdyScriptLanguage");
+    public static final long OFFSET_SturdyScriptLanguage_struct_size = 0L;
+    public static final long OFFSET_SturdyScriptLanguage_reserved = 4L;
+    public static final long OFFSET_SturdyScriptLanguage_name = 8L;
+    public static final long OFFSET_SturdyScriptLanguage_extensions = 16L;
+    public static final long OFFSET_SturdyScriptLanguage_extension_count = 24L;
+    public static final long OFFSET_SturdyScriptLanguage_user_data = 32L;
+    public static final long OFFSET_SturdyScriptLanguage_load = 40L;
+    public static final long OFFSET_SturdyScriptLanguage_destroy = 48L;
+    public static final long SIZE_SturdyScriptLanguage = 56L;
+
+    /** A message between scripts. Valid only during `on_message`. (size 32, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyScriptMessage = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("from"),
+            ValueLayout.ADDRESS.withName("topic"),
+            ValueLayout.ADDRESS.withName("payload"),
+            ValueLayout.JAVA_LONG.withName("payload_size")).withName("SturdyScriptMessage");
+    public static final long OFFSET_SturdyScriptMessage_from = 0L;
+    public static final long OFFSET_SturdyScriptMessage_topic = 8L;
+    public static final long OFFSET_SturdyScriptMessage_payload = 16L;
+    public static final long OFFSET_SturdyScriptMessage_payload_size = 24L;
+    public static final long SIZE_SturdyScriptMessage = 32L;
+
+    /** Describes where a script comes from. Strings are copied unless noted. (size 64, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyScriptSource = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("reserved"),
+            ValueLayout.ADDRESS.withName("name"),
+            ValueLayout.ADDRESS.withName("language"),
+            ValueLayout.ADDRESS.withName("path"),
+            ValueLayout.ADDRESS.withName("code"),
+            ValueLayout.JAVA_LONG.withName("code_size"),
+            ValueLayout.ADDRESS.withName("options"),
+            ValueLayout.JAVA_INT.withName("option_count"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyScriptSource");
+    public static final long OFFSET_SturdyScriptSource_struct_size = 0L;
+    public static final long OFFSET_SturdyScriptSource_reserved = 4L;
+    public static final long OFFSET_SturdyScriptSource_name = 8L;
+    public static final long OFFSET_SturdyScriptSource_language = 16L;
+    public static final long OFFSET_SturdyScriptSource_path = 24L;
+    public static final long OFFSET_SturdyScriptSource_code = 32L;
+    public static final long OFFSET_SturdyScriptSource_code_size = 40L;
+    public static final long OFFSET_SturdyScriptSource_options = 48L;
+    public static final long OFFSET_SturdyScriptSource_option_count = 56L;
+    public static final long SIZE_SturdyScriptSource = 64L;
+
+    /** A script as a module: where it comes from and where it sits in the start order. (size 88, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyScriptModuleDesc = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("reserved"),
+            LAYOUT_SturdyScriptSource.withName("source"),
+            ValueLayout.ADDRESS.withName("after"),
+            ValueLayout.JAVA_INT.withName("after_count"),
+            ValueLayout.JAVA_BYTE.withName("contributes_scene"),
+            MemoryLayout.paddingLayout(3)).withName("SturdyScriptModuleDesc");
+    public static final long OFFSET_SturdyScriptModuleDesc_struct_size = 0L;
+    public static final long OFFSET_SturdyScriptModuleDesc_reserved = 4L;
+    public static final long OFFSET_SturdyScriptModuleDesc_source = 8L;
+    public static final long OFFSET_SturdyScriptModuleDesc_after = 72L;
+    public static final long OFFSET_SturdyScriptModuleDesc_after_count = 80L;
+    public static final long OFFSET_SturdyScriptModuleDesc_contributes_scene = 84L;
+    public static final long SIZE_SturdyScriptModuleDesc = 88L;
+
+    /** One engine update as a script sees it. (size 24, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyScriptTick = MemoryLayout.structLayout(
+            ValueLayout.JAVA_DOUBLE.withName("delta_seconds"),
+            ValueLayout.JAVA_DOUBLE.withName("elapsed_seconds"),
+            ValueLayout.JAVA_LONG.withName("tick")).withName("SturdyScriptTick");
+    public static final long OFFSET_SturdyScriptTick_delta_seconds = 0L;
+    public static final long OFFSET_SturdyScriptTick_elapsed_seconds = 8L;
+    public static final long OFFSET_SturdyScriptTick_tick = 16L;
+    public static final long SIZE_SturdyScriptTick = 24L;
+
     /** Handle to a timeline semaphore: a GPU-to-GPU (and GPU-to-host, via `sturdy_rhi_wait_semaphore`) synchronization primitive that counts up through a sequence of `u64` values rather than toggling once like a fence. Reach for this to order work across two queues (e.g. an upload on the transfer queue that a graphics-queue submission must wait on); use `SturdyFence` instead for the common "wait for this one submission to finish on the host" case. See the "RHI resources" section header for its lifetime rules. (size 8, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdySemaphore = MemoryLayout.structLayout(
             ValueLayout.JAVA_LONG.withName("id")).withName("SturdySemaphore");
@@ -3125,6 +3891,45 @@ public final class Sturdy {
     public static final long OFFSET_SturdySpawnOptions_transform = 24L;
     public static final long SIZE_SturdySpawnOptions = 88L;
 
+    /** One Server-Sent Event. Line breaks in `event` and `id` are dropped, so a hostile value cannot inject fields. (size 32, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdySseEvent = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("data"),
+            ValueLayout.ADDRESS.withName("event"),
+            ValueLayout.ADDRESS.withName("id"),
+            ValueLayout.JAVA_INT.withName("retry_ms"),
+            ValueLayout.JAVA_BYTE.withName("has_retry"),
+            MemoryLayout.paddingLayout(3)).withName("SturdySseEvent");
+    public static final long OFFSET_SturdySseEvent_data = 0L;
+    public static final long OFFSET_SturdySseEvent_event = 8L;
+    public static final long OFFSET_SturdySseEvent_id = 16L;
+    public static final long OFFSET_SturdySseEvent_retry_ms = 24L;
+    public static final long OFFSET_SturdySseEvent_has_retry = 28L;
+    public static final long SIZE_SturdySseEvent = 32L;
+
+    /** Static file serving options. Zero means the default noted. (size 56, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyStaticFilesOptions = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("root"),
+            ValueLayout.ADDRESS.withName("index_file"),
+            ValueLayout.ADDRESS.withName("cache_control"),
+            ValueLayout.JAVA_BYTE.withName("allow_dotfiles"),
+            ValueLayout.JAVA_BYTE.withName("follow_symlinks"),
+            ValueLayout.JAVA_BYTE.withName("no_precompressed"),
+            MemoryLayout.paddingLayout(5),
+            ValueLayout.ADDRESS.withName("spa_fallback"),
+            ValueLayout.ADDRESS.withName("mime_types"),
+            ValueLayout.JAVA_INT.withName("mime_type_count"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyStaticFilesOptions");
+    public static final long OFFSET_SturdyStaticFilesOptions_root = 0L;
+    public static final long OFFSET_SturdyStaticFilesOptions_index_file = 8L;
+    public static final long OFFSET_SturdyStaticFilesOptions_cache_control = 16L;
+    public static final long OFFSET_SturdyStaticFilesOptions_allow_dotfiles = 24L;
+    public static final long OFFSET_SturdyStaticFilesOptions_follow_symlinks = 25L;
+    public static final long OFFSET_SturdyStaticFilesOptions_no_precompressed = 26L;
+    public static final long OFFSET_SturdyStaticFilesOptions_spa_fallback = 32L;
+    public static final long OFFSET_SturdyStaticFilesOptions_mime_types = 40L;
+    public static final long OFFSET_SturdyStaticFilesOptions_mime_type_count = 48L;
+    public static final long SIZE_SturdyStaticFilesOptions = 56L;
+
     /** Identifies the render surface (window) a frame is being produced for. (size 8, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdySurface = MemoryLayout.structLayout(
             ValueLayout.JAVA_LONG.withName("id")).withName("SturdySurface");
@@ -3160,6 +3965,24 @@ public final class Sturdy {
             ValueLayout.JAVA_LONG.withName("token")).withName("SturdyTask");
     public static final long OFFSET_SturdyTask_token = 0L;
     public static final long SIZE_SturdyTask = 8L;
+
+    /** What the previous stage of an execution chain produced. (size 32, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyTaskInput = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("number"),
+            ValueLayout.ADDRESS.withName("bytes"),
+            ValueLayout.JAVA_LONG.withName("size"),
+            ValueLayout.ADDRESS.withName("text")).withName("SturdyTaskInput");
+    public static final long OFFSET_SturdyTaskInput_number = 0L;
+    public static final long OFFSET_SturdyTaskInput_bytes = 8L;
+    public static final long OFFSET_SturdyTaskInput_size = 16L;
+    public static final long OFFSET_SturdyTaskInput_text = 24L;
+    public static final long SIZE_SturdyTaskInput = 32L;
+
+    /** Where a task's result is written from inside its callback (copied immediately). (size 8, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyTaskOutput = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("internal")).withName("SturdyTaskOutput");
+    public static final long OFFSET_SturdyTaskOutput_internal = 0L;
+    public static final long SIZE_SturdyTaskOutput = 8L;
 
     /** Screen-space hint for where an IME should draw its candidate/composition window, in window coordinates (the same units as `SturdyWindowSnapshot::width`/`height` and mouse positions). `cursor_offset_x` is the caret's offset from `x` within that area, for IMEs that anchor the popup to caret position rather than the area's top-left corner. (size 20, alignment 4) */
     public static final MemoryLayout LAYOUT_SturdyTextInputArea = MemoryLayout.structLayout(
@@ -3389,6 +4212,19 @@ public final class Sturdy {
     public static final long OFFSET_SturdyTraceRaysDesc_height = 132L;
     public static final long OFFSET_SturdyTraceRaysDesc_depth = 136L;
     public static final long SIZE_SturdyTraceRaysDesc = 144L;
+
+    /** SturdyUdpOptions (size 24, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyUdpOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_BYTE.withName("reuse_address"),
+            ValueLayout.JAVA_BYTE.withName("broadcast"),
+            MemoryLayout.paddingLayout(6),
+            ValueLayout.JAVA_LONG.withName("receive_buffer"),
+            ValueLayout.JAVA_LONG.withName("send_buffer")).withName("SturdyUdpOptions");
+    public static final long OFFSET_SturdyUdpOptions_reuse_address = 0L;
+    public static final long OFFSET_SturdyUdpOptions_broadcast = 1L;
+    public static final long OFFSET_SturdyUdpOptions_receive_buffer = 8L;
+    public static final long OFFSET_SturdyUdpOptions_send_buffer = 16L;
+    public static final long SIZE_SturdyUdpOptions = 24L;
 
     /** One element in the layout tree. (size 88, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUiElement = MemoryLayout.structLayout(
@@ -3707,6 +4543,22 @@ public final class Sturdy {
     public static final long OFFSET_SturdyVulkanHandles_graphics_queue = 32L;
     public static final long SIZE_SturdyVulkanHandles = 40L;
 
+    /** SturdyWatchOptions (size 40, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyWatchOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_BYTE.withName("recursive"),
+            MemoryLayout.paddingLayout(7),
+            ValueLayout.JAVA_LONG.withName("debounce_ms"),
+            ValueLayout.JAVA_BYTE.withName("force_polling"),
+            MemoryLayout.paddingLayout(7),
+            ValueLayout.JAVA_LONG.withName("poll_interval_ms"),
+            ValueLayout.JAVA_LONG.withName("max_pending_events")).withName("SturdyWatchOptions");
+    public static final long OFFSET_SturdyWatchOptions_recursive = 0L;
+    public static final long OFFSET_SturdyWatchOptions_debounce_ms = 8L;
+    public static final long OFFSET_SturdyWatchOptions_force_polling = 16L;
+    public static final long OFFSET_SturdyWatchOptions_poll_interval_ms = 24L;
+    public static final long OFFSET_SturdyWatchOptions_max_pending_events = 32L;
+    public static final long SIZE_SturdyWatchOptions = 40L;
+
     /** The engine's raw WebGPU objects. (size 40, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyWebGpuHandles = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
@@ -3722,6 +4574,79 @@ public final class Sturdy {
     public static final long OFFSET_SturdyWebGpuHandles_device = 24L;
     public static final long OFFSET_SturdyWebGpuHandles_queue = 32L;
     public static final long SIZE_SturdyWebGpuHandles = 40L;
+
+    /** SturdyWebSocketOptions (size 48, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyWebSocketOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("max_message_bytes"),
+            ValueLayout.JAVA_LONG.withName("max_queued_send_bytes"),
+            ValueLayout.JAVA_LONG.withName("idle_timeout_ms"),
+            ValueLayout.JAVA_BYTE.withName("compression"),
+            MemoryLayout.paddingLayout(7),
+            ValueLayout.JAVA_LONG.withName("inbox_messages"),
+            ValueLayout.JAVA_LONG.withName("handshake_timeout_ms")).withName("SturdyWebSocketOptions");
+    public static final long OFFSET_SturdyWebSocketOptions_max_message_bytes = 0L;
+    public static final long OFFSET_SturdyWebSocketOptions_max_queued_send_bytes = 8L;
+    public static final long OFFSET_SturdyWebSocketOptions_idle_timeout_ms = 16L;
+    public static final long OFFSET_SturdyWebSocketOptions_compression = 24L;
+    public static final long OFFSET_SturdyWebSocketOptions_inbox_messages = 32L;
+    public static final long OFFSET_SturdyWebSocketOptions_handshake_timeout_ms = 40L;
+    public static final long SIZE_SturdyWebSocketOptions = 48L;
+
+    /** SturdyWebSocketClientOptions (size 160, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyWebSocketClientOptions = MemoryLayout.structLayout(
+            LAYOUT_SturdyWebSocketOptions.withName("socket"),
+            LAYOUT_SturdyTlsClientOptions.withName("tls"),
+            ValueLayout.ADDRESS.withName("headers"),
+            ValueLayout.JAVA_INT.withName("header_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("subprotocols"),
+            ValueLayout.JAVA_INT.withName("subprotocol_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.JAVA_LONG.withName("timeout_ms")).withName("SturdyWebSocketClientOptions");
+    public static final long OFFSET_SturdyWebSocketClientOptions_socket = 0L;
+    public static final long OFFSET_SturdyWebSocketClientOptions_tls = 48L;
+    public static final long OFFSET_SturdyWebSocketClientOptions_headers = 120L;
+    public static final long OFFSET_SturdyWebSocketClientOptions_header_count = 128L;
+    public static final long OFFSET_SturdyWebSocketClientOptions_subprotocols = 136L;
+    public static final long OFFSET_SturdyWebSocketClientOptions_subprotocol_count = 144L;
+    public static final long OFFSET_SturdyWebSocketClientOptions_timeout_ms = 152L;
+    public static final long SIZE_SturdyWebSocketClientOptions = 160L;
+
+    /** SturdyWebSocketServerOptions (size 200, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyWebSocketServerOptions = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("bind_address"),
+            ValueLayout.JAVA_SHORT.withName("port"),
+            MemoryLayout.paddingLayout(6),
+            LAYOUT_SturdyWebSocketOptions.withName("socket"),
+            ValueLayout.JAVA_BYTE.withName("use_tls"),
+            MemoryLayout.paddingLayout(7),
+            LAYOUT_SturdyTlsServerOptions.withName("tls"),
+            ValueLayout.ADDRESS.withName("allowed_origins"),
+            ValueLayout.JAVA_INT.withName("allowed_origin_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("paths"),
+            ValueLayout.JAVA_INT.withName("path_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("subprotocols"),
+            ValueLayout.JAVA_INT.withName("subprotocol_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.JAVA_LONG.withName("max_connections"),
+            ValueLayout.JAVA_INT.withName("max_request_header_bytes"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyWebSocketServerOptions");
+    public static final long OFFSET_SturdyWebSocketServerOptions_bind_address = 0L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_port = 8L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_socket = 16L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_use_tls = 64L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_tls = 72L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_allowed_origins = 136L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_allowed_origin_count = 144L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_paths = 152L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_path_count = 160L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_subprotocols = 168L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_subprotocol_count = 176L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_max_connections = 184L;
+    public static final long OFFSET_SturdyWebSocketServerOptions_max_request_header_bytes = 192L;
+    public static final long SIZE_SturdyWebSocketServerOptions = 200L;
 
     /** Configuration for a new window, as handed to `sturdy_window_spawn` / `sturdy_window_recreate_primary`. The window's graphics API always matches the engine's active backend — there is no field for it here, since a second window using a different backend is not something this engine supports. (size 48, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyWindowConfig = MemoryLayout.structLayout(
@@ -3801,10 +4726,22 @@ public final class Sturdy {
     public static final long SIZE_SturdyWindowSnapshot = 48L;
 
     // ---- callbacks: descriptors for Linker.upcallStub ----
+    public static final FunctionDescriptor DESCRIPTOR_SturdyArcDestroyFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyAsyncOpFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, LAYOUT_SturdyAsyncOp);
     public static final FunctionDescriptor DESCRIPTOR_SturdyAudioSinkCallback = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT);
     public static final FunctionDescriptor DESCRIPTOR_SturdyChunkSystemFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, LAYOUT_SturdyCommands, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyEcsVisitFn = FunctionDescriptor.ofVoid(LAYOUT_SturdyEntity, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyHttpHandlerFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, LAYOUT_SturdyHttpResponder);
     public static final FunctionDescriptor DESCRIPTOR_SturdyLogCallback = FunctionDescriptor.ofVoid(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyParChunkFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyParForFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyParLessFn = FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyParMapF64Fn = FunctionDescriptor.of(ValueLayout.JAVA_DOUBLE, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyParMapI64Fn = FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyParPredicateFn = FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyParReduceF64Fn = FunctionDescriptor.of(ValueLayout.JAVA_DOUBLE, ValueLayout.ADDRESS, ValueLayout.JAVA_DOUBLE, ValueLayout.JAVA_DOUBLE);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyParReduceI64Fn = FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyParScopeFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject);
     public static final FunctionDescriptor DESCRIPTOR_SturdyPluginEntryFn = FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyReflectionCopyConstructFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyReflectionDefaultConstructFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS);
@@ -3814,8 +4751,19 @@ public final class Sturdy {
     public static final FunctionDescriptor DESCRIPTOR_SturdyReflectionMethodFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyReflectionMoveConstructFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyReflectionObserverFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyRelayAuthorizeFn = FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyScriptHostFn = FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyStreamEachFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyStreamFilterMapFn = FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyStreamFoldFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyStreamMapFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyStreamPredicateFn = FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyStreamSourceFn = FunctionDescriptor.of(ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdySystemFn = FunctionDescriptor.ofVoid(LAYOUT_SturdyEntity, ValueLayout.ADDRESS, LAYOUT_SturdyCommands, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyTaskFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyTaskThenFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyTaskWorkFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyWebSocketFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS);
 
     // ---- the library ----
     private static final Linker LINKER = Linker.nativeLinker();
@@ -3982,6 +4930,51 @@ public final class Sturdy {
         return (int) h.invokeExact(settings);
     }
 
+    public static int sturdy_arc_bytes(MemorySegment arc, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_arc_bytes", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(arc, buffer, capacity, out_length);
+    }
+
+    public static int sturdy_arc_clone(MemorySegment arc, MemorySegment out_arc) throws Throwable {
+        MethodHandle h = handle("sturdy_arc_clone", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(arc, out_arc);
+    }
+
+    // A shared, reference-counted value: every clone is another handle to the same data, which is destroyed with the last one. Object "arc". This one holds a copy of `data` (immutable).
+    public static int sturdy_arc_create(MemorySegment data, long size, MemorySegment out_arc) throws Throwable {
+        MethodHandle h = handle("sturdy_arc_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(data, size, out_arc);
+    }
+
+    // An arc around a pointer of yours: share one native object (or a language runtime's handle to it) between languages and threads, with `destroy` called exactly once when the last handle is released. `destroy` may be null.
+    public static int sturdy_arc_create_foreign(MemorySegment pointer, MemorySegment destroy, MemorySegment out_arc) throws Throwable {
+        MethodHandle h = handle("sturdy_arc_create_foreign", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(pointer, destroy, out_arc);
+    }
+
+    // The foreign pointer (null for a bytes arc).
+    public static int sturdy_arc_pointer(MemorySegment arc, MemorySegment out_pointer) throws Throwable {
+        MethodHandle h = handle("sturdy_arc_pointer", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(arc, out_pointer);
+    }
+
+    public static int sturdy_arc_ptr_eq(MemorySegment a, MemorySegment b, MemorySegment out_same) throws Throwable {
+        MethodHandle h = handle("sturdy_arc_ptr_eq", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(a, b, out_same);
+    }
+
+    // How many references exist right now (a snapshot).
+    public static int sturdy_arc_use_count(MemorySegment arc, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_arc_use_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(arc, out_count);
+    }
+
+    // Bit set of `SturdyAsyncFeature`: which optional protocols this build contains and whether this machine supports them.
+    public static int sturdy_async_features(MemorySegment out_features) throws Throwable {
+        MethodHandle h = handle("sturdy_async_features", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_features);
+    }
+
     // Reports whether a task has finished.
     //
     // The non-blocking way to observe one: poll this from your frame callback rather than waiting.
@@ -4006,6 +4999,24 @@ public final class Sturdy {
         return (int) h.invokeExact(out_worker);
     }
 
+    // An async mutex / read-write lock protecting a byte-string value. Objects "async_mutex" / "async_rwlock".
+    public static int sturdy_async_mutex_create(MemorySegment initial, long size, MemorySegment out_mutex) throws Throwable {
+        MethodHandle h = handle("sturdy_async_mutex_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(initial, size, out_mutex);
+    }
+
+    // Waits for exclusive access. Object "mutex_guard".
+    public static int sturdy_async_mutex_lock(MemorySegment mutex, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_async_mutex_lock", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(mutex, out_op);
+    }
+
+    // `out_guard` receives the zero handle when the mutex is held.
+    public static int sturdy_async_mutex_try_lock(MemorySegment mutex, MemorySegment out_guard) throws Throwable {
+        MethodHandle h = handle("sturdy_async_mutex_try_lock", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(mutex, out_guard);
+    }
+
     // Releases a task handle.
     //
     // Does not cancel or wait. Releasing before the task finishes is fine and is the normal thing to do for fire-and-forget work; the task keeps running.
@@ -4014,6 +5025,22 @@ public final class Sturdy {
     public static int sturdy_async_release(MemorySegment task) throws Throwable {
         MethodHandle h = handle("sturdy_async_release", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyTask));
         return (int) h.invokeExact(task);
+    }
+
+    public static int sturdy_async_rwlock_create(MemorySegment initial, long size, MemorySegment out_lock) throws Throwable {
+        MethodHandle h = handle("sturdy_async_rwlock_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(initial, size, out_lock);
+    }
+
+    // Many readers or one writer; waiters queue in order, so a waiting writer is not starved. Objects "rwlock_read_guard" / "rwlock_write_guard".
+    public static int sturdy_async_rwlock_read(MemorySegment lock, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_async_rwlock_read", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(lock, out_op);
+    }
+
+    public static int sturdy_async_rwlock_write(MemorySegment lock, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_async_rwlock_write", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(lock, out_op);
     }
 
     // Runs `task` on a background thread.
@@ -4170,10 +5197,112 @@ public final class Sturdy {
         return (int) h.invokeExact(settings);
     }
 
+    // A rendezvous of `parties` callers. Object "barrier"; `sturdy_barrier_wait` has number 1 for exactly one of them (the last to arrive).
+    public static int sturdy_barrier_create(long parties, MemorySegment out_barrier) throws Throwable {
+        MethodHandle h = handle("sturdy_barrier_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(parties, out_barrier);
+    }
+
+    public static int sturdy_barrier_wait(MemorySegment barrier, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_barrier_wait", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(barrier, out_op);
+    }
+
     // Fills `settings` with `struct_size` and engine defaults.
     public static int sturdy_bloom_settings_init(MemorySegment settings) throws Throwable {
         MethodHandle h = handle("sturdy_bloom_settings_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(settings);
+    }
+
+    // Every receiver sees every message; one that falls `capacity` behind is told how many it missed. Objects "broadcast_sender" / "broadcast_receiver".
+    public static int sturdy_broadcast_create(long capacity, MemorySegment out_sender, MemorySegment out_receiver) throws Throwable {
+        MethodHandle h = handle("sturdy_broadcast_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(capacity, out_sender, out_receiver);
+    }
+
+    public static int sturdy_broadcast_receiver_clone(MemorySegment receiver, MemorySegment out_receiver) throws Throwable {
+        MethodHandle h = handle("sturdy_broadcast_receiver_clone", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, out_receiver);
+    }
+
+    // Number 0 and bytes: a message; number 1 and field `skipped`: this receiver lagged; number 2: the sender is gone. Cannot be cancelled.
+    public static int sturdy_broadcast_recv(MemorySegment receiver, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_broadcast_recv", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, out_op);
+    }
+
+    // `out_receivers` (may be null): the number of live receivers.
+    public static int sturdy_broadcast_send(MemorySegment sender, MemorySegment data, long size, MemorySegment out_receivers) throws Throwable {
+        MethodHandle h = handle("sturdy_broadcast_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, data, size, out_receivers);
+    }
+
+    public static int sturdy_broadcast_subscribe(MemorySegment sender, MemorySegment out_receiver) throws Throwable {
+        MethodHandle h = handle("sturdy_broadcast_subscribe", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, out_receiver);
+    }
+
+    // Sends what is pending.
+    public static int sturdy_buffered_flush(MemorySegment writer, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_buffered_flush", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(writer, out_op);
+    }
+
+    // Bytes: exactly `count`; `STURDY_IO_UNEXPECTED_EOF` when the stream ends first.
+    public static int sturdy_buffered_read_exact(MemorySegment reader, long count, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_buffered_read_exact", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(reader, count, out_op);
+    }
+
+    // Number 1 and text: one line without its terminator (LF or CRLF); number 0 at a clean end of stream. `max_bytes` 0: 64 KiB.
+    public static int sturdy_buffered_read_line(MemorySegment reader, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_buffered_read_line", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(reader, max_bytes, out_op);
+    }
+
+    // Bytes: up to `max_bytes` (empty at the end).
+    public static int sturdy_buffered_read_some(MemorySegment reader, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_buffered_read_some", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(reader, max_bytes, out_op);
+    }
+
+    // Number 1 and bytes: up to and including `delimiter`; number 0 at a clean end of stream; `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes`.
+    public static int sturdy_buffered_read_until(MemorySegment reader, MemorySegment delimiter, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_buffered_read_until", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(reader, delimiter, max_bytes, out_op);
+    }
+
+    public static int sturdy_buffered_reader_buffered(MemorySegment reader, MemorySegment out_bytes) throws Throwable {
+        MethodHandle h = handle("sturdy_buffered_reader_buffered", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(reader, out_bytes);
+    }
+
+    // Adds read-ahead to a reader (lines, delimiters, exact counts). One operation at a time per object. Object "buffered_reader".
+    public static int sturdy_buffered_reader_create(MemorySegment reader, int stream, long chunk_bytes, MemorySegment out_reader) throws Throwable {
+        MethodHandle h = handle("sturdy_buffered_reader_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(reader, stream, chunk_bytes, out_reader);
+    }
+
+    // Flushes, then shuts the underlying writer down.
+    public static int sturdy_buffered_shutdown(MemorySegment writer, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_buffered_shutdown", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(writer, out_op);
+    }
+
+    public static int sturdy_buffered_write(MemorySegment writer, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_buffered_write", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(writer, data, size, out_op);
+    }
+
+    // Batches small writes. Object "buffered_writer". `capacity` 0: 16 KiB.
+    public static int sturdy_buffered_writer_create(MemorySegment writer, int stream, long capacity, MemorySegment out_writer) throws Throwable {
+        MethodHandle h = handle("sturdy_buffered_writer_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(writer, stream, capacity, out_writer);
+    }
+
+    public static int sturdy_bytes_sink_set(MemorySegment sink, MemorySegment data, long size) throws Throwable {
+        MethodHandle h = handle("sturdy_bytes_sink_set", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(sink, data, size);
     }
 
     // Fills `settings` with `struct_size` and engine defaults (disabled — the body-camera look is opt-in).
@@ -4182,16 +5311,165 @@ public final class Sturdy {
         return (int) h.invokeExact(settings);
     }
 
+    // Cancels. `out_first` (may be null) says whether this call was the first.
+    public static int sturdy_cancel_source_cancel(MemorySegment source, MemorySegment out_first) throws Throwable {
+        MethodHandle h = handle("sturdy_cancel_source_cancel", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(source, out_first);
+    }
+
+    // A cancellation source and the tokens it hands out: cancel once, and everything armed on a token reacts. Objects "cancel_source" / "cancel_token".
+    public static int sturdy_cancel_source_create(MemorySegment out_source) throws Throwable {
+        MethodHandle h = handle("sturdy_cancel_source_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_source);
+    }
+
+    public static int sturdy_cancel_source_is_cancelled(MemorySegment source, MemorySegment out_cancelled) throws Throwable {
+        MethodHandle h = handle("sturdy_cancel_source_is_cancelled", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(source, out_cancelled);
+    }
+
+    public static int sturdy_cancel_source_token(MemorySegment source, MemorySegment out_token) throws Throwable {
+        MethodHandle h = handle("sturdy_cancel_source_token", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(source, out_token);
+    }
+
+    public static int sturdy_cancel_token_is_cancelled(MemorySegment token, MemorySegment out_cancelled) throws Throwable {
+        MethodHandle h = handle("sturdy_cancel_token_is_cancelled", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(token, out_cancelled);
+    }
+
+    // Finishes (OK) when the token is cancelled, at once if it already is.
+    public static int sturdy_cancel_token_wait(MemorySegment token, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_cancel_token_wait", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(token, out_op);
+    }
+
+    public static int sturdy_channel_close(MemorySegment end) throws Throwable {
+        MethodHandle h = handle("sturdy_channel_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(end);
+    }
+
+    // Bounded multi-producer channel holding up to `capacity` messages (at least 1). Objects "channel_sender" / "channel_receiver". It closes when the last sender is released or `sturdy_channel_close` is called on either end; buffered messages are still delivered.
+    public static int sturdy_channel_create(long capacity, MemorySegment out_sender, MemorySegment out_receiver) throws Throwable {
+        MethodHandle h = handle("sturdy_channel_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(capacity, out_sender, out_receiver);
+    }
+
+    public static int sturdy_channel_receiver_clone(MemorySegment receiver, MemorySegment out_receiver) throws Throwable {
+        MethodHandle h = handle("sturdy_channel_receiver_clone", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, out_receiver);
+    }
+
+    // Number 1 and bytes: the next message; number 0 once the channel is closed and drained.
+    public static int sturdy_channel_recv(MemorySegment receiver, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_channel_recv", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, out_op);
+    }
+
+    // Finishes once the message is buffered or handed to a receiver (waits while the channel is full); `STURDY_IO_CLOSED` when closed.
+    public static int sturdy_channel_send(MemorySegment sender, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_channel_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, data, size, out_op);
+    }
+
+    public static int sturdy_channel_sender_clone(MemorySegment sender, MemorySegment out_sender) throws Throwable {
+        MethodHandle h = handle("sturdy_channel_sender_clone", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, out_sender);
+    }
+
+    // Takes a buffered message if there is one: `out_status` says whether, and on `STURDY_TRY_OK` `out_op` is a finished op whose bytes are the message (otherwise `out_op` is the zero handle).
+    public static int sturdy_channel_try_recv(MemorySegment receiver, MemorySegment out_op, MemorySegment out_status) throws Throwable {
+        MethodHandle h = handle("sturdy_channel_try_recv", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, out_op, out_status);
+    }
+
+    public static int sturdy_channel_try_send(MemorySegment sender, MemorySegment data, long size, MemorySegment out_status) throws Throwable {
+        MethodHandle h = handle("sturdy_channel_try_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, data, size, out_status);
+    }
+
     // Fills `settings` with `struct_size` and engine defaults (disabled, neutral).
     public static int sturdy_color_grade_settings_init(MemorySegment settings) throws Throwable {
         MethodHandle h = handle("sturdy_color_grade_settings_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(settings);
     }
 
+    public static int sturdy_cookie_jar_add(MemorySegment jar, MemorySegment cookie) throws Throwable {
+        MethodHandle h = handle("sturdy_cookie_jar_add", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(jar, cookie);
+    }
+
+    // Every stored cookie as a finished op's fields `name:N`, `value:N`, `domain:N`, `path:N`, `domain_wide:N`, `secure:N`, `http_only:N`, `expires:N` (N = 0, 1, ...).
+    public static int sturdy_cookie_jar_all(MemorySegment jar, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_cookie_jar_all", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(jar, out_op);
+    }
+
+    public static int sturdy_cookie_jar_clear(MemorySegment jar) throws Throwable {
+        MethodHandle h = handle("sturdy_cookie_jar_clear", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(jar);
+    }
+
+    // A thread-safe cookie store: a client fills it from `Set-Cookie` and sends matching cookies. A Domain attribute must cover the request host and have at least two labels; IP hosts keep host-only cookies; the jar is capped (50 per domain, 3000 total). Object "cookie_jar".
+    public static int sturdy_cookie_jar_create(MemorySegment out_jar) throws Throwable {
+        MethodHandle h = handle("sturdy_cookie_jar_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_jar);
+    }
+
+    // "a=1; b=2" for the cookies that apply to a request (string-output convention; empty if none).
+    public static int sturdy_cookie_jar_header_for(MemorySegment jar, MemorySegment host, MemorySegment path, byte https, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_cookie_jar_header_for", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(jar, host, path, https, buffer, capacity, out_length);
+    }
+
+    public static int sturdy_cookie_jar_store_from_response(MemorySegment jar, MemorySegment host, MemorySegment path, byte https, MemorySegment response_headers, int header_count) throws Throwable {
+        MethodHandle h = handle("sturdy_cookie_jar_store_from_response", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(jar, host, path, https, response_headers, header_count);
+    }
+
+    // A named thread that runs submitted work one at a time, in order. Object "dedicated_thread".
+    public static int sturdy_dedicated_thread_create(MemorySegment name, MemorySegment out_thread) throws Throwable {
+        MethodHandle h = handle("sturdy_dedicated_thread_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(name, out_thread);
+    }
+
+    public static int sturdy_dedicated_thread_pin_to_core(MemorySegment thread, int core_index, MemorySegment out_pinned) throws Throwable {
+        MethodHandle h = handle("sturdy_dedicated_thread_pin_to_core", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(thread, core_index, out_pinned);
+    }
+
+    public static int sturdy_dedicated_thread_pin_to_fastest_core(MemorySegment thread, MemorySegment out_pinned) throws Throwable {
+        MethodHandle h = handle("sturdy_dedicated_thread_pin_to_fastest_core", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(thread, out_pinned);
+    }
+
+    public static int sturdy_dedicated_thread_run(MemorySegment thread, MemorySegment work, MemorySegment user_data, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_dedicated_thread_run", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(thread, work, user_data, out_op);
+    }
+
     // Fills `settings` with `struct_size` and engine defaults (disabled).
     public static int sturdy_depth_of_field_settings_init(MemorySegment settings) throws Throwable {
         MethodHandle h = handle("sturdy_depth_of_field_settings_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(settings);
+    }
+
+    // Walks a directory entry by entry. Object "dir_iter".
+    public static int sturdy_dir_iter_create(MemorySegment path, byte recursive, MemorySegment out_iter) throws Throwable {
+        MethodHandle h = handle("sturdy_dir_iter_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, recursive, out_iter);
+    }
+
+    // Number: 1 and text: the next path, or number 0 at the end.
+    public static int sturdy_dir_iter_next(MemorySegment iter, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_dir_iter_next", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(iter, out_op);
+    }
+
+    // Resolves a host name. Fields: one `address` per result (numeric text).
+    public static int sturdy_dns_resolve(MemorySegment host, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_dns_resolve", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(host, out_op);
     }
 
     // Registers a chunk system (since 0.35) with a removable handle. Declaration, ordering, conflict detection, `commands` and removal behave exactly as for `sturdy_ecs_add_system_ex`; only the body differs.
@@ -4540,6 +5818,98 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, out_x, out_y);
     }
 
+    // Lazy descriptions of work that compose and run later (the `Execution` layer). Object "exec_sender"; a sender may be started any number of times. The `user_data` of every stage must stay valid until the sender is released and no run of it is still going.
+    public static int sturdy_exec_just(MemorySegment work, MemorySegment user_data, int lane, MemorySegment out_sender) throws Throwable {
+        MethodHandle h = handle("sturdy_exec_just", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(work, user_data, lane, out_sender);
+    }
+
+    // Starts the chain. The op carries the last stage's number, bytes and text; cancelling it sets the token every stage receives.
+    public static int sturdy_exec_submit(MemorySegment sender, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_exec_submit", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, out_op);
+    }
+
+    // Starts the chain and blocks for it; `out_op` is a finished op (OK, or failed with the stage's error). Never call it from a worker thread.
+    public static int sturdy_exec_sync_wait(MemorySegment sender, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_exec_sync_wait", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, out_op);
+    }
+
+    // A sender that runs `then` on `lane` with the result of `sender`. A failure upstream skips it and propagates.
+    public static int sturdy_exec_then(MemorySegment sender, MemorySegment then, MemorySegment user_data, int lane, MemorySegment out_sender) throws Throwable {
+        MethodHandle h = handle("sturdy_exec_then", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, then, user_data, lane, out_sender);
+    }
+
+    public static int sturdy_file_close(MemorySegment file) throws Throwable {
+        MethodHandle h = handle("sturdy_file_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(file);
+    }
+
+    public static int sturdy_file_is_open(MemorySegment file, MemorySegment out_open) throws Throwable {
+        MethodHandle h = handle("sturdy_file_is_open", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(file, out_open);
+    }
+
+    // Opens a file for streaming and random access. Object "file". `mode` is a bit set of `SturdyFileMode`. Positional reads and writes use io_uring on Linux when available; nothing occupies a worker thread while the kernel works.
+    public static int sturdy_file_open(MemorySegment path, int mode, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_file_open", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, mode, out_op);
+    }
+
+    // Reads up to `max_bytes` at the cursor (advancing it). Bytes: empty at end of file.
+    public static int sturdy_file_read(MemorySegment file, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_file_read", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(file, max_bytes, out_op);
+    }
+
+    // Reads at `offset` without touching the cursor.
+    public static int sturdy_file_read_at(MemorySegment file, long offset, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_file_read_at", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(file, offset, max_bytes, out_op);
+    }
+
+    // Reads from the cursor to the end; fails with `STURDY_IO_INVALID_ARGUMENT` if more than `max_bytes` remain.
+    public static int sturdy_file_read_to_end(MemorySegment file, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_file_read_to_end", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(file, max_bytes, out_op);
+    }
+
+    // Moves the cursor (`origin`: 0 start, 1 current, 2 end). Number: the new position.
+    public static int sturdy_file_seek(MemorySegment file, long offset, int origin, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_file_seek", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(file, offset, origin, out_op);
+    }
+
+    public static int sturdy_file_set_len(MemorySegment file, long length, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_file_set_len", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(file, length, out_op);
+    }
+
+    // Number: the size in bytes.
+    public static int sturdy_file_size(MemorySegment file, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_file_size", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(file, out_op);
+    }
+
+    // Flushes to stable storage (fsync, or fdatasync when `data_only`).
+    public static int sturdy_file_sync(MemorySegment file, byte data_only, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_file_sync", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(file, data_only, out_op);
+    }
+
+    // Writes all of `data` at the cursor. Number: bytes written.
+    public static int sturdy_file_write(MemorySegment file, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_file_write", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(file, data, size, out_op);
+    }
+
+    public static int sturdy_file_write_at(MemorySegment file, long offset, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_file_write_at", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(file, offset, data, size, out_op);
+    }
+
     // Points the camera at a world-space target, keeping `+Y` as up.
     public static int sturdy_frame_camera_look_at(MemorySegment frame, float x, float y, float z) throws Throwable {
         MethodHandle h = handle("sturdy_frame_camera_look_at", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyFrame, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_FLOAT));
@@ -4698,6 +6068,110 @@ public final class Sturdy {
         return (int) h.invokeExact(frame, settings);
     }
 
+    // Messages over a byte stream. `io` must read and write ("tcp", "file", "pipe_end"). `max_frame_bytes` 0: 8 MiB (64 KiB for lines). Object "framed".
+    public static int sturdy_framed_create(MemorySegment io, int codec, long max_frame_bytes, MemorySegment out_framed) throws Throwable {
+        MethodHandle h = handle("sturdy_framed_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(io, codec, max_frame_bytes, out_framed);
+    }
+
+    // Number 1 and bytes: the next frame; number 0 at a clean end of stream.
+    public static int sturdy_framed_next(MemorySegment framed, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_framed_next", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(framed, out_op);
+    }
+
+    public static int sturdy_framed_send(MemorySegment framed, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_framed_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(framed, data, size, out_op);
+    }
+
+    // The remaining frames as a "stream" object (do not call `sturdy_framed_next` meanwhile).
+    public static int sturdy_framed_stream(MemorySegment framed, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_framed_stream", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(framed, out_stream);
+    }
+
+    // How many frames `packed` holds; `STURDY_ERROR_INVALID_ARGUMENT` when it is malformed.
+    public static int sturdy_frames_count(MemorySegment packed, long size, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_frames_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(packed, size, out_count);
+    }
+
+    // Frame `index` (bytes-output convention).
+    public static int sturdy_frames_get(MemorySegment packed, long size, int index, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_frames_get", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(packed, size, index, buffer, capacity, out_length);
+    }
+
+    // Several byte strings in one: a 32-bit little-endian count, then each as a 32-bit little-endian length and its bytes. Used where an operation or stream item carries more than one value. Packs `count` views (bytes-output convention: null buffer to learn the size).
+    public static int sturdy_frames_pack(MemorySegment frames, int count, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_frames_pack", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(frames, count, buffer, capacity, out_length);
+    }
+
+    public static int sturdy_fs_copy(MemorySegment source, MemorySegment destination, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_copy", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(source, destination, out_op);
+    }
+
+    public static int sturdy_fs_create_directories(MemorySegment path, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_create_directories", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, out_op);
+    }
+
+    // Number: 1 if the path exists, else 0.
+    public static int sturdy_fs_exists(MemorySegment path, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_exists", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, out_op);
+    }
+
+    // Entry paths of a directory. Bytes: the paths as packed frames (`sturdy_frames_count` / `sturdy_frames_get`). Number: how many. At most `max_entries` (0: 4096); more fail with `STURDY_IO_INVALID_ARGUMENT`.
+    public static int sturdy_fs_list(MemorySegment path, long max_entries, byte recursive, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_list", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, max_entries, recursive, out_op);
+    }
+
+    // Reads a whole file on the IO lane. Bytes: the content; `STURDY_IO_INVALID_ARGUMENT` when it is larger than `max_bytes` (0: unlimited).
+    public static int sturdy_fs_read_file(MemorySegment path, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_read_file", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, max_bytes, out_op);
+    }
+
+    // Reads `byte_count` bytes at `offset` (fewer at the end of the file). Bytes: the content.
+    public static int sturdy_fs_read_range(MemorySegment path, long offset, long byte_count, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_read_range", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, offset, byte_count, out_op);
+    }
+
+    // Removes a directory and everything in it. Number: 1 if something was removed.
+    public static int sturdy_fs_remove_directory(MemorySegment path, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_remove_directory", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, out_op);
+    }
+
+    // Number: 1 if something was removed.
+    public static int sturdy_fs_remove_file(MemorySegment path, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_remove_file", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, out_op);
+    }
+
+    public static int sturdy_fs_rename(MemorySegment source, MemorySegment destination, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_rename", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(source, destination, out_op);
+    }
+
+    // Number: the size in bytes.
+    public static int sturdy_fs_size(MemorySegment path, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_size", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, out_op);
+    }
+
+    // Creates or replaces the file with `data`, or appends to it.
+    public static int sturdy_fs_write_file(MemorySegment path, MemorySegment data, long size, byte append, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_fs_write_file", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, data, size, append, out_op);
+    }
+
     // Imports a glTF or GLB file, creating a model asset for every mesh it contains.
     //
     // Importing does not put anything in the world — it produces assets and a description of how the file arranged them. Call `sturdy_gltf_spawn_all` to reproduce that arrangement, or walk the instances yourself if you want to filter or re-place them.
@@ -4778,6 +6252,233 @@ public final class Sturdy {
         return (int) h.invokeExact(out_gpus, capacity, out_count);
     }
 
+    // The protected value (bytes-output convention).
+    public static int sturdy_guard_get(MemorySegment guard, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_guard_get", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(guard, buffer, capacity, out_length);
+    }
+
+    // Unlocks now.
+    public static int sturdy_guard_release(MemorySegment guard) throws Throwable {
+        MethodHandle h = handle("sturdy_guard_release", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(guard);
+    }
+
+    // Replaces the value (mutex and write guards only).
+    public static int sturdy_guard_set(MemorySegment guard, MemorySegment data, long size) throws Throwable {
+        MethodHandle h = handle("sturdy_guard_set", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(guard, data, size);
+    }
+
+    // Finishes when the client disconnected or the server stopped, so a producer can stop. Cancelling it finishes it as cancelled.
+    public static int sturdy_http_body_closed(MemorySegment body, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_http_body_closed", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(body, out_op);
+    }
+
+    // Ends the body once queued chunks drain.
+    public static int sturdy_http_body_finish(MemorySegment body) throws Throwable {
+        MethodHandle h = handle("sturdy_http_body_finish", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(body);
+    }
+
+    // Queues a chunk. Finishes once it is accepted into the bounded queue (so a slow client paces the producer); fails with `STURDY_IO_CLOSED` once the client is gone or the body was finished.
+    public static int sturdy_http_body_write(MemorySegment body, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_http_body_write", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(body, data, size, out_op);
+    }
+
+    public static int sturdy_http_body_write_sse(MemorySegment body, MemorySegment event, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_http_body_write_sse", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(body, event, out_op);
+    }
+
+    // Closes idle pooled connections.
+    public static int sturdy_http_client_close_idle(MemorySegment client) throws Throwable {
+        MethodHandle h = handle("sturdy_http_client_close_idle", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(client);
+    }
+
+    // The jar a client uses (shared, not a copy). `STURDY_ERROR_NOT_AVAILABLE` when cookies are off.
+    public static int sturdy_http_client_cookie_jar(MemorySegment client, MemorySegment out_jar) throws Throwable {
+        MethodHandle h = handle("sturdy_http_client_cookie_jar", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(client, out_jar);
+    }
+
+    // Creates a client with a connection pool (HTTP/1.1 keep-alive, HTTP/2 multiplexing, HTTP/3 after `Alt-Svc`). Object "http_client".
+    public static int sturdy_http_client_create(MemorySegment options, MemorySegment out_client) throws Throwable {
+        MethodHandle h = handle("sturdy_http_client_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, out_client);
+    }
+
+    // Sends a request. Number: status. Fields: the response headers. Bytes: the body. Text: the final URL after redirects. Non-2xx statuses are ordinary results; only transport, TLS, protocol, limit and timeout problems fail the op. `X-` headers etc. are yours; `Host`, `Content-Length`, `Connection` and `Transfer-Encoding` are managed by the client and ignored if supplied.
+    public static int sturdy_http_client_request(MemorySegment client, MemorySegment method, MemorySegment url, MemorySegment headers, int header_count, MemorySegment body, long body_size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_http_client_request", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(client, method, url, headers, header_count, body, body_size, out_op);
+    }
+
+    // The wire format of one event, ending with the blank line that dispatches it (string-output convention).
+    public static int sturdy_http_format_sse(MemorySegment event, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_http_format_sse", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(event, buffer, capacity, out_length);
+    }
+
+    // Percent-decodes `text` (string-output convention); `STURDY_ERROR_INVALID_ARGUMENT` on a malformed escape or an encoded NUL.
+    public static int sturdy_http_percent_decode(MemorySegment text, byte plus_is_space, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_http_percent_decode", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(text, plus_is_space, buffer, capacity, out_length);
+    }
+
+    // Sends the response for a request. `headers` may be null. CR/LF in a header makes the server answer 500 instead.
+    public static int sturdy_http_respond(MemorySegment responder, int status, MemorySegment headers, int header_count, MemorySegment body, long body_size) throws Throwable {
+        MethodHandle h = handle("sturdy_http_respond", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyHttpResponder, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(responder, status, headers, header_count, body, body_size);
+    }
+
+    // Sends a canned response of `kind` with `status` (a redirect usually 302/301/307/308) and the null-terminated `body`.
+    public static int sturdy_http_respond_canned(MemorySegment responder, int kind, int status, MemorySegment body) throws Throwable {
+        MethodHandle h = handle("sturdy_http_respond_canned", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyHttpResponder, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(responder, kind, status, body);
+    }
+
+    // Sends a response. Fails (without spending `responder`) with `STURDY_ERROR_INVALID_ARGUMENT` if more than one body is given. For `stream` or `sse` responses `out_body` receives the writer object (required then); otherwise it is ignored and may be null. The writer is yours to release; releasing it ends the body.
+    public static int sturdy_http_respond_ex(MemorySegment responder, MemorySegment response, MemorySegment out_body) throws Throwable {
+        MethodHandle h = handle("sturdy_http_respond_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyHttpResponder, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(responder, response, out_body);
+    }
+
+    // Opens the listener and starts serving.
+    public static int sturdy_http_server_begin(MemorySegment server) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_begin", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(server);
+    }
+
+    // Creates a server without starting it, so WebSocket paths can be added first; `sturdy_http_server_begin` then starts it. Object "http_server". `handler` answers every request that is not a WebSocket upgrade.
+    public static int sturdy_http_server_create(MemorySegment options, MemorySegment handler, MemorySegment user_data, MemorySegment out_server) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, handler, user_data, out_server);
+    }
+
+    // Same, serving a router (see below). The router may be released afterwards: the server keeps an immutable snapshot of it.
+    public static int sturdy_http_server_create_router(MemorySegment options, MemorySegment router, MemorySegment out_server) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_create_router", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, router, out_server);
+    }
+
+    // 0 when HTTP/3 is not served.
+    public static int sturdy_http_server_http3_port(MemorySegment server, MemorySegment out_port) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_http3_port", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(server, out_port);
+    }
+
+    // Static server facts as a finished op's fields: `running`, `tls`, `http2` ("1"/"0"), `port`, `http3_port`.
+    public static int sturdy_http_server_info(MemorySegment server, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_info", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(server, out_op);
+    }
+
+    // Counters as a finished op's fields (decimal text): connections_accepted, requests, responses_2xx..5xx, active_connections, ...
+    public static int sturdy_http_server_metrics(MemorySegment server, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_metrics", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(server, out_op);
+    }
+
+    // Upgrades requests whose path (without query) equals `path` to WebSockets, on the same port and over TLS when the server uses it. Call before `sturdy_http_server_begin`. `user_data` must stay valid until the server object is released.
+    public static int sturdy_http_server_on_websocket(MemorySegment server, MemorySegment path, MemorySegment handler, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_on_websocket", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(server, path, handler, user_data);
+    }
+
+    public static int sturdy_http_server_port(MemorySegment server, MemorySegment out_port) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_port", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(server, out_port);
+    }
+
+    // Starts an HTTP(S) server. Object "http_server". Stops (and drains) when the object is released.
+    public static int sturdy_http_server_start(MemorySegment options, MemorySegment handler, MemorySegment user_data, MemorySegment out_server) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_start", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, handler, user_data, out_server);
+    }
+
+    // `sturdy_http_server_create_router` and `sturdy_http_server_begin` in one step.
+    public static int sturdy_http_server_start_router(MemorySegment options, MemorySegment router, MemorySegment out_server) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_start_router", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, router, out_server);
+    }
+
+    public static int sturdy_http_server_stop(MemorySegment server) throws Throwable {
+        MethodHandle h = handle("sturdy_http_server_stop", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(server);
+    }
+
+    // A periodic timer that does not drift. Object "interval"; `sturdy_interval_tick` finishes at each period boundary.
+    public static int sturdy_interval_create(long period_ms, MemorySegment out_interval) throws Throwable {
+        MethodHandle h = handle("sturdy_interval_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(period_ms, out_interval);
+    }
+
+    public static int sturdy_interval_tick(MemorySegment interval, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_interval_tick", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(interval, out_op);
+    }
+
+    // Copies until the reader ends, overlapping each read with the previous write. Number: bytes copied.
+    public static int sturdy_io_copy(MemorySegment reader, int reader_stream, MemorySegment writer, int writer_stream, MemorySegment options, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_io_copy", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(reader, reader_stream, writer, writer_stream, options, out_op);
+    }
+
+    // Tunes the blocking-IO lane (0 workers: automatic; 0 `max_pending`: 1024). `out_applied` says whether it took effect (false once it started).
+    public static int sturdy_io_lane_configure(int workers, int max_pending, MemorySegment out_applied) throws Throwable {
+        MethodHandle h = handle("sturdy_io_lane_configure", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(workers, max_pending, out_applied);
+    }
+
+    // Fields `backend`, `workers`, `pending`, `capacity` (a finished op).
+    public static int sturdy_io_lane_stats(MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_io_lane_stats", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_op);
+    }
+
+    // Bytes: everything until the reader ends; `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes` (0: unlimited).
+    public static int sturdy_io_read_to_end(MemorySegment reader, int stream, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_io_read_to_end", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(reader, stream, max_bytes, out_op);
+    }
+
+    public static int sturdy_io_write_all(MemorySegment writer, int stream, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_io_write_all", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(writer, stream, data, size, out_op);
+    }
+
+    // Sets the cancel token of every running task in the set.
+    public static int sturdy_join_set_abort_all(MemorySegment set) throws Throwable {
+        MethodHandle h = handle("sturdy_join_set_abort_all", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(set);
+    }
+
+    // A dynamic set of tasks joined in completion order. Object "join_set".
+    public static int sturdy_join_set_create(MemorySegment out_set) throws Throwable {
+        MethodHandle h = handle("sturdy_join_set_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_set);
+    }
+
+    // Finishes with the next task to complete. Field `outcome` is "ok", "failed" (field `error` says why) or "empty" (nothing left); number, bytes and text are the task's.
+    public static int sturdy_join_set_join_next(MemorySegment set, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_join_set_join_next", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(set, out_op);
+    }
+
+    public static int sturdy_join_set_len(MemorySegment set, MemorySegment out_len) throws Throwable {
+        MethodHandle h = handle("sturdy_join_set_len", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(set, out_len);
+    }
+
+    public static int sturdy_join_set_spawn(MemorySegment set, MemorySegment work, MemorySegment user_data, int lane) throws Throwable {
+        MethodHandle h = handle("sturdy_join_set_spawn", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(set, work, user_data, lane);
+    }
+
     // Detail for the most recent failing call **on the calling thread**.
     public static MemorySegment sturdy_last_error_message() throws Throwable {
         MethodHandle h = handle("sturdy_last_error_message", FunctionDescriptor.of(ValueLayout.ADDRESS));
@@ -4808,6 +6509,29 @@ public final class Sturdy {
         return (int) h.invokeExact(settings);
     }
 
+    // Runs queued tasks on the calling thread until `op` finishes (blocks).
+    public static int sturdy_local_set_block_on(MemorySegment set, MemorySegment op) throws Throwable {
+        MethodHandle h = handle("sturdy_local_set_block_on", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, LAYOUT_SturdyAsyncOp));
+        return (int) h.invokeExact(set, op);
+    }
+
+    // Tasks that run only on the thread that pumps the set. Object "local_set".
+    public static int sturdy_local_set_create(MemorySegment out_set) throws Throwable {
+        MethodHandle h = handle("sturdy_local_set_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_set);
+    }
+
+    // Runs queued tasks on the calling thread until none are left. `out_ran` (may be null): how many.
+    public static int sturdy_local_set_run_pending(MemorySegment set, MemorySegment out_ran) throws Throwable {
+        MethodHandle h = handle("sturdy_local_set_run_pending", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(set, out_ran);
+    }
+
+    public static int sturdy_local_set_spawn(MemorySegment set, MemorySegment work, MemorySegment user_data, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_local_set_spawn", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(set, work, user_data, out_op);
+    }
+
     // Registers a callback to receive every subsequent log message.
     public static int sturdy_log_add_sink(MemorySegment callback, MemorySegment user_data, MemorySegment out_sink) throws Throwable {
         MethodHandle h = handle("sturdy_log_add_sink", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
@@ -4818,6 +6542,47 @@ public final class Sturdy {
     public static int sturdy_log_remove_sink(MemorySegment sink) throws Throwable {
         MethodHandle h = handle("sturdy_log_remove_sink", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyLogSink));
         return (int) h.invokeExact(sink);
+    }
+
+    // Runs the queued main-thread work on the calling thread.
+    public static int sturdy_main_thread_pump() throws Throwable {
+        MethodHandle h = handle("sturdy_main_thread_pump", FunctionDescriptor.of(ValueLayout.JAVA_INT));
+        return (int) h.invokeExact();
+    }
+
+    // Queues `fn` for the engine's main thread (run when it pumps). `user_data` must stay valid until `fn` has run.
+    public static int sturdy_main_thread_run(MemorySegment fn, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_main_thread_run", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(fn, user_data);
+    }
+
+    // Installs a callback run (on the posting thread) after every queued job, so a loop that blocks waiting for events can wake and pump. Null removes it.
+    public static int sturdy_main_thread_set_wake_hook(MemorySegment hook, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_main_thread_set_wake_hook", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(hook, user_data);
+    }
+
+    // Two connected in-memory ends ("pipe_end"): what one writes the other reads. `chunks`: messages buffered per direction (0: 8).
+    public static int sturdy_memory_pipe_create(long chunks, MemorySegment out_end_a, MemorySegment out_end_b) throws Throwable {
+        MethodHandle h = handle("sturdy_memory_pipe_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(chunks, out_end_a, out_end_b);
+    }
+
+    // A reader over a copy of `data`. Object "memory_reader".
+    public static int sturdy_memory_reader_create(MemorySegment data, long size, MemorySegment out_reader) throws Throwable {
+        MethodHandle h = handle("sturdy_memory_reader_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(data, size, out_reader);
+    }
+
+    public static int sturdy_memory_writer_bytes(MemorySegment writer, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_memory_writer_bytes", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(writer, buffer, capacity, out_length);
+    }
+
+    // A writer that collects what it is given. Object "memory_writer".
+    public static int sturdy_memory_writer_create(MemorySegment out_writer) throws Throwable {
+        MethodHandle h = handle("sturdy_memory_writer_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_writer);
     }
 
     // Imports a model file of any supported format, chosen from its extension: `.gltf`/`.glb`, `.fbx`, `.obj`. Same ownership and release rules as `sturdy_gltf_import`; the handle works with every `sturdy_gltf_*` call.
@@ -4868,6 +6633,30 @@ public final class Sturdy {
         return (int) h.invokeExact(settings);
     }
 
+    // The default gateway's address ("" when it cannot be determined).
+    public static int sturdy_nat_default_gateway(MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_nat_default_gateway", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(buffer, capacity, out_length);
+    }
+
+    // Asks the router to forward a public port to this machine (PCP, NAT-PMP or UPnP IGD). Object "mapping". Number: granted lifetime in seconds (0: permanent — remove it yourself). Fields: external_host, external_port, method, gateway. Renew before half the lifetime.
+    public static int sturdy_nat_map_port(byte tcp, short internal_port, MemorySegment options, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_nat_map_port", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_BYTE, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(tcp, internal_port, options, out_op);
+    }
+
+    // UDP hole punching: both peers call this at once with the other's candidate addresses ("host:port") and a shared secret. Text/number: the candidate that answered; keep using the same socket afterwards. Fails with `STURDY_IO_TIMED_OUT` (typical of symmetric NATs: use a relay).
+    public static int sturdy_nat_punch_hole(MemorySegment udp_socket, MemorySegment candidates, int candidate_count, MemorySegment shared_secret, long timeout_ms, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_nat_punch_hole", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(udp_socket, candidates, candidate_count, shared_secret, timeout_ms, out_op);
+    }
+
+    // Removes a mapping made by `sturdy_nat_map_port`.
+    public static int sturdy_nat_unmap_port(MemorySegment mapping, MemorySegment options, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_nat_unmap_port", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(mapping, options, out_op);
+    }
+
     // Reports whether raw native handles are available.
     //
     // False when `SturdyRuntimeConfig::enable_native_access` was not set, or when the backend could not publish them. Check this before calling the getters below rather than treating their failure as fatal.
@@ -4904,6 +6693,414 @@ public final class Sturdy {
     public static int sturdy_native_webgpu(MemorySegment engine, MemorySegment out_handles) throws Throwable {
         MethodHandle h = handle("sturdy_native_webgpu", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
         return (int) h.invokeExact(engine, out_handles);
+    }
+
+    // Sets the number of network reactor threads. `out_applied` says whether it took effect (false once the reactor is running).
+    public static int sturdy_network_reactor_configure(int threads, MemorySegment out_applied) throws Throwable {
+        MethodHandle h = handle("sturdy_network_reactor_configure", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(threads, out_applied);
+    }
+
+    // A wake-up signal with at most one stored permit. Object "notify".
+    public static int sturdy_notify_create(MemorySegment out_notify) throws Throwable {
+        MethodHandle h = handle("sturdy_notify_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_notify);
+    }
+
+    // Finishes when notified; a `sturdy_notify_one` that happened earlier with nobody waiting is consumed first.
+    public static int sturdy_notify_notified(MemorySegment notify, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_notify_notified", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(notify, out_op);
+    }
+
+    public static int sturdy_notify_one(MemorySegment notify) throws Throwable {
+        MethodHandle h = handle("sturdy_notify_one", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(notify);
+    }
+
+    public static int sturdy_notify_waiters(MemorySegment notify) throws Throwable {
+        MethodHandle h = handle("sturdy_notify_waiters", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(notify);
+    }
+
+    // The object's kind ("tcp", "websocket", "quic_stream", ...), following the string-output convention.
+    public static int sturdy_object_kind(MemorySegment object, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_object_kind", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(object, buffer, capacity, out_length);
+    }
+
+    // Releases an object, closing whatever it wraps. Operations still pending on it finish as closed or cancelled.
+    public static int sturdy_object_release(MemorySegment object) throws Throwable {
+        MethodHandle h = handle("sturdy_object_release", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(object);
+    }
+
+    // One-shot value hand-off. Objects "oneshot_sender" / "oneshot_receiver". A sender released without sending fails the receiver with `STURDY_IO_CLOSED`.
+    public static int sturdy_oneshot_create(MemorySegment out_sender, MemorySegment out_receiver) throws Throwable {
+        MethodHandle h = handle("sturdy_oneshot_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_sender, out_receiver);
+    }
+
+    public static int sturdy_oneshot_fail(MemorySegment sender, MemorySegment message, MemorySegment out_first) throws Throwable {
+        MethodHandle h = handle("sturdy_oneshot_fail", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, message, out_first);
+    }
+
+    // Bytes: the value. A receiver can be waited on once.
+    public static int sturdy_oneshot_recv(MemorySegment receiver, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_oneshot_recv", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, out_op);
+    }
+
+    // `out_first` (may be null) says whether this call set the value.
+    public static int sturdy_oneshot_send(MemorySegment sender, MemorySegment data, long size, MemorySegment out_first) throws Throwable {
+        MethodHandle h = handle("sturdy_oneshot_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, data, size, out_first);
+    }
+
+    // The result's bytes. Pass a null buffer to learn the size; `out_length` always receives the full size, and `STURDY_ERROR_BUFFER_TOO_SMALL` is returned (after copying what fits) when the buffer was smaller. No terminator is added.
+    public static int sturdy_op_bytes(MemorySegment op, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_op_bytes", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, buffer, capacity, out_length);
+    }
+
+    // Asks the operation to stop. It then finishes as `STURDY_OP_CANCELLED` (or with its result, if it already had one). Harmless on a finished op.
+    public static int sturdy_op_cancel(MemorySegment op) throws Throwable {
+        MethodHandle h = handle("sturdy_op_cancel", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp));
+        return (int) h.invokeExact(op);
+    }
+
+    // The failure kind of a `STURDY_OP_FAILED` op (`STURDY_IO_NONE` otherwise). `STURDY_ERROR_BUSY` while pending.
+    public static int sturdy_op_error_code(MemorySegment op, MemorySegment out_code) throws Throwable {
+        MethodHandle h = handle("sturdy_op_error_code", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, out_code);
+    }
+
+    // The failure message of a failed op (empty otherwise), following the string-output convention.
+    public static int sturdy_op_error_message(MemorySegment op, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_op_error_message", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, buffer, capacity, out_length);
+    }
+
+    public static int sturdy_op_failed(int code, MemorySegment message, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_op_failed", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(code, message, out_op);
+    }
+
+    // Value of the first field called `name` (HTTP header lookup is case-insensitive; other fields are exact). `STURDY_ERROR_NOT_AVAILABLE` when there is none.
+    public static int sturdy_op_field(MemorySegment op, MemorySegment name, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_op_field", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, name, buffer, capacity, out_length);
+    }
+
+    // How many named fields the result has.
+    public static int sturdy_op_field_count(MemorySegment op, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_op_field_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, out_count);
+    }
+
+    // Name of field `index`, following the string-output convention.
+    public static int sturdy_op_field_name(MemorySegment op, int index, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_op_field_name", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, index, buffer, capacity, out_length);
+    }
+
+    // Value of field `index`.
+    public static int sturdy_op_field_value(MemorySegment op, int index, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_op_field_value", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, index, buffer, capacity, out_length);
+    }
+
+    // Cancelling `token` cancels `op`.
+    public static int sturdy_op_link_cancel(MemorySegment op, MemorySegment token) throws Throwable {
+        MethodHandle h = handle("sturdy_op_link_cancel", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(op, token);
+    }
+
+    // The result's number (byte count, status code, port, ... — see the function that made the op).
+    public static int sturdy_op_number(MemorySegment op, MemorySegment out_number) throws Throwable {
+        MethodHandle h = handle("sturdy_op_number", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, out_number);
+    }
+
+    // The object the operation produced (a connection, a file, ...), as a new handle you own. Calling it again returns the same handle. `STURDY_ERROR_NOT_AVAILABLE` when the op produced none. The object lives until **both** its handle and the operation are released, so a "permit" or a "mutex_guard" is only dropped once the op is released too — or release it explicitly with its own function.
+    public static int sturdy_op_object(MemorySegment op, MemorySegment out_object) throws Throwable {
+        MethodHandle h = handle("sturdy_op_object", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, out_object);
+    }
+
+    // Runs `callback` when the operation finishes — at once, on this thread, if it already has.
+    public static int sturdy_op_on_complete(MemorySegment op, MemorySegment callback, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_op_on_complete", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, callback, user_data);
+    }
+
+    // An already-finished op (Tokio's `ready`): useful to answer an operation-shaped API without work.
+    public static int sturdy_op_ready(long number, MemorySegment data, long size, MemorySegment text, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_op_ready", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(number, data, size, text, out_op);
+    }
+
+    // Releases an operation. A pending one keeps running; its result is dropped.
+    public static int sturdy_op_release(MemorySegment op) throws Throwable {
+        MethodHandle h = handle("sturdy_op_release", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp));
+        return (int) h.invokeExact(op);
+    }
+
+    // Reads an operation's status without blocking.
+    public static int sturdy_op_status(MemorySegment op, MemorySegment out_status) throws Throwable {
+        MethodHandle h = handle("sturdy_op_status", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, out_status);
+    }
+
+    // The result's text, following the string-output convention.
+    public static int sturdy_op_text(MemorySegment op, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_op_text", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, buffer, capacity, out_length);
+    }
+
+    // Waits until the operation finishes or `timeout_ms` passes (negative: no limit). `out_done` says which. Blocks the calling thread; do not call it from a completion callback.
+    public static int sturdy_op_wait(MemorySegment op, long timeout_ms, MemorySegment out_done) throws Throwable {
+        MethodHandle h = handle("sturdy_op_wait", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, timeout_ms, out_done);
+    }
+
+    // Waits for the first of `ops` to finish. `out_index` is its position, or -1 when `timeout_ms` passed first.
+    public static int sturdy_op_wait_any(MemorySegment ops, int count, long timeout_ms, MemorySegment out_index) throws Throwable {
+        MethodHandle h = handle("sturdy_op_wait_any", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(ops, count, timeout_ms, out_index);
+    }
+
+    // A new op that finishes as `op` does, or fails with `STURDY_IO_TIMED_OUT` after `timeout_ms` — cancelling `op` then. Cancelling the new op cancels `op`.
+    public static int sturdy_op_with_timeout(MemorySegment op, long timeout_ms, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_op_with_timeout", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncOp, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(op, timeout_ms, out_op);
+    }
+
+    public static int sturdy_par_all(long count, MemorySegment pred, MemorySegment user_data, MemorySegment out_result) throws Throwable {
+        MethodHandle h = handle("sturdy_par_all", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(count, pred, user_data, out_result);
+    }
+
+    // Parallel predicates over `[0, count)`.
+    public static int sturdy_par_any(long count, MemorySegment pred, MemorySegment user_data, MemorySegment out_result) throws Throwable {
+        MethodHandle h = handle("sturdy_par_any", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(count, pred, user_data, out_result);
+    }
+
+    public static int sturdy_par_count(long count, MemorySegment pred, MemorySegment user_data, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_par_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(count, pred, user_data, out_count);
+    }
+
+    public static int sturdy_par_find_any(long count, MemorySegment pred, MemorySegment user_data, MemorySegment out_index) throws Throwable {
+        MethodHandle h = handle("sturdy_par_find_any", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(count, pred, user_data, out_index);
+    }
+
+    // The lowest index for which `pred` holds (-1: none) / any such index.
+    public static int sturdy_par_find_first(long count, MemorySegment pred, MemorySegment user_data, MemorySegment out_index) throws Throwable {
+        MethodHandle h = handle("sturdy_par_find_first", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(count, pred, user_data, out_index);
+    }
+
+    // Runs `body` for every index in `[0, count)` across the worker pool and returns when all are done (the caller helps, so it never deadlocks the pool). `min_chunk` is the smallest run of indices handed to one task (0/1: let the engine decide). Calling it from inside a body is fine.
+    public static int sturdy_par_for(long count, long min_chunk, MemorySegment body, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_par_for", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(count, min_chunk, body, user_data);
+    }
+
+    // Runs `body` over consecutive ranges of at most `chunk` indices (`chunk` must be positive).
+    public static int sturdy_par_for_chunks(long count, long chunk, MemorySegment body, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_par_for_chunks", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(count, chunk, body, user_data);
+    }
+
+    // Calls `body(begin)` for every window start in `[0, count - window]`.
+    public static int sturdy_par_for_windows(long count, long window, MemorySegment body, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_par_for_windows", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(count, window, body, user_data);
+    }
+
+    // Runs `a` and `b` in parallel and returns when both are done.
+    public static int sturdy_par_join(MemorySegment a, MemorySegment a_user_data, MemorySegment b, MemorySegment b_user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_par_join", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(a, a_user_data, b, b_user_data);
+    }
+
+    public static int sturdy_par_map_reduce_f64(long count, MemorySegment map, double identity, MemorySegment reduce, MemorySegment user_data, MemorySegment out_result) throws Throwable {
+        MethodHandle h = handle("sturdy_par_map_reduce_f64", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_DOUBLE, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(count, map, identity, reduce, user_data, out_result);
+    }
+
+    // Maps every index and combines the results with an associative `reduce` that has `identity`.
+    public static int sturdy_par_map_reduce_i64(long count, MemorySegment map, long identity, MemorySegment reduce, MemorySegment user_data, MemorySegment out_result) throws Throwable {
+        MethodHandle h = handle("sturdy_par_map_reduce_i64", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(count, map, identity, reduce, user_data, out_result);
+    }
+
+    // Parallel minimum and maximum. `STURDY_ERROR_OUT_OF_RANGE` when `count` is 0.
+    public static int sturdy_par_min_max_f32(MemorySegment data, long count, MemorySegment out_min, MemorySegment out_max) throws Throwable {
+        MethodHandle h = handle("sturdy_par_min_max_f32", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(data, count, out_min, out_max);
+    }
+
+    public static int sturdy_par_min_max_f64(MemorySegment data, long count, MemorySegment out_min, MemorySegment out_max) throws Throwable {
+        MethodHandle h = handle("sturdy_par_min_max_f64", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(data, count, out_min, out_max);
+    }
+
+    public static int sturdy_par_min_max_i64(MemorySegment data, long count, MemorySegment out_min, MemorySegment out_max) throws Throwable {
+        MethodHandle h = handle("sturdy_par_min_max_i64", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(data, count, out_min, out_max);
+    }
+
+    // The threads a parallel call can use right now.
+    public static int sturdy_par_num_threads(MemorySegment out_threads) throws Throwable {
+        MethodHandle h = handle("sturdy_par_num_threads", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_threads);
+    }
+
+    // Reduces a typed array in parallel. `out_has_value` is false for an empty array with min/max.
+    public static int sturdy_par_reduce(int type, int reduction, MemorySegment data, long count, MemorySegment out_value, MemorySegment out_has_value) throws Throwable {
+        MethodHandle h = handle("sturdy_par_reduce", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(type, reduction, data, count, out_value, out_has_value);
+    }
+
+    // Runs `body` with a scope; every task spawned on the scope finishes before this returns.
+    public static int sturdy_par_scope(MemorySegment body, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_par_scope", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(body, user_data);
+    }
+
+    public static int sturdy_par_scope_spawn(MemorySegment scope, MemorySegment fn, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_par_scope_spawn", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(scope, fn, user_data);
+    }
+
+    // Sorts `count` elements of `type` in place, ascending, in parallel.
+    public static int sturdy_par_sort(int type, MemorySegment data, long count) throws Throwable {
+        MethodHandle h = handle("sturdy_par_sort", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(type, data, count);
+    }
+
+    // Sorts `count` elements of `element_size` bytes in place with `less`; `stable` keeps equal elements in order.
+    public static int sturdy_par_sort_by(MemorySegment data, long count, long element_size, byte stable, MemorySegment less, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_par_sort_by", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(data, count, element_size, stable, less, user_data);
+    }
+
+    // Parallel sums. Float sums use SIMD and may differ from a sequential sum by rounding.
+    public static int sturdy_par_sum_f32(MemorySegment data, long count, MemorySegment out_sum) throws Throwable {
+        MethodHandle h = handle("sturdy_par_sum_f32", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(data, count, out_sum);
+    }
+
+    public static int sturdy_par_sum_f64(MemorySegment data, long count, MemorySegment out_sum) throws Throwable {
+        MethodHandle h = handle("sturdy_par_sum_f64", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(data, count, out_sum);
+    }
+
+    public static int sturdy_par_sum_i64(MemorySegment data, long count, MemorySegment out_sum) throws Throwable {
+        MethodHandle h = handle("sturdy_par_sum_i64", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(data, count, out_sum);
+    }
+
+    public static int sturdy_par_sum_u64(MemorySegment data, long count, MemorySegment out_sum) throws Throwable {
+        MethodHandle h = handle("sturdy_par_sum_u64", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(data, count, out_sum);
+    }
+
+    // Refuses the peer from now on and drops it if connected.
+    public static int sturdy_peer_block(MemorySegment peer, MemorySegment peer_id) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_block", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, peer_id);
+    }
+
+    // Sends to every connected peer, except `except_peer_id` when non-null (forwarding what that peer just sent). Number: how many links took it.
+    public static int sturdy_peer_broadcast(MemorySegment peer, short channel, MemorySegment data, long size, MemorySegment except_peer_id, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_broadcast", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, channel, data, size, except_peer_id, out_op);
+    }
+
+    // Dials a peer. `expected_id` non-null pins it (the link is refused if someone else answers). Fields of the linked peer: id, name, address, inbound, listen_port.
+    public static int sturdy_peer_connect(MemorySegment peer, MemorySegment host, short port, MemorySegment expected_id, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_connect", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, host, port, expected_id, out_op);
+    }
+
+    // Meets a peer through a relay when neither can be dialed. Both sides use the same `token` and opposite `dial`; the peer-to-peer TLS runs through the relay end to end. `relay_tls` non-null: the hop to the relay itself uses TLS too.
+    public static int sturdy_peer_connect_via_relay(MemorySegment peer, MemorySegment relay_host, short relay_port, MemorySegment token, byte dial, MemorySegment expected_id, MemorySegment relay_tls, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_connect_via_relay", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, relay_host, relay_port, token, dial, expected_id, relay_tls, out_op);
+    }
+
+    // Drops a peer; `reason` (null: "disconnected by application") is what the other side sees.
+    public static int sturdy_peer_disconnect(MemorySegment peer, MemorySegment peer_id, MemorySegment reason) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_disconnect", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, peer_id, reason);
+    }
+
+    public static int sturdy_peer_id(MemorySegment peer, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_id", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, buffer, capacity, out_length);
+    }
+
+    // The node's identity as a finished op: fields `certificate_pem`, `private_key_pem`, `sha256`. Persist it to keep the same id.
+    public static int sturdy_peer_identity(MemorySegment peer, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_identity", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, out_op);
+    }
+
+    // Connected peers as a finished op: fields `id:N`, `name:N`, `address:N`, `inbound:N`, `listen_port:N` for N = 0, 1, ...
+    public static int sturdy_peer_list(MemorySegment peer, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_list", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, out_op);
+    }
+
+    public static int sturdy_peer_listen_port(MemorySegment peer, MemorySegment out_port) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_listen_port", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, out_port);
+    }
+
+    // Next event. Number: 0 connected, 1 disconnected, 2 message, 3 discovered. Bytes: the message. Fields: peer, channel, name, address, reason, inbound. Not consuming events eventually stalls the peers' readers.
+    public static int sturdy_peer_next_event(MemorySegment peer, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_next_event", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, out_op);
+    }
+
+    // Sends a message on channel 0..0xFEFF to one peer.
+    public static int sturdy_peer_send(MemorySegment peer, MemorySegment peer_id, short channel, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(peer, peer_id, channel, data, size, out_op);
+    }
+
+    // Starts a peer node: encrypted, mutually authenticated links with self-certifying ids. Object "peer"; text: our peer id.
+    public static int sturdy_peer_start(MemorySegment options, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_start", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, out_op);
+    }
+
+    public static int sturdy_peer_stop(MemorySegment peer) throws Throwable {
+        MethodHandle h = handle("sturdy_peer_stop", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(peer);
+    }
+
+    public static int sturdy_permit_count(MemorySegment permit, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_permit_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(permit, out_count);
+    }
+
+    // Keeps the permits consumed forever (they are never returned).
+    public static int sturdy_permit_forget(MemorySegment permit) throws Throwable {
+        MethodHandle h = handle("sturdy_permit_forget", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(permit);
+    }
+
+    // Returns the permits now.
+    public static int sturdy_permit_release(MemorySegment permit) throws Throwable {
+        MethodHandle h = handle("sturdy_permit_release", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(permit);
     }
 
     // The language the plugin reported through `set_info`, empty when it did not. See the string-output convention above.
@@ -4966,10 +7163,270 @@ public final class Sturdy {
         return (int) h.invokeExact(plugin, out_modules, capacity, out_count);
     }
 
+    // Creates a separate worker pool (Rayon's `ThreadPoolBuilder`): work run through it stays on its own threads, so a long job cannot starve the engine's scheduler. `threads` 0: the machine's core count. Object "pool"; released objects shut their threads down.
+    public static int sturdy_pool_create(int threads, MemorySegment name, MemorySegment out_pool) throws Throwable {
+        MethodHandle h = handle("sturdy_pool_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(threads, name, out_pool);
+    }
+
+    // `sturdy_par_for` on the pool's own threads.
+    public static int sturdy_pool_par_for(MemorySegment pool, long count, long min_chunk, MemorySegment body, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_pool_par_for", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(pool, count, min_chunk, body, user_data);
+    }
+
+    // Runs `task` on the pool and waits for it (anything it parallelises stays on the pool).
+    public static int sturdy_pool_run(MemorySegment pool, MemorySegment task, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_pool_run", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(pool, task, user_data);
+    }
+
+    public static int sturdy_pool_threads(MemorySegment pool, MemorySegment out_threads) throws Throwable {
+        MethodHandle h = handle("sturdy_pool_threads", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(pool, out_threads);
+    }
+
     // Fills `settings` with `struct_size` and the engine's defaults (vsync on, no HDR, opaque composition, automatic image count).
     public static int sturdy_presentation_settings_init(MemorySegment settings) throws Throwable {
         MethodHandle h = handle("sturdy_presentation_settings_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(settings);
+    }
+
+    public static int sturdy_process_close_stdin(MemorySegment process) throws Throwable {
+        MethodHandle h = handle("sturdy_process_close_stdin", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(process);
+    }
+
+    public static int sturdy_process_id(MemorySegment process, MemorySegment out_id) throws Throwable {
+        MethodHandle h = handle("sturdy_process_id", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(process, out_id);
+    }
+
+    public static int sturdy_process_kill(MemorySegment process) throws Throwable {
+        MethodHandle h = handle("sturdy_process_kill", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(process);
+    }
+
+    public static int sturdy_process_read_stderr(MemorySegment process, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_process_read_stderr", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(process, max_bytes, out_op);
+    }
+
+    // Bytes: up to `max_bytes` from the child's stdout / stderr (empty at end).
+    public static int sturdy_process_read_stdout(MemorySegment process, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_process_read_stdout", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(process, max_bytes, out_op);
+    }
+
+    // Asks the child to exit (SIGTERM / a close request); `sturdy_process_kill` forces it.
+    public static int sturdy_process_request_exit(MemorySegment process) throws Throwable {
+        MethodHandle h = handle("sturdy_process_request_exit", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(process);
+    }
+
+    // Runs a program to completion, feeding `stdin_data` and collecting stdout/stderr (bounded; the child is killed past `max_output_bytes` — 0: 16 MiB — or `timeout_ms` — 0: no limit). Bytes: stdout. Text: stderr. Number: exit code (the signal number if signalled). Fields: `signaled`, `success`.
+    public static int sturdy_process_run(MemorySegment options, MemorySegment stdin_data, long stdin_size, long timeout_ms, long max_output_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_process_run", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, stdin_data, stdin_size, timeout_ms, max_output_bytes, out_op);
+    }
+
+    // Starts a child (standard streams per the options, piped by default). Object "process".
+    public static int sturdy_process_spawn(MemorySegment options, MemorySegment out_process) throws Throwable {
+        MethodHandle h = handle("sturdy_process_spawn", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, out_process);
+    }
+
+    // Number: exit code (the signal number if signalled). Fields: `signaled`, `success`, `signal`.
+    public static int sturdy_process_wait(MemorySegment process, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_process_wait", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(process, out_op);
+    }
+
+    public static int sturdy_process_write_stdin(MemorySegment process, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_process_write_stdin", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(process, data, size, out_op);
+    }
+
+    // Completes the future as cancelled.
+    public static int sturdy_promise_cancel(MemorySegment promise, MemorySegment out_first) throws Throwable {
+        MethodHandle h = handle("sturdy_promise_cancel", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(promise, out_first);
+    }
+
+    // The producing half of an operation: something other than the engine finishes `out_future` by calling `sturdy_promise_set_*`. Object "promise"; `out_future` is an ordinary op (wait on it, attach a callback, link or time it out). Only the first completion wins; a promise released while pending fails its future with `STURDY_IO_CLOSED`.
+    public static int sturdy_promise_create(MemorySegment out_promise, MemorySegment out_future) throws Throwable {
+        MethodHandle h = handle("sturdy_promise_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_promise, out_future);
+    }
+
+    public static int sturdy_promise_is_completed(MemorySegment promise, MemorySegment out_completed) throws Throwable {
+        MethodHandle h = handle("sturdy_promise_is_completed", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(promise, out_completed);
+    }
+
+    public static int sturdy_promise_set_error(MemorySegment promise, int code, MemorySegment message, MemorySegment out_first) throws Throwable {
+        MethodHandle h = handle("sturdy_promise_set_error", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(promise, code, message, out_first);
+    }
+
+    // Completes the future with a number, bytes and text. `out_first` (may be null) says whether this call completed it.
+    public static int sturdy_promise_set_value(MemorySegment promise, long number, MemorySegment data, long size, MemorySegment text, MemorySegment out_first) throws Throwable {
+        MethodHandle h = handle("sturdy_promise_set_value", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(promise, number, data, size, text, out_first);
+    }
+
+    // Next connection whose handshake completed. Object "quic_conn".
+    public static int sturdy_quic_accept(MemorySegment listener, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_accept", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(listener, out_op);
+    }
+
+    // Next stream the peer opened. Object "quic_stream".
+    public static int sturdy_quic_accept_stream(MemorySegment connection, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_accept_stream", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, out_op);
+    }
+
+    // Closes the connection with an application error code (0 = clean).
+    public static int sturdy_quic_close(MemorySegment connection, long error_code, MemorySegment reason) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, error_code, reason);
+    }
+
+    // Finishes when the connection ends, for any reason. Number: the code. Text: the reason. Fields: `from_peer`, `application`, `timed_out` ("1"/"0").
+    public static int sturdy_quic_closed(MemorySegment connection, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_closed", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, out_op);
+    }
+
+    // Connects and completes the TLS 1.3 handshake. Object "quic_conn". Datagrams and many streams, no head-of-line blocking.
+    public static int sturdy_quic_connect(MemorySegment host, short port, MemorySegment options, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_connect", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(host, port, options, out_op);
+    }
+
+    // Fields: `peer`, `local`, and once the handshake finished `protocol`, `alpn`, `peer_sha256`, `cipher` (a finished op).
+    public static int sturdy_quic_info(MemorySegment connection, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_info", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, out_op);
+    }
+
+    public static int sturdy_quic_is_open(MemorySegment connection, MemorySegment out_open) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_is_open", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, out_open);
+    }
+
+    // Starts a QUIC server. Object "quic_listener" (finished op).
+    public static int sturdy_quic_listen(MemorySegment options, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_listen", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, out_op);
+    }
+
+    // Counters as a finished op's fields: connections_accepted, retries_sent, rejected_limit, ...
+    public static int sturdy_quic_listener_metrics(MemorySegment listener, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_listener_metrics", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(listener, out_op);
+    }
+
+    public static int sturdy_quic_listener_port(MemorySegment listener, MemorySegment out_port) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_listener_port", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(listener, out_port);
+    }
+
+    public static int sturdy_quic_listener_stop(MemorySegment listener) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_listener_stop", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(listener);
+    }
+
+    public static int sturdy_quic_max_datagram_size(MemorySegment connection, MemorySegment out_size) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_max_datagram_size", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, out_size);
+    }
+
+    // Opens a stream (waits if the peer's stream limit is reached). Object "quic_stream".
+    public static int sturdy_quic_open_stream(MemorySegment connection, byte bidirectional, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_open_stream", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, bidirectional, out_op);
+    }
+
+    // Next received datagram. Bytes: the payload.
+    public static int sturdy_quic_receive_datagram(MemorySegment connection, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_receive_datagram", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, out_op);
+    }
+
+    // Sends one unreliable datagram; it may be lost or reordered. `STURDY_ERROR_OUT_OF_RANGE` when larger than the current maximum, `STURDY_ERROR_BUSY` when the send queue is full, `STURDY_ERROR_NOT_AVAILABLE` when the peer takes no datagrams.
+    public static int sturdy_quic_send_datagram(MemorySegment connection, MemorySegment data, long size) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_send_datagram", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(connection, data, size);
+    }
+
+    // Fields (decimal): rtt_us, min_rtt_us, bytes_in_flight, cwnd, packets_lost, bytes_sent, bytes_received (a finished op).
+    public static int sturdy_quic_stats(MemorySegment connection, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_stats", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, out_op);
+    }
+
+    // Ends the sending side cleanly after everything queued.
+    public static int sturdy_quic_stream_finish(MemorySegment stream, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_stream_finish", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, out_op);
+    }
+
+    public static int sturdy_quic_stream_id(MemorySegment stream, MemorySegment out_id) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_stream_id", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, out_id);
+    }
+
+    public static int sturdy_quic_stream_is_bidirectional(MemorySegment stream, MemorySegment out_bidirectional) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_stream_is_bidirectional", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, out_bidirectional);
+    }
+
+    // 1..`max_bytes` bytes as they arrive. Bytes: empty means the peer finished. Reading is what grants the peer more credit.
+    public static int sturdy_quic_stream_receive(MemorySegment stream, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_stream_receive", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, max_bytes, out_op);
+    }
+
+    // Abruptly stops sending (the peer's reads fail with `error_code`) / asks the peer to stop sending.
+    public static int sturdy_quic_stream_reset(MemorySegment stream, long error_code) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_stream_reset", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(stream, error_code);
+    }
+
+    // Queues data on a stream; finishes once it fits under `stream_send_buffer` (so a slow peer paces the sender).
+    public static int sturdy_quic_stream_send(MemorySegment stream, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_stream_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, data, size, out_op);
+    }
+
+    public static int sturdy_quic_stream_stop_sending(MemorySegment stream, long error_code) throws Throwable {
+        MethodHandle h = handle("sturdy_quic_stream_stop_sending", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(stream, error_code);
+    }
+
+    // A keyed token bucket: each key may use `rate_per_second` operations per second on average, with bursts up to `burst`. Thread-safe; memory is bounded by `max_keys` (0: 10000). Object "rate_limiter".
+    public static int sturdy_rate_limiter_create(double rate_per_second, double burst, long max_keys, MemorySegment out_limiter) throws Throwable {
+        MethodHandle h = handle("sturdy_rate_limiter_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_DOUBLE, ValueLayout.JAVA_DOUBLE, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(rate_per_second, burst, max_keys, out_limiter);
+    }
+
+    // Milliseconds until `key` could take `cost` tokens (0 if it could now).
+    public static int sturdy_rate_limiter_retry_after_ms(MemorySegment limiter, MemorySegment key, double cost, MemorySegment out_ms) throws Throwable {
+        MethodHandle h = handle("sturdy_rate_limiter_retry_after_ms", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_DOUBLE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(limiter, key, cost, out_ms);
+    }
+
+    public static int sturdy_rate_limiter_tracked_keys(MemorySegment limiter, MemorySegment out_keys) throws Throwable {
+        MethodHandle h = handle("sturdy_rate_limiter_tracked_keys", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(limiter, out_keys);
+    }
+
+    // Takes `cost` tokens for `key` if available.
+    public static int sturdy_rate_limiter_try_acquire(MemorySegment limiter, MemorySegment key, double cost, MemorySegment out_acquired) throws Throwable {
+        MethodHandle h = handle("sturdy_rate_limiter_try_acquire", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_DOUBLE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(limiter, key, cost, out_acquired);
     }
 
     // Adds a listener that fires just after a method returns. See `sturdy_reflection_add_before_hook`.
@@ -5185,6 +7642,40 @@ public final class Sturdy {
     public static int sturdy_reflection_unsubscribe_event(MemorySegment type, MemorySegment event, MemorySegment subscription) throws Throwable {
         MethodHandle h = handle("sturdy_reflection_unsubscribe_event", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyReflectionId, LAYOUT_SturdyReflectionId, LAYOUT_SturdyReflectionSubscription));
         return (int) h.invokeExact(type, event, subscription);
+    }
+
+    // Connects to a relay and waits for the partner. Object "tcp" connected to the partner: start TLS on it before sending anything private. `relay_tls` non-null: TLS to the relay itself. `timeout_ms` 0: 35 s.
+    public static int sturdy_relay_connect(MemorySegment host, short port, MemorySegment token, byte dial, MemorySegment relay_tls, long timeout_ms, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_relay_connect", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(host, port, token, dial, relay_tls, timeout_ms, out_op);
+    }
+
+    // A fresh unguessable rendezvous token (32 hex characters).
+    public static int sturdy_relay_random_token(MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_relay_random_token", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(buffer, capacity, out_length);
+    }
+
+    // Counters as a finished op's fields: sessions_started, sessions_active, waiting, bytes_relayed, rejected, timed_out.
+    public static int sturdy_relay_server_metrics(MemorySegment relay, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_relay_server_metrics", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(relay, out_op);
+    }
+
+    public static int sturdy_relay_server_port(MemorySegment relay, MemorySegment out_port) throws Throwable {
+        MethodHandle h = handle("sturdy_relay_server_port", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(relay, out_port);
+    }
+
+    // Starts a rendezvous relay: pairs two connections that name the same token and forwards opaque bytes. It cannot read the peers' traffic when they run TLS through it. Object "relay_server". `authorize` may be null (any token is accepted).
+    public static int sturdy_relay_server_start(MemorySegment options, MemorySegment authorize, MemorySegment user_data, MemorySegment out_relay) throws Throwable {
+        MethodHandle h = handle("sturdy_relay_server_start", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, authorize, user_data, out_relay);
+    }
+
+    public static int sturdy_relay_server_stop(MemorySegment relay) throws Throwable {
+        MethodHandle h = handle("sturdy_relay_server_stop", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(relay);
     }
 
     // Creates a renderable model from your own geometry.
@@ -6234,6 +8725,86 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, pipeline, first_group, group_count, dst, dst_size);
     }
 
+    public static int sturdy_ring_capacity(MemorySegment ring, MemorySegment out_capacity) throws Throwable {
+        MethodHandle h = handle("sturdy_ring_capacity", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(ring, out_capacity);
+    }
+
+    // A wait-free single-producer single-consumer ring of byte messages. Object "spsc_ring". Exactly one thread may push and exactly one (possibly another) may pop. Items are at most `max_item_bytes` (rounded up to 32, 128, 512, 2 Ki, 8 Ki or 64 Ki; 64 Ki is the limit); the capacity (1..16 Mi items) is rounded up to a power of two.
+    public static int sturdy_ring_create(long capacity, long max_item_bytes, MemorySegment out_ring) throws Throwable {
+        MethodHandle h = handle("sturdy_ring_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(capacity, max_item_bytes, out_ring);
+    }
+
+    // Pops up to `max_items` (0: all) as a finished op: bytes are the items as packed frames (`sturdy_frames_count` / `sturdy_frames_get`), number is how many.
+    public static int sturdy_ring_drain(MemorySegment ring, long max_items, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_ring_drain", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(ring, max_items, out_op);
+    }
+
+    public static int sturdy_ring_max_item_bytes(MemorySegment ring, MemorySegment out_bytes) throws Throwable {
+        MethodHandle h = handle("sturdy_ring_max_item_bytes", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(ring, out_bytes);
+    }
+
+    public static int sturdy_ring_size(MemorySegment ring, MemorySegment out_size) throws Throwable {
+        MethodHandle h = handle("sturdy_ring_size", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(ring, out_size);
+    }
+
+    // Pops the oldest item into `buffer`, which must hold at least `sturdy_ring_max_item_bytes` (a smaller one is refused before anything is popped). `out_length` receives the item's size. `out_status` is `STURDY_RING_EMPTY` when there was nothing.
+    public static int sturdy_ring_try_pop(MemorySegment ring, MemorySegment buffer, long capacity, MemorySegment out_length, MemorySegment out_status) throws Throwable {
+        MethodHandle h = handle("sturdy_ring_try_pop", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(ring, buffer, capacity, out_length, out_status);
+    }
+
+    public static int sturdy_ring_try_push(MemorySegment ring, MemorySegment data, long size, MemorySegment out_status) throws Throwable {
+        MethodHandle h = handle("sturdy_ring_try_push", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(ring, data, size, out_status);
+    }
+
+    // Creates a URL router. Patterns are '/'-separated literals, `:name` (one segment) and a final `*name` (the rest); literals beat parameters, which beat wildcards. Object "router". HEAD requests reuse GET routes; unmatched methods on known paths get 405 with an Allow header; malformed paths get 400.
+    public static int sturdy_router_create(MemorySegment out_router) throws Throwable {
+        MethodHandle h = handle("sturdy_router_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_router);
+    }
+
+    // Runs one request through the router synchronously (tests, in-process calls). Number: status. Fields: headers. Bytes: body (a streamed body is not collected).
+    public static int sturdy_router_dispatch(MemorySegment router, MemorySegment method, MemorySegment target, MemorySegment remote_address, MemorySegment headers, int header_count, MemorySegment body, long body_size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_router_dispatch", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(router, method, target, remote_address, headers, header_count, body, body_size, out_op);
+    }
+
+    // Replaces the default 404. The handler must answer before it returns.
+    public static int sturdy_router_not_found(MemorySegment router, MemorySegment handler, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_router_not_found", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(router, handler, user_data);
+    }
+
+    // Middleware answering 429 with Retry-After once one client address exceeds `rate_per_second` (bursts up to `burst`). `max_keys` 0: 10000.
+    public static int sturdy_router_rate_limit(MemorySegment router, double rate_per_second, double burst, long max_keys) throws Throwable {
+        MethodHandle h = handle("sturdy_router_rate_limit", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_DOUBLE, ValueLayout.JAVA_DOUBLE, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(router, rate_per_second, burst, max_keys);
+    }
+
+    // Adds a route (`method` upper-case, e.g. "GET"). `handler` runs on a handler thread, exactly like a server handler, with `path`, `query` and `params` filled in. `user_data` must stay valid until every server serving this router is released.
+    public static int sturdy_router_route(MemorySegment router, MemorySegment method, MemorySegment pattern, MemorySegment handler, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_router_route", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(router, method, pattern, handler, user_data);
+    }
+
+    // Serves files under `mount` (e.g. "/assets") from `options->root`, GET and HEAD only. `STURDY_ERROR_INVALID_ARGUMENT` when the root is not a directory.
+    public static int sturdy_router_static_files(MemorySegment router, MemorySegment mount, MemorySegment options) throws Throwable {
+        MethodHandle h = handle("sturdy_router_static_files", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(router, mount, options);
+    }
+
+    // Adds middleware that runs before every matching route. Call `sturdy_http_respond*` with the responder **before returning** to answer the request yourself (auth, rate limits); return without answering to let it continue. Answering later is ignored.
+    public static int sturdy_router_use(MemorySegment router, MemorySegment middleware, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_router_use", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(router, middleware, user_data);
+    }
+
     // Fills `config` with engine defaults and the correct `struct_size`.
     //
     // Always call this before setting fields. It is what makes a binding compiled against an older header keep working against a newer engine: fields you have never heard of still get sane values instead of whatever was on your stack.
@@ -6292,16 +8863,210 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, scene, options, out_entities, capacity, out_count);
     }
 
+    // Starts the worker pool (0 workers: one per hardware thread). The engine starts it on first use; call this only to choose the size first, or in a program that does not run the engine.
+    public static int sturdy_scheduler_initialize(int workers) throws Throwable {
+        MethodHandle h = handle("sturdy_scheduler_initialize", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(workers);
+    }
+
+    // Stops the worker pool. The engine owns it: only a standalone program should call this.
+    public static int sturdy_scheduler_shutdown() throws Throwable {
+        MethodHandle h = handle("sturdy_scheduler_shutdown", FunctionDescriptor.of(ValueLayout.JAVA_INT));
+        return (int) h.invokeExact();
+    }
+
     // Fills `settings` with `struct_size` and engine defaults (disabled).
     public static int sturdy_screen_space_gi_settings_init(MemorySegment settings) throws Throwable {
         MethodHandle h = handle("sturdy_screen_space_gi_settings_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(settings);
     }
 
+    // Calls a function of a script now (taking the script lock, so it is safe from any thread). Returns a finished op: bytes on success, a failure otherwise (an unknown script or function, or the script's own error).
+    public static int sturdy_script_call(MemorySegment engine, MemorySegment script, MemorySegment function, MemorySegment args, long args_size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_script_call", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, script, function, args, args_size, out_op);
+    }
+
+    // Calls a host function (what an adapter does on a script's behalf). Returns a finished op: bytes on success, a failure otherwise.
+    public static int sturdy_script_call_host_function(MemorySegment name, MemorySegment args, long args_size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_script_call_host_function", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(name, args, args_size, out_op);
+    }
+
+    // How many scripts are loaded, and the name of script `index` (start order, string-output convention).
+    public static int sturdy_script_count(MemorySegment engine, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_script_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, out_count);
+    }
+
+    // A script's details as a finished op's fields: `language`, `path`, `generation` (1 + reloads), `healthy` ("1"/"0") and `failure`. `STURDY_ERROR_NOT_AVAILABLE` for an unknown script.
+    public static int sturdy_script_info(MemorySegment engine, MemorySegment name, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_script_info", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, name, out_op);
+    }
+
+    public static int sturdy_script_language_count(MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_script_language_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_count);
+    }
+
+    // The name of language `index` (string-output convention).
+    public static int sturdy_script_language_name(int index, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_script_language_name", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(index, buffer, capacity, out_length);
+    }
+
+    // Registers a language adapter for the whole process (before the runtime starts, or while it runs).
+    public static int sturdy_script_language_register(MemorySegment language) throws Throwable {
+        MethodHandle h = handle("sturdy_script_language_register", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(language);
+    }
+
+    // Forgets a language. Scripts already running keep working until they are unloaded.
+    public static int sturdy_script_language_unregister(MemorySegment name) throws Throwable {
+        MethodHandle h = handle("sturdy_script_language_unregister", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(name);
+    }
+
+    // `sturdy_script_module_create` and `sturdy_module_request_load` in one step: adds a script to the running game at the next update boundary.
+    public static int sturdy_script_load(MemorySegment engine, MemorySegment desc) throws Throwable {
+        MethodHandle h = handle("sturdy_script_load", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, desc);
+    }
+
+    // Makes the module for a script that loads through a registered language adapter when the game starts. Pass it to `sturdy_runtime_run_modules` or `sturdy_module_request_load`, or release it with `sturdy_script_module_discard` if you never will. The strings inside `out_module` stay valid until then.
+    public static int sturdy_script_module_create(MemorySegment desc, MemorySegment out_module) throws Throwable {
+        MethodHandle h = handle("sturdy_script_module_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(desc, out_module);
+    }
+
+    public static int sturdy_script_module_create_native(MemorySegment desc, MemorySegment out_module) throws Throwable {
+        MethodHandle h = handle("sturdy_script_module_create_native", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(desc, out_module);
+    }
+
+    // Destroys a module made by the functions above that was never handed to the engine.
+    public static int sturdy_script_module_discard(MemorySegment module) throws Throwable {
+        MethodHandle h = handle("sturdy_script_module_discard", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(module);
+    }
+
+    public static int sturdy_script_name(MemorySegment engine, int index, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_script_name", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, index, buffer, capacity, out_length);
+    }
+
+    // Queues a message for every script subscribed to `topic` except `from`. `out_receivers` (may be null) receives how many.
+    public static int sturdy_script_publish(MemorySegment engine, MemorySegment from, MemorySegment topic, MemorySegment payload, long size, MemorySegment out_receivers) throws Throwable {
+        MethodHandle h = handle("sturdy_script_publish", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, from, topic, payload, size, out_receivers);
+    }
+
+    // Registers `function` under `name` for the whole process. `destroy` (may be null) releases `user_data` when the function is unregistered.
+    public static int sturdy_script_register_host_function(MemorySegment name, MemorySegment function, MemorySegment user_data, MemorySegment destroy) throws Throwable {
+        MethodHandle h = handle("sturdy_script_register_host_function", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(name, function, user_data, destroy);
+    }
+
+    // Hot reload (see above). Takes effect at the next update boundary; a parse error is reported at once. Failures after that are reported through `sturdy_module_take_failure`.
+    public static int sturdy_script_reload(MemorySegment engine, MemorySegment source) throws Throwable {
+        MethodHandle h = handle("sturdy_script_reload", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, source);
+    }
+
+    // Hot reload of a script built from callbacks: `instance` replaces the running one.
+    public static int sturdy_script_reload_native(MemorySegment engine, MemorySegment name, MemorySegment instance) throws Throwable {
+        MethodHandle h = handle("sturdy_script_reload_native", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, name, instance);
+    }
+
+    // Queues a message for `to` (delivered at the next update boundary). `from` null: the host application. `STURDY_ERROR_NOT_AVAILABLE` when no such script is loaded.
+    public static int sturdy_script_send(MemorySegment engine, MemorySegment from, MemorySegment to, MemorySegment topic, MemorySegment payload, long size) throws Throwable {
+        MethodHandle h = handle("sturdy_script_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(engine, from, to, topic, payload, size);
+    }
+
+    public static int sturdy_script_subscribe(MemorySegment engine, MemorySegment script, MemorySegment topic) throws Throwable {
+        MethodHandle h = handle("sturdy_script_subscribe", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, script, topic);
+    }
+
+    // Removes a script (as `sturdy_module_request_unload`).
+    public static int sturdy_script_unload(MemorySegment engine, MemorySegment name) throws Throwable {
+        MethodHandle h = handle("sturdy_script_unload", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, name);
+    }
+
+    public static int sturdy_script_unregister_host_function(MemorySegment name) throws Throwable {
+        MethodHandle h = handle("sturdy_script_unregister_host_function", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(name);
+    }
+
+    public static int sturdy_script_unsubscribe(MemorySegment engine, MemorySegment script, MemorySegment topic) throws Throwable {
+        MethodHandle h = handle("sturdy_script_unsubscribe", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, script, topic);
+    }
+
+    // Waits for `count` permits. Object "permit". `STURDY_IO_CLOSED` if the semaphore closes first.
+    public static int sturdy_semaphore_acquire(MemorySegment semaphore, long count, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_semaphore_acquire", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(semaphore, count, out_op);
+    }
+
+    public static int sturdy_semaphore_add_permits(MemorySegment semaphore, long count) throws Throwable {
+        MethodHandle h = handle("sturdy_semaphore_add_permits", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(semaphore, count);
+    }
+
+    public static int sturdy_semaphore_available(MemorySegment semaphore, MemorySegment out_permits) throws Throwable {
+        MethodHandle h = handle("sturdy_semaphore_available", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(semaphore, out_permits);
+    }
+
+    // Fails every waiter and every future acquire.
+    public static int sturdy_semaphore_close(MemorySegment semaphore) throws Throwable {
+        MethodHandle h = handle("sturdy_semaphore_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(semaphore);
+    }
+
+    // A counting semaphore. Object "semaphore".
+    public static int sturdy_semaphore_create(long permits_, MemorySegment out_semaphore) throws Throwable {
+        MethodHandle h = handle("sturdy_semaphore_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(permits_, out_semaphore);
+    }
+
+    public static int sturdy_semaphore_is_closed(MemorySegment semaphore, MemorySegment out_closed) throws Throwable {
+        MethodHandle h = handle("sturdy_semaphore_is_closed", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(semaphore, out_closed);
+    }
+
+    // `out_permit` receives the zero handle when the permits are not available.
+    public static int sturdy_semaphore_try_acquire(MemorySegment semaphore, long count, MemorySegment out_permit) throws Throwable {
+        MethodHandle h = handle("sturdy_semaphore_try_acquire", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(semaphore, count, out_permit);
+    }
+
     // Fills `settings` with `struct_size` and engine defaults (4 cascades, 4096 atlas, contact shadows on, contact hardening off).
     public static int sturdy_shadow_settings_init(MemorySegment settings) throws Throwable {
         MethodHandle h = handle("sturdy_shadow_settings_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(settings);
+    }
+
+    public static int sturdy_signal_ctrl_c(MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_signal_ctrl_c", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_op);
+    }
+
+    // Finishes when the process receives SIGINT or SIGTERM (Ctrl+C / termination). Number: the signal.
+    public static int sturdy_signal_shutdown(MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_signal_shutdown", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_op);
+    }
+
+    // Number: the first of `signals` (SIGINT, SIGTERM, ...) delivered to the process.
+    public static int sturdy_signal_wait(MemorySegment signals, int count, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_signal_wait", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(signals, count, out_op);
     }
 
     // Decodes a file (any supported codec; cached by path) without playing it.
@@ -6325,6 +9090,166 @@ public final class Sturdy {
     public static int sturdy_spawn_options_init(MemorySegment options) throws Throwable {
         MethodHandle h = handle("sturdy_spawn_options_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(options);
+    }
+
+    public static int sturdy_stream_chain(MemorySegment first, MemorySegment second, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_chain", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(first, second, out_stream);
+    }
+
+    // Items become packed frames of up to `count` items; the `_timeout` form also emits a partial batch once `max_wait_ms` passed since its first item.
+    public static int sturdy_stream_chunks(MemorySegment stream, long count, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_chunks", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, count, out_stream);
+    }
+
+    public static int sturdy_stream_chunks_timeout(MemorySegment stream, long count, long max_wait_ms, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_chunks_timeout", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, count, max_wait_ms, out_stream);
+    }
+
+    // Drains the stream. Bytes: the items as packed frames. Number: how many.
+    public static int sturdy_stream_collect(MemorySegment stream, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_collect", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, out_op);
+    }
+
+    // Number: how many items.
+    public static int sturdy_stream_count(MemorySegment stream, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, out_op);
+    }
+
+    public static int sturdy_stream_empty(MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_empty", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_stream);
+    }
+
+    // Items become frames {index as 8-byte little-endian, item}.
+    public static int sturdy_stream_enumerate(MemorySegment stream, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_enumerate", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, out_stream);
+    }
+
+    public static int sturdy_stream_filter(MemorySegment stream, MemorySegment pred, MemorySegment user_data, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_filter", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, pred, user_data, out_stream);
+    }
+
+    public static int sturdy_stream_filter_map(MemorySegment stream, MemorySegment fn, MemorySegment user_data, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_filter_map", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, fn, user_data, out_stream);
+    }
+
+    // Bytes: the final accumulator.
+    public static int sturdy_stream_fold(MemorySegment stream, MemorySegment initial, long initial_size, MemorySegment fn, MemorySegment user_data, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_fold", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, initial, initial_size, fn, user_data, out_op);
+    }
+
+    public static int sturdy_stream_for_each(MemorySegment stream, MemorySegment fn, MemorySegment user_data, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_for_each", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, fn, user_data, out_op);
+    }
+
+    // Sends every item into a channel (does not close it).
+    public static int sturdy_stream_forward(MemorySegment stream, MemorySegment sender, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_forward", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, sender, out_op);
+    }
+
+    // Sources. Every callback's `user_data` must stay valid until the stream is finished with.
+    public static int sturdy_stream_from_channel(MemorySegment receiver, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_from_channel", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, out_stream);
+    }
+
+    public static int sturdy_stream_generate(MemorySegment source, MemorySegment user_data, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_generate", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(source, user_data, out_stream);
+    }
+
+    public static int sturdy_stream_inspect(MemorySegment stream, MemorySegment fn, MemorySegment user_data, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_inspect", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, fn, user_data, out_stream);
+    }
+
+    // Items are 8-byte little-endian steady-clock nanoseconds, one per period.
+    public static int sturdy_stream_interval(long period_ms, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_interval", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(period_ms, out_stream);
+    }
+
+    // Number 1 and bytes: the last item; number 0 for an empty stream.
+    public static int sturdy_stream_last(MemorySegment stream, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_last", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, out_op);
+    }
+
+    // Adapters. Each takes (consumes) its input stream(s) and returns a new one.
+    public static int sturdy_stream_map(MemorySegment stream, MemorySegment fn, MemorySegment user_data, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_map", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, fn, user_data, out_stream);
+    }
+
+    // Runs `fn` on the worker pool for up to `concurrency` items at once (0: twice the worker count); `ordered` keeps the input order.
+    public static int sturdy_stream_map_concurrent(MemorySegment stream, MemorySegment fn, MemorySegment user_data, long concurrency, byte ordered, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_map_concurrent", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, fn, user_data, concurrency, ordered, out_stream);
+    }
+
+    public static int sturdy_stream_merge(MemorySegment first, MemorySegment second, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_merge", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(first, second, out_stream);
+    }
+
+    // Sinks. Number 1 and bytes: the next item; number 0 at the end. (Not consuming; cannot be cancelled — close the source to stop it.)
+    public static int sturdy_stream_next(MemorySegment stream, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_next", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, out_op);
+    }
+
+    public static int sturdy_stream_of_items(MemorySegment items, int count, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_of_items", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(items, count, out_stream);
+    }
+
+    public static int sturdy_stream_skip(MemorySegment stream, long count, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_skip", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, count, out_stream);
+    }
+
+    public static int sturdy_stream_take(MemorySegment stream, long count, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_take", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, count, out_stream);
+    }
+
+    public static int sturdy_stream_take_while(MemorySegment stream, MemorySegment pred, MemorySegment user_data, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_take_while", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, pred, user_data, out_stream);
+    }
+
+    public static int sturdy_stream_throttle(MemorySegment stream, long period_ms, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_throttle", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, period_ms, out_stream);
+    }
+
+    // An item that takes longer than `limit_ms` fails the next pull with `STURDY_IO_TIMED_OUT`.
+    public static int sturdy_stream_timeout_each(MemorySegment stream, long limit_ms, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_timeout_each", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(stream, limit_ms, out_stream);
+    }
+
+    // Items become frames {a, b}.
+    public static int sturdy_stream_zip(MemorySegment first, MemorySegment second, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_stream_zip", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(first, second, out_stream);
+    }
+
+    // Asks a STUN server what public address this machine appears as. Text: host. Number: port. `server` null: stun.l.google.com:19302.
+    public static int sturdy_stun_query(MemorySegment server, short port, long timeout_ms, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_stun_query", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(server, port, timeout_ms, out_op);
     }
 
     // Reads what `surface`'s presentation policy actually resolved to.
@@ -6355,6 +9280,174 @@ public final class Sturdy {
     public static int sturdy_surface_update_hdr_content_light_level(MemorySegment engine, MemorySegment surface, float max_content_light_level_nits, float max_frame_average_light_level_nits) throws Throwable {
         MethodHandle h = handle("sturdy_surface_update_hdr_content_light_level", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_FLOAT));
         return (int) h.invokeExact(engine, surface, max_content_light_level_nits, max_frame_average_light_level_nits);
+    }
+
+    // A blocking mutex around a byte-string value, named for the profiler. Object "sync_mutex". It blocks the calling thread: never lock it on a network or timer thread, never hold it across a wait, and release a guard on the thread that locked it. (`sturdy_async_mutex_*` waits without a thread.)
+    public static int sturdy_sync_mutex_create(MemorySegment initial, long size, MemorySegment debug_name, MemorySegment out_mutex) throws Throwable {
+        MethodHandle h = handle("sturdy_sync_mutex_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(initial, size, debug_name, out_mutex);
+    }
+
+    // Blocks until the lock is free. Object "sync_guard": read and replace the value with `sturdy_guard_get` / `sturdy_guard_set`, unlock with `sturdy_guard_release`.
+    public static int sturdy_sync_mutex_lock(MemorySegment mutex, MemorySegment out_guard) throws Throwable {
+        MethodHandle h = handle("sturdy_sync_mutex_lock", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(mutex, out_guard);
+    }
+
+    // `out_guard` receives the zero handle when the lock is held.
+    public static int sturdy_sync_mutex_try_lock(MemorySegment mutex, MemorySegment out_guard) throws Throwable {
+        MethodHandle h = handle("sturdy_sync_mutex_try_lock", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(mutex, out_guard);
+    }
+
+    // A value that follows the flow of work: tasks spawned while it is bound inherit it. Object "task_local".
+    public static int sturdy_task_local_create(MemorySegment out_local) throws Throwable {
+        MethodHandle h = handle("sturdy_task_local_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_local);
+    }
+
+    // The bound value (bytes-output convention); `STURDY_ERROR_NOT_AVAILABLE` when none is bound here.
+    public static int sturdy_task_local_get(MemorySegment local, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_task_local_get", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(local, buffer, capacity, out_length);
+    }
+
+    // Runs `body` with `value` bound.
+    public static int sturdy_task_local_scope(MemorySegment local, MemorySegment value, long size, MemorySegment body, MemorySegment user_data) throws Throwable {
+        MethodHandle h = handle("sturdy_task_local_scope", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(local, value, size, body, user_data);
+    }
+
+    // Sets a task's result: a number, bytes and text; a non-null, non-empty `error` fails the task with that message.
+    public static int sturdy_task_output_set(MemorySegment output, long number, MemorySegment bytes, long size, MemorySegment text, MemorySegment error) throws Throwable {
+        MethodHandle h = handle("sturdy_task_output_set", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(output, number, bytes, size, text, error);
+    }
+
+    // Runs `work` and reports its result as an op: number, bytes and text as set; a task error fails the op. `user_data` must stay valid until the task finishes. Cancelling the op sets the token the work polls.
+    public static int sturdy_task_spawn(MemorySegment work, MemorySegment user_data, int lane, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_task_spawn", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(work, user_data, lane, out_op);
+    }
+
+    // Same, on a custom pool (`sturdy_pool_create`).
+    public static int sturdy_task_spawn_on(MemorySegment pool, MemorySegment work, MemorySegment user_data, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_task_spawn_on", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(pool, work, user_data, out_op);
+    }
+
+    // Waits for the next connection. Object "tcp".
+    public static int sturdy_tcp_accept(MemorySegment listener, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_accept", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(listener, out_op);
+    }
+
+    // Closes now (the object is still released separately).
+    public static int sturdy_tcp_close(MemorySegment connection) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(connection);
+    }
+
+    // Connects (resolving, trying each address). Object "tcp". `tls` null: plain TCP; otherwise a verified TLS handshake. `timeout_ms` 0: 30 seconds.
+    public static int sturdy_tcp_connect(MemorySegment host, short port, MemorySegment tls, long timeout_ms, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_connect", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(host, port, tls, timeout_ms, out_op);
+    }
+
+    // Connection details as a finished op: fields `peer`, `local` ("host:port") and, over TLS, `protocol`, `cipher`, `alpn`, `peer_sha256`.
+    public static int sturdy_tcp_info(MemorySegment connection, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_info", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, out_op);
+    }
+
+    public static int sturdy_tcp_is_open(MemorySegment connection, MemorySegment out_open) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_is_open", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, out_open);
+    }
+
+    // Starts listening. Object "tcp_listener" (finished op). `tls` non-null: every accepted connection completes a TLS handshake first. `backlog` is the pending-connection queue length; 0: 1024.
+    public static int sturdy_tcp_listen(MemorySegment host, short port, MemorySegment tls, int backlog, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_listen", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(host, port, tls, backlog, out_op);
+    }
+
+    // "host:port" the listener is bound to, following the string-output convention.
+    public static int sturdy_tcp_listener_address(MemorySegment listener, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_listener_address", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(listener, buffer, capacity, out_length);
+    }
+
+    public static int sturdy_tcp_listener_close(MemorySegment listener) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_listener_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(listener);
+    }
+
+    public static int sturdy_tcp_listener_is_open(MemorySegment listener, MemorySegment out_open) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_listener_is_open", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(listener, out_open);
+    }
+
+    // The port a listener is bound to.
+    public static int sturdy_tcp_listener_port(MemorySegment listener, MemorySegment out_port) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_listener_port", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(listener, out_port);
+    }
+
+    // Receives 1..`max_bytes` bytes as soon as any arrive. Bytes: empty means the peer finished.
+    public static int sturdy_tcp_receive(MemorySegment connection, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_receive", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, max_bytes, out_op);
+    }
+
+    // Receives exactly `count` bytes (`STURDY_IO_UNEXPECTED_EOF` if the peer closes first).
+    public static int sturdy_tcp_receive_exact(MemorySegment connection, long count, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_receive_exact", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, count, out_op);
+    }
+
+    // Receives up to and including `delimiter` (a line, a header block); `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes`.
+    public static int sturdy_tcp_receive_until(MemorySegment connection, MemorySegment delimiter, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_receive_until", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, delimiter, max_bytes, out_op);
+    }
+
+    // Sends all of `data`. Number: bytes sent. The data is copied.
+    public static int sturdy_tcp_send(MemorySegment connection, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, data, size, out_op);
+    }
+
+    public static int sturdy_tcp_set_keepalive(MemorySegment connection, byte enabled, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_set_keepalive", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, enabled, out_op);
+    }
+
+    // Socket options; each finishes once applied (a failure is reported on the op).
+    public static int sturdy_tcp_set_nodelay(MemorySegment connection, byte enabled, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_set_nodelay", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, enabled, out_op);
+    }
+
+    // Half-close: tells the peer no more data is coming while reads continue.
+    public static int sturdy_tcp_shutdown_write(MemorySegment connection, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_shutdown_write", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, out_op);
+    }
+
+    // Upgrades an open, quiet connection to TLS in place (STARTTLS, after an HTTP CONNECT). Client or server role.
+    public static int sturdy_tcp_start_tls_client(MemorySegment connection, MemorySegment host, MemorySegment tls, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_start_tls_client", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, host, tls, out_op);
+    }
+
+    public static int sturdy_tcp_start_tls_server(MemorySegment connection, MemorySegment tls, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tcp_start_tls_server", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(connection, tls, out_op);
+    }
+
+    public static int sturdy_thread_pin_current(int core_index, MemorySegment out_pinned) throws Throwable {
+        MethodHandle h = handle("sturdy_thread_pin_current", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(core_index, out_pinned);
     }
 
     // Reads the time step for the current tick, after the time scale is applied.
@@ -6391,10 +9484,40 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, out_seconds);
     }
 
+    // Finishes (OK) after `milliseconds`, without occupying a thread.
+    public static int sturdy_timer_sleep(long milliseconds, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_timer_sleep", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(milliseconds, out_op);
+    }
+
+    // Finishes at an absolute wall-clock time (milliseconds since the Unix epoch), at once if it has passed.
+    public static int sturdy_timer_sleep_until(long unix_ms, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_timer_sleep_until", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(unix_ms, out_op);
+    }
+
+    // Hex SHA-256 of the first certificate in `certificate_pem`.
+    public static int sturdy_tls_certificate_sha256(MemorySegment certificate_pem, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_tls_certificate_sha256", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(certificate_pem, buffer, capacity, out_length);
+    }
+
+    // Generates a self-signed ECDSA P-256 identity (for peers and dev servers). Returns an already-finished op with fields `certificate_pem`, `private_key_pem`, `sha256`.
+    public static int sturdy_tls_generate_identity(MemorySegment common_name, int valid_days, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_tls_generate_identity", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(common_name, valid_days, out_op);
+    }
+
     // Fills `settings` with `struct_size` and engine defaults (AGX operator, no look, neutral PsychoV/Hermite curve parameters).
     public static int sturdy_tone_mapping_settings_init(MemorySegment settings) throws Throwable {
         MethodHandle h = handle("sturdy_tone_mapping_settings_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(settings);
+    }
+
+    // Logical (or physical) cores ranked fastest first (bytes-output convention in `uint32_t` units: `out_count` always receives the number).
+    public static int sturdy_topology_ranked_cores(byte physical, MemorySegment buffer, long capacity, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_topology_ranked_cores", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(physical, buffer, capacity, out_count);
     }
 
     // Replaces the calling thread's trace with the stack at this call (foreign site, engine scopes, native stack per the detail setting). For a foreign language that wants the engine's side of a stack at a moment of its choosing, such as a panic hook.
@@ -6431,6 +9554,83 @@ public final class Sturdy {
     public static int sturdy_trace_set_foreign_call_site(MemorySegment language, int language_length, MemorySegment file, int file_length, int line, int column, MemorySegment function, int function_length) throws Throwable {
         MethodHandle h = handle("sturdy_trace_set_foreign_call_site", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
         return (int) h.invokeExact(language, language_length, file, file_length, line, column, function, function_length);
+    }
+
+    // "host:port" the socket is bound to, following the string-output convention.
+    public static int sturdy_udp_address(MemorySegment socket, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_address", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, buffer, capacity, out_length);
+    }
+
+    // Binds a UDP socket. Object "udp". `host` null/empty: all interfaces. `port` 0: any. `options` may be null.
+    public static int sturdy_udp_bind(MemorySegment host, short port, MemorySegment options, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_bind", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(host, port, options, out_op);
+    }
+
+    public static int sturdy_udp_close(MemorySegment socket) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(socket);
+    }
+
+    // Fixes the peer: `sturdy_udp_send` then needs no address and only that peer's datagrams are received.
+    public static int sturdy_udp_connect(MemorySegment socket, MemorySegment host, short port, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_connect", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, host, port, out_op);
+    }
+
+    public static int sturdy_udp_is_open(MemorySegment socket, MemorySegment out_open) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_is_open", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, out_open);
+    }
+
+    // `interface_address` null/empty: the default interface.
+    public static int sturdy_udp_join_multicast(MemorySegment socket, MemorySegment group, MemorySegment interface_address, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_join_multicast", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, group, interface_address, out_op);
+    }
+
+    public static int sturdy_udp_leave_multicast(MemorySegment socket, MemorySegment group, MemorySegment interface_address, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_leave_multicast", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, group, interface_address, out_op);
+    }
+
+    public static int sturdy_udp_port(MemorySegment socket, MemorySegment out_port) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_port", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, out_port);
+    }
+
+    // Receives the next datagram (at most `max_bytes`). Bytes: the datagram. Text: sender host. Number: sender port.
+    public static int sturdy_udp_receive(MemorySegment socket, long max_bytes, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_receive", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, max_bytes, out_op);
+    }
+
+    // Sends one datagram on a connected socket. Number: bytes sent.
+    public static int sturdy_udp_send(MemorySegment socket, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, data, size, out_op);
+    }
+
+    // Sends one datagram. Number: bytes sent.
+    public static int sturdy_udp_send_to(MemorySegment socket, MemorySegment host, short port, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_send_to", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, host, port, data, size, out_op);
+    }
+
+    public static int sturdy_udp_set_broadcast(MemorySegment socket, byte enabled, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_set_broadcast", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, enabled, out_op);
+    }
+
+    public static int sturdy_udp_set_multicast_loopback(MemorySegment socket, byte enabled, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_set_multicast_loopback", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, enabled, out_op);
+    }
+
+    public static int sturdy_udp_set_multicast_ttl(MemorySegment socket, int hops, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_udp_set_multicast_ttl", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, hops, out_op);
     }
 
     // Opens a UI frame, to be built and then closed with `sturdy_ui_end`.
@@ -6626,6 +9826,152 @@ public final class Sturdy {
     public static int sturdy_volumetric_fog_settings_init(MemorySegment settings) throws Throwable {
         MethodHandle h = handle("sturdy_volumetric_fog_settings_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(settings);
+    }
+
+    public static int sturdy_watch_close(MemorySegment watcher) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(watcher);
+    }
+
+    // The remaining events as a "stream" object; each item is `sturdy_frames_pack` of {kind as decimal text, path, old_path, "1"/"0" for is_directory}.
+    public static int sturdy_watch_events_stream(MemorySegment watcher, MemorySegment out_stream) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_events_stream", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(watcher, out_stream);
+    }
+
+    // Next change. Number: 0 created, 1 modified, 2 removed, 3 renamed, 4 overflow (rescan). Text: path. Fields: old_path, is_directory.
+    public static int sturdy_watch_next(MemorySegment watcher, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_next", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(watcher, out_op);
+    }
+
+    // Watches a path for changes (inotify on Linux, polling elsewhere). Object "watcher". `options` may be null.
+    public static int sturdy_watch_path(MemorySegment path, MemorySegment options, MemorySegment out_watcher) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_path", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(path, options, out_watcher);
+    }
+
+    // Whether the OS's event API is used (false: polling).
+    public static int sturdy_watch_uses_native_backend(MemorySegment watcher, MemorySegment out_native) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_uses_native_backend", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(watcher, out_native);
+    }
+
+    // The current value (bytes-output convention); `_and_update` also marks it seen.
+    public static int sturdy_watch_value_borrow(MemorySegment receiver, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_value_borrow", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, buffer, capacity, out_length);
+    }
+
+    public static int sturdy_watch_value_borrow_and_update(MemorySegment receiver, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_value_borrow_and_update", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, buffer, capacity, out_length);
+    }
+
+    // Finishes when the value changed since this receiver last looked; `STURDY_IO_CLOSED` once the sender is gone and nothing new remains.
+    public static int sturdy_watch_value_changed(MemorySegment receiver, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_value_changed", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, out_op);
+    }
+
+    // A single value many tasks observe. Objects "watch_sender" / "watch_receiver"; each receiver tracks what it has seen on its own.
+    public static int sturdy_watch_value_create(MemorySegment initial, long size, MemorySegment out_sender, MemorySegment out_receiver) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_value_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(initial, size, out_sender, out_receiver);
+    }
+
+    public static int sturdy_watch_value_has_changed(MemorySegment receiver, MemorySegment out_changed) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_value_has_changed", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, out_changed);
+    }
+
+    public static int sturdy_watch_value_receiver_clone(MemorySegment receiver, MemorySegment out_receiver) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_value_receiver_clone", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(receiver, out_receiver);
+    }
+
+    public static int sturdy_watch_value_send(MemorySegment sender, MemorySegment data, long size) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_value_send", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(sender, data, size);
+    }
+
+    public static int sturdy_watch_value_subscribe(MemorySegment sender, MemorySegment out_receiver) throws Throwable {
+        MethodHandle h = handle("sturdy_watch_value_subscribe", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(sender, out_receiver);
+    }
+
+    // Drops the connection without a closing handshake.
+    public static int sturdy_websocket_abort(MemorySegment socket) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_abort", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(socket);
+    }
+
+    // Waits for the next upgraded connection. Object "websocket".
+    public static int sturdy_websocket_accept(MemorySegment server, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_accept", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(server, out_op);
+    }
+
+    // Graceful close with an RFC 6455 code (1000 normal) and a reason of up to 123 bytes.
+    public static int sturdy_websocket_close(MemorySegment socket, short code, MemorySegment reason, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.JAVA_SHORT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, code, reason, out_op);
+    }
+
+    // Connects (`ws://` or `wss://`). Object "websocket". `options` may be null.
+    public static int sturdy_websocket_connect(MemorySegment url, MemorySegment options, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_connect", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(url, options, out_op);
+    }
+
+    // Fields: `target`, `origin`, `subprotocol`, `header: <Name >` for each upgrade-request header, `peer` ("host:port"), the TLS fields over wss, and once closed `close_code`, `close_reason` (a finished op).
+    public static int sturdy_websocket_info(MemorySegment socket, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_info", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, out_op);
+    }
+
+    public static int sturdy_websocket_is_open(MemorySegment socket, MemorySegment out_open) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_is_open", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, out_open);
+    }
+
+    // Sends a ping (payload up to 125 bytes).
+    public static int sturdy_websocket_ping(MemorySegment socket, MemorySegment payload, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_ping", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, payload, size, out_op);
+    }
+
+    // Next data message. Bytes: payload. Number: 1 for text, 0 for binary. Fails with `STURDY_IO_CLOSED` once the connection ended.
+    public static int sturdy_websocket_receive(MemorySegment socket, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_receive", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, out_op);
+    }
+
+    public static int sturdy_websocket_send_binary(MemorySegment socket, MemorySegment data, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_send_binary", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, data, size, out_op);
+    }
+
+    // Queues a text message (UTF-8, `size` bytes; no terminator needed). The data is copied.
+    public static int sturdy_websocket_send_text(MemorySegment socket, MemorySegment text, long size, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_send_text", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(socket, text, size, out_op);
+    }
+
+    public static int sturdy_websocket_server_close(MemorySegment server) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_server_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
+        return (int) h.invokeExact(server);
+    }
+
+    // Starts a WebSocket server. Object "ws_server" (finished op).
+    public static int sturdy_websocket_server_listen(MemorySegment options, MemorySegment out_op) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_server_listen", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options, out_op);
+    }
+
+    public static int sturdy_websocket_server_port(MemorySegment server, MemorySegment out_port) throws Throwable {
+        MethodHandle h = handle("sturdy_websocket_server_port", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(server, out_port);
     }
 
     // Fills `config` with the engine's default window configuration (1280x720, windowed, decorated, visible, resizable, OS-placed).

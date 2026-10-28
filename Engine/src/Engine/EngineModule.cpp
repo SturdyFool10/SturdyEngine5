@@ -120,14 +120,45 @@ namespace SFT::Engine {
 
         frame_time_.advance(delta_seconds, time_scale_.value());
         fixed_time_.advance(frame_time_.delta_seconds());
+        // Hooks run with the world quiet. A snapshot, so a hook may add or remove hooks; one removed by an earlier hook is skipped.
+        std::vector<UpdateHook> hooks = *update_hooks_.lock();
+        for (const UpdateHook &hook : hooks) {
+            bool still_registered = false;
+            for (const UpdateHook &live : *update_hooks_.lock()) {
+                if (live.id == hook.id) {
+                    still_registered = true;
+                    break;
+                }
+            }
+            if (still_registered) hook.fn(frame_time_.delta_seconds());
+        }
         // Debug shapes drawn last update are gone (or have outlived their lifetime) before this update draws its own.
         debug_draw_.advance(frame_time_.unscaled_delta_seconds());
         // Systems this update read world matrices that reflect every Transform set before it.
         (void)Engine::propagate_transforms();
         update_schedule_.run(ecs_world_);
+        // UI trees are laid out once every update system has run, so their builders see this update's state and may read the world.
+        // Unscaled time: a paused or slowed game keeps a responsive UI.
+        ui_trees_.build(*this, delta_seconds);
     }
 
+    Ecs::Entity Engine::spawn_ui_tree(UiTreeDesc desc) { return ecs_world_.spawn(UiTree{std::move(desc)}); }
+
+    usize Engine::render_ui_tree_targets() { return ui_trees_.render_targets(*this); }
+
     void Engine::defer_to_update_boundary(std::function<void()> action) { deferred_actions_.lock()->push_back(std::move(action)); }
+
+    Engine::UpdateHookId Engine::add_update_hook(std::function<void(f64)> hook) {
+        auto hooks = update_hooks_.lock();
+        const UpdateHookId id = next_update_hook_id_++;
+        hooks->push_back({id, std::move(hook)});
+        return id;
+    }
+
+    bool Engine::remove_update_hook(UpdateHookId id) {
+        auto hooks = update_hooks_.lock();
+        return std::erase_if(*hooks, [id](const UpdateHook &hook) { return hook.id == id; }) > 0;
+    }
 
     PropagationStats Engine::propagate_transforms() { return SFT::Engine::propagate_transforms(ecs_world_); }
 

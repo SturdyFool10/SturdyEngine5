@@ -46,8 +46,15 @@ namespace SFT::Renderer {
             f32 psychov_background_gray_r = 0.18f;
             f32 psychov_background_gray_g = 0.18f;
             f32 psychov_background_gray_b = 0.18f;
+
+            u32 linear_output = 0;
+            // Pads the block to 128 bytes (a multiple of 16, so the std140 uniform-buffer form WebGPU uses has the same layout).
+            u32 padding0 = 0;
+            u32 padding1 = 0;
+            u32 padding2 = 0;
         };
-        static_assert(sizeof(TonemapConstants) == 112);
+        // 128 is also Vulkan's guaranteed push-constant size: nothing more fits here.
+        static_assert(sizeof(TonemapConstants) == 128);
 
     } // namespace
 
@@ -82,6 +89,7 @@ namespace SFT::Renderer {
             .psychov_background_gray_r = settings.frame.tone_mapping.psycho_v.background_gray_bt709[0],
             .psychov_background_gray_g = settings.frame.tone_mapping.psycho_v.background_gray_bt709[1],
             .psychov_background_gray_b = settings.frame.tone_mapping.psycho_v.background_gray_bt709[2],
+            .linear_output = settings.linear_output ? 1u : 0u,
         };
         CustomPostProcessEffect effect;
         effect.shader_path = "Shaders/fullscreen_tonemap.slang";

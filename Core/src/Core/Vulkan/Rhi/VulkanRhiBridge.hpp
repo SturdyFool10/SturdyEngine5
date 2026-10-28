@@ -103,6 +103,8 @@ namespace SFT::Core::Vulkan {
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function does not throw exceptions.
         [[nodiscard]] const rhi::DeviceLimits &limits() const noexcept override;
+        /// Asks the driver (`vkGetPhysicalDeviceFormatProperties`, optimal tiling, and the image-format sample counts).
+        [[nodiscard]] rhi::FormatCapabilities format_capabilities(rhi::Format format) const noexcept override;
         /// Returns the current or globally available feature negotiation report value.
         ///
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.

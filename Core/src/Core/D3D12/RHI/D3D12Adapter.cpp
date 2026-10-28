@@ -505,6 +505,8 @@ namespace SFT::D3D12 {
         limits.max_vertex_attributes = D3D12_IA_VERTEX_INPUT_STRUCTURE_ELEMENT_COUNT;
         limits.max_color_attachments = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT;
         limits.supports_bc_texture_compression = true;
+        // Every D3D12 device supports anisotropic filtering up to this.
+        limits.max_sampler_anisotropy = static_cast<f32>(D3D12_MAX_MAXANISOTROPY);
         limits.supports_minimum_depth_resolve = false;
         limits.max_compute_workgroup_size_x = D3D12_CS_THREAD_GROUP_MAX_X;
         limits.max_compute_workgroup_size_y = D3D12_CS_THREAD_GROUP_MAX_Y;

@@ -81,8 +81,9 @@ namespace {
                 SturdyEngine{engine_handle.token()}, interface_.user_data);
             if (accepted == STURDY_FALSE) {
                 failure_flag_.store(true, std::memory_order_relaxed);
-                return std::unexpected(SFT::Engine::GameLogicError{
-                    SFT::UString{"the C ABI on_engine_initialized callback reported failure"}});
+                std::string reason = "the C ABI on_engine_initialized callback reported failure";
+                if (std::string detail = SFT::Ffi::take_callback_failure_detail(); !detail.empty()) reason += ": " + detail;
+                return std::unexpected(SFT::Engine::GameLogicError{SFT::UString{reason}});
             }
             return {};
         }
@@ -611,6 +612,10 @@ namespace {
     }
 
 } // namespace
+
+namespace SFT::Ffi {
+    std::function<void(SFT::Engine::GameLogicResult)> module_failure_recorder(SFT::Engine::Engine &engine) { return record_module_failure(engine); }
+} // namespace SFT::Ffi
 
 extern "C" {
 

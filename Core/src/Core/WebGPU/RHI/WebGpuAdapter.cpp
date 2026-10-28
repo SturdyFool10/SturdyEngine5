@@ -93,6 +93,8 @@ namespace SFT::Core::WebGpu {
             out.min_storage_buffer_offset_alignment = limits.minStorageBufferOffsetAlignment;
             // WebGPU timestamps are already in nanoseconds, so the period is exactly 1.
             out.timestamp_period_ns = 1.0f;
+            // maxAnisotropy is a core sampler field, clamped by the implementation to 16.
+            out.max_sampler_anisotropy = 16.0f;
             out.timestamp_valid_bits = 64;
             return out;
         }

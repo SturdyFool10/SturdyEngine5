@@ -229,6 +229,8 @@ namespace SFT::Core::Vulkan {
             (framebuffer_samples & VK_SAMPLE_COUNT_8_BIT) != 0 ? 8u :
             (framebuffer_samples & VK_SAMPLE_COUNT_4_BIT) != 0 ? 4u :
             (framebuffer_samples & VK_SAMPLE_COUNT_2_BIT) != 0 ? 2u : 1u;
+        // Device creation enables samplerAnisotropy whenever the hardware has it (VulkanBackendDevice.cpp).
+        limits_.max_sampler_anisotropy = physical_device.features().samplerAnisotropy == VK_TRUE ? limits.maxSamplerAnisotropy : 0.0f;
         VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR,
         };
@@ -442,6 +444,35 @@ namespace SFT::Core::Vulkan {
     /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
     /// @note This function does not throw exceptions.
     const rhi::DeviceLimits &VulkanRhiDeviceBridge::limits() const noexcept { return limits_; }
+
+    rhi::FormatCapabilities VulkanRhiDeviceBridge::format_capabilities(rhi::Format format) const noexcept {
+        const VkFormat vk_format = to_vk(format);
+        if (physical_device_ == nullptr || vk_format == VK_FORMAT_UNDEFINED) {
+            return rhi::portable_format_capabilities(format);
+        }
+        VkFormatProperties properties{};
+        vkGetPhysicalDeviceFormatProperties(physical_device_->vk_handle(), vk_format, &properties);
+        const VkFormatFeatureFlags features = properties.optimalTilingFeatures;
+        rhi::FormatCapabilities out{
+            .sampled = (features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) != 0,
+            .filterable = (features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0,
+            .color_attachment = (features & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) != 0,
+            .blendable = (features & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT) != 0,
+            .storage = (features & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) != 0,
+        };
+        if (out.color_attachment) {
+            VkImageFormatProperties image_properties{};
+            if (vkGetPhysicalDeviceImageFormatProperties(physical_device_->vk_handle(), vk_format, VK_IMAGE_TYPE_2D,
+                                                         VK_IMAGE_TILING_OPTIMAL,
+                                                         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0,
+                                                         &image_properties) == VK_SUCCESS) {
+                out.sample_counts = image_properties.sampleCounts;
+            } else {
+                out.sample_counts = 1u;
+            }
+        }
+        return out;
+    }
     /// Returns the current or globally available feature negotiation report value.
     ///
     /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.

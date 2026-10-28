@@ -70,6 +70,12 @@ struct TonemapConstants {
     float psychovBackgroundGrayR;
     float psychovBackgroundGrayG;
     float psychovBackgroundGrayB;
+
+    // Nonzero for a linear off-screen target (RGBA16Float): write reference-domain values, unclamped and unencoded.
+    uint linearOutput;
+    uint padding0;
+    uint padding1;
+    uint padding2;
 };
 
 #ifdef SFT_EMULATE_PUSH_CONSTANTS
@@ -154,6 +160,12 @@ float4 fragmentMain(VertexOutput input) : SV_Target {
     float gray = luminance(mapped);
     mapped = lerp(float3(gray), mapped, tonemap.saturation);
 
+    if (tonemap.linearOutput != 0u) {
+        // A float off-screen target that something samples back as linear light (an emissive in-world screen): 1.0 = paper
+        // white, highlights above it kept, no display encoding.
+        float3 linearValue = max(mapped, 0.0);
+        return tonemap.preserveAlpha != 0u ? float4(linearValue * alpha, alpha) : float4(linearValue, 1.0);
+    }
     if (tonemap.hdrOutput != 0u) {
         // Internal scene and UI colors use linear BT.709/sRGB primaries. PQ/HLG swapchain color
         // spaces use BT.2020, while scRGB intentionally keeps linear sRGB primaries.

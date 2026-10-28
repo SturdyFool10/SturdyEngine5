@@ -1019,6 +1019,9 @@ namespace SFT::Engine {
             last_tick_time = tick_now;
             engine_->update(tick_delta_seconds);
             process_window_requests();
+            // Off-screen UI trees (in-world panels) that produced a new frame this update are drawn into their targets before any
+            // window frame that samples them is prepared.
+            (void)engine_->render_ui_tree_targets();
 
             // On-demand mode: a frame is due only for window activity, an explicit request, or a deadline that has
             // come. Anything else leaves the screen as it is and the loop goes back to sleep below.

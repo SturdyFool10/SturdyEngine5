@@ -16,3 +16,7 @@ bytemuck = { version = "1", features = ["derive"] }
 # `scalar-math` feature choice (see `sturdy/Cargo.toml`) — a mismatched version would be a
 # different, layout-incompatible set of types even with the same name.
 glam = { version = "0.33", features = ["bytemuck", "scalar-math"] }
+
+[build-dependencies]
+# Applies the `sturdy` crate's `export-symbols` link flag to this executable (see sturdy-build).
+sturdy-build = { path = "../../sturdy-build" }

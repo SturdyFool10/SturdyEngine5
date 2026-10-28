@@ -1,5 +1,6 @@
 #include <Foundation/Cpu/SimdMath.hpp>
 #include <Foundation/Cpu/CpuId.hpp>
+#include <Foundation/Cpu/IsaScope.hpp>
 
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
     #define STURDY_CPU_X86 1
@@ -844,36 +845,38 @@ namespace SFT::Foundation::Cpu {
         /// @note This function does not throw exceptions.
         [[nodiscard]] DispatchTable build_dispatch_table() noexcept {
 #if defined(STURDY_CPU_X86)
-            switch (best_simd_level()) {
-                case SimdLevel::AVX512:
+            switch (best_tier(current_isa_requirements())) {
+                case IsaTier::X86Avx512:
                     return DispatchTable{
                         .add32 = add_avx512, .add64 = add_avx512, .mul32 = mul_avx512, .mul64 = mul_avx512,
                         .fma32 = fma_avx512, .fma64 = fma_avx512, .dot32 = dot_avx512, .dot64 = dot_avx512,
                         .sqrt32 = sqrt_avx512, .sqrt64 = sqrt_avx512};
-                case SimdLevel::AVX2:
+                case IsaTier::X86Avx2:
                     return DispatchTable{
                         .add32 = add_avx2, .add64 = add_avx2, .mul32 = mul_avx2, .mul64 = mul_avx2,
                         .fma32 = fma_avx2, .fma64 = fma_avx2, .dot32 = dot_avx2, .dot64 = dot_avx2,
                         .sqrt32 = sqrt_avx2, .sqrt64 = sqrt_avx2};
-                case SimdLevel::AVX:
+                case IsaTier::X86Avx:
                     return DispatchTable{
                         .add32 = add_avx, .add64 = add_avx, .mul32 = mul_avx, .mul64 = mul_avx,
                         .fma32 = fma_avx, .fma64 = fma_avx, .dot32 = dot_avx, .dot64 = dot_avx,
                         .sqrt32 = sqrt_avx, .sqrt64 = sqrt_avx};
-                case SimdLevel::Scalar:
-                case SimdLevel::NEON:
-                case SimdLevel::RVV:
+                case IsaTier::Scalar:
+                case IsaTier::X86Sse2:
+                case IsaTier::ArmNeon:
+                case IsaTier::ArmSve2:
+                case IsaTier::RiscvV:
                     break;
             }
 #elif defined(STURDY_CPU_ARM64)
-            if (best_simd_level() == SimdLevel::NEON) {
+            if (current_isa_requirements().contains(required_extensions(IsaTier::ArmNeon))) {
                 return DispatchTable{
                     .add32 = add_neon, .add64 = add_neon, .mul32 = mul_neon, .mul64 = mul_neon,
                     .fma32 = fma_neon, .fma64 = fma_neon, .dot32 = dot_neon, .dot64 = dot_neon,
                     .sqrt32 = sqrt_neon, .sqrt64 = sqrt_neon};
             }
 #elif defined(STURDY_CPU_RISCV64)
-            if (best_simd_level() == SimdLevel::RVV) {
+            if (current_isa_requirements().contains(required_extensions(IsaTier::RiscvV))) {
                 return DispatchTable{
                     .add32 = add_rvv, .add64 = add_rvv, .mul32 = mul_rvv, .mul64 = mul_rvv,
                     .fma32 = fma_rvv, .fma64 = fma_rvv, .dot32 = dot_rvv, .dot64 = dot_rvv,
@@ -887,10 +890,7 @@ namespace SFT::Foundation::Cpu {
         ///
         /// @return Returns a read-only reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function does not throw exceptions.
-        [[nodiscard]] const DispatchTable &dispatch_table() noexcept {
-            static const DispatchTable instance = build_dispatch_table();
-            return instance;
-        }
+        [[nodiscard]] DispatchTable dispatch_table() noexcept { return build_dispatch_table(); }
 
     } // namespace
 

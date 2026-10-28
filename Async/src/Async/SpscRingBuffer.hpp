@@ -75,6 +75,21 @@ namespace SFT::Async {
         }
 
 
+        /// Pops the oldest element into `out`. Consumer thread only.
+        ///
+        /// @return `false` when the ring is empty.
+        /// @note This function does not throw exceptions.
+        [[nodiscard]] bool try_pop(T &out) noexcept {
+            const usize head = head_.load(std::memory_order_relaxed);
+            const usize tail = tail_.load(std::memory_order_acquire);
+            if (head == tail) {
+                return false;
+            }
+            out = buffer_[head & mask_];
+            head_.store(head + 1, std::memory_order_release);
+            return true;
+        }
+
         /// Drains into using the supplied arguments and current state.
         ///
         /// @param out `out` value used by the operation.

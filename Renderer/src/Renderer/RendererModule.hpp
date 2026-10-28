@@ -494,6 +494,23 @@ namespace SFT::Renderer {
         /// extent is unchanged. Waits for the GPU to finish with the old size first, so resize on a settled size, not on
         /// every pixel of a drag.
         [[nodiscard]] Core::RendererResult resize_offscreen_render_target(OffscreenRenderTargetHandle handle, Core::Extent2D extent);
+        /// Changes an off-screen target's size, format and/or sampling in place. The handle and its sampling texture stay valid
+        /// (materials and UI images using it keep working). A new size or format makes a new, empty image (the next frame aimed at
+        /// it redraws it); a sampling-only change swaps the sampler and keeps the pixels; a label-only change touches no GPU
+        /// object. Anything but a label change waits for the GPU first. Fails, leaving the target as it was, for an unsupported
+        /// format or a zero extent.
+        [[nodiscard]] Core::RendererResult reconfigure_offscreen_render_target(OffscreenRenderTargetHandle handle,
+                                                                               const OffscreenRenderTargetDescription &description);
+        /// Runs a compute kernel that writes the target (one whose config has `storage`), then rebuilds its mip chain, and waits for the
+        /// GPU to finish: the target is ready to sample when this returns. The target is bound as a storage texture to the kernel
+        /// resource named `target_binding` (level 0); `bindings` / `buffers` supply the kernel's other resources. Work already
+        /// submitted that uses the target (an earlier frame) is ordered before this on the queue. Call between frames from the thread
+        /// that submits them, like any synchronous upload.
+        [[nodiscard]] Core::RendererResult dispatch_into_offscreen_render_target(OffscreenRenderTargetHandle handle, ComputeKernelId kernel,
+                                                                                 std::string_view target_binding, glm::uvec3 groups,
+                                                                                 std::span<const ComputeBinding> bindings = {},
+                                                                                 std::span<const std::byte> push_constants = {},
+                                                                                 std::span<const ComputeBufferBinding> buffers = {});
         /// Performs the offscreen render target description operation for `Renderer` using the supplied arguments.
         ///
         /// @param handle Handle identifying the target object or resource.
@@ -501,6 +518,9 @@ namespace SFT::Renderer {
         /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         [[nodiscard]] optional<OffscreenRenderTargetDescription> offscreen_render_target_description(
             OffscreenRenderTargetHandle handle) const;
+        /// What the target's description resolved to on the current device: the format, size, mip count, anisotropy, storage and
+        /// MSAA it actually has, and the fallbacks made (`adjustments`). Empty for an unknown or destroyed target.
+        [[nodiscard]] optional<ResolvedOffscreenRenderTargetConfig> offscreen_render_target_config(OffscreenRenderTargetHandle handle) const;
         /// Performs the offscreen render target texture operation for `Renderer` using the supplied arguments.
         ///
         /// @param handle Handle identifying the target object or resource.
@@ -1281,14 +1301,21 @@ namespace SFT::Renderer {
 
         struct OffscreenRenderTargetGpuResources {
             RHI::TextureHandle texture{};
+            /// The whole mip chain: what samplers read.
             RHI::TextureViewHandle view{};
+            /// One single-level view per mip: attachments (level 0 is what a frame draws into) and the source of each downsample.
+            std::vector<RHI::TextureViewHandle> mip_views;
             RHI::SamplerHandle sampler{};
         };
 
         struct OffscreenRenderTargetRecord {
+            /// What the caller asked for (kept so a new device can resolve it again).
             OffscreenRenderTargetDescription description{};
+            /// What it resolved to on the current device; the GPU objects follow this.
+            ResolvedOffscreenRenderTargetConfig config{};
             RHI::TextureHandle texture{};
             RHI::TextureViewHandle view{};
+            std::vector<RHI::TextureViewHandle> mip_views;
             RHI::SamplerHandle sampler{};
             TextureHandle sampled_texture{};
             bool initialized = false;
@@ -1297,8 +1324,14 @@ namespace SFT::Renderer {
 
         struct ResolvedOffscreenRenderTarget {
             RHI::TextureHandle texture{};
+            /// Level 0, single-level: the attachment a frame draws into.
             RHI::TextureViewHandle view{};
+            std::vector<RHI::TextureViewHandle> mip_views;
             Core::Extent2D extent{};
+            RHI::Format format = RHI::Format::BGRA8UnormSrgb;
+            /// 0 = the frame's own MSAA setting applies.
+            u32 msaa_samples = 0;
+            bool storage = false;
             bool initialized = false;
         };
 
@@ -1920,7 +1953,25 @@ namespace SFT::Renderer {
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
         /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
         [[nodiscard]] Core::RendererExpected<OffscreenRenderTargetGpuResources>
-        create_offscreen_render_target_gpu_resources(const OffscreenRenderTargetDescription &description);
+        create_offscreen_render_target_gpu_resources(const ResolvedOffscreenRenderTargetConfig &config, const UString &label);
+        /// The sampler `config` describes.
+        [[nodiscard]] Core::RendererExpected<RHI::SamplerHandle> create_offscreen_render_target_sampler(
+            const ResolvedOffscreenRenderTargetConfig &config, const UString &label);
+        /// Resolves `request` against the current device (`resolve_offscreen_render_target`) and logs any fallback it made.
+        [[nodiscard]] Core::RendererExpected<ResolvedOffscreenRenderTargetConfig> resolve_offscreen_render_target_on_device(
+            const OffscreenRenderTargetDescription &request);
+        /// Copies a target's GPU objects, size, format and filtering onto its sampling wrapper. Caller holds the targets lock.
+        void publish_offscreen_render_target(OffscreenRenderTargetRecord &target, TextureResource &sampled) noexcept;
+        /// Destroys a target's texture, views and sampler (not its sampling wrapper) and clears the handles.
+        void destroy_offscreen_render_target_gpu_objects(OffscreenRenderTargetRecord &target) noexcept;
+        void destroy_offscreen_render_target_gpu_resources(const OffscreenRenderTargetGpuResources &gpu) noexcept;
+        /// Declares the passes that end a frame (or compute write) aimed at an off-screen target: the shader sRGB encode from
+        /// `linear_source` into level 0 (formats that need it; pass an empty handle otherwise), then the mip chain filtered down from
+        /// level 0. `target` is the target imported into `graph` with all its levels.
+        [[nodiscard]] Core::RendererResult add_offscreen_target_finalize_passes(RenderGraph &graph, RenderGraphTextureHandle target,
+                                                                                RenderGraphTextureHandle linear_source,
+                                                                                const ResolvedOffscreenRenderTarget &resolved,
+                                                                                std::vector<RHI::BindGroupHandle> &transient_bind_groups);
         /// Resolves offscreen render target into the concrete value used by the engine.
         ///
         /// @param handle Handle identifying the target object or resource.

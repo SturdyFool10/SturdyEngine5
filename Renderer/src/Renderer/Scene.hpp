@@ -248,6 +248,8 @@ namespace SFT::Renderer {
         /// The frame is presented to an HDR display, in this encoding.
         bool hdr_output = false;
         Core::HdrColorSpaceMode hdr_color_space = Core::HdrColorSpaceMode::Hdr10St2084;
+        /// The frame writes linear, unclamped values (a float off-screen target) rather than display-encoded ones. Set by the renderer.
+        bool linear_output = false;
         std::vector<CustomPostProcessEffect> custom_post_processes;
         CustomGraphProgram custom_graph;
         /// Application overlays, drawn in order on the finished frame (see `OverlayPass`).

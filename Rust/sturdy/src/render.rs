@@ -591,21 +591,152 @@ impl OffscreenTargetHandle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What an offscreen target stores, and so what a frame writes into it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TargetFormat {
+    /// Display-encoded SDR, exactly what a window shows (tone mapped, clamped, sRGB-encoded).
+    #[default]
+    Bgra8Srgb,
+    /// Same as [`TargetFormat::Bgra8Srgb`] in RGBA channel order.
+    Rgba8Srgb,
+    /// Linear half-float, unclamped (1.0 = paper white, highlights above it kept): for a target sampled back into an HDR
+    /// scene, such as an emissive in-world screen. Twice the memory of the 8-bit formats.
+    Rgba16Float,
+    /// Display-encoded SDR at 10 bits per channel (smoother gradients), 2-bit alpha. Encoded by a shader, so sampling
+    /// returns sRGB-*encoded* values: decode them where linear light is needed.
+    Rgb10A2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TargetFilter {
+    #[default]
+    Linear,
+    /// Pixel-exact (pixel art, a retro monitor).
+    Nearest,
+}
+
+/// What sampling outside `[0, 1]` returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TargetAddressMode {
+    #[default]
+    ClampToEdge,
+    Repeat,
+    MirroredRepeat,
+}
+
+/// How materials (and custom passes) sample an offscreen target. UI images pick their own filtering per image.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct TargetSampling {
+    pub filter: TargetFilter,
+    pub address: TargetAddressMode,
+    /// Anisotropic filtering for a target seen at a grazing angle; `0.0` or `1.0` = off, at most 16. Linear filter only.
+    pub max_anisotropy: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct OffscreenTargetDesc {
     pub size: glam::UVec2,
     pub label: String,
+    pub format: TargetFormat,
+    pub sampling: TargetSampling,
+    /// Mip levels, rebuilt from level 0 after every frame aimed at the target (no shimmer when seen from afar).
+    /// `1` = none (default); `0` = the full chain down to 1x1.
+    pub mip_levels: u32,
+    /// Lets compute kernels write the target. [`TargetFormat::Rgba16Float`] only.
+    pub allow_storage: bool,
 }
 
 impl OffscreenTargetDesc {
     pub fn new(size: impl Into<glam::UVec2>) -> Self {
-        Self { size: size.into(), label: String::new() }
+        Self {
+            size: size.into(),
+            label: String::new(),
+            format: TargetFormat::default(),
+            sampling: TargetSampling::default(),
+            mip_levels: 1,
+            allow_storage: false,
+        }
+    }
+
+    /// `0` = the full chain.
+    #[must_use]
+    pub fn mip_levels(mut self, levels: u32) -> Self {
+        self.mip_levels = levels;
+        self
+    }
+
+    #[must_use]
+    pub fn allow_storage(mut self, allow: bool) -> Self {
+        self.allow_storage = allow;
+        self
     }
 
     #[must_use]
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = label.into();
         self
+    }
+
+    #[must_use]
+    pub fn format(mut self, format: TargetFormat) -> Self {
+        self.format = format;
+        self
+    }
+
+    #[must_use]
+    pub fn sampling(mut self, sampling: TargetSampling) -> Self {
+        self.sampling = sampling;
+        self
+    }
+
+    fn to_ffi(&self) -> ffi::OffscreenTargetDesc {
+        ffi::OffscreenTargetDesc {
+            width: self.size.x,
+            height: self.size.y,
+            label: self.label.clone(),
+            format: match self.format {
+                TargetFormat::Bgra8Srgb => ffi::OffscreenTargetFormat::Bgra8Srgb,
+                TargetFormat::Rgba8Srgb => ffi::OffscreenTargetFormat::Rgba8Srgb,
+                TargetFormat::Rgba16Float => ffi::OffscreenTargetFormat::Rgba16Float,
+                TargetFormat::Rgb10A2 => ffi::OffscreenTargetFormat::Rgb10A2,
+            },
+            filter: match self.sampling.filter {
+                TargetFilter::Linear => ffi::OffscreenTargetFilter::Linear,
+                TargetFilter::Nearest => ffi::OffscreenTargetFilter::Nearest,
+            },
+            address: match self.sampling.address {
+                TargetAddressMode::ClampToEdge => ffi::OffscreenTargetAddressMode::ClampToEdge,
+                TargetAddressMode::Repeat => ffi::OffscreenTargetAddressMode::Repeat,
+                TargetAddressMode::MirroredRepeat => ffi::OffscreenTargetAddressMode::MirroredRepeat,
+            },
+            max_anisotropy: self.sampling.max_anisotropy,
+            mip_levels: self.mip_levels,
+            allow_storage: self.allow_storage,
+        }
+    }
+
+    fn from_ffi(desc: ffi::OffscreenTargetDesc) -> Self {
+        Self {
+            size: glam::uvec2(desc.width, desc.height),
+            label: desc.label,
+            format: match desc.format {
+                ffi::OffscreenTargetFormat::Rgba8Srgb => TargetFormat::Rgba8Srgb,
+                ffi::OffscreenTargetFormat::Rgba16Float => TargetFormat::Rgba16Float,
+                ffi::OffscreenTargetFormat::Rgb10A2 => TargetFormat::Rgb10A2,
+                _ => TargetFormat::Bgra8Srgb,
+            },
+            sampling: TargetSampling {
+                filter: if desc.filter == ffi::OffscreenTargetFilter::Nearest { TargetFilter::Nearest } else { TargetFilter::Linear },
+                address: match desc.address {
+                    ffi::OffscreenTargetAddressMode::Repeat => TargetAddressMode::Repeat,
+                    ffi::OffscreenTargetAddressMode::MirroredRepeat => TargetAddressMode::MirroredRepeat,
+                    _ => TargetAddressMode::ClampToEdge,
+                },
+                max_anisotropy: desc.max_anisotropy,
+            },
+            mip_levels: desc.mip_levels,
+            allow_storage: desc.allow_storage,
+        }
     }
 }
 
@@ -639,8 +770,7 @@ impl Engine<'_> {
     }
 
     pub fn create_offscreen_target(&mut self, desc: &OffscreenTargetDesc) -> Result<OffscreenTargetHandle, Error> {
-        let ffi_desc = ffi::OffscreenTargetDesc { width: desc.size.x, height: desc.size.y, label: desc.label.clone() };
-        let result = ffi::offscreen_target_create(self.view_mut(), &ffi_desc);
+        let result = ffi::offscreen_target_create(self.view_mut(), &desc.to_ffi());
         if result.ok { Ok(OffscreenTargetHandle { value: result.handle }) } else { Err(Error::new(result.message)) }
     }
 
@@ -653,6 +783,21 @@ impl Engine<'_> {
     pub fn resize_offscreen_target(&mut self, handle: OffscreenTargetHandle, size: impl Into<glam::UVec2>) -> Result<(), Error> {
         let size = size.into();
         let result = ffi::offscreen_target_resize(self.view_mut(), handle.value, size.x, size.y);
+        if result.ok { Ok(()) } else { Err(Error::new(result.message)) }
+    }
+
+    /// Changes an offscreen target's size, format and/or sampling in place. The handle and its sampling texture
+    /// ([`Engine::offscreen_target_texture`]) stay valid. A new size or format starts from an empty image (the next frame
+    /// re-renders it); a sampling-only change keeps the pixels. Waits for the GPU unless only the label changed, so do not
+    /// call it every frame. On error the target is left as it was.
+    ///
+    /// ```ignore
+    /// let mut desc = engine.offscreen_target_description(target).unwrap();
+    /// desc.sampling.filter = TargetFilter::Nearest;
+    /// engine.reconfigure_offscreen_target(target, &desc)?;
+    /// ```
+    pub fn reconfigure_offscreen_target(&mut self, handle: OffscreenTargetHandle, desc: &OffscreenTargetDesc) -> Result<(), Error> {
+        let result = ffi::offscreen_target_reconfigure(self.view_mut(), handle.value, &desc.to_ffi());
         if result.ok { Ok(()) } else { Err(Error::new(result.message)) }
     }
 
@@ -690,9 +835,8 @@ impl Engine<'_> {
     }
 
     pub fn offscreen_target_description(&self, handle: OffscreenTargetHandle) -> Option<OffscreenTargetDesc> {
-        let mut out = ffi::OffscreenTargetDesc { width: 0, height: 0, label: String::new() };
-        ffi::offscreen_target_description(self.view(), handle.value, &mut out)
-            .then(|| OffscreenTargetDesc { size: glam::uvec2(out.width, out.height), label: out.label })
+        let mut out = OffscreenTargetDesc::new(glam::UVec2::ZERO).to_ffi();
+        ffi::offscreen_target_description(self.view(), handle.value, &mut out).then(|| OffscreenTargetDesc::from_ffi(out))
     }
 
     /// The target's backing texture, as a raw `Renderer::TextureHandle` value (`0` if unknown).

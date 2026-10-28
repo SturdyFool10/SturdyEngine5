@@ -276,6 +276,21 @@ mod tests {
         assert_eq!(engine_text.lines().count(), after.frames.len(), "text was {engine_text}");
     }
 
+    /// With `export-symbols` the test binary exports its symbols (sturdy/build.rs), so the engine can name at least some native frames
+    /// at runtime instead of printing only module + offset.
+    #[cfg(all(feature = "export-symbols", any(target_os = "linux", target_os = "macos", target_os = "freebsd")))]
+    #[test]
+    fn export_symbols_lets_native_frames_carry_function_names() {
+        let _guard = SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        set_detail(TraceDetail::Native);
+        clear_call_site();
+        let trace = capture();
+        let named = trace.native_frames().filter(|frame| !frame.function.is_empty()).count();
+        let native = trace.native_frames().count();
+        assert!(native > 0, "a native capture has machine frames");
+        assert!(named > 0, "no native frame was named out of {native}; trace was:\n{trace}");
+    }
+
     #[test]
     fn detail_round_trips_and_off_captures_nothing() {
         let _guard = SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

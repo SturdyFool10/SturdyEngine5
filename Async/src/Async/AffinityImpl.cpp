@@ -1,4 +1,5 @@
 #include <Foundation/Foundation.hpp>
+#include <Foundation/Cpu/IsaScope.hpp>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -23,6 +24,7 @@ namespace SFT::Async {
     DedicatedThread::DedicatedThread(std::string name)
         : name_(std::move(name)) {
 #if !defined(STURDY_PLATFORM_WEB)
+        Foundation::Cpu::IsaScopeSuspension isa_suspension;
         thread_ = std::thread(&DedicatedThread::worker_loop, this);
 #endif
     }

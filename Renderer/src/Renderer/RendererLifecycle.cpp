@@ -1774,9 +1774,15 @@ namespace SFT::Renderer {
         const bool hdr_output = !offscreen_output &&
                                 static_cast<bool>(record.presentation.hdr_enabled) &&
                                 active_presentation.effective_color_space != RHI::ColorSpace::SrgbNonlinear;
+        // A target whose format the shaders cannot write directly (one encoded by a finishing pass) is drawn as linear half-float into an
+        // intermediate; `output_format` is what the frame's passes draw into.
+        const bool offscreen_shader_encode =
+            offscreen_output && offscreen_render_target_format_needs_shader_encode(resolved_offscreen->format);
         const RHI::Format output_format = offscreen_output
-            ? RHI::Format::BGRA8UnormSrgb
+            ? (offscreen_shader_encode ? RHI::Format::RGBA16Float : resolved_offscreen->format)
             : active_presentation.effective_format;
+        // A float off-screen target takes linear, unclamped values; an 8-bit one the same display-encoded SDR a window gets.
+        const bool linear_output = offscreen_output && offscreen_render_target_format_is_linear(output_format);
         const f32 resolution_scale = std::clamp(submission.render_graph.frame.resolution_scale, 0.1f, 2.0f);
         const Core::Extent2D render_extent = glm::max(
             Core::Extent2D{std::lround(static_cast<f64>(presentation_extent.x) * resolution_scale),
@@ -1846,8 +1852,11 @@ namespace SFT::Renderer {
 
         const bool full_path_tracing = submission.render_graph.spectral_path_tracing.mode ==
                                        SpectralRenderMode::FullPathTracing;
-        const u32 requested_msaa = full_path_tracing
-            ? 1u : std::min(std::max(submission.render_graph.frame.anti_aliasing.msaa_samples, 1u), 8u);
+        // An off-screen target can carry its own multisampling (already fitted to the device); otherwise the frame's setting applies.
+        const u32 frame_msaa = offscreen_output && resolved_offscreen->msaa_samples != 0
+            ? resolved_offscreen->msaa_samples
+            : submission.render_graph.frame.anti_aliasing.msaa_samples;
+        const u32 requested_msaa = full_path_tracing ? 1u : std::min(std::max(frame_msaa, 1u), 8u);
         const u32 supported_msaa = device->limits().framebuffer_sample_counts;
         const RHI::SampleCount framebuffer_samples =
             requested_msaa >= 8u && (supported_msaa & 8u) != 0 ? RHI::SampleCount::X8 :
@@ -2210,15 +2219,16 @@ namespace SFT::Renderer {
             scene_settings.background_color[2] * scene_settings.background_intensity,
             scene_settings.background_color[3],
         };
-        const RenderGraphTextureHandle final_output = graph.import_texture(RenderGraphImportedTextureDesc{
+        const RenderGraphTextureHandle target_output = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = output_texture,
             .default_view = output_view,
-            .format = output_format,
+            .format = offscreen_output ? resolved_offscreen->format : output_format,
             .extent = RHI::Extent3D{
                 .width = presentation_extent.x,
                 .height = presentation_extent.y,
                 .depth_or_layers = 1,
             },
+            .mip_levels = offscreen_output ? static_cast<u32>(resolved_offscreen->mip_views.size()) : 1u,
             .usage = offscreen_output
                 ? RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled |
                       RHI::TextureUsage::TransferSrc
@@ -2244,7 +2254,17 @@ namespace SFT::Renderer {
             .label = offscreen_output ? "off-screen final color"
                                       : output_uses_composition_present ? "composition color" : "swapchain color",
         });
-        graph.mark_output(final_output);
+        graph.mark_output(target_output);
+        // What the frame's passes draw into: the target itself, or for a shader-encoded target a linear half-float intermediate the
+        // finishing passes encode into it (see `add_offscreen_target_finalize_passes`).
+        const RenderGraphTextureHandle final_output = offscreen_shader_encode
+            ? graph.create_texture(RenderGraphTextureDesc{
+                  .format = output_format,
+                  .extent = RHI::Extent3D{.width = presentation_extent.x, .height = presentation_extent.y, .depth_or_layers = 1},
+                  .usage = RHI::TextureUsage::ColorAttachment | RHI::TextureUsage::Sampled,
+                  .label = "off-screen linear color (before encode)",
+              })
+            : target_output;
         const RHI::Extent3D frame_extent{.width = render_extent.x, .height = render_extent.y, .depth_or_layers = 1};
         RenderGraphTextureHandle gbuffer_albedo = graph.import_texture(RenderGraphImportedTextureDesc{
             .texture = slot.deferred_targets.gbuffer_albedo,
@@ -2518,6 +2538,7 @@ namespace SFT::Renderer {
             .output_format = output_format,
             .hdr_output = hdr_output,
             .hdr_color_space = record.presentation.hdr_color_space,
+            .linear_output = linear_output,
             .direct_overlay_presentation = direct_overlay_presentation,
             .final_output = final_output,
             .encoder = &**encoder,
@@ -2616,6 +2637,16 @@ namespace SFT::Renderer {
 
         if (Core::RendererResult built = frame_pipeline.build(frame_context, FrameStage::Post); !built.has_value()) {
             return built;
+        }
+        // An off-screen target is finished after everything else drew into it: encoded (formats that need a shader for it), then its
+        // mip chain filtered down.
+        if (offscreen_output) {
+            if (Core::RendererResult finalized = add_offscreen_target_finalize_passes(
+                    graph, target_output, offscreen_shader_encode ? final_output : RenderGraphTextureHandle{}, *resolved_offscreen,
+                    submission.transient_bind_groups);
+                !finalized.has_value()) {
+                return finalized;
+            }
         }
 
         if (submission.render_graph.frame.frame_timings) {

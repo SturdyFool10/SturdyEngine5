@@ -1,4 +1,6 @@
 #include <Foundation/Cpu/CpuId.hpp>
+#include <Foundation/Cpu/IsaSet.hpp>
+#include <Foundation/Cpu/IsaScope.hpp>
 #include <Foundation/Cpu/CpuTopology.hpp>
 #include <Foundation/Cpu/SimdMath.hpp>
 #include <Foundation/Math.hpp>
@@ -208,10 +210,52 @@ namespace {
 int main() {
     using SFT::Foundation::Cpu::CpuFeatures;
     using SFT::Foundation::Cpu::CurrentCore;
+    using SFT::Foundation::Cpu::IsaTier;
+    using SFT::Foundation::Cpu::IsaScope;
+    using SFT::Foundation::Cpu::IsaSet;
+    using SFT::Foundation::Cpu::current_isa_requirements;
     using SFT::Foundation::Cpu::SimdLevel;
+    using SFT::Foundation::Cpu::best_tier;
+    using SFT::Foundation::Cpu::current_core_isa_set;
+    using SFT::Foundation::Cpu::required_extensions;
     using SFT::Foundation::Cpu::best_simd_level;
     using SFT::Foundation::Cpu::current_core;
     using SFT::Foundation::Cpu::features;
+
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+    const IsaSet higher_tier = required_extensions(IsaTier::X86Avx2);
+    const IsaSet lower_tier = required_extensions(IsaTier::X86Avx);
+    if (!higher_tier.contains(lower_tier) || best_tier(higher_tier) != IsaTier::X86Avx2 ||
+        higher_tier.intersection(lower_tier).empty()) {
+        std::cerr << "ISA set subset, tier selection, or intersection failed\n";
+        return 1;
+    }
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    if (best_tier(required_extensions(IsaTier::ArmNeon)) != IsaTier::ArmNeon) {
+        std::cerr << "Arm ISA tier selection failed\n";
+        return 1;
+    }
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    if (best_tier(required_extensions(IsaTier::RiscvV)) != IsaTier::RiscvV) {
+        std::cerr << "RISC-V ISA tier selection failed\n";
+        return 1;
+    }
+#endif
+
+#if (defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)) && \
+    (defined(__linux__) || defined(_WIN32))
+    {
+        IsaScope scope(required_extensions(IsaTier::X86Sse2));
+        if (!scope.valid() || !current_isa_requirements().has(SFT::Foundation::Cpu::Extension::X86_SSE2)) {
+            std::cerr << "ISA scope failed to enter an available tier\n";
+            return 1;
+        }
+    }
+    if (!current_isa_requirements().empty()) {
+        std::cerr << "ISA scope failed to clear its requirement after exit\n";
+        return 1;
+    }
+#endif
 
     const CpuFeatures &f = features();
 #if defined(__x86_64__) || defined(_M_X64)
@@ -241,6 +285,14 @@ int main() {
     const CurrentCore core = current_core();
     std::cout << "current_core x2apic_id=" << core.x2apic_id << " type=" << static_cast<int>(core.type) << "\n";
 
+
+#if defined(__linux__) || defined(_WIN32)
+    IsaScope simd_scope(required_extensions(best_tier(current_core_isa_set())));
+    if (!simd_scope.valid()) {
+        std::cerr << "failed to enter the current core's supported SIMD scope\n";
+        return 1;
+    }
+#endif
 
     for (const std::size_t n : {0uz, 1uz, 3uz, 7uz, 8uz, 15uz, 16uz, 17uz, 63uz, 257uz, 4096uz}) {
         if (!test_simd_ops<float>(n, 1e-4f))

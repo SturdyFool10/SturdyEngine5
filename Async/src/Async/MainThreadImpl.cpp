@@ -1,4 +1,5 @@
 #include <Foundation/Foundation.hpp>
+#include <Foundation/Cpu/IsaScope.hpp>
 #include <deque>
 #include <functional>
 #include <utility>
@@ -70,6 +71,7 @@ namespace SFT::Async {
         }
 
         for (function<void()> &job : jobs) {
+            Foundation::Cpu::IsaScope isa_scope(Foundation::Cpu::IsaSet{});
             job();
         }
     }

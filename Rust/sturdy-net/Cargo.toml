@@ -1,0 +1,14 @@
+[package]
+name = "sturdy-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "The engine's Tokio + Rayon for Rust: async TCP/UDP/TLS, HTTP/1-3 client and server, WebSocket, QUIC, peer-to-peer, NAT traversal, files, processes and data-parallel loops, over the Sturdy C ABI"
+keywords = ["gamedev", "engine", "async", "networking", "quic"]
+
+# No dependencies, deliberately (same reason as `sturdy-plugin`): this is a safe layer over the C ABI the running process already provides.
+# The `extern "C"` functions stay undefined here; an executable links the engine's library, a plugin leaves them for the loader.
+[dependencies]

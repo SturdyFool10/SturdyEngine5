@@ -8,3 +8,7 @@ publish = false
 # almost no CPU. Exits non-zero if either is violated. Run it under a real (nested) display.
 [dependencies]
 sturdy = { path = "../../sturdy" }
+
+[build-dependencies]
+# Applies the `sturdy` crate's `export-symbols` link flag to this executable (see sturdy-build).
+sturdy-build = { path = "../../sturdy-build" }

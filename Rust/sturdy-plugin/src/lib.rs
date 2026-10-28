@@ -27,8 +27,14 @@
 //! The engine's functions are declared in [`ffi`] and are *not linked* here: the plugin leaves them undefined and the loader resolves
 //! them against the engine library already in the process. Build with the engine's shared library (`STURDY_BUILD_SHARED_LIBS=ON`).
 
-#[path = "../../../FFI/bindings/rust/sturdy_ffi.rs"]
-pub mod ffi;
+/// The raw C ABI declarations (generated from `Sturdy.h`). They live in `sturdy-net`, which is built on the same declarations, so a plugin
+/// that also uses [`net`] sees one set of types.
+pub use sturdy_net::ffi;
+
+/// Async networking, files, processes and data-parallel loops for plugins — the engine's Tokio and Rayon. See the `sturdy-net` crate.
+pub use sturdy_net as net;
+/// Scripts: units of game logic in any language (see `sturdy_script`).
+pub use sturdy_script as script;
 
 use core::ffi::{c_char, c_void};
 use std::ffi::{CStr, CString};
@@ -221,6 +227,20 @@ impl<'h> Plugin<'h> {
     /// Adds a module. Its name must be unique within the plugin and across the game.
     pub fn add_module<M: Module>(&mut self, name: &str, options: ModuleOptions, module: M) -> Result {
         self.add_boxed(name, options, Box::new(module))
+    }
+
+    /// Adds a script (a [`script::ScriptModule`]) as a module of the game. Its name is the script's name.
+    pub fn add_script(&mut self, mut script: script::ScriptModule) -> Result {
+        let Some(mut descriptor) = script.take_raw() else {
+            return Err(Error::new(ffi::STURDY_ERROR_INVALID_ARGUMENT, "the script module was already used"));
+        };
+        let result = unsafe { (self.host.add_module.expect("host table has add_module"))(self.host.context, &descriptor) };
+        if result != ffi::STURDY_OK {
+            // A refused module took no ownership.
+            unsafe { ffi::sturdy_script_module_discard(&mut descriptor) };
+            return Err(Error::new(result, "the engine refused the script module"));
+        }
+        Ok(())
     }
 
     /// [`add_module`](Self::add_module) for a module already boxed.

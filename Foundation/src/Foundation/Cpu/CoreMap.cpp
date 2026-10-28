@@ -39,7 +39,9 @@ namespace SFT::Foundation::Cpu {
     /// @note This function does not throw exceptions.
     bool operator==(const CoreCapabilities &a, const CoreCapabilities &b) noexcept {
         return a.type == b.type && a.l1d_bytes == b.l1d_bytes && a.l1i_bytes == b.l1i_bytes &&
-               a.l2_bytes == b.l2_bytes && a.l3_bytes == b.l3_bytes && a.extensions == b.extensions;
+               a.l2_bytes == b.l2_bytes && a.l3_bytes == b.l3_bytes && a.extensions == b.extensions &&
+               a.os_supports_avx == b.os_supports_avx && a.os_supports_avx512 == b.os_supports_avx512 &&
+               a.per_thread_isa_detected == b.per_thread_isa_detected && a.processor_group == b.processor_group;
     }
 
     namespace {
@@ -405,6 +407,9 @@ namespace SFT::Foundation::Cpu {
             decode_extensions(caps.extensions);
             caps.x2apic_id = read_x2apic_id();
             caps.type = read_core_type();
+            caps.os_supports_avx = Cpu::features().os_supports_avx;
+            caps.os_supports_avx512 = Cpu::features().os_supports_avx512;
+            caps.per_thread_isa_detected = true;
 
             const bool is_amd = Cpu::features().vendor_view() == "AuthenticAMD";
             const bool has_topoext = caps.has(Extension::X86_TOPOEXT);
@@ -584,6 +589,8 @@ namespace SFT::Foundation::Cpu {
                 }
             }
 
+            GROUP_AFFINITY original_group{};
+            const bool have_group = GetThreadGroupAffinity(GetCurrentThread(), &original_group) != 0;
             std::vector<CoreCapabilities> result;
             result.reserve(logical_cores.size());
             DWORD_PTR original_mask = 0;
@@ -594,13 +601,18 @@ namespace SFT::Foundation::Cpu {
                     original_mask = previous;
                     have_original = true;
                 }
-                result.push_back(detect_current_core());
+                CoreCapabilities caps = detect_current_core();
+                caps.logical_cpu = core_index;
+                caps.processor_group = have_group ? original_group.Group : 0;
+                result.push_back(std::move(caps));
             }
             if (have_original) {
                 SetThreadAffinityMask(GetCurrentThread(), original_mask);
             }
             if (result.empty()) {
-                result.push_back(detect_current_core());
+                CoreCapabilities caps = detect_current_core();
+                caps.processor_group = have_group ? original_group.Group : 0;
+                result.push_back(std::move(caps));
             }
             return result;
     #else
@@ -615,7 +627,9 @@ namespace SFT::Foundation::Cpu {
                 ScopedAffinityRestore restore_guard;
                 for (const u32 core_index : logical_cores) {
                     pin_current_thread(core_index);
-                    result.push_back(detect_current_core());
+                    CoreCapabilities caps = detect_current_core();
+                    caps.logical_cpu = core_index;
+                    result.push_back(std::move(caps));
                 }
             }
             return result;
@@ -635,6 +649,8 @@ namespace SFT::Foundation::Cpu {
             const CpuFeatures &f = Cpu::features();
     #if defined(__aarch64__) || defined(_M_ARM64)
             caps.extensions[static_cast<usize>(Extension::ARM_NEON)] = f.neon;
+            caps.os_supports_avx = f.os_supports_avx;
+            caps.os_supports_avx512 = f.os_supports_avx512;
             caps.extensions[static_cast<usize>(Extension::ARM_SVE)] = f.sve;
     #elif defined(__riscv) && (__riscv_xlen == 64)
             caps.extensions[static_cast<usize>(Extension::RISCV_V)] = f.rvv;
@@ -648,7 +664,11 @@ namespace SFT::Foundation::Cpu {
         /// @note This function does not throw exceptions.
         [[nodiscard]] std::vector<CoreCapabilities> build_cores() noexcept {
             const unsigned int count = std::thread::hardware_concurrency();
-            return std::vector<CoreCapabilities>(count > 0 ? count : 1u, uniform_capabilities());
+            std::vector<CoreCapabilities> cores(count > 0 ? count : 1u, uniform_capabilities());
+            for (usize i = 0; i < cores.size(); ++i) {
+                cores[i].logical_cpu = static_cast<u32>(i);
+            }
+            return cores;
         }
 
 #endif // STURDY_CPU_X86
@@ -762,6 +782,39 @@ namespace SFT::Foundation::Cpu {
     bool CoreCapabilities::has(Extension extension) const noexcept {
         const auto index = static_cast<usize>(extension);
         return index < extensions.size() && extensions[index];
+    }
+
+    IsaSet CoreCapabilities::isa_set() const noexcept {
+        IsaSet result(extensions);
+        if (!os_supports_avx) {
+            result.remove(Extension::X86_AVX);
+            result.remove(Extension::X86_AVX2);
+            result.remove(Extension::X86_FMA);
+            result.remove(Extension::X86_F16C);
+        }
+        if (!os_supports_avx512) {
+            result.remove(Extension::X86_AVX512F);
+            result.remove(Extension::X86_AVX512BW);
+            result.remove(Extension::X86_AVX512DQ);
+            result.remove(Extension::X86_AVX512VL);
+        }
+        return result;
+    }
+
+    bool CoreCapabilities::supports_isa(const IsaSet &required) const noexcept {
+        if (!isa_set().contains(required)) {
+            return false;
+        }
+        if (required.empty() || per_thread_isa_detected) {
+            return true;
+        }
+#if defined(__aarch64__) || defined(_M_ARM64)
+        IsaSet arm_baseline;
+        arm_baseline.add(Extension::ARM_NEON);
+        return arm_baseline.contains(required);
+#else
+        return false;
+#endif
     }
 
     /// Returns the core count for this `Cpu`.

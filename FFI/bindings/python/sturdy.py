@@ -12,7 +12,7 @@ import enum
 import os
 import sys
 
-ABI_VERSION = (0, 37)
+ABI_VERSION = (0, 40)
 """The ABI version this binding was generated from; `load()` refuses a library that cannot satisfy it."""
 
 
@@ -65,6 +65,16 @@ class SturdyAmbientOcclusionQuality(enum.IntEnum):
     STURDY_AMBIENT_OCCLUSION_QUALITY_MEDIUM = 1
     STURDY_AMBIENT_OCCLUSION_QUALITY_HIGH = 2
     STURDY_AMBIENT_OCCLUSION_QUALITY_ULTRA = 3
+
+class SturdyAsyncFeature(enum.IntEnum):
+    """Optional parts of the build / machine, as a bit set from `sturdy_async_features`."""
+    STURDY_ASYNC_FEATURE_QUIC = 1
+    STURDY_ASYNC_FEATURE_HTTP2 = 2
+    STURDY_ASYNC_FEATURE_HTTP3 = 4
+    STURDY_ASYNC_FEATURE_IO_URING = 8
+    STURDY_ASYNC_FEATURE_PROCESS = 16
+    STURDY_ASYNC_FEATURE_GZIP = 32
+    STURDY_ASYNC_FEATURE_NATIVE_FILE_WATCH = 64
 
 class SturdyAudioAttachment(enum.IntEnum):
     """How a sound attached to an entity is anchored."""
@@ -212,6 +222,14 @@ class SturdyFieldKind(enum.IntEnum):
     STURDY_FIELD_F32 = 9
     STURDY_FIELD_F64 = 10
 
+class SturdyFileMode(enum.IntEnum):
+    STURDY_FILE_READ = 1
+    STURDY_FILE_WRITE = 2
+    STURDY_FILE_CREATE = 4
+    STURDY_FILE_TRUNCATE = 8
+    STURDY_FILE_APPEND = 16
+    STURDY_FILE_CREATE_NEW = 32
+
 class SturdyFilter(enum.IntEnum):
     STURDY_FILTER_NEAREST = 0
     STURDY_FILTER_LINEAR = 1
@@ -266,6 +284,10 @@ class SturdyFormat(enum.IntEnum):
     STURDY_FORMAT_BC5_UNORM = 45
     STURDY_FORMAT_BC7_UNORM = 46
     STURDY_FORMAT_BC7_UNORM_SRGB = 47
+
+class SturdyFrameCodec(enum.IntEnum):
+    STURDY_FRAME_LENGTH_DELIMITED = 0
+    STURDY_FRAME_LINES = 1
 
 class SturdyFrameRateLimitMode(enum.IntEnum):
     """The "FPS Limit" dial: how the render loop caps its own dispatch rate, independent of and composing with whatever the resolved present mode is already doing. Matches `Core::FrameRateLimitMode`."""
@@ -324,9 +346,33 @@ class SturdyHdrTransferFunction(enum.IntEnum):
     STURDY_HDR_TRANSFER_FUNCTION_HLG = 3
     STURDY_HDR_TRANSFER_FUNCTION_LINEAR_EXTENDED = 4
 
+class SturdyHttpResponseKind(enum.IntEnum):
+    STURDY_HTTP_RESPONSE_TEXT = 0
+    STURDY_HTTP_RESPONSE_HTML = 1
+    STURDY_HTTP_RESPONSE_JSON = 2
+    STURDY_HTTP_RESPONSE_REDIRECT = 3
+
 class SturdyIndexFormat(enum.IntEnum):
     STURDY_INDEX_FORMAT_UINT16 = 0
     STURDY_INDEX_FORMAT_UINT32 = 1
+
+class SturdyIoError(enum.IntEnum):
+    """Why an operation failed."""
+    STURDY_IO_NONE = 0
+    STURDY_IO_NOT_FOUND = 1
+    STURDY_IO_PERMISSION_DENIED = 2
+    STURDY_IO_ALREADY_EXISTS = 3
+    STURDY_IO_INVALID_ARGUMENT = 4
+    STURDY_IO_CONNECTION_REFUSED = 5
+    STURDY_IO_CONNECTION_RESET = 6
+    STURDY_IO_TIMED_OUT = 7
+    STURDY_IO_UNSUPPORTED = 8
+    STURDY_IO_UNKNOWN = 9
+    STURDY_IO_UNEXPECTED_EOF = 10
+    STURDY_IO_CLOSED = 11
+    STURDY_IO_TLS_FAILURE = 12
+    STURDY_IO_LIMIT_EXCEEDED = 13
+    STURDY_IO_PROTOCOL_ERROR = 14
 
 class SturdyLatencyMode(enum.IntEnum):
     """Presentation latency policy. Matches `Core::LatencyMode`."""
@@ -367,6 +413,22 @@ class SturdyMouseButton(enum.IntEnum):
     STURDY_MOUSE_BUTTON_RIGHT = 3
     STURDY_MOUSE_BUTTON_EXTRA1 = 4
     STURDY_MOUSE_BUTTON_EXTRA2 = 5
+
+class SturdyNumericType(enum.IntEnum):
+    """Element type for `sturdy_par_sort`."""
+    STURDY_NUMERIC_F32 = 0
+    STURDY_NUMERIC_F64 = 1
+    STURDY_NUMERIC_I32 = 2
+    STURDY_NUMERIC_I64 = 3
+    STURDY_NUMERIC_U32 = 4
+    STURDY_NUMERIC_U64 = 5
+
+class SturdyOpStatus(enum.IntEnum):
+    """Where an operation stands."""
+    STURDY_OP_PENDING = 0
+    STURDY_OP_OK = 1
+    STURDY_OP_FAILED = 2
+    STURDY_OP_CANCELLED = 3
 
 class SturdyOpacityMicromapFormat(enum.IntEnum):
     """Matches `RHI::OpacityMicromapFormat`."""
@@ -433,6 +495,11 @@ class SturdyPrimitiveTopology(enum.IntEnum):
     STURDY_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST = 3
     STURDY_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP = 4
 
+class SturdyProcessStream(enum.IntEnum):
+    STURDY_PROCESS_STDOUT = 0
+    STURDY_PROCESS_STDERR = 1
+    STURDY_PROCESS_STDIN = 2
+
 class SturdyQueryType(enum.IntEnum):
     """Kind of work a query set records."""
     STURDY_QUERY_TYPE_OCCLUSION = 0
@@ -464,6 +531,12 @@ class SturdyRayTracingShaderGroupType(enum.IntEnum):
     STURDY_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL = 0
     STURDY_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP = 1
     STURDY_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP = 2
+
+class SturdyReduction(enum.IntEnum):
+    STURDY_REDUCE_SUM = 0
+    STURDY_REDUCE_PRODUCT = 1
+    STURDY_REDUCE_MIN = 2
+    STURDY_REDUCE_MAX = 3
 
 class SturdyRenderFeature(enum.IntEnum):
     """Render-graph stages that can be toggled per frame."""
@@ -511,6 +584,12 @@ class SturdyResult(enum.IntEnum):
     STURDY_ERROR_COMPONENT_NOT_BLITTABLE = 16
     STURDY_ERROR_BUSY = 17
     STURDY_ERROR_DEVICE_LOST = 18
+
+class SturdyRingStatus(enum.IntEnum):
+    STURDY_RING_OK = 0
+    STURDY_RING_FULL = 1
+    STURDY_RING_EMPTY = 2
+    STURDY_RING_TOO_LARGE = 3
 
 class SturdySceneIntegrator(enum.IntEnum):
     """Rendering path the scene stage evaluates."""
@@ -569,6 +648,11 @@ class SturdyShape(enum.IntEnum):
     STURDY_SHAPE_TORUS = 7
     STURDY_SHAPE_TETRAHEDRON = 8
 
+class SturdyStdioMode(enum.IntEnum):
+    STURDY_STDIO_PIPE = 0
+    STURDY_STDIO_NULL = 1
+    STURDY_STDIO_INHERIT = 2
+
 class SturdyStencilOp(enum.IntEnum):
     STURDY_STENCIL_OP_KEEP = 0
     STURDY_STENCIL_OP_ZERO = 1
@@ -582,6 +666,11 @@ class SturdyStencilOp(enum.IntEnum):
 class SturdyStoreOp(enum.IntEnum):
     STURDY_STORE_OP_STORE = 0
     STURDY_STORE_OP_DONT_CARE = 1
+
+class SturdyTaskLane(enum.IntEnum):
+    STURDY_LANE_LIGHT = 0
+    STURDY_LANE_HEAVY = 1
+    STURDY_LANE_BLOCKING = 2
 
 class SturdyTaskWeight(enum.IntEnum):
     """How much work a task represents, which decides where the scheduler puts it."""
@@ -634,6 +723,12 @@ class SturdyTraceFrameKind(enum.IntEnum):
     STURDY_TRACE_FRAME_SCOPE = 1
     STURDY_TRACE_FRAME_FOREIGN = 2
     STURDY_TRACE_FRAME_UNWOUND = 3
+
+class SturdyTryStatus(enum.IntEnum):
+    """Result of a non-blocking send or receive."""
+    STURDY_TRY_OK = 0
+    STURDY_TRY_WOULD_BLOCK = 1
+    STURDY_TRY_CLOSED = 2
 
 class SturdyUiDirection(enum.IntEnum):
     """Which way an element stacks its children."""
@@ -766,6 +861,10 @@ class SturdyAntiAliasingSettings(ctypes.Structure):
     pass
 class SturdyAsset(ctypes.Structure):
     """An engine asset — a shader, model or texture."""
+class SturdyAsyncObject(ctypes.Structure):
+    """A long-lived object (connection, listener, server, file, ...). Owned until `sturdy_object_release`, which closes it."""
+class SturdyAsyncOp(ctypes.Structure):
+    """A pending or finished operation. Owned until `sturdy_op_release`."""
 class SturdyAudioCapture(ctypes.Structure):
     pass
 class SturdyAudioConfig(ctypes.Structure):
@@ -802,6 +901,10 @@ class SturdyBufferDesc(ctypes.Structure):
     """Describes a buffer to create."""
 class SturdyBufferTextureCopy(ctypes.Structure):
     """Describes one buffer < ->texture copy region."""
+class SturdyBytesSink(ctypes.Structure):
+    """Where a stream callback writes the item it produces (copied immediately)."""
+class SturdyBytesView(ctypes.Structure):
+    """A read-only view of bytes."""
 class SturdyCameraEmulationSettings(ctypes.Structure):
     pass
 class SturdyChromaticity(ctypes.Structure):
@@ -836,6 +939,10 @@ class SturdyComputePipeline(ctypes.Structure):
     """Handle to a compute pipeline. See the "RHI resources" section header for its lifetime rules."""
 class SturdyComputePipelineDesc(ctypes.Structure):
     """Describes a compute pipeline to create."""
+class SturdyCookie(ctypes.Structure):
+    """One cookie (RFC 6265)."""
+class SturdyCopyOptions(ctypes.Structure):
+    pass
 class SturdyD3D12Handles(ctypes.Structure):
     """The engine's raw D3D12 objects."""
 class SturdyDepthOfFieldSettings(ctypes.Structure):
@@ -886,6 +993,18 @@ class SturdyHdrDisplayMetadata(ctypes.Structure):
     """Real HDR display metadata (EDID-reported primaries/white point/luminance range, or a platform fallback), as opposed to `SturdyToneMappingSettings`'s software tone-curve parameters."""
 class SturdyHdrPresentationMode(ctypes.Structure):
     """One transfer-function/gamut combination a display can present in."""
+class SturdyHttpClientOptions(ctypes.Structure):
+    pass
+class SturdyHttpRequest(ctypes.Structure):
+    """One request, valid only during the handler call (copy what you keep)."""
+class SturdyHttpResponder(ctypes.Structure):
+    """Answers one request. Owned until `sturdy_http_respond` (which consumes it); never release it otherwise."""
+class SturdyHttpResponse(ctypes.Structure):
+    """A complete response. Zero-initialize, then set what you need: a status, headers, and one body — bytes, a file, or a stream."""
+class SturdyHttpServerOptions(ctypes.Structure):
+    pass
+class SturdyKeyValue(ctypes.Structure):
+    """A name/value pair (HTTP headers, environment variables). Both strings are null-terminated."""
 class SturdyLightingSettings(ctypes.Structure):
     """Clustered local lighting (since 0.32). Every spot and point light (nearest/brightest first, up to `max_lights`) is binned into screen tiles x depth slices so each pixel evaluates only the lights that reach it; with `clustered` off the deferred pass falls back to the first 8 spot + 8 point lights."""
 class SturdyLogSink(ctypes.Structure):
@@ -894,6 +1013,10 @@ class SturdyMotionBlurSettings(ctypes.Structure):
     pass
 class SturdyMultisampleState(ctypes.Structure):
     """Multisample fixed-function state."""
+class SturdyNativeScriptDesc(ctypes.Structure):
+    """A script built from callbacks directly (no language adapter): the way compiled languages write scripts."""
+class SturdyNumericValue(ctypes.Structure):
+    """The result of `sturdy_par_reduce`: the field matching the element type (f32 and f64 use `f64`, i32 and i64 use `i64`, u32 and u64 use `u64`; 32-bit sums are accumulated in 64 bits)."""
 class SturdyOpacityMicromap(ctypes.Structure):
     """Handle to an opacity micromap. Not supported on D3D12 — see the "Ray tracing" section header."""
 class SturdyOpacityMicromapBuildDesc(ctypes.Structure):
@@ -904,6 +1027,8 @@ class SturdyOpacityMicromapDesc(ctypes.Structure):
     pass
 class SturdyOpacityMicromapUsageCount(ctypes.Structure):
     """One usage count entry within an opacity micromap build. Not supported on D3D12."""
+class SturdyPeerOptions(ctypes.Structure):
+    pass
 class SturdyPipelineLayout(ctypes.Structure):
     """Handle to a pipeline layout. See the "RHI resources" section header for its lifetime rules."""
 class SturdyPipelineLayoutDesc(ctypes.Structure):
@@ -916,10 +1041,14 @@ class SturdyPluginHost(ctypes.Structure):
     """What the engine offers a plugin from inside its entry point. Valid only for the duration of that call. Grows by appending; a plugin checks `struct_size` covers the members it uses."""
 class SturdyPluginLoadDesc(ctypes.Structure):
     """How to load a plugin."""
+class SturdyPortMapOptions(ctypes.Structure):
+    """Router port-mapping options. Zero means the default noted."""
 class SturdyPresentationResolution(ctypes.Structure):
     """What a `SturdyPresentationSettings` request actually resolved to on the active backend and display, including whether the requested strategy, composite alpha, or full-screen-exclusive state degraded to something else. Mirrors `RHI::PresentationResolution` field-for-field."""
 class SturdyPresentationSettings(ctypes.Structure):
     """A surface's presentation policy. Mirrors `Core::PresentationSettings` field-for-field."""
+class SturdyProcessOptions(ctypes.Structure):
+    pass
 class SturdyPushConstantRange(ctypes.Structure):
     """One push-constant range within a pipeline layout."""
 class SturdyQuerySet(ctypes.Structure):
@@ -928,6 +1057,12 @@ class SturdyQuerySetDesc(ctypes.Structure):
     """Describes a query set to create."""
 class SturdyQueueInfo(ctypes.Structure):
     """Description of one queue family the device exposes."""
+class SturdyQuicClientOptions(ctypes.Structure):
+    pass
+class SturdyQuicLimits(ctypes.Structure):
+    """Limits both QUIC endpoints advertise. Zero means the default noted."""
+class SturdyQuicServerOptions(ctypes.Structure):
+    pass
 class SturdyRasterizationState(ctypes.Structure):
     """Rasterizer fixed-function state."""
 class SturdyRayTracingPipeline(ctypes.Structure):
@@ -952,6 +1087,8 @@ class SturdyReflectionSubscription(ctypes.Structure):
     """Handle to an installed before-hook/after-hook/event-listener subscription, for later removal with the matching `_remove_*`/`_unsubscribe_event` call. Not scope-bound — stays valid until explicitly removed or the type it was installed on is unregistered."""
 class SturdyReflectionTypeBuilder(ctypes.Structure):
     """Handle to an in-progress type description. Owned by the caller — build it up with the `_add_*` calls below, then either `_finish` it (consuming the builder, registering the type) or `_discard` it (consuming the builder without registering anything)."""
+class SturdyRelayOptions(ctypes.Structure):
+    pass
 class SturdyRenderBundle(ctypes.Structure):
     """Handle to a finished, replayable render bundle. Unlike the encoder that produced it, this carries no scope of its own — like `SturdyBuffer`, it is an informational identifier the RHI device owns and validates until `sturdy_rhi_destroy_render_bundle`."""
 class SturdyRenderBundleDesc(ctypes.Structure):
@@ -982,6 +1119,18 @@ class SturdySceneSettings(ctypes.Structure):
     pass
 class SturdyScreenSpaceGiSettings(ctypes.Structure):
     pass
+class SturdyScriptInstance(ctypes.Structure):
+    """A running script: callbacks plus the pointer they work on. Every callback may be null (a no-op). Fill it in `SturdyScriptLanguage::load`, or pass it to `sturdy_script_module_create_native`. Callbacks must not unwind."""
+class SturdyScriptLanguage(ctypes.Structure):
+    """A language adapter an application registers to run scripts in an interpreter it provides."""
+class SturdyScriptMessage(ctypes.Structure):
+    """A message between scripts. Valid only during `on_message`."""
+class SturdyScriptModuleDesc(ctypes.Structure):
+    """A script as a module: where it comes from and where it sits in the start order."""
+class SturdyScriptSource(ctypes.Structure):
+    """Describes where a script comes from. Strings are copied unless noted."""
+class SturdyScriptTick(ctypes.Structure):
+    """One engine update as a script sees it."""
 class SturdySemaphore(ctypes.Structure):
     """Handle to a timeline semaphore: a GPU-to-GPU (and GPU-to-host, via `sturdy_rhi_wait_semaphore`) synchronization primitive that counts up through a sequence of `u64` values rather than toggling once like a fence. Reach for this to order work across two queues (e.g. an upload on the transfer queue that a graphics-queue submission must wait on); use `SturdyFence` instead for the common "wait for this one submission to finish on the host" case. See the "RHI resources" section header for its lifetime rules."""
 class SturdySemaphoreDesc(ctypes.Structure):
@@ -1006,6 +1155,10 @@ class SturdySound(ctypes.Structure):
     pass
 class SturdySpawnOptions(ctypes.Structure):
     """How `sturdy_scene_spawn` places and starts a scene."""
+class SturdySseEvent(ctypes.Structure):
+    """One Server-Sent Event. Line breaks in `event` and `id` are dropped, so a hostile value cannot inject fields."""
+class SturdyStaticFilesOptions(ctypes.Structure):
+    """Static file serving options. Zero means the default noted."""
 class SturdyStencilFaceState(ctypes.Structure):
     """Stencil behavior for one face (front or back)."""
 class SturdySurface(ctypes.Structure):
@@ -1018,6 +1171,10 @@ class SturdySystemResourceAccess(ctypes.Structure):
     """One resource or event channel a system operates on, and how."""
 class SturdyTask(ctypes.Structure):
     """A running background task."""
+class SturdyTaskInput(ctypes.Structure):
+    """What the previous stage of an execution chain produced."""
+class SturdyTaskOutput(ctypes.Structure):
+    """Where a task's result is written from inside its callback (copied immediately)."""
 class SturdyTextInputArea(ctypes.Structure):
     """Screen-space hint for where an IME should draw its candidate/composition window, in window coordinates (the same units as `SturdyWindowSnapshot::width`/`height` and mouse positions). `cursor_offset_x` is the caret's offset from `x` within that area, for IMEs that anchor the popup to caret position rather than the area's top-left corner."""
 class SturdyTexture(ctypes.Structure):
@@ -1034,11 +1191,17 @@ class SturdyTextureView(ctypes.Structure):
     """Handle to a texture view. See the "RHI resources" section header for its lifetime rules."""
 class SturdyTextureViewDesc(ctypes.Structure):
     """Describes a texture view to create."""
+class SturdyTlsClientOptions(ctypes.Structure):
+    """How to verify a server (client side of TLS/QUIC/HTTPS/WSS). Chain and host name are always checked unless `pinned_sha256` names the exact certificate(s) accepted."""
+class SturdyTlsServerOptions(ctypes.Structure):
+    """How to present and check identities on the accepting side."""
 class SturdyToneMappingSettings(ctypes.Structure):
     """Fine-grained tone-mapping settings. `sturdy_frame_set_tone_mapping` remains the quick path for just operator/exposure/white-point/saturation; use this instead to also reach HDR display mapping and the AGX/Hermite-spline/PsychoV curve-tuning knobs, which only apply when `operation` selects the matching operator."""
 class SturdyTraceFrame(ctypes.Structure):
     pass
 class SturdyTraceRaysDesc(ctypes.Structure):
+    pass
+class SturdyUdpOptions(ctypes.Structure):
     pass
 class SturdyUiElement(ctypes.Structure):
     """One element in the layout tree."""
@@ -1066,8 +1229,16 @@ class SturdyVolumetricFogSettings(ctypes.Structure):
     """Froxel volumetric fog (since 0.32): height fog with optional wind-driven noise, lit by the sun (cascaded shadows), the ambient term and every clustered local light (spot/point shadows), so flashlight and lamp beams show in the air."""
 class SturdyVulkanHandles(ctypes.Structure):
     """The engine's raw Vulkan objects."""
+class SturdyWatchOptions(ctypes.Structure):
+    pass
 class SturdyWebGpuHandles(ctypes.Structure):
     """The engine's raw WebGPU objects."""
+class SturdyWebSocketClientOptions(ctypes.Structure):
+    pass
+class SturdyWebSocketOptions(ctypes.Structure):
+    pass
+class SturdyWebSocketServerOptions(ctypes.Structure):
+    pass
 class SturdyWindowConfig(ctypes.Structure):
     """Configuration for a new window, as handed to `sturdy_window_spawn` / `sturdy_window_recreate_primary`. The window's graphics API always matches the engine's active backend — there is no field for it here, since a second window using a different backend is not something this engine supports."""
 class SturdyWindowRequestCompletion(ctypes.Structure):
@@ -1076,10 +1247,22 @@ class SturdyWindowSnapshot(ctypes.Structure):
     """Observed state of one window this frame."""
 
 # ---- callback types ----
+SturdyArcDestroyFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
+SturdyAsyncOpFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncOp)
 SturdyAudioSinkCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32)
 SturdyChunkSystemFn = ctypes.CFUNCTYPE(None, ctypes.POINTER(SturdyEntity), ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p), SturdyCommands, ctypes.c_void_p)
 SturdyEcsVisitFn = ctypes.CFUNCTYPE(None, SturdyEntity, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p)
+SturdyHttpHandlerFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(SturdyHttpRequest), SturdyHttpResponder)
 SturdyLogCallback = ctypes.CFUNCTYPE(None, ctypes.c_int32, ctypes.c_char_p, ctypes.c_uint64, ctypes.c_void_p)
+SturdyParChunkFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint64)
+SturdyParForFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint64)
+SturdyParLessFn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+SturdyParMapF64Fn = ctypes.CFUNCTYPE(ctypes.c_double, ctypes.c_void_p, ctypes.c_uint64)
+SturdyParMapI64Fn = ctypes.CFUNCTYPE(ctypes.c_int64, ctypes.c_void_p, ctypes.c_uint64)
+SturdyParPredicateFn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.c_uint64)
+SturdyParReduceF64Fn = ctypes.CFUNCTYPE(ctypes.c_double, ctypes.c_void_p, ctypes.c_double, ctypes.c_double)
+SturdyParReduceI64Fn = ctypes.CFUNCTYPE(ctypes.c_int64, ctypes.c_void_p, ctypes.c_int64, ctypes.c_int64)
+SturdyParScopeFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject)
 SturdyPluginEntryFn = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.POINTER(SturdyPluginHost), ctypes.c_int32, ctypes.c_void_p)
 SturdyReflectionCopyConstructFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
 SturdyReflectionDefaultConstructFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
@@ -1089,8 +1272,19 @@ SturdyReflectionFieldSetFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_vo
 SturdyReflectionMethodFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.c_void_p)
 SturdyReflectionMoveConstructFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
 SturdyReflectionObserverFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p)
+SturdyRelayAuthorizeFn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
+SturdyScriptHostFn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyBytesSink), ctypes.POINTER(SturdyBytesSink))
+SturdyStreamEachFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)
+SturdyStreamFilterMapFn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyBytesSink))
+SturdyStreamFoldFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyBytesSink))
+SturdyStreamMapFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyBytesSink))
+SturdyStreamPredicateFn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)
+SturdyStreamSourceFn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(SturdyBytesSink))
 SturdySystemFn = ctypes.CFUNCTYPE(None, SturdyEntity, ctypes.POINTER(ctypes.c_void_p), SturdyCommands, ctypes.c_void_p)
 SturdyTaskFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
+SturdyTaskThenFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyTaskInput), ctypes.POINTER(SturdyTaskOutput))
+SturdyTaskWorkFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyTaskOutput))
+SturdyWebSocketFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyHttpRequest))
 
 # The callback slots inside structs get a type named after the slot (`SturdyGameLogic_on_shutdown_fn`), so you can wrap a Python
 # function in it: `table.on_shutdown = sturdy.SturdyGameLogic_on_shutdown_fn(my_function)`. Keep a reference to the instance.
@@ -1098,9 +1292,20 @@ SturdyGameLogic_on_engine_initialized_fn = ctypes.CFUNCTYPE(ctypes.c_uint8, Stur
 SturdyGameLogic_request_render_frame_fn = ctypes.CFUNCTYPE(ctypes.c_uint8, SturdyEngine, SturdySurface, ctypes.POINTER(SturdyFrameInput), SturdyFrame, ctypes.c_void_p)
 SturdyGameLogic_on_shutdown_fn = ctypes.CFUNCTYPE(None, SturdyEngine, ctypes.c_void_p)
 SturdyGameLogic_destroy_fn = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
+SturdyScriptInstance_start_fn = ctypes.CFUNCTYPE(ctypes.c_uint8, SturdyEngine, ctypes.c_void_p, ctypes.POINTER(SturdyBytesSink))
+SturdyScriptInstance_update_fn = ctypes.CFUNCTYPE(None, SturdyEngine, ctypes.POINTER(SturdyScriptTick), ctypes.c_void_p)
+SturdyScriptInstance_request_render_frame_fn = ctypes.CFUNCTYPE(ctypes.c_uint8, SturdyEngine, SturdySurface, ctypes.POINTER(SturdyFrameInput), SturdyFrame, ctypes.c_void_p)
+SturdyScriptInstance_stop_fn = ctypes.CFUNCTYPE(None, SturdyEngine, ctypes.c_void_p)
+SturdyScriptInstance_save_state_fn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(SturdyBytesSink))
+SturdyScriptInstance_restore_state_fn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)
+SturdyScriptInstance_call_fn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyBytesSink), ctypes.POINTER(SturdyBytesSink))
+SturdyScriptInstance_on_message_fn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(SturdyScriptMessage))
+SturdyScriptInstance_destroy_fn = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
 SturdyPluginHost_add_module_fn = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.POINTER(SturdyGameModule))
 SturdyPluginHost_set_info_fn = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p)
 SturdyPluginHost_set_state_fn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
+SturdyScriptLanguage_load_fn = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(SturdyScriptSource), ctypes.POINTER(SturdyScriptInstance), ctypes.POINTER(SturdyBytesSink))
+SturdyScriptLanguage_destroy_fn = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
 
 # Any other unnamed function-pointer types.
 _FP0 = ctypes.CFUNCTYPE(ctypes.c_uint8, SturdyEngine, ctypes.c_void_p)
@@ -1110,6 +1315,13 @@ _FP3 = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
 _FP4 = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.POINTER(SturdyGameModule))
 _FP5 = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p)
 _FP6 = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
+_FP7 = ctypes.CFUNCTYPE(ctypes.c_uint8, SturdyEngine, ctypes.c_void_p, ctypes.POINTER(SturdyBytesSink))
+_FP8 = ctypes.CFUNCTYPE(None, SturdyEngine, ctypes.POINTER(SturdyScriptTick), ctypes.c_void_p)
+_FP9 = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(SturdyBytesSink))
+_FP10 = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)
+_FP11 = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyBytesSink), ctypes.POINTER(SturdyBytesSink))
+_FP12 = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(SturdyScriptMessage))
+_FP13 = ctypes.CFUNCTYPE(ctypes.c_uint8, ctypes.c_void_p, ctypes.POINTER(SturdyScriptSource), ctypes.POINTER(SturdyScriptInstance), ctypes.POINTER(SturdyBytesSink))
 
 # ---- struct fields ----
 SturdyAccelerationStructure._fields_ = [
@@ -1229,6 +1441,12 @@ SturdyAntiAliasingSettings._fields_ = [
 ]
 SturdyAsset._fields_ = [
     ('opaque', (ctypes.c_uint64 * 4)),
+]
+SturdyAsyncObject._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyAsyncOp._fields_ = [
+    ('token', ctypes.c_uint64),
 ]
 SturdyAudioCapture._fields_ = [
     ('token', ctypes.c_uint64),
@@ -1366,6 +1584,13 @@ SturdyBufferTextureCopy._fields_ = [
     ('extent_height', ctypes.c_uint32),
     ('extent_depth_or_layers', ctypes.c_uint32),
 ]
+SturdyBytesSink._fields_ = [
+    ('internal', ctypes.c_void_p),
+]
+SturdyBytesView._fields_ = [
+    ('data', ctypes.POINTER(ctypes.c_uint8)),
+    ('size', ctypes.c_uint64),
+]
 SturdyCameraEmulationSettings._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('enabled', ctypes.c_uint8),
@@ -1496,6 +1721,21 @@ SturdyComputePipelineDesc._fields_ = [
     ('layout', SturdyPipelineLayout),
     ('compute', SturdyShaderEntry),
     ('label', ctypes.c_char_p),
+]
+SturdyCookie._fields_ = [
+    ('name', ctypes.c_char_p),
+    ('value', ctypes.c_char_p),
+    ('domain', ctypes.c_char_p),
+    ('path', ctypes.c_char_p),
+    ('domain_wide', ctypes.c_uint8),
+    ('secure', ctypes.c_uint8),
+    ('http_only', ctypes.c_uint8),
+    ('expires_unix', ctypes.c_int64),
+]
+SturdyCopyOptions._fields_ = [
+    ('chunk_bytes', ctypes.c_uint64),
+    ('limit', ctypes.c_uint64),
+    ('shutdown_writer', ctypes.c_uint8),
 ]
 SturdyD3D12Handles._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -1707,6 +1947,110 @@ SturdyHdrPresentationMode._fields_ = [
     ('gamut', ctypes.c_int32),
     ('requires_os_hdr_mode', ctypes.c_uint8),
 ]
+SturdyTlsClientOptions._fields_ = [
+    ('server_name', ctypes.c_char_p),
+    ('no_system_roots', ctypes.c_uint8),
+    ('ca_pem', ctypes.c_char_p),
+    ('pinned_sha256', ctypes.POINTER(ctypes.c_char_p)),
+    ('pinned_sha256_count', ctypes.c_uint32),
+    ('identify_peer_by_certificate_only', ctypes.c_uint8),
+    ('client_certificate_pem', ctypes.c_char_p),
+    ('client_private_key_pem', ctypes.c_char_p),
+    ('alpn', ctypes.POINTER(ctypes.c_char_p)),
+    ('alpn_count', ctypes.c_uint32),
+    ('handshake_timeout_ms', ctypes.c_uint32),
+]
+SturdyHttpClientOptions._fields_ = [
+    ('timeout_ms', ctypes.c_int64),
+    ('max_redirects', ctypes.c_int32),
+    ('max_response_body_bytes', ctypes.c_uint64),
+    ('no_keep_alive', ctypes.c_uint8),
+    ('no_decompress', ctypes.c_uint8),
+    ('cookies', ctypes.c_uint8),
+    ('no_http2', ctypes.c_uint8),
+    ('no_http3', ctypes.c_uint8),
+    ('http3_prior_knowledge', ctypes.c_uint8),
+    ('user_agent', ctypes.c_char_p),
+    ('proxy', ctypes.c_char_p),
+    ('no_proxy', ctypes.POINTER(ctypes.c_char_p)),
+    ('no_proxy_count', ctypes.c_uint32),
+    ('tls', SturdyTlsClientOptions),
+    ('allow_https_downgrade', ctypes.c_uint8),
+    ('max_response_header_bytes', ctypes.c_uint32),
+    ('max_idle_connections_per_host', ctypes.c_uint32),
+    ('idle_connection_timeout_ms', ctypes.c_int64),
+    ('http3_connect_timeout_ms', ctypes.c_int64),
+    ('cookie_jar', SturdyAsyncObject),
+]
+SturdyHttpRequest._fields_ = [
+    ('method', ctypes.c_char_p),
+    ('target', ctypes.c_char_p),
+    ('remote_address', ctypes.c_char_p),
+    ('version', ctypes.c_uint32),
+    ('headers', ctypes.POINTER(SturdyKeyValue)),
+    ('header_count', ctypes.c_uint32),
+    ('body', ctypes.POINTER(ctypes.c_uint8)),
+    ('body_size', ctypes.c_uint64),
+    ('body_file', ctypes.c_char_p),
+    ('path', ctypes.c_char_p),
+    ('query', ctypes.c_char_p),
+    ('params', ctypes.POINTER(SturdyKeyValue)),
+    ('param_count', ctypes.c_uint32),
+]
+SturdyHttpResponder._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyHttpResponse._fields_ = [
+    ('status', ctypes.c_uint32),
+    ('headers', ctypes.POINTER(SturdyKeyValue)),
+    ('header_count', ctypes.c_uint32),
+    ('body', ctypes.POINTER(ctypes.c_uint8)),
+    ('body_size', ctypes.c_uint64),
+    ('close_connection', ctypes.c_uint8),
+    ('body_file', ctypes.c_char_p),
+    ('body_offset', ctypes.c_uint64),
+    ('body_length', ctypes.c_uint64),
+    ('limit_body_length', ctypes.c_uint8),
+    ('stream', ctypes.c_uint8),
+    ('sse', ctypes.c_uint8),
+    ('stream_queue', ctypes.c_uint32),
+]
+SturdyHttpServerOptions._fields_ = [
+    ('bind_address', ctypes.c_char_p),
+    ('port', ctypes.c_uint16),
+    ('tls_certificate_chain_file', ctypes.c_char_p),
+    ('tls_private_key_file', ctypes.c_char_p),
+    ('handler_threads', ctypes.c_uint32),
+    ('max_connections', ctypes.c_uint32),
+    ('max_request_body_bytes', ctypes.c_uint64),
+    ('max_request_header_bytes', ctypes.c_uint32),
+    ('max_response_body_bytes', ctypes.c_uint64),
+    ('max_connections_per_ip', ctypes.c_uint32),
+    ('no_http2', ctypes.c_uint8),
+    ('enable_http3', ctypes.c_uint8),
+    ('http3_port', ctypes.c_uint16),
+    ('io_threads', ctypes.c_uint32),
+    ('shutdown_timeout_ms', ctypes.c_uint32),
+    ('spool_requests_above', ctypes.c_uint64),
+    ('max_spooled_body_bytes', ctypes.c_uint64),
+    ('http2_max_concurrent_streams', ctypes.c_uint32),
+    ('http3_max_concurrent_streams', ctypes.c_uint32),
+    ('http3_max_connections', ctypes.c_uint64),
+    ('http3_max_connections_per_address', ctypes.c_uint64),
+    ('websocket_max_message_bytes', ctypes.c_uint64),
+    ('websocket_max_queued_send_bytes', ctypes.c_uint64),
+    ('websocket_idle_timeout_ms', ctypes.c_int64),
+    ('websocket_compression', ctypes.c_uint8),
+    ('websocket_allowed_origins', ctypes.POINTER(ctypes.c_char_p)),
+    ('websocket_allowed_origin_count', ctypes.c_uint32),
+    ('websocket_subprotocols', ctypes.POINTER(ctypes.c_char_p)),
+    ('websocket_subprotocol_count', ctypes.c_uint32),
+    ('max_websockets', ctypes.c_uint64),
+]
+SturdyKeyValue._fields_ = [
+    ('name', ctypes.c_char_p),
+    ('value', ctypes.c_char_p),
+]
 SturdyLightingSettings._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('clustered', ctypes.c_uint8),
@@ -1739,6 +2083,34 @@ SturdyMultisampleState._fields_ = [
     ('alpha_to_coverage_enable', ctypes.c_uint8),
     ('reserved', (ctypes.c_uint8 * 3)),
 ]
+SturdyScriptInstance._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('reserved', ctypes.c_uint32),
+    ('user_data', ctypes.c_void_p),
+    ('start', SturdyScriptInstance_start_fn),
+    ('update', SturdyScriptInstance_update_fn),
+    ('request_render_frame', SturdyScriptInstance_request_render_frame_fn),
+    ('stop', SturdyScriptInstance_stop_fn),
+    ('save_state', SturdyScriptInstance_save_state_fn),
+    ('restore_state', SturdyScriptInstance_restore_state_fn),
+    ('call', SturdyScriptInstance_call_fn),
+    ('on_message', SturdyScriptInstance_on_message_fn),
+    ('destroy', SturdyScriptInstance_destroy_fn),
+]
+SturdyNativeScriptDesc._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('reserved', ctypes.c_uint32),
+    ('name', ctypes.c_char_p),
+    ('instance', SturdyScriptInstance),
+    ('after', ctypes.POINTER(ctypes.c_char_p)),
+    ('after_count', ctypes.c_uint32),
+    ('contributes_scene', ctypes.c_uint8),
+]
+SturdyNumericValue._fields_ = [
+    ('f64', ctypes.c_double),
+    ('i64', ctypes.c_int64),
+    ('u64', ctypes.c_uint64),
+]
 SturdyOpacityMicromapBuildDesc._fields_ = [
     ('dst', SturdyOpacityMicromap),
     ('scratch_buffer', SturdyBuffer),
@@ -1762,6 +2134,30 @@ SturdyOpacityMicromapUsageCount._fields_ = [
     ('count', ctypes.c_uint32),
     ('subdivision_level', ctypes.c_uint32),
     ('format', ctypes.c_int32),
+]
+SturdyPeerOptions._fields_ = [
+    ('network_id', ctypes.c_char_p),
+    ('display_name', ctypes.c_char_p),
+    ('identity_certificate_pem', ctypes.c_char_p),
+    ('identity_private_key_pem', ctypes.c_char_p),
+    ('no_listen', ctypes.c_uint8),
+    ('bind_address', ctypes.c_char_p),
+    ('port', ctypes.c_uint16),
+    ('max_peers', ctypes.c_uint64),
+    ('max_message_bytes', ctypes.c_uint64),
+    ('allowed_peers', ctypes.POINTER(ctypes.c_char_p)),
+    ('allowed_peer_count', ctypes.c_uint32),
+    ('no_peer_exchange', ctypes.c_uint8),
+    ('lan_discovery', ctypes.c_uint8),
+    ('no_auto_connect', ctypes.c_uint8),
+    ('handshake_timeout_ms', ctypes.c_int64),
+    ('max_pending_inbound', ctypes.c_uint64),
+    ('ping_interval_ms', ctypes.c_int64),
+    ('idle_timeout_ms', ctypes.c_int64),
+    ('event_queue', ctypes.c_uint64),
+    ('discovery_port', ctypes.c_uint16),
+    ('discovery_group', ctypes.c_char_p),
+    ('discovery_interval_ms', ctypes.c_int64),
 ]
 SturdyPipelineLayoutDesc._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -1803,6 +2199,16 @@ SturdyPluginLoadDesc._fields_ = [
     ('path', ctypes.c_char_p),
     ('previous', SturdyPlugin),
 ]
+SturdyPortMapOptions._fields_ = [
+    ('gateway', ctypes.c_char_p),
+    ('lifetime_seconds', ctypes.c_int64),
+    ('external_port', ctypes.c_uint16),
+    ('timeout_ms', ctypes.c_int64),
+    ('methods', ctypes.c_uint32),
+    ('gateway_port', ctypes.c_uint16),
+    ('ssdp_host', ctypes.c_char_p),
+    ('ssdp_port', ctypes.c_uint16),
+]
 SturdyPresentationResolution._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('reserved', ctypes.c_uint32),
@@ -1836,6 +2242,19 @@ SturdyPresentationSettings._fields_ = [
     ('unfocused_frame_rate_limit_fps', ctypes.c_double),
     ('snap_frame_rate_limit_to_refresh', ctypes.c_uint8),
 ]
+SturdyProcessOptions._fields_ = [
+    ('program', ctypes.c_char_p),
+    ('args', ctypes.POINTER(ctypes.c_char_p)),
+    ('arg_count', ctypes.c_uint32),
+    ('working_directory', ctypes.c_char_p),
+    ('environment', ctypes.POINTER(SturdyKeyValue)),
+    ('environment_count', ctypes.c_uint32),
+    ('clear_environment', ctypes.c_uint8),
+    ('kill_on_release', ctypes.c_uint8),
+    ('stdin_mode', ctypes.c_uint32),
+    ('stdout_mode', ctypes.c_uint32),
+    ('stderr_mode', ctypes.c_uint32),
+]
 SturdyPushConstantRange._fields_ = [
     ('stages', ctypes.c_uint32),
     ('offset', ctypes.c_uint32),
@@ -1862,6 +2281,44 @@ SturdyQueueInfo._fields_ = [
     ('likely_parallel_with_graphics', ctypes.c_uint8),
     ('dedicated', ctypes.c_uint8),
     ('reserved', (ctypes.c_uint8 * 2)),
+]
+SturdyQuicLimits._fields_ = [
+    ('idle_timeout_ms', ctypes.c_int64),
+    ('keep_alive_ms', ctypes.c_int64),
+    ('handshake_timeout_ms', ctypes.c_int64),
+    ('max_bidirectional_streams', ctypes.c_uint32),
+    ('max_unidirectional_streams', ctypes.c_uint32),
+    ('stream_receive_window', ctypes.c_uint64),
+    ('connection_receive_window', ctypes.c_uint64),
+    ('no_datagrams', ctypes.c_uint8),
+    ('stream_send_buffer', ctypes.c_uint64),
+    ('datagram_receive_queue', ctypes.c_uint64),
+    ('datagram_send_queue', ctypes.c_uint64),
+]
+SturdyQuicClientOptions._fields_ = [
+    ('limits', SturdyQuicLimits),
+    ('tls', SturdyTlsClientOptions),
+]
+SturdyTlsServerOptions._fields_ = [
+    ('certificate_pem', ctypes.c_char_p),
+    ('private_key_pem', ctypes.c_char_p),
+    ('client_ca_pem', ctypes.c_char_p),
+    ('require_client_certificate', ctypes.c_uint8),
+    ('accept_any_client_certificate', ctypes.c_uint8),
+    ('pinned_client_sha256', ctypes.POINTER(ctypes.c_char_p)),
+    ('pinned_client_sha256_count', ctypes.c_uint32),
+    ('alpn', ctypes.POINTER(ctypes.c_char_p)),
+    ('alpn_count', ctypes.c_uint32),
+    ('handshake_timeout_ms', ctypes.c_uint32),
+]
+SturdyQuicServerOptions._fields_ = [
+    ('limits', SturdyQuicLimits),
+    ('tls', SturdyTlsServerOptions),
+    ('bind_address', ctypes.c_char_p),
+    ('port', ctypes.c_uint16),
+    ('max_connections', ctypes.c_uint64),
+    ('max_connections_per_address', ctypes.c_uint64),
+    ('no_address_validation', ctypes.c_uint8),
 ]
 SturdyRasterizationState._fields_ = [
     ('polygon_mode', ctypes.c_int32),
@@ -1949,6 +2406,19 @@ SturdyReflectionSubscription._fields_ = [
 ]
 SturdyReflectionTypeBuilder._fields_ = [
     ('token', ctypes.c_uint64),
+]
+SturdyRelayOptions._fields_ = [
+    ('bind_address', ctypes.c_char_p),
+    ('port', ctypes.c_uint16),
+    ('use_tls', ctypes.c_uint8),
+    ('tls', SturdyTlsServerOptions),
+    ('max_sessions', ctypes.c_uint64),
+    ('max_waiting', ctypes.c_uint64),
+    ('max_waiting_per_address', ctypes.c_uint64),
+    ('pair_timeout_ms', ctypes.c_int64),
+    ('idle_timeout_ms', ctypes.c_int64),
+    ('max_session_bytes', ctypes.c_uint64),
+    ('max_token_bytes', ctypes.c_uint64),
 ]
 SturdyRenderBundle._fields_ = [
     ('id', ctypes.c_uint64),
@@ -2095,6 +2565,46 @@ SturdyScreenSpaceGiSettings._fields_ = [
     ('temporal_alpha', ctypes.c_float),
     ('max_radiance', ctypes.c_float),
 ]
+SturdyScriptLanguage._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('reserved', ctypes.c_uint32),
+    ('name', ctypes.c_char_p),
+    ('extensions', ctypes.POINTER(ctypes.c_char_p)),
+    ('extension_count', ctypes.c_uint32),
+    ('user_data', ctypes.c_void_p),
+    ('load', SturdyScriptLanguage_load_fn),
+    ('destroy', SturdyScriptLanguage_destroy_fn),
+]
+SturdyScriptMessage._fields_ = [
+    ('from', ctypes.c_char_p),
+    ('topic', ctypes.c_char_p),
+    ('payload', ctypes.POINTER(ctypes.c_uint8)),
+    ('payload_size', ctypes.c_uint64),
+]
+SturdyScriptSource._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('reserved', ctypes.c_uint32),
+    ('name', ctypes.c_char_p),
+    ('language', ctypes.c_char_p),
+    ('path', ctypes.c_char_p),
+    ('code', ctypes.POINTER(ctypes.c_uint8)),
+    ('code_size', ctypes.c_uint64),
+    ('options', ctypes.POINTER(SturdyKeyValue)),
+    ('option_count', ctypes.c_uint32),
+]
+SturdyScriptModuleDesc._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('reserved', ctypes.c_uint32),
+    ('source', SturdyScriptSource),
+    ('after', ctypes.POINTER(ctypes.c_char_p)),
+    ('after_count', ctypes.c_uint32),
+    ('contributes_scene', ctypes.c_uint8),
+]
+SturdyScriptTick._fields_ = [
+    ('delta_seconds', ctypes.c_double),
+    ('elapsed_seconds', ctypes.c_double),
+    ('tick', ctypes.c_uint64),
+]
 SturdySemaphore._fields_ = [
     ('id', ctypes.c_uint64),
 ]
@@ -2189,6 +2699,24 @@ SturdySpawnOptions._fields_ = [
     ('initial_clip', ctypes.c_char_p),
     ('transform', (ctypes.c_float * 16)),
 ]
+SturdySseEvent._fields_ = [
+    ('data', ctypes.c_char_p),
+    ('event', ctypes.c_char_p),
+    ('id', ctypes.c_char_p),
+    ('retry_ms', ctypes.c_uint32),
+    ('has_retry', ctypes.c_uint8),
+]
+SturdyStaticFilesOptions._fields_ = [
+    ('root', ctypes.c_char_p),
+    ('index_file', ctypes.c_char_p),
+    ('cache_control', ctypes.c_char_p),
+    ('allow_dotfiles', ctypes.c_uint8),
+    ('follow_symlinks', ctypes.c_uint8),
+    ('no_precompressed', ctypes.c_uint8),
+    ('spa_fallback', ctypes.c_char_p),
+    ('mime_types', ctypes.POINTER(SturdyKeyValue)),
+    ('mime_type_count', ctypes.c_uint32),
+]
 SturdySurface._fields_ = [
     ('id', ctypes.c_uint64),
 ]
@@ -2206,6 +2734,15 @@ SturdySystemResourceAccess._fields_ = [
 ]
 SturdyTask._fields_ = [
     ('token', ctypes.c_uint64),
+]
+SturdyTaskInput._fields_ = [
+    ('number', ctypes.c_int64),
+    ('bytes', ctypes.POINTER(ctypes.c_uint8)),
+    ('size', ctypes.c_uint64),
+    ('text', ctypes.c_char_p),
+]
+SturdyTaskOutput._fields_ = [
+    ('internal', ctypes.c_void_p),
 ]
 SturdyTextInputArea._fields_ = [
     ('x', ctypes.c_float),
@@ -2319,6 +2856,12 @@ SturdyTraceRaysDesc._fields_ = [
     ('width', ctypes.c_uint32),
     ('height', ctypes.c_uint32),
     ('depth', ctypes.c_uint32),
+]
+SturdyUdpOptions._fields_ = [
+    ('reuse_address', ctypes.c_uint8),
+    ('broadcast', ctypes.c_uint8),
+    ('receive_buffer', ctypes.c_uint64),
+    ('send_buffer', ctypes.c_uint64),
 ]
 SturdyUiElement._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -2472,6 +3015,13 @@ SturdyVulkanHandles._fields_ = [
     ('device', ctypes.c_void_p),
     ('graphics_queue', ctypes.c_void_p),
 ]
+SturdyWatchOptions._fields_ = [
+    ('recursive', ctypes.c_uint8),
+    ('debounce_ms', ctypes.c_int64),
+    ('force_polling', ctypes.c_uint8),
+    ('poll_interval_ms', ctypes.c_int64),
+    ('max_pending_events', ctypes.c_uint64),
+]
 SturdyWebGpuHandles._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('reserved', ctypes.c_uint32),
@@ -2479,6 +3029,38 @@ SturdyWebGpuHandles._fields_ = [
     ('adapter', ctypes.c_void_p),
     ('device', ctypes.c_void_p),
     ('queue', ctypes.c_void_p),
+]
+SturdyWebSocketOptions._fields_ = [
+    ('max_message_bytes', ctypes.c_uint64),
+    ('max_queued_send_bytes', ctypes.c_uint64),
+    ('idle_timeout_ms', ctypes.c_int64),
+    ('compression', ctypes.c_uint8),
+    ('inbox_messages', ctypes.c_uint64),
+    ('handshake_timeout_ms', ctypes.c_int64),
+]
+SturdyWebSocketClientOptions._fields_ = [
+    ('socket', SturdyWebSocketOptions),
+    ('tls', SturdyTlsClientOptions),
+    ('headers', ctypes.POINTER(SturdyKeyValue)),
+    ('header_count', ctypes.c_uint32),
+    ('subprotocols', ctypes.POINTER(ctypes.c_char_p)),
+    ('subprotocol_count', ctypes.c_uint32),
+    ('timeout_ms', ctypes.c_int64),
+]
+SturdyWebSocketServerOptions._fields_ = [
+    ('bind_address', ctypes.c_char_p),
+    ('port', ctypes.c_uint16),
+    ('socket', SturdyWebSocketOptions),
+    ('use_tls', ctypes.c_uint8),
+    ('tls', SturdyTlsServerOptions),
+    ('allowed_origins', ctypes.POINTER(ctypes.c_char_p)),
+    ('allowed_origin_count', ctypes.c_uint32),
+    ('paths', ctypes.POINTER(ctypes.c_char_p)),
+    ('path_count', ctypes.c_uint32),
+    ('subprotocols', ctypes.POINTER(ctypes.c_char_p)),
+    ('subprotocol_count', ctypes.c_uint32),
+    ('max_connections', ctypes.c_uint64),
+    ('max_request_header_bytes', ctypes.c_uint32),
 ]
 SturdyWindowConfig._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -2544,10 +3126,24 @@ _FUNCTIONS = {
     'sturdy_animation_set_release': (ctypes.c_int32, (SturdyAnimationSet,)),
     'sturdy_animation_set_speed': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_float)),
     'sturdy_anti_aliasing_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyAntiAliasingSettings),)),
+    'sturdy_arc_bytes': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_arc_clone': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_arc_create': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_arc_create_foreign': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_arc_pointer': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_void_p))),
+    'sturdy_arc_ptr_eq': (ctypes.c_int32, (SturdyAsyncObject, SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_arc_use_count': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_async_features': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint32),)),
     'sturdy_async_is_done': (ctypes.c_int32, (SturdyTask, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_async_is_running': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8),)),
     'sturdy_async_is_worker_thread': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8),)),
+    'sturdy_async_mutex_create': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_async_mutex_lock': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_async_mutex_try_lock': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
     'sturdy_async_release': (ctypes.c_int32, (SturdyTask,)),
+    'sturdy_async_rwlock_create': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_async_rwlock_read': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_async_rwlock_write': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_async_spawn': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(SturdyTask))),
     'sturdy_async_wait': (ctypes.c_int32, (SturdyTask,)),
     'sturdy_async_worker_count': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint32),)),
@@ -2574,10 +3170,55 @@ _FUNCTIONS = {
     'sturdy_audio_stream_push': (ctypes.c_int32, (SturdyAudioStream, ctypes.POINTER(ctypes.c_float), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_audio_stream_release': (ctypes.c_int32, (SturdyAudioStream,)),
     'sturdy_auto_exposure_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyAutoExposureSettings),)),
+    'sturdy_barrier_create': (ctypes.c_int32, (ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_barrier_wait': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_bloom_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyBloomSettings),)),
+    'sturdy_broadcast_create': (ctypes.c_int32, (ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject), ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_broadcast_receiver_clone': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_broadcast_recv': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_broadcast_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_broadcast_subscribe': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_buffered_flush': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_buffered_read_exact': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_buffered_read_line': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_buffered_read_some': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_buffered_read_until': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_buffered_reader_buffered': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_buffered_reader_create': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int32, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_buffered_shutdown': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_buffered_write': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_buffered_writer_create': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int32, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_bytes_sink_set': (ctypes.c_int32, (ctypes.POINTER(SturdyBytesSink), ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)),
     'sturdy_camera_emulation_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyCameraEmulationSettings),)),
+    'sturdy_cancel_source_cancel': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_cancel_source_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject),)),
+    'sturdy_cancel_source_is_cancelled': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_cancel_source_token': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_cancel_token_is_cancelled': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_cancel_token_wait': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_channel_close': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_channel_create': (ctypes.c_int32, (ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject), ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_channel_receiver_clone': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_channel_recv': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_channel_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_channel_sender_clone': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_channel_try_recv': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp), ctypes.POINTER(ctypes.c_int32))),
+    'sturdy_channel_try_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_int32))),
     'sturdy_color_grade_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyColorGradeSettings),)),
+    'sturdy_cookie_jar_add': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyCookie))),
+    'sturdy_cookie_jar_all': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_cookie_jar_clear': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_cookie_jar_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject),)),
+    'sturdy_cookie_jar_header_for': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_cookie_jar_store_from_response': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(SturdyKeyValue), ctypes.c_uint32)),
+    'sturdy_dedicated_thread_create': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_dedicated_thread_pin_to_core': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_dedicated_thread_pin_to_fastest_core': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_dedicated_thread_run': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_depth_of_field_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyDepthOfFieldSettings),)),
+    'sturdy_dir_iter_create': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_dir_iter_next': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_dns_resolve': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_ecs_add_chunk_system_ex': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdySystemAccess), ctypes.c_uint32, ctypes.POINTER(SturdySystemResourceAccess), ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdySystem))),
     'sturdy_ecs_add_component': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32)),
     'sturdy_ecs_add_system': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdySystemAccess), ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)),
@@ -2629,6 +3270,22 @@ _FUNCTIONS = {
     'sturdy_engine_mouse_down': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_engine_mouse_position': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float))),
     'sturdy_engine_wheel_delta': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float))),
+    'sturdy_exec_just': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_exec_submit': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_exec_sync_wait': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_exec_then': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_file_close': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_file_is_open': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_file_open': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint32, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_file_read': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_file_read_at': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_file_read_to_end': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_file_seek': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int64, ctypes.c_int32, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_file_set_len': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_file_size': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_file_sync': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_file_write': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_file_write_at': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_frame_camera_look_at': (ctypes.c_int32, (SturdyFrame, ctypes.c_float, ctypes.c_float, ctypes.c_float)),
     'sturdy_frame_set_ambient_light': (ctypes.c_int32, (SturdyFrame, ctypes.c_float, ctypes.c_float, ctypes.c_float, ctypes.c_float)),
     'sturdy_frame_set_ambient_occlusion_settings': (ctypes.c_int32, (SturdyFrame, ctypes.POINTER(SturdyAmbientOcclusionSettings))),
@@ -2655,6 +3312,24 @@ _FUNCTIONS = {
     'sturdy_frame_set_tone_mapping': (ctypes.c_int32, (SturdyFrame, ctypes.c_int32, ctypes.c_float, ctypes.c_float, ctypes.c_float)),
     'sturdy_frame_set_tone_mapping_settings': (ctypes.c_int32, (SturdyFrame, ctypes.POINTER(SturdyToneMappingSettings))),
     'sturdy_frame_set_volumetric_fog_settings': (ctypes.c_int32, (SturdyFrame, ctypes.POINTER(SturdyVolumetricFogSettings))),
+    'sturdy_framed_create': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int32, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_framed_next': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_framed_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_framed_stream': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_frames_count': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_frames_get': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_frames_pack': (ctypes.c_int32, (ctypes.POINTER(SturdyBytesView), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_fs_copy': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_fs_create_directories': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_fs_exists': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_fs_list': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint64, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_fs_read_file': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_fs_read_range': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_fs_remove_directory': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_fs_remove_file': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_fs_rename': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_fs_size': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_fs_write_file': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_gltf_import': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, SturdyAsset, ctypes.POINTER(SturdyGltfScene))),
     'sturdy_gltf_instance_at': (ctypes.c_int32, (SturdyGltfScene, ctypes.c_uint32, ctypes.POINTER(SturdyGltfInstance))),
     'sturdy_gltf_instance_count': (ctypes.c_int32, (SturdyGltfScene, ctypes.POINTER(ctypes.c_uint32))),
@@ -2667,13 +3342,63 @@ _FUNCTIONS = {
     'sturdy_gltf_release': (ctypes.c_int32, (SturdyGltfScene,)),
     'sturdy_gltf_spawn_all': (ctypes.c_int32, (SturdyEngine, SturdyGltfScene, ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_gpu_enumerate': (ctypes.c_int32, (ctypes.POINTER(SturdyGpuInfo), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_guard_get': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_guard_release': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_guard_set': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)),
+    'sturdy_http_body_closed': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_http_body_finish': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_http_body_write': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_http_body_write_sse': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdySseEvent), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_http_client_close_idle': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_http_client_cookie_jar': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_http_client_create': (ctypes.c_int32, (ctypes.POINTER(SturdyHttpClientOptions), ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_http_client_request': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(SturdyKeyValue), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_http_format_sse': (ctypes.c_int32, (ctypes.POINTER(SturdySseEvent), ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_http_percent_decode': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_http_respond': (ctypes.c_int32, (SturdyHttpResponder, ctypes.c_uint32, ctypes.POINTER(SturdyKeyValue), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)),
+    'sturdy_http_respond_canned': (ctypes.c_int32, (SturdyHttpResponder, ctypes.c_int32, ctypes.c_uint32, ctypes.c_char_p)),
+    'sturdy_http_respond_ex': (ctypes.c_int32, (SturdyHttpResponder, ctypes.POINTER(SturdyHttpResponse), ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_http_server_begin': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_http_server_create': (ctypes.c_int32, (ctypes.POINTER(SturdyHttpServerOptions), ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_http_server_create_router': (ctypes.c_int32, (ctypes.POINTER(SturdyHttpServerOptions), SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_http_server_http3_port': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint16))),
+    'sturdy_http_server_info': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_http_server_metrics': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_http_server_on_websocket': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_http_server_port': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint16))),
+    'sturdy_http_server_start': (ctypes.c_int32, (ctypes.POINTER(SturdyHttpServerOptions), ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_http_server_start_router': (ctypes.c_int32, (ctypes.POINTER(SturdyHttpServerOptions), SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_http_server_stop': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_interval_create': (ctypes.c_int32, (ctypes.c_int64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_interval_tick': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_io_copy': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int32, SturdyAsyncObject, ctypes.c_int32, ctypes.POINTER(SturdyCopyOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_io_lane_configure': (ctypes.c_int32, (ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_io_lane_stats': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncOp),)),
+    'sturdy_io_read_to_end': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int32, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_io_write_all': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_join_set_abort_all': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_join_set_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject),)),
+    'sturdy_join_set_join_next': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_join_set_len': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_join_set_spawn': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32)),
     'sturdy_last_error_message': (ctypes.c_char_p, ()),
     'sturdy_last_error_trace_format': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_last_error_trace_frame': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(SturdyTraceFrame))),
     'sturdy_last_error_trace_frame_count': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint32),)),
     'sturdy_lighting_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyLightingSettings),)),
+    'sturdy_local_set_block_on': (ctypes.c_int32, (SturdyAsyncObject, SturdyAsyncOp)),
+    'sturdy_local_set_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject),)),
+    'sturdy_local_set_run_pending': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_local_set_spawn': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_log_add_sink': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyLogSink))),
     'sturdy_log_remove_sink': (ctypes.c_int32, (SturdyLogSink,)),
+    'sturdy_main_thread_pump': (ctypes.c_int32, ()),
+    'sturdy_main_thread_run': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_main_thread_set_wake_hook': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_memory_pipe_create': (ctypes.c_int32, (ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject), ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_memory_reader_create': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_memory_writer_bytes': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_memory_writer_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject),)),
     'sturdy_model_import': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, SturdyAsset, ctypes.POINTER(SturdyGltfScene))),
     'sturdy_module_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_module_name': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
@@ -2682,12 +3407,87 @@ _FUNCTIONS = {
     'sturdy_module_request_unload': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p)),
     'sturdy_module_take_failure': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_motion_blur_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyMotionBlurSettings),)),
+    'sturdy_nat_default_gateway': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_nat_map_port': (ctypes.c_int32, (ctypes.c_uint8, ctypes.c_uint16, ctypes.POINTER(SturdyPortMapOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_nat_punch_hole': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_char_p), ctypes.c_uint32, ctypes.c_char_p, ctypes.c_int64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_nat_unmap_port': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyPortMapOptions), ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_native_available': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_native_d3d12': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyD3D12Handles))),
     'sturdy_native_d3d12_queue': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p))),
     'sturdy_native_vulkan': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyVulkanHandles))),
     'sturdy_native_vulkan_queue': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_native_webgpu': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyWebGpuHandles))),
+    'sturdy_network_reactor_configure': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_notify_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject),)),
+    'sturdy_notify_notified': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_notify_one': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_notify_waiters': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_object_kind': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_object_release': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_oneshot_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject), ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_oneshot_fail': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_oneshot_recv': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_oneshot_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_op_bytes': (ctypes.c_int32, (SturdyAsyncOp, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_op_cancel': (ctypes.c_int32, (SturdyAsyncOp,)),
+    'sturdy_op_error_code': (ctypes.c_int32, (SturdyAsyncOp, ctypes.POINTER(ctypes.c_int32))),
+    'sturdy_op_error_message': (ctypes.c_int32, (SturdyAsyncOp, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_op_failed': (ctypes.c_int32, (ctypes.c_int32, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_op_field': (ctypes.c_int32, (SturdyAsyncOp, ctypes.c_char_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_op_field_count': (ctypes.c_int32, (SturdyAsyncOp, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_op_field_name': (ctypes.c_int32, (SturdyAsyncOp, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_op_field_value': (ctypes.c_int32, (SturdyAsyncOp, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_op_link_cancel': (ctypes.c_int32, (SturdyAsyncOp, SturdyAsyncObject)),
+    'sturdy_op_number': (ctypes.c_int32, (SturdyAsyncOp, ctypes.POINTER(ctypes.c_int64))),
+    'sturdy_op_object': (ctypes.c_int32, (SturdyAsyncOp, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_op_on_complete': (ctypes.c_int32, (SturdyAsyncOp, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_op_ready': (ctypes.c_int32, (ctypes.c_int64, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_op_release': (ctypes.c_int32, (SturdyAsyncOp,)),
+    'sturdy_op_status': (ctypes.c_int32, (SturdyAsyncOp, ctypes.POINTER(ctypes.c_int32))),
+    'sturdy_op_text': (ctypes.c_int32, (SturdyAsyncOp, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_op_wait': (ctypes.c_int32, (SturdyAsyncOp, ctypes.c_int64, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_op_wait_any': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncOp), ctypes.c_uint32, ctypes.c_int64, ctypes.POINTER(ctypes.c_int32))),
+    'sturdy_op_with_timeout': (ctypes.c_int32, (SturdyAsyncOp, ctypes.c_int64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_par_all': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_par_any': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_par_count': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_par_find_any': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int64))),
+    'sturdy_par_find_first': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int64))),
+    'sturdy_par_for': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_par_for_chunks': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_par_for_windows': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_par_join': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_par_map_reduce_f64': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_void_p, ctypes.c_double, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_double))),
+    'sturdy_par_map_reduce_i64': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int64, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int64))),
+    'sturdy_par_min_max_f32': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_float), ctypes.c_uint64, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float))),
+    'sturdy_par_min_max_f64': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_double), ctypes.c_uint64, ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double))),
+    'sturdy_par_min_max_i64': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_int64), ctypes.c_uint64, ctypes.POINTER(ctypes.c_int64), ctypes.POINTER(ctypes.c_int64))),
+    'sturdy_par_num_threads': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint32),)),
+    'sturdy_par_reduce': (ctypes.c_int32, (ctypes.c_int32, ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint64, ctypes.POINTER(SturdyNumericValue), ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_par_scope': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_par_scope_spawn': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_par_sort': (ctypes.c_int32, (ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint64)),
+    'sturdy_par_sort_by': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint8, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_par_sum_f32': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_float), ctypes.c_uint64, ctypes.POINTER(ctypes.c_float))),
+    'sturdy_par_sum_f64': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_double), ctypes.c_uint64, ctypes.POINTER(ctypes.c_double))),
+    'sturdy_par_sum_i64': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_int64), ctypes.c_uint64, ctypes.POINTER(ctypes.c_int64))),
+    'sturdy_par_sum_u64': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint64), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_peer_block': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p)),
+    'sturdy_peer_broadcast': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint16, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_peer_connect': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_uint16, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_peer_connect_via_relay': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_uint16, ctypes.c_char_p, ctypes.c_uint8, ctypes.c_char_p, ctypes.POINTER(SturdyTlsClientOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_peer_disconnect': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_char_p)),
+    'sturdy_peer_id': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_peer_identity': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_peer_list': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_peer_listen_port': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint16))),
+    'sturdy_peer_next_event': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_peer_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_uint16, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_peer_start': (ctypes.c_int32, (ctypes.POINTER(SturdyPeerOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_peer_stop': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_permit_count': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_permit_forget': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_permit_release': (ctypes.c_int32, (SturdyAsyncObject,)),
     'sturdy_plugin_language': (ctypes.c_int32, (SturdyPlugin, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_plugin_load': (ctypes.c_int32, (ctypes.POINTER(SturdyPluginLoadDesc), ctypes.POINTER(SturdyPlugin))),
     'sturdy_plugin_module_count': (ctypes.c_int32, (SturdyPlugin, ctypes.POINTER(ctypes.c_uint32))),
@@ -2698,7 +3498,53 @@ _FUNCTIONS = {
     'sturdy_plugin_request_reload': (ctypes.c_int32, (SturdyEngine, SturdyPlugin, SturdyPlugin)),
     'sturdy_plugin_request_unload': (ctypes.c_int32, (SturdyEngine, SturdyPlugin)),
     'sturdy_plugin_take_modules': (ctypes.c_int32, (SturdyPlugin, ctypes.POINTER(SturdyGameModule), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_pool_create': (ctypes.c_int32, (ctypes.c_uint32, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_pool_par_for': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_pool_run': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_pool_threads': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_presentation_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyPresentationSettings),)),
+    'sturdy_process_close_stdin': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_process_id': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_int64))),
+    'sturdy_process_kill': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_process_read_stderr': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_process_read_stdout': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_process_request_exit': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_process_run': (ctypes.c_int32, (ctypes.POINTER(SturdyProcessOptions), ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_int64, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_process_spawn': (ctypes.c_int32, (ctypes.POINTER(SturdyProcessOptions), ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_process_wait': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_process_write_stdin': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_promise_cancel': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_promise_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_promise_is_completed': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_promise_set_error': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int32, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_promise_set_value': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int64, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_quic_accept': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_accept_stream': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_close': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.c_char_p)),
+    'sturdy_quic_closed': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_connect': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint16, ctypes.POINTER(SturdyQuicClientOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_info': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_is_open': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_quic_listen': (ctypes.c_int32, (ctypes.POINTER(SturdyQuicServerOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_listener_metrics': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_listener_port': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint16))),
+    'sturdy_quic_listener_stop': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_quic_max_datagram_size': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_quic_open_stream': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_receive_datagram': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_send_datagram': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)),
+    'sturdy_quic_stats': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_stream_finish': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_stream_id': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_int64))),
+    'sturdy_quic_stream_is_bidirectional': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_quic_stream_receive': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_stream_reset': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64)),
+    'sturdy_quic_stream_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_quic_stream_stop_sending': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64)),
+    'sturdy_rate_limiter_create': (ctypes.c_int32, (ctypes.c_double, ctypes.c_double, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_rate_limiter_retry_after_ms': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_double, ctypes.POINTER(ctypes.c_int64))),
+    'sturdy_rate_limiter_tracked_keys': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_rate_limiter_try_acquire': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_double, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_reflection_add_after_hook': (ctypes.c_int32, (SturdyReflectionId, SturdyReflectionId, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyReflectionSubscription))),
     'sturdy_reflection_add_before_hook': (ctypes.c_int32, (SturdyReflectionId, SturdyReflectionId, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyReflectionSubscription))),
     'sturdy_reflection_clear_override': (ctypes.c_int32, (SturdyReflectionId, SturdyReflectionId)),
@@ -2735,6 +3581,12 @@ _FUNCTIONS = {
     'sturdy_reflection_type_size': (ctypes.c_int32, (SturdyReflectionId, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_reflection_unregister_type': (ctypes.c_int32, (SturdyReflectionId,)),
     'sturdy_reflection_unsubscribe_event': (ctypes.c_int32, (SturdyReflectionId, SturdyReflectionId, SturdyReflectionSubscription)),
+    'sturdy_relay_connect': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint16, ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(SturdyTlsClientOptions), ctypes.c_int64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_relay_random_token': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_relay_server_metrics': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_relay_server_port': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint16))),
+    'sturdy_relay_server_start': (ctypes.c_int32, (ctypes.POINTER(SturdyRelayOptions), ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_relay_server_stop': (ctypes.c_int32, (SturdyAsyncObject,)),
     'sturdy_render_create_mesh_model': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyVertex), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32, SturdyAsset, ctypes.c_char_p, ctypes.POINTER(SturdyAsset))),
     'sturdy_render_create_shape_model': (ctypes.c_int32, (SturdyEngine, ctypes.c_int32, ctypes.POINTER(SturdyShapeParams), SturdyAsset, ctypes.c_char_p, ctypes.POINTER(SturdyAsset))),
     'sturdy_render_create_texture': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyRenderTextureDesc), ctypes.POINTER(SturdyAsset))),
@@ -2912,6 +3764,20 @@ _FUNCTIONS = {
     'sturdy_rhi_wait_semaphore': (ctypes.c_int32, (SturdyEngine, SturdySemaphore, ctypes.c_uint64, ctypes.c_uint64)),
     'sturdy_rhi_write_buffer': (ctypes.c_int32, (SturdyEngine, SturdyBuffer, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_uint64)),
     'sturdy_rhi_write_ray_tracing_shader_group_handles': (ctypes.c_int32, (SturdyEngine, SturdyRayTracingPipeline, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint64)),
+    'sturdy_ring_capacity': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_ring_create': (ctypes.c_int32, (ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_ring_drain': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_ring_max_item_bytes': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_ring_size': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_ring_try_pop': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_int32))),
+    'sturdy_ring_try_push': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_int32))),
+    'sturdy_router_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject),)),
+    'sturdy_router_dispatch': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(SturdyKeyValue), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_router_not_found': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_router_rate_limit': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_double, ctypes.c_double, ctypes.c_uint64)),
+    'sturdy_router_route': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_router_static_files': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.POINTER(SturdyStaticFilesOptions))),
+    'sturdy_router_use': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p)),
     'sturdy_runtime_config_init': (ctypes.c_int32, (ctypes.POINTER(SturdyRuntimeConfig),)),
     'sturdy_runtime_run': (ctypes.c_int32, (ctypes.POINTER(SturdyRuntimeConfig), ctypes.POINTER(SturdyGameLogic), ctypes.c_int32, ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_int32))),
     'sturdy_runtime_run_modules': (ctypes.c_int32, (ctypes.POINTER(SturdyRuntimeConfig), ctypes.POINTER(SturdyGameModule), ctypes.c_uint32, ctypes.c_int32, ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_int32))),
@@ -2920,29 +3786,140 @@ _FUNCTIONS = {
     'sturdy_scene_clip_name': (ctypes.c_int32, (SturdyGltfScene, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_scene_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdySceneSettings),)),
     'sturdy_scene_spawn': (ctypes.c_int32, (SturdyEngine, SturdyGltfScene, ctypes.POINTER(SturdySpawnOptions), ctypes.POINTER(SturdyEntity), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_scheduler_initialize': (ctypes.c_int32, (ctypes.c_uint32,)),
+    'sturdy_scheduler_shutdown': (ctypes.c_int32, ()),
     'sturdy_screen_space_gi_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyScreenSpaceGiSettings),)),
+    'sturdy_script_call': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_script_call_host_function': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_script_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_script_info': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_script_language_count': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint32),)),
+    'sturdy_script_language_name': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_script_language_register': (ctypes.c_int32, (ctypes.POINTER(SturdyScriptLanguage),)),
+    'sturdy_script_language_unregister': (ctypes.c_int32, (ctypes.c_char_p,)),
+    'sturdy_script_load': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyScriptModuleDesc))),
+    'sturdy_script_module_create': (ctypes.c_int32, (ctypes.POINTER(SturdyScriptModuleDesc), ctypes.POINTER(SturdyGameModule))),
+    'sturdy_script_module_create_native': (ctypes.c_int32, (ctypes.POINTER(SturdyNativeScriptDesc), ctypes.POINTER(SturdyGameModule))),
+    'sturdy_script_module_discard': (ctypes.c_int32, (ctypes.POINTER(SturdyGameModule),)),
+    'sturdy_script_name': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_script_publish': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_script_register_host_function': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_script_reload': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyScriptSource))),
+    'sturdy_script_reload_native': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.POINTER(SturdyScriptInstance))),
+    'sturdy_script_send': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)),
+    'sturdy_script_subscribe': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.c_char_p)),
+    'sturdy_script_unload': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p)),
+    'sturdy_script_unregister_host_function': (ctypes.c_int32, (ctypes.c_char_p,)),
+    'sturdy_script_unsubscribe': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.c_char_p)),
+    'sturdy_semaphore_acquire': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_semaphore_add_permits': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64)),
+    'sturdy_semaphore_available': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_semaphore_close': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_semaphore_create': (ctypes.c_int32, (ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_semaphore_is_closed': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_semaphore_try_acquire': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
     'sturdy_shadow_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyShadowSettings),)),
+    'sturdy_signal_ctrl_c': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncOp),)),
+    'sturdy_signal_shutdown': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncOp),)),
+    'sturdy_signal_wait': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_int32), ctypes.c_uint32, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_sound_load': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.POINTER(SturdySound))),
     'sturdy_sound_play': (ctypes.c_int32, (SturdyEngine, SturdySound, ctypes.POINTER(SturdyPlayOptions), ctypes.POINTER(SturdyVoice))),
     'sturdy_sound_release': (ctypes.c_int32, (SturdySound,)),
     'sturdy_spawn_options_init': (ctypes.c_int32, (ctypes.POINTER(SturdySpawnOptions),)),
+    'sturdy_stream_chain': (ctypes.c_int32, (SturdyAsyncObject, SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_chunks': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_chunks_timeout': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.c_int64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_collect': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_stream_count': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_stream_empty': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject),)),
+    'sturdy_stream_enumerate': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_filter': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_filter_map': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_fold': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_stream_for_each': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_stream_forward': (ctypes.c_int32, (SturdyAsyncObject, SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_stream_from_channel': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_generate': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_inspect': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_interval': (ctypes.c_int32, (ctypes.c_int64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_last': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_stream_map': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_map_concurrent': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_merge': (ctypes.c_int32, (SturdyAsyncObject, SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_next': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_stream_of_items': (ctypes.c_int32, (ctypes.POINTER(SturdyBytesView), ctypes.c_uint32, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_skip': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_take': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_take_while': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_throttle': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_timeout_each': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int64, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stream_zip': (ctypes.c_int32, (SturdyAsyncObject, SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_stun_query': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint16, ctypes.c_int64, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_surface_presentation_resolution': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyPresentationResolution))),
     'sturdy_surface_presentation_settings': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyPresentationSettings))),
     'sturdy_surface_query_hdr_capabilities': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyHdrCapabilities), ctypes.POINTER(SturdyHdrPresentationMode), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_surface_set_presentation_settings': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyPresentationSettings))),
     'sturdy_surface_update_hdr_content_light_level': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_float, ctypes.c_float)),
+    'sturdy_sync_mutex_create': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_sync_mutex_lock': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_sync_mutex_try_lock': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_task_local_create': (ctypes.c_int32, (ctypes.POINTER(SturdyAsyncObject),)),
+    'sturdy_task_local_get': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_task_local_scope': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_task_output_set': (ctypes.c_int32, (ctypes.POINTER(SturdyTaskOutput), ctypes.c_int64, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_char_p, ctypes.c_char_p)),
+    'sturdy_task_spawn': (ctypes.c_int32, (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_task_spawn_on': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_accept': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_close': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_tcp_connect': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint16, ctypes.POINTER(SturdyTlsClientOptions), ctypes.c_int64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_info': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_is_open': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_tcp_listen': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint16, ctypes.POINTER(SturdyTlsServerOptions), ctypes.c_int32, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_listener_address': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_tcp_listener_close': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_tcp_listener_is_open': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_tcp_listener_port': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint16))),
+    'sturdy_tcp_receive': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_receive_exact': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_receive_until': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_set_keepalive': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_set_nodelay': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_shutdown_write': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_start_tls_client': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.POINTER(SturdyTlsClientOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tcp_start_tls_server': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyTlsServerOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_thread_pin_current': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_time_delta_seconds': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_double))),
     'sturdy_time_scale': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_double))),
     'sturdy_time_set_scale': (ctypes.c_int32, (SturdyEngine, ctypes.c_double)),
     'sturdy_time_tick_index': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_time_unscaled_delta_seconds': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_double))),
+    'sturdy_timer_sleep': (ctypes.c_int32, (ctypes.c_int64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_timer_sleep_until': (ctypes.c_int32, (ctypes.c_int64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_tls_certificate_sha256': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_tls_generate_identity': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint32, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_tone_mapping_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyToneMappingSettings),)),
+    'sturdy_topology_ranked_cores': (ctypes.c_int32, (ctypes.c_uint8, ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_trace_capture': (ctypes.c_int32, ()),
     'sturdy_trace_clear_foreign_call_site': (ctypes.c_int32, ()),
     'sturdy_trace_get_detail': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_int32),)),
     'sturdy_trace_install_crash_handler': (ctypes.c_int32, (ctypes.c_char_p,)),
     'sturdy_trace_set_detail': (ctypes.c_int32, (ctypes.c_int32,)),
     'sturdy_trace_set_foreign_call_site': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32)),
+    'sturdy_udp_address': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_udp_bind': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint16, ctypes.POINTER(SturdyUdpOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_udp_close': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_udp_connect': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_uint16, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_udp_is_open': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_udp_join_multicast': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_udp_leave_multicast': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_udp_port': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint16))),
+    'sturdy_udp_receive': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_udp_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_udp_send_to': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_uint16, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_udp_set_broadcast': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_udp_set_multicast_loopback': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_udp_set_multicast_ttl': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint32, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_ui_begin': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyFrameInput))),
     'sturdy_ui_begin_element': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyUiElement))),
     'sturdy_ui_clicked': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8))),
@@ -2975,6 +3952,32 @@ _FUNCTIONS = {
     'sturdy_voice_state': (ctypes.c_int32, (SturdyVoice, ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_double))),
     'sturdy_voice_stop': (ctypes.c_int32, (SturdyVoice, ctypes.c_float)),
     'sturdy_volumetric_fog_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyVolumetricFogSettings),)),
+    'sturdy_watch_close': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_watch_events_stream': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_watch_next': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_watch_path': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyWatchOptions), ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_watch_uses_native_backend': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_watch_value_borrow': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_watch_value_borrow_and_update': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_watch_value_changed': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_watch_value_create': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncObject), ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_watch_value_has_changed': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_watch_value_receiver_clone': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_watch_value_send': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)),
+    'sturdy_watch_value_subscribe': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
+    'sturdy_websocket_abort': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_websocket_accept': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_websocket_close': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_uint16, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_websocket_connect': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyWebSocketClientOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_websocket_info': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_websocket_is_open': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_websocket_ping': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_websocket_receive': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_websocket_send_binary': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_websocket_send_text': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.c_uint64, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_websocket_server_close': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_websocket_server_listen': (ctypes.c_int32, (ctypes.POINTER(SturdyWebSocketServerOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_websocket_server_port': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint16))),
     'sturdy_window_config_init': (ctypes.c_int32, (ctypes.POINTER(SturdyWindowConfig),)),
     'sturdy_window_content_scale': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(ctypes.c_float))),
     'sturdy_window_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
@@ -3021,10 +4024,19 @@ _DOCS = {
     'sturdy_animation_set_release': 'Releases an animation set. Clips already adopted by entities keep working.',
     'sturdy_animation_set_speed': 'Scales playback speed (1 = authored speed, 0 freezes, negative runs backwards where supported).',
     'sturdy_anti_aliasing_settings_init': 'Fills `settings` with `struct_size` and engine defaults (1 MSAA sample, FXAA).',
+    'sturdy_arc_create': 'A shared, reference-counted value: every clone is another handle to the same data, which is destroyed with the last one. Object "arc". This one holds a copy of `data` (immutable).',
+    'sturdy_arc_create_foreign': "An arc around a pointer of yours: share one native object (or a language runtime's handle to it) between languages and threads, with `destroy` called exactly once when the last handle is released. `destroy` may be null.",
+    'sturdy_arc_pointer': 'The foreign pointer (null for a bytes arc).',
+    'sturdy_arc_use_count': 'How many references exist right now (a snapshot).',
+    'sturdy_async_features': 'Bit set of `SturdyAsyncFeature`: which optional protocols this build contains and whether this machine supports them.',
     'sturdy_async_is_done': 'Reports whether a task has finished.\n\nThe non-blocking way to observe one: poll this from your frame callback rather than waiting.',
     'sturdy_async_is_running': "Reports whether the engine's task scheduler is running.\n\nIt starts on first use — the first frame or the first `sturdy_async_spawn` — so this reads false before then.",
     'sturdy_async_is_worker_thread': 'Reports whether the calling thread is a scheduler worker.\n\nWorth checking before doing anything that blocks: blocking a worker starves the pool it belongs to.',
+    'sturdy_async_mutex_create': 'An async mutex / read-write lock protecting a byte-string value. Objects "async_mutex" / "async_rwlock".',
+    'sturdy_async_mutex_lock': 'Waits for exclusive access. Object "mutex_guard".',
+    'sturdy_async_mutex_try_lock': '`out_guard` receives the zero handle when the mutex is held.',
     'sturdy_async_release': 'Releases a task handle.\n\nDoes not cancel or wait. Releasing before the task finishes is fine and is the normal thing to do for fire-and-forget work; the task keeps running.\n\nReleasing twice reports `STURDY_ERROR_HANDLE_EXPIRED`, since task tokens are never reused.',
+    'sturdy_async_rwlock_read': 'Many readers or one writer; waiters queue in order, so a waiting writer is not starved. Objects "rwlock_read_guard" / "rwlock_write_guard".',
     'sturdy_async_spawn': 'Runs `task` on a background thread.\n\nStarts the scheduler if it is not already running.',
     'sturdy_async_wait': 'Blocks until a task finishes.\n\nReports `STURDY_ERROR_BUSY` when called from a scheduler worker thread. Waiting there can deadlock — the task you are waiting for may be queued behind you on the very pool you are occupying — so it is refused rather than risked.',
     'sturdy_async_worker_count': 'Returns how many worker threads the scheduler has.\n\nZero when it is not running. Useful for sizing your own work splitting to the machine.',
@@ -3043,10 +4055,36 @@ _DOCS = {
     'sturdy_audio_stream_file': 'Streams a long file (music, ambience) from a decode thread instead of loading it whole.',
     'sturdy_audio_stream_push': 'Appends frames; `out_accepted` (may be null) receives how many fit.',
     'sturdy_auto_exposure_settings_init': 'Fills `settings` with `struct_size` and engine defaults (disabled — auto exposure is opt-in).',
+    'sturdy_barrier_create': 'A rendezvous of `parties` callers. Object "barrier"; `sturdy_barrier_wait` has number 1 for exactly one of them (the last to arrive).',
     'sturdy_bloom_settings_init': 'Fills `settings` with `struct_size` and engine defaults.',
+    'sturdy_broadcast_create': 'Every receiver sees every message; one that falls `capacity` behind is told how many it missed. Objects "broadcast_sender" / "broadcast_receiver".',
+    'sturdy_broadcast_recv': 'Number 0 and bytes: a message; number 1 and field `skipped`: this receiver lagged; number 2: the sender is gone. Cannot be cancelled.',
+    'sturdy_broadcast_send': '`out_receivers` (may be null): the number of live receivers.',
+    'sturdy_buffered_flush': 'Sends what is pending.',
+    'sturdy_buffered_read_exact': 'Bytes: exactly `count`; `STURDY_IO_UNEXPECTED_EOF` when the stream ends first.',
+    'sturdy_buffered_read_line': 'Number 1 and text: one line without its terminator (LF or CRLF); number 0 at a clean end of stream. `max_bytes` 0: 64 KiB.',
+    'sturdy_buffered_read_some': 'Bytes: up to `max_bytes` (empty at the end).',
+    'sturdy_buffered_read_until': 'Number 1 and bytes: up to and including `delimiter`; number 0 at a clean end of stream; `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes`.',
+    'sturdy_buffered_reader_create': 'Adds read-ahead to a reader (lines, delimiters, exact counts). One operation at a time per object. Object "buffered_reader".',
+    'sturdy_buffered_shutdown': 'Flushes, then shuts the underlying writer down.',
+    'sturdy_buffered_writer_create': 'Batches small writes. Object "buffered_writer". `capacity` 0: 16 KiB.',
     'sturdy_camera_emulation_settings_init': 'Fills `settings` with `struct_size` and engine defaults (disabled — the body-camera look is opt-in).',
+    'sturdy_cancel_source_cancel': 'Cancels. `out_first` (may be null) says whether this call was the first.',
+    'sturdy_cancel_source_create': 'A cancellation source and the tokens it hands out: cancel once, and everything armed on a token reacts. Objects "cancel_source" / "cancel_token".',
+    'sturdy_cancel_token_wait': 'Finishes (OK) when the token is cancelled, at once if it already is.',
+    'sturdy_channel_create': 'Bounded multi-producer channel holding up to `capacity` messages (at least 1). Objects "channel_sender" / "channel_receiver". It closes when the last sender is released or `sturdy_channel_close` is called on either end; buffered messages are still delivered.',
+    'sturdy_channel_recv': 'Number 1 and bytes: the next message; number 0 once the channel is closed and drained.',
+    'sturdy_channel_send': 'Finishes once the message is buffered or handed to a receiver (waits while the channel is full); `STURDY_IO_CLOSED` when closed.',
+    'sturdy_channel_try_recv': 'Takes a buffered message if there is one: `out_status` says whether, and on `STURDY_TRY_OK` `out_op` is a finished op whose bytes are the message (otherwise `out_op` is the zero handle).',
     'sturdy_color_grade_settings_init': 'Fills `settings` with `struct_size` and engine defaults (disabled, neutral).',
+    'sturdy_cookie_jar_all': "Every stored cookie as a finished op's fields `name:N`, `value:N`, `domain:N`, `path:N`, `domain_wide:N`, `secure:N`, `http_only:N`, `expires:N` (N = 0, 1, ...).",
+    'sturdy_cookie_jar_create': 'A thread-safe cookie store: a client fills it from `Set-Cookie` and sends matching cookies. A Domain attribute must cover the request host and have at least two labels; IP hosts keep host-only cookies; the jar is capped (50 per domain, 3000 total). Object "cookie_jar".',
+    'sturdy_cookie_jar_header_for': '"a=1; b=2" for the cookies that apply to a request (string-output convention; empty if none).',
+    'sturdy_dedicated_thread_create': 'A named thread that runs submitted work one at a time, in order. Object "dedicated_thread".',
     'sturdy_depth_of_field_settings_init': 'Fills `settings` with `struct_size` and engine defaults (disabled).',
+    'sturdy_dir_iter_create': 'Walks a directory entry by entry. Object "dir_iter".',
+    'sturdy_dir_iter_next': 'Number: 1 and text: the next path, or number 0 at the end.',
+    'sturdy_dns_resolve': 'Resolves a host name. Fields: one `address` per result (numeric text).',
     'sturdy_ecs_add_chunk_system_ex': 'Registers a chunk system (since 0.35) with a removable handle. Declaration, ordering, conflict detection, `commands` and removal behave exactly as for `sturdy_ecs_add_system_ex`; only the body differs.',
     'sturdy_ecs_add_component': 'Attaches a component to an existing entity.',
     'sturdy_ecs_add_system': 'Registers a system that runs every frame, once per entity carrying all the listed components.\n\nThe access list is what makes automatic parallelism safe. A C++ system declares its access through its parameter types and the engine derives the rest; a function pointer carries no such information, so you declare it here. The scheduler then orders systems so that nothing writing a component runs alongside anything else touching it, and lets non-conflicting systems run together.\n\n**Declaring less access than you take is the one way to get data races.** If a system might write a component, declare `STURDY_ACCESS_WRITE` even when it usually only reads — an over-declared system costs parallelism, an under-declared one costs correctness.\n\nSystems stay registered for the life of the engine; there is no removal yet.',
@@ -3098,6 +4136,18 @@ _DOCS = {
     'sturdy_engine_mouse_down': 'Reports whether a mouse button is currently held.',
     'sturdy_engine_mouse_position': 'Reads the cursor position in window coordinates.',
     'sturdy_engine_wheel_delta': 'Reads scroll-wheel movement accumulated during this tick.',
+    'sturdy_exec_just': 'Lazy descriptions of work that compose and run later (the `Execution` layer). Object "exec_sender"; a sender may be started any number of times. The `user_data` of every stage must stay valid until the sender is released and no run of it is still going.',
+    'sturdy_exec_submit': "Starts the chain. The op carries the last stage's number, bytes and text; cancelling it sets the token every stage receives.",
+    'sturdy_exec_sync_wait': "Starts the chain and blocks for it; `out_op` is a finished op (OK, or failed with the stage's error). Never call it from a worker thread.",
+    'sturdy_exec_then': 'A sender that runs `then` on `lane` with the result of `sender`. A failure upstream skips it and propagates.',
+    'sturdy_file_open': 'Opens a file for streaming and random access. Object "file". `mode` is a bit set of `SturdyFileMode`. Positional reads and writes use io_uring on Linux when available; nothing occupies a worker thread while the kernel works.',
+    'sturdy_file_read': 'Reads up to `max_bytes` at the cursor (advancing it). Bytes: empty at end of file.',
+    'sturdy_file_read_at': 'Reads at `offset` without touching the cursor.',
+    'sturdy_file_read_to_end': 'Reads from the cursor to the end; fails with `STURDY_IO_INVALID_ARGUMENT` if more than `max_bytes` remain.',
+    'sturdy_file_seek': 'Moves the cursor (`origin`: 0 start, 1 current, 2 end). Number: the new position.',
+    'sturdy_file_size': 'Number: the size in bytes.',
+    'sturdy_file_sync': 'Flushes to stable storage (fsync, or fdatasync when `data_only`).',
+    'sturdy_file_write': 'Writes all of `data` at the cursor. Number: bytes written.',
     'sturdy_frame_camera_look_at': 'Points the camera at a world-space target, keeping `+Y` as up.',
     'sturdy_frame_set_ambient_light': 'Sets uniform ambient radiance and the scene exposure multiplier.',
     'sturdy_frame_set_ambient_occlusion_settings': "Replaces the ambient-occlusion stage's settings for the frame being built.",
@@ -3124,6 +4174,20 @@ _DOCS = {
     'sturdy_frame_set_tone_mapping': 'Selects the tone-mapping operator and its exposure/white-point/saturation controls.',
     'sturdy_frame_set_tone_mapping_settings': "Replaces the tone-mapping stage's settings for the frame being built.",
     'sturdy_frame_set_volumetric_fog_settings': 'Replaces the volumetric-fog settings for the frame being built.',
+    'sturdy_framed_create': 'Messages over a byte stream. `io` must read and write ("tcp", "file", "pipe_end"). `max_frame_bytes` 0: 8 MiB (64 KiB for lines). Object "framed".',
+    'sturdy_framed_next': 'Number 1 and bytes: the next frame; number 0 at a clean end of stream.',
+    'sturdy_framed_stream': 'The remaining frames as a "stream" object (do not call `sturdy_framed_next` meanwhile).',
+    'sturdy_frames_count': 'How many frames `packed` holds; `STURDY_ERROR_INVALID_ARGUMENT` when it is malformed.',
+    'sturdy_frames_get': 'Frame `index` (bytes-output convention).',
+    'sturdy_frames_pack': 'Several byte strings in one: a 32-bit little-endian count, then each as a 32-bit little-endian length and its bytes. Used where an operation or stream item carries more than one value. Packs `count` views (bytes-output convention: null buffer to learn the size).',
+    'sturdy_fs_exists': 'Number: 1 if the path exists, else 0.',
+    'sturdy_fs_list': 'Entry paths of a directory. Bytes: the paths as packed frames (`sturdy_frames_count` / `sturdy_frames_get`). Number: how many. At most `max_entries` (0: 4096); more fail with `STURDY_IO_INVALID_ARGUMENT`.',
+    'sturdy_fs_read_file': 'Reads a whole file on the IO lane. Bytes: the content; `STURDY_IO_INVALID_ARGUMENT` when it is larger than `max_bytes` (0: unlimited).',
+    'sturdy_fs_read_range': 'Reads `byte_count` bytes at `offset` (fewer at the end of the file). Bytes: the content.',
+    'sturdy_fs_remove_directory': 'Removes a directory and everything in it. Number: 1 if something was removed.',
+    'sturdy_fs_remove_file': 'Number: 1 if something was removed.',
+    'sturdy_fs_size': 'Number: the size in bytes.',
+    'sturdy_fs_write_file': 'Creates or replaces the file with `data`, or appends to it.',
     'sturdy_gltf_import': 'Imports a glTF or GLB file, creating a model asset for every mesh it contains.\n\nImporting does not put anything in the world — it produces assets and a description of how the file arranged them. Call `sturdy_gltf_spawn_all` to reproduce that arrangement, or walk the instances yourself if you want to filter or re-place them.',
     'sturdy_gltf_instance_at': 'Reads the node instance at `index`.',
     'sturdy_gltf_instance_count': 'Returns how many node instances the scene places.',
@@ -3136,13 +4200,54 @@ _DOCS = {
     'sturdy_gltf_release': 'Releases an imported scene.\n\nFrees the instance and light lists this ABI is holding. The model assets survive — they belong to the asset manager — so anything already spawned keeps rendering.\n\nReleasing twice reports `STURDY_ERROR_HANDLE_EXPIRED` rather than corrupting anything, since scene tokens are never reused.',
     'sturdy_gltf_spawn_all': 'Spawns an entity for every instance and light in the scene, reproducing it as authored.\n\nThe convenience path: import, spawn, release. Instances with no model are skipped, since an entity that draws nothing and lights nothing would only cost iteration.',
     'sturdy_gpu_enumerate': 'Enumerates every physical GPU this machine can create an engine on, across every graphics backend this build supports. Safe to call before `sturdy_runtime_run`, with no window or device yet — this is how an application builds its own GPU picker rather than guessing at `physical_device_id` values. Not free: it creates and immediately destroys a temporary graphics instance per backend, so call it once and cache the result rather than every frame.',
+    'sturdy_guard_get': 'The protected value (bytes-output convention).',
+    'sturdy_guard_release': 'Unlocks now.',
+    'sturdy_guard_set': 'Replaces the value (mutex and write guards only).',
+    'sturdy_http_body_closed': 'Finishes when the client disconnected or the server stopped, so a producer can stop. Cancelling it finishes it as cancelled.',
+    'sturdy_http_body_finish': 'Ends the body once queued chunks drain.',
+    'sturdy_http_body_write': 'Queues a chunk. Finishes once it is accepted into the bounded queue (so a slow client paces the producer); fails with `STURDY_IO_CLOSED` once the client is gone or the body was finished.',
+    'sturdy_http_client_close_idle': 'Closes idle pooled connections.',
+    'sturdy_http_client_cookie_jar': 'The jar a client uses (shared, not a copy). `STURDY_ERROR_NOT_AVAILABLE` when cookies are off.',
+    'sturdy_http_client_create': 'Creates a client with a connection pool (HTTP/1.1 keep-alive, HTTP/2 multiplexing, HTTP/3 after `Alt-Svc`). Object "http_client".',
+    'sturdy_http_client_request': 'Sends a request. Number: status. Fields: the response headers. Bytes: the body. Text: the final URL after redirects. Non-2xx statuses are ordinary results; only transport, TLS, protocol, limit and timeout problems fail the op. `X-` headers etc. are yours; `Host`, `Content-Length`, `Connection` and `Transfer-Encoding` are managed by the client and ignored if supplied.',
+    'sturdy_http_format_sse': 'The wire format of one event, ending with the blank line that dispatches it (string-output convention).',
+    'sturdy_http_percent_decode': 'Percent-decodes `text` (string-output convention); `STURDY_ERROR_INVALID_ARGUMENT` on a malformed escape or an encoded NUL.',
+    'sturdy_http_respond': 'Sends the response for a request. `headers` may be null. CR/LF in a header makes the server answer 500 instead.',
+    'sturdy_http_respond_canned': 'Sends a canned response of `kind` with `status` (a redirect usually 302/301/307/308) and the null-terminated `body`.',
+    'sturdy_http_respond_ex': 'Sends a response. Fails (without spending `responder`) with `STURDY_ERROR_INVALID_ARGUMENT` if more than one body is given. For `stream` or `sse` responses `out_body` receives the writer object (required then); otherwise it is ignored and may be null. The writer is yours to release; releasing it ends the body.',
+    'sturdy_http_server_begin': 'Opens the listener and starts serving.',
+    'sturdy_http_server_create': 'Creates a server without starting it, so WebSocket paths can be added first; `sturdy_http_server_begin` then starts it. Object "http_server". `handler` answers every request that is not a WebSocket upgrade.',
+    'sturdy_http_server_create_router': 'Same, serving a router (see below). The router may be released afterwards: the server keeps an immutable snapshot of it.',
+    'sturdy_http_server_http3_port': '0 when HTTP/3 is not served.',
+    'sturdy_http_server_info': 'Static server facts as a finished op\'s fields: `running`, `tls`, `http2` ("1"/"0"), `port`, `http3_port`.',
+    'sturdy_http_server_metrics': "Counters as a finished op's fields (decimal text): connections_accepted, requests, responses_2xx..5xx, active_connections, ...",
+    'sturdy_http_server_on_websocket': 'Upgrades requests whose path (without query) equals `path` to WebSockets, on the same port and over TLS when the server uses it. Call before `sturdy_http_server_begin`. `user_data` must stay valid until the server object is released.',
+    'sturdy_http_server_start': 'Starts an HTTP(S) server. Object "http_server". Stops (and drains) when the object is released.',
+    'sturdy_http_server_start_router': '`sturdy_http_server_create_router` and `sturdy_http_server_begin` in one step.',
+    'sturdy_interval_create': 'A periodic timer that does not drift. Object "interval"; `sturdy_interval_tick` finishes at each period boundary.',
+    'sturdy_io_copy': 'Copies until the reader ends, overlapping each read with the previous write. Number: bytes copied.',
+    'sturdy_io_lane_configure': 'Tunes the blocking-IO lane (0 workers: automatic; 0 `max_pending`: 1024). `out_applied` says whether it took effect (false once it started).',
+    'sturdy_io_lane_stats': 'Fields `backend`, `workers`, `pending`, `capacity` (a finished op).',
+    'sturdy_io_read_to_end': 'Bytes: everything until the reader ends; `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes` (0: unlimited).',
+    'sturdy_join_set_abort_all': 'Sets the cancel token of every running task in the set.',
+    'sturdy_join_set_create': 'A dynamic set of tasks joined in completion order. Object "join_set".',
+    'sturdy_join_set_join_next': 'Finishes with the next task to complete. Field `outcome` is "ok", "failed" (field `error` says why) or "empty" (nothing left); number, bytes and text are the task\'s.',
     'sturdy_last_error_message': 'Detail for the most recent failing call **on the calling thread**.',
     'sturdy_last_error_trace_format': 'The whole trace as readable text, one frame per line, with the usual size-query convention (see `copy_string_out` in the ABI notes: pass a null buffer to learn the size; a short buffer gets a truncated, terminated result and `STURDY_ERROR_BUFFER_TOO_SMALL`).',
     'sturdy_last_error_trace_frame': 'Reads one frame of the trace counted by `sturdy_last_error_trace_frame_count`, innermost first.',
     'sturdy_last_error_trace_frame_count': "Number of frames in the calling thread's most recent trace (the last failure's, or the last `sturdy_trace_capture`). Zero if none. Call this before `sturdy_last_error_trace_frame`: it resolves the trace once so the frames can be read cheaply.",
     'sturdy_lighting_settings_init': 'Fills `settings` with `struct_size` and engine defaults (clustered on).',
+    'sturdy_local_set_block_on': 'Runs queued tasks on the calling thread until `op` finishes (blocks).',
+    'sturdy_local_set_create': 'Tasks that run only on the thread that pumps the set. Object "local_set".',
+    'sturdy_local_set_run_pending': 'Runs queued tasks on the calling thread until none are left. `out_ran` (may be null): how many.',
     'sturdy_log_add_sink': 'Registers a callback to receive every subsequent log message.',
     'sturdy_log_remove_sink': 'Unregisters a sink added by `sturdy_log_add_sink`. A null/zero handle, or one already removed, is a no-op.',
+    'sturdy_main_thread_pump': 'Runs the queued main-thread work on the calling thread.',
+    'sturdy_main_thread_run': "Queues `fn` for the engine's main thread (run when it pumps). `user_data` must stay valid until `fn` has run.",
+    'sturdy_main_thread_set_wake_hook': 'Installs a callback run (on the posting thread) after every queued job, so a loop that blocks waiting for events can wake and pump. Null removes it.',
+    'sturdy_memory_pipe_create': 'Two connected in-memory ends ("pipe_end"): what one writes the other reads. `chunks`: messages buffered per direction (0: 8).',
+    'sturdy_memory_reader_create': 'A reader over a copy of `data`. Object "memory_reader".',
+    'sturdy_memory_writer_create': 'A writer that collects what it is given. Object "memory_writer".',
     'sturdy_model_import': 'Imports a model file of any supported format, chosen from its extension: `.gltf`/`.glb`, `.fbx`, `.obj`. Same ownership and release rules as `sturdy_gltf_import`; the handle works with every `sturdy_gltf_*` call.',
     'sturdy_module_count': 'How many modules are loaded.',
     'sturdy_module_name': 'The name of the module at `index` in start order. See the string-output convention above.',
@@ -3151,12 +4256,69 @@ _DOCS = {
     'sturdy_module_request_unload': 'Unloads a module: its `on_shutdown` runs, what it registered is removed, and it is destroyed. Refused when another module names it in `after`. Returns `STURDY_ERROR_NOT_AVAILABLE` when the game was not started with `sturdy_runtime_run_modules`.',
     'sturdy_module_take_failure': 'Takes the oldest message of a live change that failed, copying it out (see the string-output convention above); it is removed only when the copy succeeded, so a too-small buffer can be retried.',
     'sturdy_motion_blur_settings_init': 'Fills `settings` with `struct_size` and engine defaults (disabled — motion blur is opt-in).',
+    'sturdy_nat_default_gateway': 'The default gateway\'s address ("" when it cannot be determined).',
+    'sturdy_nat_map_port': 'Asks the router to forward a public port to this machine (PCP, NAT-PMP or UPnP IGD). Object "mapping". Number: granted lifetime in seconds (0: permanent — remove it yourself). Fields: external_host, external_port, method, gateway. Renew before half the lifetime.',
+    'sturdy_nat_punch_hole': 'UDP hole punching: both peers call this at once with the other\'s candidate addresses ("host:port") and a shared secret. Text/number: the candidate that answered; keep using the same socket afterwards. Fails with `STURDY_IO_TIMED_OUT` (typical of symmetric NATs: use a relay).',
+    'sturdy_nat_unmap_port': 'Removes a mapping made by `sturdy_nat_map_port`.',
     'sturdy_native_available': 'Reports whether raw native handles are available.\n\nFalse when `SturdyRuntimeConfig::enable_native_access` was not set, or when the backend could not publish them. Check this before calling the getters below rather than treating their failure as fatal.',
     'sturdy_native_d3d12': "Reads the engine's raw D3D12 objects.",
     'sturdy_native_d3d12_queue': 'Reads the `ID3D12CommandQueue *` backing one queue lane.',
     'sturdy_native_vulkan': "Reads the engine's raw Vulkan objects.",
     'sturdy_native_vulkan_queue': 'Reads the `VkQueue` and queue family index backing one queue lane.',
     'sturdy_native_webgpu': "Reads the engine's raw WebGPU objects.",
+    'sturdy_network_reactor_configure': 'Sets the number of network reactor threads. `out_applied` says whether it took effect (false once the reactor is running).',
+    'sturdy_notify_create': 'A wake-up signal with at most one stored permit. Object "notify".',
+    'sturdy_notify_notified': 'Finishes when notified; a `sturdy_notify_one` that happened earlier with nobody waiting is consumed first.',
+    'sturdy_object_kind': 'The object\'s kind ("tcp", "websocket", "quic_stream", ...), following the string-output convention.',
+    'sturdy_object_release': 'Releases an object, closing whatever it wraps. Operations still pending on it finish as closed or cancelled.',
+    'sturdy_oneshot_create': 'One-shot value hand-off. Objects "oneshot_sender" / "oneshot_receiver". A sender released without sending fails the receiver with `STURDY_IO_CLOSED`.',
+    'sturdy_oneshot_recv': 'Bytes: the value. A receiver can be waited on once.',
+    'sturdy_oneshot_send': '`out_first` (may be null) says whether this call set the value.',
+    'sturdy_op_bytes': "The result's bytes. Pass a null buffer to learn the size; `out_length` always receives the full size, and `STURDY_ERROR_BUFFER_TOO_SMALL` is returned (after copying what fits) when the buffer was smaller. No terminator is added.",
+    'sturdy_op_cancel': 'Asks the operation to stop. It then finishes as `STURDY_OP_CANCELLED` (or with its result, if it already had one). Harmless on a finished op.',
+    'sturdy_op_error_code': 'The failure kind of a `STURDY_OP_FAILED` op (`STURDY_IO_NONE` otherwise). `STURDY_ERROR_BUSY` while pending.',
+    'sturdy_op_error_message': 'The failure message of a failed op (empty otherwise), following the string-output convention.',
+    'sturdy_op_field': 'Value of the first field called `name` (HTTP header lookup is case-insensitive; other fields are exact). `STURDY_ERROR_NOT_AVAILABLE` when there is none.',
+    'sturdy_op_field_count': 'How many named fields the result has.',
+    'sturdy_op_field_name': 'Name of field `index`, following the string-output convention.',
+    'sturdy_op_field_value': 'Value of field `index`.',
+    'sturdy_op_link_cancel': 'Cancelling `token` cancels `op`.',
+    'sturdy_op_number': "The result's number (byte count, status code, port, ... — see the function that made the op).",
+    'sturdy_op_object': 'The object the operation produced (a connection, a file, ...), as a new handle you own. Calling it again returns the same handle. `STURDY_ERROR_NOT_AVAILABLE` when the op produced none. The object lives until **both** its handle and the operation are released, so a "permit" or a "mutex_guard" is only dropped once the op is released too — or release it explicitly with its own function.',
+    'sturdy_op_on_complete': 'Runs `callback` when the operation finishes — at once, on this thread, if it already has.',
+    'sturdy_op_ready': "An already-finished op (Tokio's `ready`): useful to answer an operation-shaped API without work.",
+    'sturdy_op_release': 'Releases an operation. A pending one keeps running; its result is dropped.',
+    'sturdy_op_status': "Reads an operation's status without blocking.",
+    'sturdy_op_text': "The result's text, following the string-output convention.",
+    'sturdy_op_wait': 'Waits until the operation finishes or `timeout_ms` passes (negative: no limit). `out_done` says which. Blocks the calling thread; do not call it from a completion callback.',
+    'sturdy_op_wait_any': 'Waits for the first of `ops` to finish. `out_index` is its position, or -1 when `timeout_ms` passed first.',
+    'sturdy_op_with_timeout': 'A new op that finishes as `op` does, or fails with `STURDY_IO_TIMED_OUT` after `timeout_ms` — cancelling `op` then. Cancelling the new op cancels `op`.',
+    'sturdy_par_any': 'Parallel predicates over `[0, count)`.',
+    'sturdy_par_find_first': 'The lowest index for which `pred` holds (-1: none) / any such index.',
+    'sturdy_par_for': 'Runs `body` for every index in `[0, count)` across the worker pool and returns when all are done (the caller helps, so it never deadlocks the pool). `min_chunk` is the smallest run of indices handed to one task (0/1: let the engine decide). Calling it from inside a body is fine.',
+    'sturdy_par_for_chunks': 'Runs `body` over consecutive ranges of at most `chunk` indices (`chunk` must be positive).',
+    'sturdy_par_for_windows': 'Calls `body(begin)` for every window start in `[0, count - window]`.',
+    'sturdy_par_join': 'Runs `a` and `b` in parallel and returns when both are done.',
+    'sturdy_par_map_reduce_i64': 'Maps every index and combines the results with an associative `reduce` that has `identity`.',
+    'sturdy_par_min_max_f32': 'Parallel minimum and maximum. `STURDY_ERROR_OUT_OF_RANGE` when `count` is 0.',
+    'sturdy_par_num_threads': 'The threads a parallel call can use right now.',
+    'sturdy_par_reduce': 'Reduces a typed array in parallel. `out_has_value` is false for an empty array with min/max.',
+    'sturdy_par_scope': 'Runs `body` with a scope; every task spawned on the scope finishes before this returns.',
+    'sturdy_par_sort': 'Sorts `count` elements of `type` in place, ascending, in parallel.',
+    'sturdy_par_sort_by': 'Sorts `count` elements of `element_size` bytes in place with `less`; `stable` keeps equal elements in order.',
+    'sturdy_par_sum_f32': 'Parallel sums. Float sums use SIMD and may differ from a sequential sum by rounding.',
+    'sturdy_peer_block': 'Refuses the peer from now on and drops it if connected.',
+    'sturdy_peer_broadcast': 'Sends to every connected peer, except `except_peer_id` when non-null (forwarding what that peer just sent). Number: how many links took it.',
+    'sturdy_peer_connect': 'Dials a peer. `expected_id` non-null pins it (the link is refused if someone else answers). Fields of the linked peer: id, name, address, inbound, listen_port.',
+    'sturdy_peer_connect_via_relay': 'Meets a peer through a relay when neither can be dialed. Both sides use the same `token` and opposite `dial`; the peer-to-peer TLS runs through the relay end to end. `relay_tls` non-null: the hop to the relay itself uses TLS too.',
+    'sturdy_peer_disconnect': 'Drops a peer; `reason` (null: "disconnected by application") is what the other side sees.',
+    'sturdy_peer_identity': "The node's identity as a finished op: fields `certificate_pem`, `private_key_pem`, `sha256`. Persist it to keep the same id.",
+    'sturdy_peer_list': 'Connected peers as a finished op: fields `id:N`, `name:N`, `address:N`, `inbound:N`, `listen_port:N` for N = 0, 1, ...',
+    'sturdy_peer_next_event': "Next event. Number: 0 connected, 1 disconnected, 2 message, 3 discovered. Bytes: the message. Fields: peer, channel, name, address, reason, inbound. Not consuming events eventually stalls the peers' readers.",
+    'sturdy_peer_send': 'Sends a message on channel 0..0xFEFF to one peer.',
+    'sturdy_peer_start': 'Starts a peer node: encrypted, mutually authenticated links with self-certifying ids. Object "peer"; text: our peer id.',
+    'sturdy_permit_forget': 'Keeps the permits consumed forever (they are never returned).',
+    'sturdy_permit_release': 'Returns the permits now.',
     'sturdy_plugin_language': 'The language the plugin reported through `set_info`, empty when it did not. See the string-output convention above.',
     'sturdy_plugin_load': 'Opens a plugin library and runs its entry point with `STURDY_PLUGIN_LOAD`, collecting its modules (nothing is started).',
     'sturdy_plugin_module_count': 'How many modules the plugin added.',
@@ -3167,7 +4329,37 @@ _DOCS = {
     'sturdy_plugin_request_reload': "Replaces `previous`'s modules with `next`'s in the running game: same-named modules are reloaded in place, new ones are loaded, and names `previous` had that `next` lacks are unloaded. Consumes `next`'s modules. Release `previous` afterwards; its library closes when its modules are gone.",
     'sturdy_plugin_request_unload': 'Unloads every module of `plugin` from the running game. Release the handle afterwards.',
     'sturdy_plugin_take_modules': "Hands the plugin's modules to the caller, to pass to `sturdy_runtime_run_modules` (the returned strings and arrays stay valid until `sturdy_plugin_release`). Each module's ownership moves to whatever consumes it, so this works once per plugin: a second call returns `STURDY_ERROR_BUSY`. If `capacity` is smaller than the module count, `STURDY_ERROR_BUFFER_TOO_SMALL` is returned and nothing is handed out; `out_count` always receives the count.",
+    'sturdy_pool_create': 'Creates a separate worker pool (Rayon\'s `ThreadPoolBuilder`): work run through it stays on its own threads, so a long job cannot starve the engine\'s scheduler. `threads` 0: the machine\'s core count. Object "pool"; released objects shut their threads down.',
+    'sturdy_pool_par_for': "`sturdy_par_for` on the pool's own threads.",
+    'sturdy_pool_run': 'Runs `task` on the pool and waits for it (anything it parallelises stays on the pool).',
     'sturdy_presentation_settings_init': "Fills `settings` with `struct_size` and the engine's defaults (vsync on, no HDR, opaque composition, automatic image count).",
+    'sturdy_process_read_stdout': "Bytes: up to `max_bytes` from the child's stdout / stderr (empty at end).",
+    'sturdy_process_request_exit': 'Asks the child to exit (SIGTERM / a close request); `sturdy_process_kill` forces it.',
+    'sturdy_process_run': 'Runs a program to completion, feeding `stdin_data` and collecting stdout/stderr (bounded; the child is killed past `max_output_bytes` — 0: 16 MiB — or `timeout_ms` — 0: no limit). Bytes: stdout. Text: stderr. Number: exit code (the signal number if signalled). Fields: `signaled`, `success`.',
+    'sturdy_process_spawn': 'Starts a child (standard streams per the options, piped by default). Object "process".',
+    'sturdy_process_wait': 'Number: exit code (the signal number if signalled). Fields: `signaled`, `success`, `signal`.',
+    'sturdy_promise_cancel': 'Completes the future as cancelled.',
+    'sturdy_promise_create': 'The producing half of an operation: something other than the engine finishes `out_future` by calling `sturdy_promise_set_*`. Object "promise"; `out_future` is an ordinary op (wait on it, attach a callback, link or time it out). Only the first completion wins; a promise released while pending fails its future with `STURDY_IO_CLOSED`.',
+    'sturdy_promise_set_value': 'Completes the future with a number, bytes and text. `out_first` (may be null) says whether this call completed it.',
+    'sturdy_quic_accept': 'Next connection whose handshake completed. Object "quic_conn".',
+    'sturdy_quic_accept_stream': 'Next stream the peer opened. Object "quic_stream".',
+    'sturdy_quic_close': 'Closes the connection with an application error code (0 = clean).',
+    'sturdy_quic_closed': 'Finishes when the connection ends, for any reason. Number: the code. Text: the reason. Fields: `from_peer`, `application`, `timed_out` ("1"/"0").',
+    'sturdy_quic_connect': 'Connects and completes the TLS 1.3 handshake. Object "quic_conn". Datagrams and many streams, no head-of-line blocking.',
+    'sturdy_quic_info': 'Fields: `peer`, `local`, and once the handshake finished `protocol`, `alpn`, `peer_sha256`, `cipher` (a finished op).',
+    'sturdy_quic_listen': 'Starts a QUIC server. Object "quic_listener" (finished op).',
+    'sturdy_quic_listener_metrics': "Counters as a finished op's fields: connections_accepted, retries_sent, rejected_limit, ...",
+    'sturdy_quic_open_stream': 'Opens a stream (waits if the peer\'s stream limit is reached). Object "quic_stream".',
+    'sturdy_quic_receive_datagram': 'Next received datagram. Bytes: the payload.',
+    'sturdy_quic_send_datagram': 'Sends one unreliable datagram; it may be lost or reordered. `STURDY_ERROR_OUT_OF_RANGE` when larger than the current maximum, `STURDY_ERROR_BUSY` when the send queue is full, `STURDY_ERROR_NOT_AVAILABLE` when the peer takes no datagrams.',
+    'sturdy_quic_stats': 'Fields (decimal): rtt_us, min_rtt_us, bytes_in_flight, cwnd, packets_lost, bytes_sent, bytes_received (a finished op).',
+    'sturdy_quic_stream_finish': 'Ends the sending side cleanly after everything queued.',
+    'sturdy_quic_stream_receive': '1..`max_bytes` bytes as they arrive. Bytes: empty means the peer finished. Reading is what grants the peer more credit.',
+    'sturdy_quic_stream_reset': "Abruptly stops sending (the peer's reads fail with `error_code`) / asks the peer to stop sending.",
+    'sturdy_quic_stream_send': 'Queues data on a stream; finishes once it fits under `stream_send_buffer` (so a slow peer paces the sender).',
+    'sturdy_rate_limiter_create': 'A keyed token bucket: each key may use `rate_per_second` operations per second on average, with bursts up to `burst`. Thread-safe; memory is bounded by `max_keys` (0: 10000). Object "rate_limiter".',
+    'sturdy_rate_limiter_retry_after_ms': 'Milliseconds until `key` could take `cost` tokens (0 if it could now).',
+    'sturdy_rate_limiter_try_acquire': 'Takes `cost` tokens for `key` if available.',
     'sturdy_reflection_add_after_hook': 'Adds a listener that fires just after a method returns. See `sturdy_reflection_add_before_hook`.',
     'sturdy_reflection_add_before_hook': "Adds a listener that fires just before a method runs (with the same `args` the real call receives), in addition to — not instead of — the real implementation/override. Unlike `sturdy_reflection_register_override`, any number of mods may add hooks without clobbering each other's.",
     'sturdy_reflection_clear_override': 'Removes a previously installed override, restoring the real implementation.',
@@ -3203,6 +4395,10 @@ _DOCS = {
     'sturdy_reflection_type_size': "Reads a type's instance size/alignment — what `object` must point at `size` bytes of, aligned to `align`, for every instance-field/method call below.",
     'sturdy_reflection_unregister_type': "Unregisters a type, so no future `find_type`/field/method/event lookup can reach it — the mod-unload primitive. See `TypeRegistry::unregister_type`'s C++ doc comment for the full quiescence requirement: stop dispatching to this type (no calls in flight against it on any thread) *before* calling this, and only unload any shared library it came from after.",
     'sturdy_reflection_unsubscribe_event': 'Removes a listener added by `sturdy_reflection_subscribe_event`.',
+    'sturdy_relay_connect': 'Connects to a relay and waits for the partner. Object "tcp" connected to the partner: start TLS on it before sending anything private. `relay_tls` non-null: TLS to the relay itself. `timeout_ms` 0: 35 s.',
+    'sturdy_relay_random_token': 'A fresh unguessable rendezvous token (32 hex characters).',
+    'sturdy_relay_server_metrics': "Counters as a finished op's fields: sessions_started, sessions_active, waiting, bytes_relayed, rejected, timed_out.",
+    'sturdy_relay_server_start': 'Starts a rendezvous relay: pairs two connections that name the same token and forwards opaque bytes. It cannot read the peers\' traffic when they run TLS through it. Object "relay_server". `authorize` may be null (any token is accepted).',
     'sturdy_render_create_mesh_model': 'Creates a renderable model from your own geometry.',
     'sturdy_render_create_shape_model': 'Creates a renderable model from a built-in shape.',
     'sturdy_render_create_texture': 'Creates a texture asset directly from raw RGBA8 pixels — for a procedurally generated texture, as opposed to `sturdy_render_load_texture`/`sturdy_render_load_texture_from_memory`, which decode an encoded image format.',
@@ -3343,6 +4539,16 @@ _DOCS = {
     'sturdy_rhi_wait_semaphore': "Blocks the calling host thread until `semaphore`'s counter reaches `value`.",
     'sturdy_rhi_write_buffer': 'Uploads `data` into `buffer` at `offset`, outside any command encoder. Suitable for infrequent, host-visible writes; for per-frame or GPU-timed writes use `sturdy_rhi_command_encoder_update_buffer` instead.',
     'sturdy_rhi_write_ray_tracing_shader_group_handles': "Reads `group_count` shader group handles starting at `first_group`, into `dst` (which must be at least `group_count * sturdy_rhi_ray_tracing_properties`'s `shader_group_handle_size` bytes). Write these into a shader binding table buffer at `shader_group_base_alignment`-aligned offsets to build `SturdyShaderBindingTableRegion`s for `sturdy_rhi_command_encoder_trace_rays`.",
+    'sturdy_ring_create': 'A wait-free single-producer single-consumer ring of byte messages. Object "spsc_ring". Exactly one thread may push and exactly one (possibly another) may pop. Items are at most `max_item_bytes` (rounded up to 32, 128, 512, 2 Ki, 8 Ki or 64 Ki; 64 Ki is the limit); the capacity (1..16 Mi items) is rounded up to a power of two.',
+    'sturdy_ring_drain': 'Pops up to `max_items` (0: all) as a finished op: bytes are the items as packed frames (`sturdy_frames_count` / `sturdy_frames_get`), number is how many.',
+    'sturdy_ring_try_pop': "Pops the oldest item into `buffer`, which must hold at least `sturdy_ring_max_item_bytes` (a smaller one is refused before anything is popped). `out_length` receives the item's size. `out_status` is `STURDY_RING_EMPTY` when there was nothing.",
+    'sturdy_router_create': 'Creates a URL router. Patterns are \'/\'-separated literals, `:name` (one segment) and a final `*name` (the rest); literals beat parameters, which beat wildcards. Object "router". HEAD requests reuse GET routes; unmatched methods on known paths get 405 with an Allow header; malformed paths get 400.',
+    'sturdy_router_dispatch': 'Runs one request through the router synchronously (tests, in-process calls). Number: status. Fields: headers. Bytes: body (a streamed body is not collected).',
+    'sturdy_router_not_found': 'Replaces the default 404. The handler must answer before it returns.',
+    'sturdy_router_rate_limit': 'Middleware answering 429 with Retry-After once one client address exceeds `rate_per_second` (bursts up to `burst`). `max_keys` 0: 10000.',
+    'sturdy_router_route': 'Adds a route (`method` upper-case, e.g. "GET"). `handler` runs on a handler thread, exactly like a server handler, with `path`, `query` and `params` filled in. `user_data` must stay valid until every server serving this router is released.',
+    'sturdy_router_static_files': 'Serves files under `mount` (e.g. "/assets") from `options->root`, GET and HEAD only. `STURDY_ERROR_INVALID_ARGUMENT` when the root is not a directory.',
+    'sturdy_router_use': 'Adds middleware that runs before every matching route. Call `sturdy_http_respond*` with the responder **before returning** to answer the request yourself (auth, rate limits); return without answering to let it continue. Answering later is ignored.',
     'sturdy_runtime_config_init': 'Fills `config` with engine defaults and the correct `struct_size`.\n\nAlways call this before setting fields. It is what makes a binding compiled against an older header keep working against a newer engine: fields you have never heard of still get sane values instead of whatever was on your stack.',
     'sturdy_runtime_run': "Runs the application to completion: creates the window and graphics device, drives the frame loop, and returns once the last window closes.\n\nBlocks the calling thread for the entire lifetime of the application. Only one runtime may be active per process; a concurrent or nested call fails with `STURDY_ERROR_ALREADY_RUNNING` rather than corrupting the first one's state.",
     'sturdy_runtime_run_modules': "Like `sturdy_runtime_run`, for a game made of several modules (since 0.35).\n\nModules start in the order you list them, adjusted so each comes after the modules in its `after` list; they shut down in the reverse order. If a module's `on_engine_initialized` returns false (or a dependency is unknown or cyclic), every module that had started is shut down and the call returns `STURDY_ERROR_CALLBACK_FAILED` (or `STURDY_ERROR_INITIALIZATION_FAILED` for a bad dependency, with the cause in the engine log).\n\nFor each frame every module's `request_render_frame` runs in start order. Among modules with `contributes_scene`, the last one that returns true supplies the camera, lighting and render graph; every module's overlay passes are kept, in start order. If no scene module returns true the frame is skipped.\n\nThreading is as for `sturdy_runtime_run`: `request_render_frame` may run on per-window render threads, so a module's own state must be safe for that. The module list never changes after startup.",
@@ -3351,28 +4557,102 @@ _DOCS = {
     'sturdy_scene_clip_name': 'Reads the name of clip `index`. See the string-output convention above.',
     'sturdy_scene_settings_init': 'Fills `settings` with `struct_size` and engine defaults (raster deferred, path tracing parameters set but unused until `integrator` selects a path-traced mode).',
     'sturdy_scene_spawn': "Spawns every model and light of the scene with its animation wired up: skinned characters get a private deformable copy and an animator, blend-shape meshes likewise, and plain animated nodes follow the file's node animation. `sturdy_gltf_spawn_all` is this with default options.",
+    'sturdy_scheduler_initialize': 'Starts the worker pool (0 workers: one per hardware thread). The engine starts it on first use; call this only to choose the size first, or in a program that does not run the engine.',
+    'sturdy_scheduler_shutdown': 'Stops the worker pool. The engine owns it: only a standalone program should call this.',
     'sturdy_screen_space_gi_settings_init': 'Fills `settings` with `struct_size` and engine defaults (disabled).',
+    'sturdy_script_call': "Calls a function of a script now (taking the script lock, so it is safe from any thread). Returns a finished op: bytes on success, a failure otherwise (an unknown script or function, or the script's own error).",
+    'sturdy_script_call_host_function': "Calls a host function (what an adapter does on a script's behalf). Returns a finished op: bytes on success, a failure otherwise.",
+    'sturdy_script_count': 'How many scripts are loaded, and the name of script `index` (start order, string-output convention).',
+    'sturdy_script_info': 'A script\'s details as a finished op\'s fields: `language`, `path`, `generation` (1 + reloads), `healthy` ("1"/"0") and `failure`. `STURDY_ERROR_NOT_AVAILABLE` for an unknown script.',
+    'sturdy_script_language_name': 'The name of language `index` (string-output convention).',
+    'sturdy_script_language_register': 'Registers a language adapter for the whole process (before the runtime starts, or while it runs).',
+    'sturdy_script_language_unregister': 'Forgets a language. Scripts already running keep working until they are unloaded.',
+    'sturdy_script_load': '`sturdy_script_module_create` and `sturdy_module_request_load` in one step: adds a script to the running game at the next update boundary.',
+    'sturdy_script_module_create': 'Makes the module for a script that loads through a registered language adapter when the game starts. Pass it to `sturdy_runtime_run_modules` or `sturdy_module_request_load`, or release it with `sturdy_script_module_discard` if you never will. The strings inside `out_module` stay valid until then.',
+    'sturdy_script_module_discard': 'Destroys a module made by the functions above that was never handed to the engine.',
+    'sturdy_script_publish': 'Queues a message for every script subscribed to `topic` except `from`. `out_receivers` (may be null) receives how many.',
+    'sturdy_script_register_host_function': 'Registers `function` under `name` for the whole process. `destroy` (may be null) releases `user_data` when the function is unregistered.',
+    'sturdy_script_reload': 'Hot reload (see above). Takes effect at the next update boundary; a parse error is reported at once. Failures after that are reported through `sturdy_module_take_failure`.',
+    'sturdy_script_reload_native': 'Hot reload of a script built from callbacks: `instance` replaces the running one.',
+    'sturdy_script_send': 'Queues a message for `to` (delivered at the next update boundary). `from` null: the host application. `STURDY_ERROR_NOT_AVAILABLE` when no such script is loaded.',
+    'sturdy_script_unload': 'Removes a script (as `sturdy_module_request_unload`).',
+    'sturdy_semaphore_acquire': 'Waits for `count` permits. Object "permit". `STURDY_IO_CLOSED` if the semaphore closes first.',
+    'sturdy_semaphore_close': 'Fails every waiter and every future acquire.',
+    'sturdy_semaphore_create': 'A counting semaphore. Object "semaphore".',
+    'sturdy_semaphore_try_acquire': '`out_permit` receives the zero handle when the permits are not available.',
     'sturdy_shadow_settings_init': 'Fills `settings` with `struct_size` and engine defaults (4 cascades, 4096 atlas, contact shadows on, contact hardening off).',
+    'sturdy_signal_shutdown': 'Finishes when the process receives SIGINT or SIGTERM (Ctrl+C / termination). Number: the signal.',
+    'sturdy_signal_wait': 'Number: the first of `signals` (SIGINT, SIGTERM, ...) delivered to the process.',
     'sturdy_sound_load': 'Decodes a file (any supported codec; cached by path) without playing it.',
     'sturdy_sound_play': 'Plays a loaded sound. `out_voice` may be null for fire-and-forget; a returned voice must still be released.',
     'sturdy_spawn_options_init': 'Fills `options` with the defaults: auto-play, looping, speed 1, first clip, identity transform.',
+    'sturdy_stream_chunks': 'Items become packed frames of up to `count` items; the `_timeout` form also emits a partial batch once `max_wait_ms` passed since its first item.',
+    'sturdy_stream_collect': 'Drains the stream. Bytes: the items as packed frames. Number: how many.',
+    'sturdy_stream_count': 'Number: how many items.',
+    'sturdy_stream_enumerate': 'Items become frames {index as 8-byte little-endian, item}.',
+    'sturdy_stream_fold': 'Bytes: the final accumulator.',
+    'sturdy_stream_forward': 'Sends every item into a channel (does not close it).',
+    'sturdy_stream_from_channel': "Sources. Every callback's `user_data` must stay valid until the stream is finished with.",
+    'sturdy_stream_interval': 'Items are 8-byte little-endian steady-clock nanoseconds, one per period.',
+    'sturdy_stream_last': 'Number 1 and bytes: the last item; number 0 for an empty stream.',
+    'sturdy_stream_map': 'Adapters. Each takes (consumes) its input stream(s) and returns a new one.',
+    'sturdy_stream_map_concurrent': 'Runs `fn` on the worker pool for up to `concurrency` items at once (0: twice the worker count); `ordered` keeps the input order.',
+    'sturdy_stream_next': 'Sinks. Number 1 and bytes: the next item; number 0 at the end. (Not consuming; cannot be cancelled — close the source to stop it.)',
+    'sturdy_stream_timeout_each': 'An item that takes longer than `limit_ms` fails the next pull with `STURDY_IO_TIMED_OUT`.',
+    'sturdy_stream_zip': 'Items become frames {a, b}.',
+    'sturdy_stun_query': 'Asks a STUN server what public address this machine appears as. Text: host. Number: port. `server` null: stun.l.google.com:19302.',
     'sturdy_surface_presentation_resolution': "Reads what `surface`'s presentation policy actually resolved to.",
     'sturdy_surface_presentation_settings': "Reads `surface`'s current presentation policy: the last value `sturdy_surface_set_presentation_settings` accepted, or the app-wide default if never overridden.",
     'sturdy_surface_query_hdr_capabilities': "Queries `surface`'s real HDR display capabilities and supported presentation modes.",
     'sturdy_surface_set_presentation_settings': "Requests a change to `surface`'s presentation policy. Queued like a window request: applied the next time `surface` renders, not synchronously.",
     'sturdy_surface_update_hdr_content_light_level': "Updates HDR10 static content light level metadata (MaxCLL/MaxFALL) on `surface`'s live swapchain, without recreating it.",
+    'sturdy_sync_mutex_create': 'A blocking mutex around a byte-string value, named for the profiler. Object "sync_mutex". It blocks the calling thread: never lock it on a network or timer thread, never hold it across a wait, and release a guard on the thread that locked it. (`sturdy_async_mutex_*` waits without a thread.)',
+    'sturdy_sync_mutex_lock': 'Blocks until the lock is free. Object "sync_guard": read and replace the value with `sturdy_guard_get` / `sturdy_guard_set`, unlock with `sturdy_guard_release`.',
+    'sturdy_sync_mutex_try_lock': '`out_guard` receives the zero handle when the lock is held.',
+    'sturdy_task_local_create': 'A value that follows the flow of work: tasks spawned while it is bound inherit it. Object "task_local".',
+    'sturdy_task_local_get': 'The bound value (bytes-output convention); `STURDY_ERROR_NOT_AVAILABLE` when none is bound here.',
+    'sturdy_task_local_scope': 'Runs `body` with `value` bound.',
+    'sturdy_task_output_set': "Sets a task's result: a number, bytes and text; a non-null, non-empty `error` fails the task with that message.",
+    'sturdy_task_spawn': 'Runs `work` and reports its result as an op: number, bytes and text as set; a task error fails the op. `user_data` must stay valid until the task finishes. Cancelling the op sets the token the work polls.',
+    'sturdy_task_spawn_on': 'Same, on a custom pool (`sturdy_pool_create`).',
+    'sturdy_tcp_accept': 'Waits for the next connection. Object "tcp".',
+    'sturdy_tcp_close': 'Closes now (the object is still released separately).',
+    'sturdy_tcp_connect': 'Connects (resolving, trying each address). Object "tcp". `tls` null: plain TCP; otherwise a verified TLS handshake. `timeout_ms` 0: 30 seconds.',
+    'sturdy_tcp_info': 'Connection details as a finished op: fields `peer`, `local` ("host:port") and, over TLS, `protocol`, `cipher`, `alpn`, `peer_sha256`.',
+    'sturdy_tcp_listen': 'Starts listening. Object "tcp_listener" (finished op). `tls` non-null: every accepted connection completes a TLS handshake first. `backlog` is the pending-connection queue length; 0: 1024.',
+    'sturdy_tcp_listener_address': '"host:port" the listener is bound to, following the string-output convention.',
+    'sturdy_tcp_listener_port': 'The port a listener is bound to.',
+    'sturdy_tcp_receive': 'Receives 1..`max_bytes` bytes as soon as any arrive. Bytes: empty means the peer finished.',
+    'sturdy_tcp_receive_exact': 'Receives exactly `count` bytes (`STURDY_IO_UNEXPECTED_EOF` if the peer closes first).',
+    'sturdy_tcp_receive_until': 'Receives up to and including `delimiter` (a line, a header block); `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes`.',
+    'sturdy_tcp_send': 'Sends all of `data`. Number: bytes sent. The data is copied.',
+    'sturdy_tcp_set_nodelay': 'Socket options; each finishes once applied (a failure is reported on the op).',
+    'sturdy_tcp_shutdown_write': 'Half-close: tells the peer no more data is coming while reads continue.',
+    'sturdy_tcp_start_tls_client': 'Upgrades an open, quiet connection to TLS in place (STARTTLS, after an HTTP CONNECT). Client or server role.',
     'sturdy_time_delta_seconds': "Reads the time step for the current tick, after the time scale is applied.\n\nThis is the value gameplay should integrate against. It differs from `SturdyFrameInput`'s `delta_seconds`, which is raw per-surface frame time and ignores the scale entirely.",
     'sturdy_time_scale': 'Reads the current time scale. 1.0 is real time, 0.0 is fully paused.',
     'sturdy_time_set_scale': 'Sets the time scale.',
     'sturdy_time_tick_index': 'Reads the monotonically increasing simulation tick counter.',
     'sturdy_time_unscaled_delta_seconds': 'Reads the time step for the current tick before the time scale is applied.\n\nUse this for anything that must keep running at real speed while the game is slowed or paused — UI animation, profiling, input smoothing.',
+    'sturdy_timer_sleep': 'Finishes (OK) after `milliseconds`, without occupying a thread.',
+    'sturdy_timer_sleep_until': 'Finishes at an absolute wall-clock time (milliseconds since the Unix epoch), at once if it has passed.',
+    'sturdy_tls_certificate_sha256': 'Hex SHA-256 of the first certificate in `certificate_pem`.',
+    'sturdy_tls_generate_identity': 'Generates a self-signed ECDSA P-256 identity (for peers and dev servers). Returns an already-finished op with fields `certificate_pem`, `private_key_pem`, `sha256`.',
     'sturdy_tone_mapping_settings_init': 'Fills `settings` with `struct_size` and engine defaults (AGX operator, no look, neutral PsychoV/Hermite curve parameters).',
+    'sturdy_topology_ranked_cores': 'Logical (or physical) cores ranked fastest first (bytes-output convention in `uint32_t` units: `out_count` always receives the number).',
     'sturdy_trace_capture': "Replaces the calling thread's trace with the stack at this call (foreign site, engine scopes, native stack per the detail setting). For a foreign language that wants the engine's side of a stack at a moment of its choosing, such as a panic hook.",
     'sturdy_trace_clear_foreign_call_site': "Forgets the calling thread's foreign call site.",
     'sturdy_trace_get_detail': 'Reads the current capture detail.',
     'sturdy_trace_install_crash_handler': "Installs process-wide crash handlers (fatal signals on POSIX, the unhandled-exception filter on Windows) that print the crashing thread's engine scopes and native stack before the process dies. Does nothing useful on WebAssembly (returns `STURDY_ERROR_NOT_AVAILABLE`). Safe to call repeatedly.",
     'sturdy_trace_set_detail': 'Chooses how much future failures capture, for the whole process.',
     'sturdy_trace_set_foreign_call_site': "Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.",
+    'sturdy_udp_address': '"host:port" the socket is bound to, following the string-output convention.',
+    'sturdy_udp_bind': 'Binds a UDP socket. Object "udp". `host` null/empty: all interfaces. `port` 0: any. `options` may be null.',
+    'sturdy_udp_connect': "Fixes the peer: `sturdy_udp_send` then needs no address and only that peer's datagrams are received.",
+    'sturdy_udp_join_multicast': '`interface_address` null/empty: the default interface.',
+    'sturdy_udp_receive': 'Receives the next datagram (at most `max_bytes`). Bytes: the datagram. Text: sender host. Number: sender port.',
+    'sturdy_udp_send': 'Sends one datagram on a connected socket. Number: bytes sent.',
+    'sturdy_udp_send_to': 'Sends one datagram. Number: bytes sent.',
     'sturdy_ui_begin': "Opens a UI frame, to be built and then closed with `sturdy_ui_end`.\n\nCall this from `request_render_frame` before building any UI. It readies the UI renderer, starts a layout pass sized to the surface, and picks up this frame's pointer state so hover and click queries work.\n\nBetween begin and end, the ABI holds an open layout. Build the tree, then call `sturdy_ui_end` on every path — including when you decide not to render the frame — or the next frame's begin reports `STURDY_ERROR_BUSY`.",
     'sturdy_ui_begin_element': 'Opens an element. Children declared until the matching `sturdy_ui_end_element` go inside it.',
     'sturdy_ui_clicked': 'Reports whether the element with this id was clicked this frame.',
@@ -3396,6 +4676,22 @@ _DOCS = {
     'sturdy_ui_text_style_init': 'Fills a text style with defaults: font 0, 16px, opaque white.',
     'sturdy_voice_set_position': 'Moves a spatial voice; `velocity` (may be null) feeds Doppler shift.',
     'sturdy_volumetric_fog_settings_init': 'Fills `settings` with `struct_size` and engine defaults (disabled — fog is opt-in).',
+    'sturdy_watch_events_stream': 'The remaining events as a "stream" object; each item is `sturdy_frames_pack` of {kind as decimal text, path, old_path, "1"/"0" for is_directory}.',
+    'sturdy_watch_next': 'Next change. Number: 0 created, 1 modified, 2 removed, 3 renamed, 4 overflow (rescan). Text: path. Fields: old_path, is_directory.',
+    'sturdy_watch_path': 'Watches a path for changes (inotify on Linux, polling elsewhere). Object "watcher". `options` may be null.',
+    'sturdy_watch_uses_native_backend': "Whether the OS's event API is used (false: polling).",
+    'sturdy_watch_value_borrow': 'The current value (bytes-output convention); `_and_update` also marks it seen.',
+    'sturdy_watch_value_changed': 'Finishes when the value changed since this receiver last looked; `STURDY_IO_CLOSED` once the sender is gone and nothing new remains.',
+    'sturdy_watch_value_create': 'A single value many tasks observe. Objects "watch_sender" / "watch_receiver"; each receiver tracks what it has seen on its own.',
+    'sturdy_websocket_abort': 'Drops the connection without a closing handshake.',
+    'sturdy_websocket_accept': 'Waits for the next upgraded connection. Object "websocket".',
+    'sturdy_websocket_close': 'Graceful close with an RFC 6455 code (1000 normal) and a reason of up to 123 bytes.',
+    'sturdy_websocket_connect': 'Connects (`ws://` or `wss://`). Object "websocket". `options` may be null.',
+    'sturdy_websocket_info': 'Fields: `target`, `origin`, `subprotocol`, `header: <Name >` for each upgrade-request header, `peer` ("host:port"), the TLS fields over wss, and once closed `close_code`, `close_reason` (a finished op).',
+    'sturdy_websocket_ping': 'Sends a ping (payload up to 125 bytes).',
+    'sturdy_websocket_receive': 'Next data message. Bytes: payload. Number: 1 for text, 0 for binary. Fails with `STURDY_IO_CLOSED` once the connection ended.',
+    'sturdy_websocket_send_text': 'Queues a text message (UTF-8, `size` bytes; no terminator needed). The data is copied.',
+    'sturdy_websocket_server_listen': 'Starts a WebSocket server. Object "ws_server" (finished op).',
     'sturdy_window_config_init': "Fills `config` with the engine's default window configuration (1280x720, windowed, decorated, visible, resizable, OS-placed).",
     'sturdy_window_content_scale': 'Reads the UI scale the OS asks for on the display the window is on (1.0 at 100%, 2.0 at 200%). Updated when the window moves to a display with a different scale.',
     'sturdy_window_count': 'Returns how many windows the engine currently manages.',

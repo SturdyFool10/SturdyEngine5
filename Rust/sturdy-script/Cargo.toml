@@ -1,0 +1,16 @@
+[package]
+name = "sturdy-script"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Scripts for the Sturdy Engine: units of game logic in any language, side by side. Write one in Rust, or register a language adapter that runs JavaScript, Lua or anything else the application embeds"
+keywords = ["gamedev", "engine", "scripting"]
+
+# No dependencies beyond the dependency-free `sturdy-net` (which owns the generated C ABI declarations): a safe layer over the C ABI the running
+# process already provides. The `extern "C"` functions stay undefined here; an executable links the engine's library, a plugin leaves them for
+# the loader.
+[dependencies]
+sturdy-net = { path = "../sturdy-net" }

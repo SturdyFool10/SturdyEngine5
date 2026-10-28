@@ -187,11 +187,44 @@ pub mod ffi {
 
     // ---- offscreen render targets -----------------------------------------------------------
 
+    /// `SFT::Engine::RenderTargetFormat`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum OffscreenTargetFormat {
+        Bgra8Srgb,
+        Rgba8Srgb,
+        Rgba16Float,
+        Rgb10A2,
+    }
+
+    /// `SFT::Engine::RenderTargetFilter`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum OffscreenTargetFilter {
+        Linear,
+        Nearest,
+    }
+
+    /// `SFT::Engine::RenderTargetAddressMode`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum OffscreenTargetAddressMode {
+        ClampToEdge,
+        Repeat,
+        MirroredRepeat,
+    }
+
     #[derive(Debug, Clone)]
     struct OffscreenTargetDesc {
         width: u32,
         height: u32,
         label: String,
+        format: OffscreenTargetFormat,
+        filter: OffscreenTargetFilter,
+        address: OffscreenTargetAddressMode,
+        /// 0 or 1 = off, at most 16; linear filter only.
+        max_anisotropy: f32,
+        /// 1 = no mips; 0 = the full chain.
+        mip_levels: u32,
+        /// Compute kernels may write it (`Rgba16Float` only).
+        allow_storage: bool,
     }
 
     /// What frame rendering has done so far (`Engine::RenderHealth`).
@@ -704,6 +737,8 @@ pub mod ffi {
         fn offscreen_target_destroy(engine: Pin<&mut EngineView>, handle: u64);
         /// Gives the target a new size in place; its handle and sampling texture stay valid, contents are cleared.
         fn offscreen_target_resize(engine: Pin<&mut EngineView>, handle: u64, width: u32, height: u32) -> Status;
+        /// Changes size, format and/or sampling in place (`Engine::reconfigure_offscreen_render_target`); handle and texture stay valid.
+        fn offscreen_target_reconfigure(engine: Pin<&mut EngineView>, handle: u64, desc: &OffscreenTargetDesc) -> Status;
         fn offscreen_target_description(engine: &EngineView, handle: u64, out: &mut OffscreenTargetDesc) -> bool;
         /// Returns the target's backing `Renderer::TextureHandle::value`; `0` if `handle` is
         /// unknown.

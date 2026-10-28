@@ -64,6 +64,134 @@ namespace SFT::Engine {
             return RendererApi::SpectralRenderMode::RasterDeferred;
         }
 
+        [[nodiscard]] RHI::Format to_rhi_format(RenderTargetFormat format) noexcept {
+            switch (format) {
+                case RenderTargetFormat::Auto: return RHI::Format::Undefined; // the renderer's "Auto"
+                case RenderTargetFormat::Bgra8Srgb: return RHI::Format::BGRA8UnormSrgb;
+                case RenderTargetFormat::Rgba8Srgb: return RHI::Format::RGBA8UnormSrgb;
+                case RenderTargetFormat::Rgba16Float: return RHI::Format::RGBA16Float;
+                case RenderTargetFormat::Rgb10A2: return RHI::Format::RGB10A2Unorm;
+            }
+            return RHI::Format::Undefined;
+        }
+
+        [[nodiscard]] RenderTargetFormat from_rhi_format(RHI::Format format) noexcept {
+            switch (format) {
+                case RHI::Format::Undefined: return RenderTargetFormat::Auto;
+                case RHI::Format::RGBA8UnormSrgb: return RenderTargetFormat::Rgba8Srgb;
+                case RHI::Format::RGBA16Float: return RenderTargetFormat::Rgba16Float;
+                case RHI::Format::RGB10A2Unorm: return RenderTargetFormat::Rgb10A2;
+                default: return RenderTargetFormat::Bgra8Srgb;
+            }
+        }
+
+        [[nodiscard]] RendererApi::OffscreenTargetFeature to_renderer_feature(RenderTargetFeature feature) noexcept {
+            switch (feature) {
+                case RenderTargetFeature::Auto: return RendererApi::OffscreenTargetFeature::Auto;
+                case RenderTargetFeature::Off: return RendererApi::OffscreenTargetFeature::Off;
+                case RenderTargetFeature::IfSupported: return RendererApi::OffscreenTargetFeature::IfSupported;
+                case RenderTargetFeature::Required: return RendererApi::OffscreenTargetFeature::Required;
+            }
+            return RendererApi::OffscreenTargetFeature::Auto;
+        }
+
+        [[nodiscard]] RenderTargetFeature from_renderer_feature(RendererApi::OffscreenTargetFeature feature) noexcept {
+            switch (feature) {
+                case RendererApi::OffscreenTargetFeature::Auto: return RenderTargetFeature::Auto;
+                case RendererApi::OffscreenTargetFeature::Off: return RenderTargetFeature::Off;
+                case RendererApi::OffscreenTargetFeature::IfSupported: return RenderTargetFeature::IfSupported;
+                case RendererApi::OffscreenTargetFeature::Required: return RenderTargetFeature::Required;
+            }
+            return RenderTargetFeature::Auto;
+        }
+
+        [[nodiscard]] RendererApi::OffscreenRenderTargetUse to_renderer_use(RenderTargetUse use) noexcept {
+            switch (use) {
+                case RenderTargetUse::Screen: return RendererApi::OffscreenRenderTargetUse::Screen;
+                case RenderTargetUse::World: return RendererApi::OffscreenRenderTargetUse::World;
+                case RenderTargetUse::Compute: return RendererApi::OffscreenRenderTargetUse::Compute;
+            }
+            return RendererApi::OffscreenRenderTargetUse::Screen;
+        }
+
+        [[nodiscard]] RenderTargetUse from_renderer_use(RendererApi::OffscreenRenderTargetUse use) noexcept {
+            switch (use) {
+                case RendererApi::OffscreenRenderTargetUse::Screen: return RenderTargetUse::Screen;
+                case RendererApi::OffscreenRenderTargetUse::World: return RenderTargetUse::World;
+                case RendererApi::OffscreenRenderTargetUse::Compute: return RenderTargetUse::Compute;
+            }
+            return RenderTargetUse::Screen;
+        }
+
+        [[nodiscard]] RHI::AddressMode to_rhi_address(RenderTargetAddressMode mode) noexcept {
+            switch (mode) {
+                case RenderTargetAddressMode::ClampToEdge: return RHI::AddressMode::ClampToEdge;
+                case RenderTargetAddressMode::Repeat: return RHI::AddressMode::Repeat;
+                case RenderTargetAddressMode::MirroredRepeat: return RHI::AddressMode::MirroredRepeat;
+            }
+            return RHI::AddressMode::ClampToEdge;
+        }
+
+        [[nodiscard]] RenderTargetAddressMode from_rhi_address(RHI::AddressMode mode) noexcept {
+            switch (mode) {
+                case RHI::AddressMode::Repeat: return RenderTargetAddressMode::Repeat;
+                case RHI::AddressMode::MirroredRepeat: return RenderTargetAddressMode::MirroredRepeat;
+                default: return RenderTargetAddressMode::ClampToEdge;
+            }
+        }
+
+        [[nodiscard]] RendererApi::OffscreenRenderTargetDescription to_renderer_description(const OffscreenRenderTargetDescription &description) {
+            return RendererApi::OffscreenRenderTargetDescription{
+                .extent = Core::Extent2D{description.width, description.height},
+                .format = to_rhi_format(description.format),
+                .sampling = RendererApi::OffscreenRenderTargetSampling{
+                    .filter = description.sampling.filter == RenderTargetFilter::Nearest ? RHI::Filter::Nearest : RHI::Filter::Linear,
+                    .address = to_rhi_address(description.sampling.address),
+                    .max_anisotropy = description.sampling.max_anisotropy,
+                },
+                .label = description.label,
+                .mip_levels = description.mip_levels == render_target_auto_mips ? RendererApi::offscreen_target_auto_mips : description.mip_levels,
+                .storage = to_renderer_feature(description.storage),
+                .msaa_samples = description.msaa_samples,
+                .use = to_renderer_use(description.use),
+                .strict = description.strict,
+            };
+        }
+
+        [[nodiscard]] OffscreenRenderTargetDescription from_renderer_description(const RendererApi::OffscreenRenderTargetDescription &description) {
+            return OffscreenRenderTargetDescription{
+                .width = description.extent.x,
+                .height = description.extent.y,
+                .label = description.label,
+                .format = from_rhi_format(description.format),
+                .sampling = RenderTargetSampling{
+                    .filter = description.sampling.filter == RHI::Filter::Nearest ? RenderTargetFilter::Nearest : RenderTargetFilter::Linear,
+                    .address = from_rhi_address(description.sampling.address),
+                    .max_anisotropy = description.sampling.max_anisotropy,
+                },
+                .mip_levels = description.mip_levels == RendererApi::offscreen_target_auto_mips ? render_target_auto_mips : description.mip_levels,
+                .storage = from_renderer_feature(description.storage),
+                .msaa_samples = description.msaa_samples,
+                .use = from_renderer_use(description.use),
+                .strict = description.strict,
+            };
+        }
+
+        [[nodiscard]] RenderTargetConfig from_renderer_config(const RendererApi::ResolvedOffscreenRenderTargetConfig &config) {
+            return RenderTargetConfig{
+                .width = config.extent.x,
+                .height = config.extent.y,
+                .format = from_rhi_format(config.format),
+                .mip_levels = config.mip_levels,
+                .filter = config.filter == RHI::Filter::Nearest ? RenderTargetFilter::Nearest : RenderTargetFilter::Linear,
+                .address = from_rhi_address(config.address),
+                .max_anisotropy = config.max_anisotropy,
+                .storage = config.storage,
+                .msaa_samples = config.msaa_samples,
+                .adjustments = config.adjustments,
+            };
+        }
+
 
     } // namespace
 
@@ -277,6 +405,18 @@ namespace SFT::Engine {
                     input->apply(event);
                 }
             });
+
+        // UI trees: window input is routed to them by a system (registered here, after the systems that write the window events it
+        // reads); a device switch drops their GPU renderers while the old device is still alive (layout contexts survive, renderers
+        // come back at the next build).
+        ui_trees_.install(*this, update_schedule_);
+        (void)add_device_observer([this](const DeviceChangeEvent &event) {
+            if (event.kind == DeviceChangeKind::Switching) {
+                if (RHI::RhiDevice *device = rhi_device()) {
+                    ui_trees_.release_gpu(*device);
+                }
+            }
+        });
     }
 
     /// Destroys the `Engine` and releases resources owned by it.
@@ -289,6 +429,7 @@ namespace SFT::Engine {
             wait_idle();
             // The device is alive and idle: free the debug-line pipelines now (their destructor never touches it).
             debug_draw_renderer_.release();
+            ui_trees_.shutdown(rhi_device());
         }
     }
 
@@ -395,14 +536,26 @@ namespace SFT::Engine {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     Core::RendererExpected<RenderTargetHandle> Engine::create_offscreen_render_target(
         const OffscreenRenderTargetDescription &description) {
-        auto target = renderer_.create_offscreen_render_target(RendererApi::OffscreenRenderTargetDescription{
-            .extent = Core::Extent2D{description.width, description.height},
-            .label = description.label,
-        });
+        auto target = renderer_.create_offscreen_render_target(to_renderer_description(description));
         if (!target) {
             return unexpected(target.error());
         }
         return RenderTargetHandle{.value = target->value};
+    }
+
+    Core::RendererResult Engine::reconfigure_offscreen_render_target(RenderTargetHandle target,
+                                                                     const OffscreenRenderTargetDescription &description) {
+        return renderer_.reconfigure_offscreen_render_target(RendererApi::OffscreenRenderTargetHandle{.value = target.value},
+                                                             to_renderer_description(description));
+    }
+
+    Core::RendererResult Engine::dispatch_into_offscreen_render_target(RenderTargetHandle target, RendererApi::ComputeKernelId kernel,
+                                                                       std::string_view target_binding, glm::uvec3 groups,
+                                                                       std::span<const RendererApi::ComputeBinding> bindings,
+                                                                       std::span<const std::byte> push_constants,
+                                                                       std::span<const RendererApi::ComputeBufferBinding> buffers) {
+        return renderer_.dispatch_into_offscreen_render_target(RendererApi::OffscreenRenderTargetHandle{.value = target.value}, kernel,
+                                                               target_binding, groups, bindings, push_constants, buffers);
     }
 
     /// Destroys the offscreen render target identified by the supplied parameters.
@@ -434,11 +587,16 @@ namespace SFT::Engine {
         if (!description) {
             return std::nullopt;
         }
-        return OffscreenRenderTargetDescription{
-            .width = description->extent.x,
-            .height = description->extent.y,
-            .label = description->label,
-        };
+        return from_renderer_description(*description);
+    }
+
+    optional<RenderTargetConfig> Engine::offscreen_render_target_config(RenderTargetHandle target) const {
+        const optional<RendererApi::ResolvedOffscreenRenderTargetConfig> config =
+            renderer_.offscreen_render_target_config(RendererApi::OffscreenRenderTargetHandle{.value = target.value});
+        if (!config) {
+            return std::nullopt;
+        }
+        return from_renderer_config(*config);
     }
 
     /// Performs the offscreen render target texture operation for `Engine` using the supplied arguments.
@@ -810,6 +968,16 @@ namespace SFT::Engine {
             steady_projection = widen * steady_projection;
         }
 
+        // The application's overlays first, then the UI trees that draw on this window (lowest layer first). Not on a frame aimed at
+        // an off-screen target: that frame merely borrows the window's surface.
+        std::vector<SFT::Renderer::OverlayPass> overlay_passes = parameters.overlay_passes;
+        const bool presents_offscreen = std::ranges::any_of(parameters.render_graph.passes(), [](const RenderGraphPassDescription &pass) {
+            return pass.kind == RenderGraphPassKind::Present && pass.target.is_valid();
+        });
+        if (!presents_offscreen) {
+            ui_trees_.append_window_overlays(*this, surface, glm::uvec2{frame.framebuffer_width, frame.framebuffer_height}, overlay_passes);
+        }
+
         return PreparedRenderFrame{
             .surface = surface,
             .frame = frame,
@@ -827,7 +995,7 @@ namespace SFT::Engine {
             .renderables = render_frame_requests_.finish_frame(),
             .gizmo_renderables = render_frame_requests_.finish_gizmo_frame(),
             .render_graph = std::move(graph),
-            .overlay_passes = parameters.overlay_passes,
+            .overlay_passes = std::move(overlay_passes),
             .visibility_mask = camera.culling_mask(),
             .debug_label = parameters.debug_label,
         };

@@ -107,11 +107,11 @@ namespace SFT::Async {
     /// @note This function does not throw exceptions.
     bool pin_native_thread_to_core(std::thread::native_handle_type handle, u32 core_index) noexcept {
         const DWORD_PTR mask = DWORD_PTR{1} << core_index;
-        return SetThreadAffinityMask(handle, mask) != 0;
+        return SetThreadAffinityMask(reinterpret_cast<HANDLE>(handle), mask) != 0; // native_handle_type is void* (MSVC) or an integer (mingw)
     }
 
     /// Pins the calling thread to `core_index`.
-    bool pin_current_thread_to_core(u32 core_index) noexcept { return pin_native_thread_to_core(GetCurrentThread(), core_index); }
+    bool pin_current_thread_to_core(u32 core_index) noexcept { return pin_native_thread_to_core(reinterpret_cast<std::thread::native_handle_type>(GetCurrentThread()), core_index); }
 
 #elif defined(__APPLE__)
 

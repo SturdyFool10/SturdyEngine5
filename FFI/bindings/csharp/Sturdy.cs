@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 
 namespace Sturdy
 {
-    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 37; }
+    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 40; }
 
     /// Matches `RHI::AccelerationStructureCopyMode`.
     public enum SturdyAccelerationStructureCopyMode : int
@@ -74,6 +74,18 @@ namespace Sturdy
         STURDY_AMBIENT_OCCLUSION_QUALITY_MEDIUM = 1,
         STURDY_AMBIENT_OCCLUSION_QUALITY_HIGH = 2,
         STURDY_AMBIENT_OCCLUSION_QUALITY_ULTRA = 3,
+    }
+
+    /// Optional parts of the build / machine, as a bit set from `sturdy_async_features`.
+    public enum SturdyAsyncFeature : int
+    {
+        STURDY_ASYNC_FEATURE_QUIC = 1,
+        STURDY_ASYNC_FEATURE_HTTP2 = 2,
+        STURDY_ASYNC_FEATURE_HTTP3 = 4,
+        STURDY_ASYNC_FEATURE_IO_URING = 8,
+        STURDY_ASYNC_FEATURE_PROCESS = 16,
+        STURDY_ASYNC_FEATURE_GZIP = 32,
+        STURDY_ASYNC_FEATURE_NATIVE_FILE_WATCH = 64,
     }
 
     /// How a sound attached to an entity is anchored.
@@ -254,6 +266,16 @@ namespace Sturdy
         STURDY_FIELD_F64 = 10,
     }
 
+    public enum SturdyFileMode : int
+    {
+        STURDY_FILE_READ = 1,
+        STURDY_FILE_WRITE = 2,
+        STURDY_FILE_CREATE = 4,
+        STURDY_FILE_TRUNCATE = 8,
+        STURDY_FILE_APPEND = 16,
+        STURDY_FILE_CREATE_NEW = 32,
+    }
+
     public enum SturdyFilter : int
     {
         STURDY_FILTER_NEAREST = 0,
@@ -313,6 +335,12 @@ namespace Sturdy
         STURDY_FORMAT_BC5_UNORM = 45,
         STURDY_FORMAT_BC7_UNORM = 46,
         STURDY_FORMAT_BC7_UNORM_SRGB = 47,
+    }
+
+    public enum SturdyFrameCodec : int
+    {
+        STURDY_FRAME_LENGTH_DELIMITED = 0,
+        STURDY_FRAME_LINES = 1,
     }
 
     /// The "FPS Limit" dial: how the render loop caps its own dispatch rate, independent of and composing with whatever the resolved present mode is already doing. Matches `Core::FrameRateLimitMode`.
@@ -388,10 +416,38 @@ namespace Sturdy
         STURDY_HDR_TRANSFER_FUNCTION_LINEAR_EXTENDED = 4,
     }
 
+    public enum SturdyHttpResponseKind : int
+    {
+        STURDY_HTTP_RESPONSE_TEXT = 0,
+        STURDY_HTTP_RESPONSE_HTML = 1,
+        STURDY_HTTP_RESPONSE_JSON = 2,
+        STURDY_HTTP_RESPONSE_REDIRECT = 3,
+    }
+
     public enum SturdyIndexFormat : int
     {
         STURDY_INDEX_FORMAT_UINT16 = 0,
         STURDY_INDEX_FORMAT_UINT32 = 1,
+    }
+
+    /// Why an operation failed.
+    public enum SturdyIoError : int
+    {
+        STURDY_IO_NONE = 0,
+        STURDY_IO_NOT_FOUND = 1,
+        STURDY_IO_PERMISSION_DENIED = 2,
+        STURDY_IO_ALREADY_EXISTS = 3,
+        STURDY_IO_INVALID_ARGUMENT = 4,
+        STURDY_IO_CONNECTION_REFUSED = 5,
+        STURDY_IO_CONNECTION_RESET = 6,
+        STURDY_IO_TIMED_OUT = 7,
+        STURDY_IO_UNSUPPORTED = 8,
+        STURDY_IO_UNKNOWN = 9,
+        STURDY_IO_UNEXPECTED_EOF = 10,
+        STURDY_IO_CLOSED = 11,
+        STURDY_IO_TLS_FAILURE = 12,
+        STURDY_IO_LIMIT_EXCEEDED = 13,
+        STURDY_IO_PROTOCOL_ERROR = 14,
     }
 
     /// Presentation latency policy. Matches `Core::LatencyMode`.
@@ -444,6 +500,26 @@ namespace Sturdy
         STURDY_MOUSE_BUTTON_RIGHT = 3,
         STURDY_MOUSE_BUTTON_EXTRA1 = 4,
         STURDY_MOUSE_BUTTON_EXTRA2 = 5,
+    }
+
+    /// Element type for `sturdy_par_sort`.
+    public enum SturdyNumericType : int
+    {
+        STURDY_NUMERIC_F32 = 0,
+        STURDY_NUMERIC_F64 = 1,
+        STURDY_NUMERIC_I32 = 2,
+        STURDY_NUMERIC_I64 = 3,
+        STURDY_NUMERIC_U32 = 4,
+        STURDY_NUMERIC_U64 = 5,
+    }
+
+    /// Where an operation stands.
+    public enum SturdyOpStatus : int
+    {
+        STURDY_OP_PENDING = 0,
+        STURDY_OP_OK = 1,
+        STURDY_OP_FAILED = 2,
+        STURDY_OP_CANCELLED = 3,
     }
 
     /// Matches `RHI::OpacityMicromapFormat`.
@@ -531,6 +607,13 @@ namespace Sturdy
         STURDY_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP = 4,
     }
 
+    public enum SturdyProcessStream : int
+    {
+        STURDY_PROCESS_STDOUT = 0,
+        STURDY_PROCESS_STDERR = 1,
+        STURDY_PROCESS_STDIN = 2,
+    }
+
     /// Kind of work a query set records.
     public enum SturdyQueryType : int
     {
@@ -569,6 +652,14 @@ namespace Sturdy
         STURDY_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL = 0,
         STURDY_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP = 1,
         STURDY_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP = 2,
+    }
+
+    public enum SturdyReduction : int
+    {
+        STURDY_REDUCE_SUM = 0,
+        STURDY_REDUCE_PRODUCT = 1,
+        STURDY_REDUCE_MIN = 2,
+        STURDY_REDUCE_MAX = 3,
     }
 
     /// Render-graph stages that can be toggled per frame.
@@ -626,6 +717,14 @@ namespace Sturdy
         STURDY_ERROR_COMPONENT_NOT_BLITTABLE = 16,
         STURDY_ERROR_BUSY = 17,
         STURDY_ERROR_DEVICE_LOST = 18,
+    }
+
+    public enum SturdyRingStatus : int
+    {
+        STURDY_RING_OK = 0,
+        STURDY_RING_FULL = 1,
+        STURDY_RING_EMPTY = 2,
+        STURDY_RING_TOO_LARGE = 3,
     }
 
     /// Rendering path the scene stage evaluates.
@@ -695,6 +794,13 @@ namespace Sturdy
         STURDY_SHAPE_TETRAHEDRON = 8,
     }
 
+    public enum SturdyStdioMode : int
+    {
+        STURDY_STDIO_PIPE = 0,
+        STURDY_STDIO_NULL = 1,
+        STURDY_STDIO_INHERIT = 2,
+    }
+
     public enum SturdyStencilOp : int
     {
         STURDY_STENCIL_OP_KEEP = 0,
@@ -711,6 +817,13 @@ namespace Sturdy
     {
         STURDY_STORE_OP_STORE = 0,
         STURDY_STORE_OP_DONT_CARE = 1,
+    }
+
+    public enum SturdyTaskLane : int
+    {
+        STURDY_LANE_LIGHT = 0,
+        STURDY_LANE_HEAVY = 1,
+        STURDY_LANE_BLOCKING = 2,
     }
 
     /// How much work a task represents, which decides where the scheduler puts it.
@@ -777,6 +890,14 @@ namespace Sturdy
         STURDY_TRACE_FRAME_SCOPE = 1,
         STURDY_TRACE_FRAME_FOREIGN = 2,
         STURDY_TRACE_FRAME_UNWOUND = 3,
+    }
+
+    /// Result of a non-blocking send or receive.
+    public enum SturdyTryStatus : int
+    {
+        STURDY_TRY_OK = 0,
+        STURDY_TRY_WOULD_BLOCK = 1,
+        STURDY_TRY_CLOSED = 2,
     }
 
     /// Which way an element stacks its children.
@@ -1093,6 +1214,20 @@ namespace Sturdy
         public fixed ulong opaque[4];
     }
 
+    /// A long-lived object (connection, listener, server, file, ...). Owned until `sturdy_object_release`, which closes it.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyAsyncObject
+    {
+        public ulong token;
+    }
+
+    /// A pending or finished operation. Owned until `sturdy_op_release`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyAsyncOp
+    {
+        public ulong token;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyAudioCapture
     {
@@ -1296,6 +1431,21 @@ namespace Sturdy
         public uint extent_width;
         public uint extent_height;
         public uint extent_depth_or_layers;
+    }
+
+    /// Where a stream callback writes the item it produces (copied immediately).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyBytesSink
+    {
+        public void* @internal;
+    }
+
+    /// A read-only view of bytes.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyBytesView
+    {
+        public byte* data;
+        public ulong size;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -1506,6 +1656,28 @@ namespace Sturdy
         public SturdyPipelineLayout layout;
         public SturdyShaderEntry compute;
         public byte* label;
+    }
+
+    /// One cookie (RFC 6265).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyCookie
+    {
+        public byte* name;
+        public byte* value;
+        public byte* domain;
+        public byte* path;
+        public byte domain_wide;
+        public byte secure;
+        public byte http_only;
+        public long expires_unix;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyCopyOptions
+    {
+        public ulong chunk_bytes;
+        public ulong limit;
+        public byte shutdown_writer;
     }
 
     /// The engine's raw D3D12 objects.
@@ -1838,6 +2010,136 @@ namespace Sturdy
         public byte requires_os_hdr_mode;
     }
 
+    /// How to verify a server (client side of TLS/QUIC/HTTPS/WSS). Chain and host name are always checked unless `pinned_sha256` names the exact certificate(s) accepted.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTlsClientOptions
+    {
+        public byte* server_name;
+        public byte no_system_roots;
+        public byte* ca_pem;
+        public byte** pinned_sha256;
+        public uint pinned_sha256_count;
+        public byte identify_peer_by_certificate_only;
+        public byte* client_certificate_pem;
+        public byte* client_private_key_pem;
+        public byte** alpn;
+        public uint alpn_count;
+        public uint handshake_timeout_ms;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyHttpClientOptions
+    {
+        public long timeout_ms;
+        public int max_redirects;
+        public ulong max_response_body_bytes;
+        public byte no_keep_alive;
+        public byte no_decompress;
+        public byte cookies;
+        public byte no_http2;
+        public byte no_http3;
+        public byte http3_prior_knowledge;
+        public byte* user_agent;
+        public byte* proxy;
+        public byte** no_proxy;
+        public uint no_proxy_count;
+        public SturdyTlsClientOptions tls;
+        public byte allow_https_downgrade;
+        public uint max_response_header_bytes;
+        public uint max_idle_connections_per_host;
+        public long idle_connection_timeout_ms;
+        public long http3_connect_timeout_ms;
+        public SturdyAsyncObject cookie_jar;
+    }
+
+    /// One request, valid only during the handler call (copy what you keep).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyHttpRequest
+    {
+        public byte* method;
+        public byte* target;
+        public byte* remote_address;
+        public uint version;
+        public SturdyKeyValue* headers;
+        public uint header_count;
+        public byte* body;
+        public ulong body_size;
+        public byte* body_file;
+        public byte* path;
+        public byte* query;
+        public SturdyKeyValue* @params;
+        public uint param_count;
+    }
+
+    /// Answers one request. Owned until `sturdy_http_respond` (which consumes it); never release it otherwise.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyHttpResponder
+    {
+        public ulong token;
+    }
+
+    /// A complete response. Zero-initialize, then set what you need: a status, headers, and one body — bytes, a file, or a stream.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyHttpResponse
+    {
+        public uint status;
+        public SturdyKeyValue* headers;
+        public uint header_count;
+        public byte* body;
+        public ulong body_size;
+        public byte close_connection;
+        public byte* body_file;
+        public ulong body_offset;
+        public ulong body_length;
+        public byte limit_body_length;
+        public byte stream;
+        public byte sse;
+        public uint stream_queue;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyHttpServerOptions
+    {
+        public byte* bind_address;
+        public ushort port;
+        public byte* tls_certificate_chain_file;
+        public byte* tls_private_key_file;
+        public uint handler_threads;
+        public uint max_connections;
+        public ulong max_request_body_bytes;
+        public uint max_request_header_bytes;
+        public ulong max_response_body_bytes;
+        public uint max_connections_per_ip;
+        public byte no_http2;
+        public byte enable_http3;
+        public ushort http3_port;
+        public uint io_threads;
+        public uint shutdown_timeout_ms;
+        public ulong spool_requests_above;
+        public ulong max_spooled_body_bytes;
+        public uint http2_max_concurrent_streams;
+        public uint http3_max_concurrent_streams;
+        public ulong http3_max_connections;
+        public ulong http3_max_connections_per_address;
+        public ulong websocket_max_message_bytes;
+        public ulong websocket_max_queued_send_bytes;
+        public long websocket_idle_timeout_ms;
+        public byte websocket_compression;
+        public byte** websocket_allowed_origins;
+        public uint websocket_allowed_origin_count;
+        public byte** websocket_subprotocols;
+        public uint websocket_subprotocol_count;
+        public ulong max_websockets;
+    }
+
+    /// A name/value pair (HTTP headers, environment variables). Both strings are null-terminated.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyKeyValue
+    {
+        public byte* name;
+        public byte* value;
+    }
+
     /// Clustered local lighting (since 0.32). Every spot and point light (nearest/brightest first, up to `max_lights`) is binned into screen tiles x depth slices so each pixel evaluates only the lights that reach it; with `clustered` off the deferred pass falls back to the first 8 spot + 8 point lights.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyLightingSettings
@@ -1885,6 +2187,46 @@ namespace Sturdy
         public fixed byte reserved[3];
     }
 
+    /// A running script: callbacks plus the pointer they work on. Every callback may be null (a no-op). Fill it in `SturdyScriptLanguage::load`, or pass it to `sturdy_script_module_create_native`. Callbacks must not unwind.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyScriptInstance
+    {
+        public uint struct_size;
+        public uint reserved;
+        public void* user_data;
+        public delegate* unmanaged[Cdecl]<SturdyEngine, void*, SturdyBytesSink*, byte> start;
+        public delegate* unmanaged[Cdecl]<SturdyEngine, SturdyScriptTick*, void*, void> update;
+        public delegate* unmanaged[Cdecl]<SturdyEngine, SturdySurface, SturdyFrameInput*, SturdyFrame, void*, byte> request_render_frame;
+        public delegate* unmanaged[Cdecl]<SturdyEngine, void*, void> stop;
+        public delegate* unmanaged[Cdecl]<void*, SturdyBytesSink*, byte> save_state;
+        public delegate* unmanaged[Cdecl]<void*, byte*, ulong, byte> restore_state;
+        public delegate* unmanaged[Cdecl]<void*, byte*, byte*, ulong, SturdyBytesSink*, SturdyBytesSink*, byte> call;
+        public delegate* unmanaged[Cdecl]<void*, SturdyScriptMessage*, void> on_message;
+        public delegate* unmanaged[Cdecl]<void*, void> destroy;
+    }
+
+    /// A script built from callbacks directly (no language adapter): the way compiled languages write scripts.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyNativeScriptDesc
+    {
+        public uint struct_size;
+        public uint reserved;
+        public byte* name;
+        public SturdyScriptInstance instance;
+        public byte** after;
+        public uint after_count;
+        public byte contributes_scene;
+    }
+
+    /// The result of `sturdy_par_reduce`: the field matching the element type (f32 and f64 use `f64`, i32 and i64 use `i64`, u32 and u64 use `u64`; 32-bit sums are accumulated in 64 bits).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyNumericValue
+    {
+        public double f64;
+        public long i64;
+        public ulong u64;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyOpacityMicromapBuildDesc
     {
@@ -1920,6 +2262,33 @@ namespace Sturdy
         public uint count;
         public uint subdivision_level;
         public SturdyOpacityMicromapFormat format;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPeerOptions
+    {
+        public byte* network_id;
+        public byte* display_name;
+        public byte* identity_certificate_pem;
+        public byte* identity_private_key_pem;
+        public byte no_listen;
+        public byte* bind_address;
+        public ushort port;
+        public ulong max_peers;
+        public ulong max_message_bytes;
+        public byte** allowed_peers;
+        public uint allowed_peer_count;
+        public byte no_peer_exchange;
+        public byte lan_discovery;
+        public byte no_auto_connect;
+        public long handshake_timeout_ms;
+        public ulong max_pending_inbound;
+        public long ping_interval_ms;
+        public long idle_timeout_ms;
+        public ulong event_queue;
+        public ushort discovery_port;
+        public byte* discovery_group;
+        public long discovery_interval_ms;
     }
 
     /// Describes a pipeline layout to create.
@@ -1981,6 +2350,20 @@ namespace Sturdy
         public SturdyPlugin previous;
     }
 
+    /// Router port-mapping options. Zero means the default noted.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPortMapOptions
+    {
+        public byte* gateway;
+        public long lifetime_seconds;
+        public ushort external_port;
+        public long timeout_ms;
+        public uint methods;
+        public ushort gateway_port;
+        public byte* ssdp_host;
+        public ushort ssdp_port;
+    }
+
     /// What a `SturdyPresentationSettings` request actually resolved to on the active backend and display, including whether the requested strategy, composite alpha, or full-screen-exclusive state degraded to something else. Mirrors `RHI::PresentationResolution` field-for-field.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyPresentationResolution
@@ -2020,6 +2403,22 @@ namespace Sturdy
         public double variable_refresh_margin_fps;
         public double unfocused_frame_rate_limit_fps;
         public byte snap_frame_rate_limit_to_refresh;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyProcessOptions
+    {
+        public byte* program;
+        public byte** args;
+        public uint arg_count;
+        public byte* working_directory;
+        public SturdyKeyValue* environment;
+        public uint environment_count;
+        public byte clear_environment;
+        public byte kill_on_release;
+        public uint stdin_mode;
+        public uint stdout_mode;
+        public uint stderr_mode;
     }
 
     /// One push-constant range within a pipeline layout.
@@ -2063,6 +2462,58 @@ namespace Sturdy
         public byte likely_parallel_with_graphics;
         public byte dedicated;
         public fixed byte reserved[2];
+    }
+
+    /// Limits both QUIC endpoints advertise. Zero means the default noted.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyQuicLimits
+    {
+        public long idle_timeout_ms;
+        public long keep_alive_ms;
+        public long handshake_timeout_ms;
+        public uint max_bidirectional_streams;
+        public uint max_unidirectional_streams;
+        public ulong stream_receive_window;
+        public ulong connection_receive_window;
+        public byte no_datagrams;
+        public ulong stream_send_buffer;
+        public ulong datagram_receive_queue;
+        public ulong datagram_send_queue;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyQuicClientOptions
+    {
+        public SturdyQuicLimits limits;
+        public SturdyTlsClientOptions tls;
+    }
+
+    /// How to present and check identities on the accepting side.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTlsServerOptions
+    {
+        public byte* certificate_pem;
+        public byte* private_key_pem;
+        public byte* client_ca_pem;
+        public byte require_client_certificate;
+        public byte accept_any_client_certificate;
+        public byte** pinned_client_sha256;
+        public uint pinned_client_sha256_count;
+        public byte** alpn;
+        public uint alpn_count;
+        public uint handshake_timeout_ms;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyQuicServerOptions
+    {
+        public SturdyQuicLimits limits;
+        public SturdyTlsServerOptions tls;
+        public byte* bind_address;
+        public ushort port;
+        public ulong max_connections;
+        public ulong max_connections_per_address;
+        public byte no_address_validation;
     }
 
     /// Rasterizer fixed-function state.
@@ -2197,6 +2648,22 @@ namespace Sturdy
     public unsafe struct SturdyReflectionTypeBuilder
     {
         public ulong token;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyRelayOptions
+    {
+        public byte* bind_address;
+        public ushort port;
+        public byte use_tls;
+        public SturdyTlsServerOptions tls;
+        public ulong max_sessions;
+        public ulong max_waiting;
+        public ulong max_waiting_per_address;
+        public long pair_timeout_ms;
+        public long idle_timeout_ms;
+        public ulong max_session_bytes;
+        public ulong max_token_bytes;
     }
 
     /// Handle to a finished, replayable render bundle. Unlike the encoder that produced it, this carries no scope of its own — like `SturdyBuffer`, it is an informational identifier the RHI device owns and validates until `sturdy_rhi_destroy_render_bundle`.
@@ -2403,6 +2870,66 @@ namespace Sturdy
         public float max_radiance;
     }
 
+    /// A language adapter an application registers to run scripts in an interpreter it provides.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyScriptLanguage
+    {
+        public uint struct_size;
+        public uint reserved;
+        public byte* name;
+        public byte** extensions;
+        public uint extension_count;
+        public void* user_data;
+        public delegate* unmanaged[Cdecl]<void*, SturdyScriptSource*, SturdyScriptInstance*, SturdyBytesSink*, byte> load;
+        public delegate* unmanaged[Cdecl]<void*, void> destroy;
+    }
+
+    /// A message between scripts. Valid only during `on_message`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyScriptMessage
+    {
+        public byte* from;
+        public byte* topic;
+        public byte* payload;
+        public ulong payload_size;
+    }
+
+    /// Describes where a script comes from. Strings are copied unless noted.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyScriptSource
+    {
+        public uint struct_size;
+        public uint reserved;
+        public byte* name;
+        public byte* language;
+        public byte* path;
+        public byte* code;
+        public ulong code_size;
+        public SturdyKeyValue* options;
+        public uint option_count;
+    }
+
+    /// A script as a module: where it comes from and where it sits in the start order.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyScriptModuleDesc
+    {
+        public uint struct_size;
+        public uint reserved;
+        public SturdyScriptSource source;
+        public byte** after;
+        public uint after_count;
+        public byte contributes_scene;
+    }
+
+    /// One engine update as a script sees it.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyScriptTick
+    {
+        public double delta_seconds;
+        public double elapsed_seconds;
+        public ulong tick;
+    }
+
     /// Handle to a timeline semaphore: a GPU-to-GPU (and GPU-to-host, via `sturdy_rhi_wait_semaphore`) synchronization primitive that counts up through a sequence of `u64` values rather than toggling once like a fence. Reach for this to order work across two queues (e.g. an upload on the transfer queue that a graphics-queue submission must wait on); use `SturdyFence` instead for the common "wait for this one submission to finish on the host" case. See the "RHI resources" section header for its lifetime rules.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdySemaphore
@@ -2537,6 +3064,32 @@ namespace Sturdy
         public fixed float transform[16];
     }
 
+    /// One Server-Sent Event. Line breaks in `event` and `id` are dropped, so a hostile value cannot inject fields.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdySseEvent
+    {
+        public byte* data;
+        public byte* @event;
+        public byte* id;
+        public uint retry_ms;
+        public byte has_retry;
+    }
+
+    /// Static file serving options. Zero means the default noted.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyStaticFilesOptions
+    {
+        public byte* root;
+        public byte* index_file;
+        public byte* cache_control;
+        public byte allow_dotfiles;
+        public byte follow_symlinks;
+        public byte no_precompressed;
+        public byte* spa_fallback;
+        public SturdyKeyValue* mime_types;
+        public uint mime_type_count;
+    }
+
     /// Identifies the render surface (window) a frame is being produced for.
     ///
     /// Opaque and informational in this ABI version: use it to tell surfaces apart across callbacks when an application has multiple windows. It carries no lifetime of its own.
@@ -2577,6 +3130,23 @@ namespace Sturdy
     public unsafe struct SturdyTask
     {
         public ulong token;
+    }
+
+    /// What the previous stage of an execution chain produced.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTaskInput
+    {
+        public long number;
+        public byte* bytes;
+        public ulong size;
+        public byte* text;
+    }
+
+    /// Where a task's result is written from inside its callback (copied immediately).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTaskOutput
+    {
+        public void* @internal;
     }
 
     /// Screen-space hint for where an IME should draw its candidate/composition window, in window coordinates (the same units as `SturdyWindowSnapshot::width`/`height` and mouse positions). `cursor_offset_x` is the caret's offset from `x` within that area, for IMEs that anchor the popup to caret position rather than the area's top-left corner.
@@ -2728,6 +3298,15 @@ namespace Sturdy
         public uint width;
         public uint height;
         public uint depth;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyUdpOptions
+    {
+        public byte reuse_address;
+        public byte broadcast;
+        public ulong receive_buffer;
+        public ulong send_buffer;
     }
 
     /// One element in the layout tree.
@@ -2940,6 +3519,16 @@ namespace Sturdy
         public void* graphics_queue;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyWatchOptions
+    {
+        public byte recursive;
+        public long debounce_ms;
+        public byte force_polling;
+        public long poll_interval_ms;
+        public ulong max_pending_events;
+    }
+
     /// The engine's raw WebGPU objects.
     ///
     /// Fields are `void *` for the same reason as `SturdyVulkanHandles`/`SturdyD3D12Handles`, and carry the same borrowing rules. Unlike those two, this deliberately stops at the WebGPU objects themselves rather than reaching beneath them to whatever native API Dawn chose (Vulkan, Metal, or D3D12) -- that is fundamentally unavailable on the Web target (a browser's WebGPU implementation exposes no native handles to any embedder) and would defeat the point of the backend even on native Dawn. Cast each field to its documented `webgpu.h` type. There is exactly one queue: WebGPU has no separate graphics/compute/transfer queues to distinguish, so there is no `sturdy_native_webgpu_queue` counterpart to `sturdy_native_vulkan_queue`.
@@ -2952,6 +3541,47 @@ namespace Sturdy
         public void* adapter;
         public void* device;
         public void* queue;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyWebSocketOptions
+    {
+        public ulong max_message_bytes;
+        public ulong max_queued_send_bytes;
+        public long idle_timeout_ms;
+        public byte compression;
+        public ulong inbox_messages;
+        public long handshake_timeout_ms;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyWebSocketClientOptions
+    {
+        public SturdyWebSocketOptions socket;
+        public SturdyTlsClientOptions tls;
+        public SturdyKeyValue* headers;
+        public uint header_count;
+        public byte** subprotocols;
+        public uint subprotocol_count;
+        public long timeout_ms;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyWebSocketServerOptions
+    {
+        public byte* bind_address;
+        public ushort port;
+        public SturdyWebSocketOptions socket;
+        public byte use_tls;
+        public SturdyTlsServerOptions tls;
+        public byte** allowed_origins;
+        public uint allowed_origin_count;
+        public byte** paths;
+        public uint path_count;
+        public byte** subprotocols;
+        public uint subprotocol_count;
+        public ulong max_connections;
+        public uint max_request_header_bytes;
     }
 
     /// Configuration for a new window, as handed to `sturdy_window_spawn` / `sturdy_window_recreate_primary`. The window's graphics API always matches the engine's active backend — there is no field for it here, since a second window using a different backend is not something this engine supports.
@@ -3102,6 +3732,35 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_anti_aliasing_settings_init(SturdyAntiAliasingSettings* settings);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_arc_bytes(SturdyAsyncObject arc, byte* buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_arc_clone(SturdyAsyncObject arc, SturdyAsyncObject* out_arc);
+
+        /// A shared, reference-counted value: every clone is another handle to the same data, which is destroyed with the last one. Object "arc". This one holds a copy of `data` (immutable).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_arc_create(byte* data, ulong size, SturdyAsyncObject* out_arc);
+
+        /// An arc around a pointer of yours: share one native object (or a language runtime's handle to it) between languages and threads, with `destroy` called exactly once when the last handle is released. `destroy` may be null.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_arc_create_foreign(void* pointer, delegate* unmanaged[Cdecl]<void*, void> destroy, SturdyAsyncObject* out_arc);
+
+        /// The foreign pointer (null for a bytes arc).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_arc_pointer(SturdyAsyncObject arc, void** out_pointer);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_arc_ptr_eq(SturdyAsyncObject a, SturdyAsyncObject b, byte* out_same);
+
+        /// How many references exist right now (a snapshot).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_arc_use_count(SturdyAsyncObject arc, ulong* out_count);
+
+        /// Bit set of `SturdyAsyncFeature`: which optional protocols this build contains and whether this machine supports them.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_async_features(uint* out_features);
+
         /// Reports whether a task has finished.
         ///
         /// The non-blocking way to observe one: poll this from your frame callback rather than waiting.
@@ -3120,6 +3779,18 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_async_is_worker_thread(byte* out_worker);
 
+        /// An async mutex / read-write lock protecting a byte-string value. Objects "async_mutex" / "async_rwlock".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_async_mutex_create(byte* initial, ulong size, SturdyAsyncObject* out_mutex);
+
+        /// Waits for exclusive access. Object "mutex_guard".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_async_mutex_lock(SturdyAsyncObject mutex, SturdyAsyncOp* out_op);
+
+        /// `out_guard` receives the zero handle when the mutex is held.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_async_mutex_try_lock(SturdyAsyncObject mutex, SturdyAsyncObject* out_guard);
+
         /// Releases a task handle.
         ///
         /// Does not cancel or wait. Releasing before the task finishes is fine and is the normal thing to do for fire-and-forget work; the task keeps running.
@@ -3127,6 +3798,16 @@ namespace Sturdy
         /// Releasing twice reports `STURDY_ERROR_HANDLE_EXPIRED`, since task tokens are never reused.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_async_release(SturdyTask task);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_async_rwlock_create(byte* initial, ulong size, SturdyAsyncObject* out_lock);
+
+        /// Many readers or one writer; waiters queue in order, so a waiting writer is not starved. Objects "rwlock_read_guard" / "rwlock_write_guard".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_async_rwlock_read(SturdyAsyncObject @lock, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_async_rwlock_write(SturdyAsyncObject @lock, SturdyAsyncOp* out_op);
 
         /// Runs `task` on a background thread.
         ///
@@ -3230,21 +3911,182 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_auto_exposure_settings_init(SturdyAutoExposureSettings* settings);
 
+        /// A rendezvous of `parties` callers. Object "barrier"; `sturdy_barrier_wait` has number 1 for exactly one of them (the last to arrive).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_barrier_create(ulong parties, SturdyAsyncObject* out_barrier);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_barrier_wait(SturdyAsyncObject barrier, SturdyAsyncOp* out_op);
+
         /// Fills `settings` with `struct_size` and engine defaults.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_bloom_settings_init(SturdyBloomSettings* settings);
+
+        /// Every receiver sees every message; one that falls `capacity` behind is told how many it missed. Objects "broadcast_sender" / "broadcast_receiver".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_broadcast_create(ulong capacity, SturdyAsyncObject* out_sender, SturdyAsyncObject* out_receiver);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_broadcast_receiver_clone(SturdyAsyncObject receiver, SturdyAsyncObject* out_receiver);
+
+        /// Number 0 and bytes: a message; number 1 and field `skipped`: this receiver lagged; number 2: the sender is gone. Cannot be cancelled.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_broadcast_recv(SturdyAsyncObject receiver, SturdyAsyncOp* out_op);
+
+        /// `out_receivers` (may be null): the number of live receivers.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_broadcast_send(SturdyAsyncObject sender, byte* data, ulong size, ulong* out_receivers);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_broadcast_subscribe(SturdyAsyncObject sender, SturdyAsyncObject* out_receiver);
+
+        /// Sends what is pending.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_buffered_flush(SturdyAsyncObject writer, SturdyAsyncOp* out_op);
+
+        /// Bytes: exactly `count`; `STURDY_IO_UNEXPECTED_EOF` when the stream ends first.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_buffered_read_exact(SturdyAsyncObject reader, ulong count, SturdyAsyncOp* out_op);
+
+        /// Number 1 and text: one line without its terminator (LF or CRLF); number 0 at a clean end of stream. `max_bytes` 0: 64 KiB.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_buffered_read_line(SturdyAsyncObject reader, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Bytes: up to `max_bytes` (empty at the end).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_buffered_read_some(SturdyAsyncObject reader, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Number 1 and bytes: up to and including `delimiter`; number 0 at a clean end of stream; `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_buffered_read_until(SturdyAsyncObject reader, byte* delimiter, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_buffered_reader_buffered(SturdyAsyncObject reader, ulong* out_bytes);
+
+        /// Adds read-ahead to a reader (lines, delimiters, exact counts). One operation at a time per object. Object "buffered_reader".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_buffered_reader_create(SturdyAsyncObject reader, SturdyProcessStream stream, ulong chunk_bytes, SturdyAsyncObject* out_reader);
+
+        /// Flushes, then shuts the underlying writer down.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_buffered_shutdown(SturdyAsyncObject writer, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_buffered_write(SturdyAsyncObject writer, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        /// Batches small writes. Object "buffered_writer". `capacity` 0: 16 KiB.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_buffered_writer_create(SturdyAsyncObject writer, SturdyProcessStream stream, ulong capacity, SturdyAsyncObject* out_writer);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_bytes_sink_set(SturdyBytesSink* sink, byte* data, ulong size);
 
         /// Fills `settings` with `struct_size` and engine defaults (disabled — the body-camera look is opt-in).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_camera_emulation_settings_init(SturdyCameraEmulationSettings* settings);
 
+        /// Cancels. `out_first` (may be null) says whether this call was the first.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cancel_source_cancel(SturdyAsyncObject source, byte* out_first);
+
+        /// A cancellation source and the tokens it hands out: cancel once, and everything armed on a token reacts. Objects "cancel_source" / "cancel_token".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cancel_source_create(SturdyAsyncObject* out_source);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cancel_source_is_cancelled(SturdyAsyncObject source, byte* out_cancelled);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cancel_source_token(SturdyAsyncObject source, SturdyAsyncObject* out_token);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cancel_token_is_cancelled(SturdyAsyncObject token, byte* out_cancelled);
+
+        /// Finishes (OK) when the token is cancelled, at once if it already is.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cancel_token_wait(SturdyAsyncObject token, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_channel_close(SturdyAsyncObject end);
+
+        /// Bounded multi-producer channel holding up to `capacity` messages (at least 1). Objects "channel_sender" / "channel_receiver". It closes when the last sender is released or `sturdy_channel_close` is called on either end; buffered messages are still delivered.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_channel_create(ulong capacity, SturdyAsyncObject* out_sender, SturdyAsyncObject* out_receiver);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_channel_receiver_clone(SturdyAsyncObject receiver, SturdyAsyncObject* out_receiver);
+
+        /// Number 1 and bytes: the next message; number 0 once the channel is closed and drained.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_channel_recv(SturdyAsyncObject receiver, SturdyAsyncOp* out_op);
+
+        /// Finishes once the message is buffered or handed to a receiver (waits while the channel is full); `STURDY_IO_CLOSED` when closed.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_channel_send(SturdyAsyncObject sender, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_channel_sender_clone(SturdyAsyncObject sender, SturdyAsyncObject* out_sender);
+
+        /// Takes a buffered message if there is one: `out_status` says whether, and on `STURDY_TRY_OK` `out_op` is a finished op whose bytes are the message (otherwise `out_op` is the zero handle).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_channel_try_recv(SturdyAsyncObject receiver, SturdyAsyncOp* out_op, SturdyTryStatus* out_status);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_channel_try_send(SturdyAsyncObject sender, byte* data, ulong size, SturdyTryStatus* out_status);
+
         /// Fills `settings` with `struct_size` and engine defaults (disabled, neutral).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_color_grade_settings_init(SturdyColorGradeSettings* settings);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cookie_jar_add(SturdyAsyncObject jar, SturdyCookie* cookie);
+
+        /// Every stored cookie as a finished op's fields `name:N`, `value:N`, `domain:N`, `path:N`, `domain_wide:N`, `secure:N`, `http_only:N`, `expires:N` (N = 0, 1, ...).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cookie_jar_all(SturdyAsyncObject jar, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cookie_jar_clear(SturdyAsyncObject jar);
+
+        /// A thread-safe cookie store: a client fills it from `Set-Cookie` and sends matching cookies. A Domain attribute must cover the request host and have at least two labels; IP hosts keep host-only cookies; the jar is capped (50 per domain, 3000 total). Object "cookie_jar".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cookie_jar_create(SturdyAsyncObject* out_jar);
+
+        /// "a=1; b=2" for the cookies that apply to a request (string-output convention; empty if none).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cookie_jar_header_for(SturdyAsyncObject jar, byte* host, byte* path, byte https, byte* buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_cookie_jar_store_from_response(SturdyAsyncObject jar, byte* host, byte* path, byte https, SturdyKeyValue* response_headers, uint header_count);
+
+        /// A named thread that runs submitted work one at a time, in order. Object "dedicated_thread".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dedicated_thread_create(byte* name, SturdyAsyncObject* out_thread);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dedicated_thread_pin_to_core(SturdyAsyncObject thread, uint core_index, byte* out_pinned);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dedicated_thread_pin_to_fastest_core(SturdyAsyncObject thread, byte* out_pinned);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dedicated_thread_run(SturdyAsyncObject thread, delegate* unmanaged[Cdecl]<void*, SturdyAsyncObject, SturdyTaskOutput*, void> work, void* user_data, SturdyAsyncOp* out_op);
+
         /// Fills `settings` with `struct_size` and engine defaults (disabled).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_depth_of_field_settings_init(SturdyDepthOfFieldSettings* settings);
+
+        /// Walks a directory entry by entry. Object "dir_iter".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dir_iter_create(byte* path, byte recursive, SturdyAsyncObject* out_iter);
+
+        /// Number: 1 and text: the next path, or number 0 at the end.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dir_iter_next(SturdyAsyncObject iter, SturdyAsyncOp* out_op);
+
+        /// Resolves a host name. Fields: one `address` per result (numeric text).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_dns_resolve(byte* host, SturdyAsyncOp* out_op);
 
         /// Registers a chunk system (since 0.35) with a removable handle. Declaration, ordering, conflict detection, `commands` and removal behave exactly as for `sturdy_ecs_add_system_ex`; only the body differs.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -3490,6 +4332,66 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_engine_wheel_delta(SturdyEngine engine, float* out_x, float* out_y);
 
+        /// Lazy descriptions of work that compose and run later (the `Execution` layer). Object "exec_sender"; a sender may be started any number of times. The `user_data` of every stage must stay valid until the sender is released and no run of it is still going.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_exec_just(delegate* unmanaged[Cdecl]<void*, SturdyAsyncObject, SturdyTaskOutput*, void> work, void* user_data, SturdyTaskLane lane, SturdyAsyncObject* out_sender);
+
+        /// Starts the chain. The op carries the last stage's number, bytes and text; cancelling it sets the token every stage receives.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_exec_submit(SturdyAsyncObject sender, SturdyAsyncOp* out_op);
+
+        /// Starts the chain and blocks for it; `out_op` is a finished op (OK, or failed with the stage's error). Never call it from a worker thread.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_exec_sync_wait(SturdyAsyncObject sender, SturdyAsyncOp* out_op);
+
+        /// A sender that runs `then` on `lane` with the result of `sender`. A failure upstream skips it and propagates.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_exec_then(SturdyAsyncObject sender, delegate* unmanaged[Cdecl]<void*, SturdyAsyncObject, SturdyTaskInput*, SturdyTaskOutput*, void> then, void* user_data, SturdyTaskLane lane, SturdyAsyncObject* out_sender);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_close(SturdyAsyncObject file);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_is_open(SturdyAsyncObject file, byte* out_open);
+
+        /// Opens a file for streaming and random access. Object "file". `mode` is a bit set of `SturdyFileMode`. Positional reads and writes use io_uring on Linux when available; nothing occupies a worker thread while the kernel works.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_open(byte* path, uint mode, SturdyAsyncOp* out_op);
+
+        /// Reads up to `max_bytes` at the cursor (advancing it). Bytes: empty at end of file.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_read(SturdyAsyncObject file, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Reads at `offset` without touching the cursor.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_read_at(SturdyAsyncObject file, ulong offset, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Reads from the cursor to the end; fails with `STURDY_IO_INVALID_ARGUMENT` if more than `max_bytes` remain.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_read_to_end(SturdyAsyncObject file, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Moves the cursor (`origin`: 0 start, 1 current, 2 end). Number: the new position.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_seek(SturdyAsyncObject file, long offset, int origin, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_set_len(SturdyAsyncObject file, ulong length, SturdyAsyncOp* out_op);
+
+        /// Number: the size in bytes.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_size(SturdyAsyncObject file, SturdyAsyncOp* out_op);
+
+        /// Flushes to stable storage (fsync, or fdatasync when `data_only`).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_sync(SturdyAsyncObject file, byte data_only, SturdyAsyncOp* out_op);
+
+        /// Writes all of `data` at the cursor. Number: bytes written.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_write(SturdyAsyncObject file, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_file_write_at(SturdyAsyncObject file, ulong offset, byte* data, ulong size, SturdyAsyncOp* out_op);
+
         /// Points the camera at a world-space target, keeping `+Y` as up.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_frame_camera_look_at(SturdyFrame frame, float x, float y, float z);
@@ -3596,6 +4498,74 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_frame_set_volumetric_fog_settings(SturdyFrame frame, SturdyVolumetricFogSettings* settings);
 
+        /// Messages over a byte stream. `io` must read and write ("tcp", "file", "pipe_end"). `max_frame_bytes` 0: 8 MiB (64 KiB for lines). Object "framed".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_framed_create(SturdyAsyncObject io, SturdyFrameCodec codec, ulong max_frame_bytes, SturdyAsyncObject* out_framed);
+
+        /// Number 1 and bytes: the next frame; number 0 at a clean end of stream.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_framed_next(SturdyAsyncObject framed, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_framed_send(SturdyAsyncObject framed, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        /// The remaining frames as a "stream" object (do not call `sturdy_framed_next` meanwhile).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_framed_stream(SturdyAsyncObject framed, SturdyAsyncObject* out_stream);
+
+        /// How many frames `packed` holds; `STURDY_ERROR_INVALID_ARGUMENT` when it is malformed.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_frames_count(byte* packed, ulong size, uint* out_count);
+
+        /// Frame `index` (bytes-output convention).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_frames_get(byte* packed, ulong size, uint index, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Several byte strings in one: a 32-bit little-endian count, then each as a 32-bit little-endian length and its bytes. Used where an operation or stream item carries more than one value. Packs `count` views (bytes-output convention: null buffer to learn the size).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_frames_pack(SturdyBytesView* frames, uint count, byte* buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_copy(byte* source, byte* destination, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_create_directories(byte* path, SturdyAsyncOp* out_op);
+
+        /// Number: 1 if the path exists, else 0.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_exists(byte* path, SturdyAsyncOp* out_op);
+
+        /// Entry paths of a directory. Bytes: the paths as packed frames (`sturdy_frames_count` / `sturdy_frames_get`). Number: how many. At most `max_entries` (0: 4096); more fail with `STURDY_IO_INVALID_ARGUMENT`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_list(byte* path, ulong max_entries, byte recursive, SturdyAsyncOp* out_op);
+
+        /// Reads a whole file on the IO lane. Bytes: the content; `STURDY_IO_INVALID_ARGUMENT` when it is larger than `max_bytes` (0: unlimited).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_read_file(byte* path, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Reads `byte_count` bytes at `offset` (fewer at the end of the file). Bytes: the content.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_read_range(byte* path, ulong offset, ulong byte_count, SturdyAsyncOp* out_op);
+
+        /// Removes a directory and everything in it. Number: 1 if something was removed.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_remove_directory(byte* path, SturdyAsyncOp* out_op);
+
+        /// Number: 1 if something was removed.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_remove_file(byte* path, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_rename(byte* source, byte* destination, SturdyAsyncOp* out_op);
+
+        /// Number: the size in bytes.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_size(byte* path, SturdyAsyncOp* out_op);
+
+        /// Creates or replaces the file with `data`, or appends to it.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_fs_write_file(byte* path, byte* data, ulong size, byte append, SturdyAsyncOp* out_op);
+
         /// Imports a glTF or GLB file, creating a model asset for every mesh it contains.
         ///
         /// Importing does not put anything in the world — it produces assets and a description of how the file arranged them. Call `sturdy_gltf_spawn_all` to reproduce that arrangement, or walk the instances yourself if you want to filter or re-place them.
@@ -3652,6 +4622,155 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_gpu_enumerate(SturdyGpuInfo* out_gpus, uint capacity, uint* out_count);
 
+        /// The protected value (bytes-output convention).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_guard_get(SturdyAsyncObject guard, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Unlocks now.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_guard_release(SturdyAsyncObject guard);
+
+        /// Replaces the value (mutex and write guards only).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_guard_set(SturdyAsyncObject guard, byte* data, ulong size);
+
+        /// Finishes when the client disconnected or the server stopped, so a producer can stop. Cancelling it finishes it as cancelled.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_body_closed(SturdyAsyncObject body, SturdyAsyncOp* out_op);
+
+        /// Ends the body once queued chunks drain.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_body_finish(SturdyAsyncObject body);
+
+        /// Queues a chunk. Finishes once it is accepted into the bounded queue (so a slow client paces the producer); fails with `STURDY_IO_CLOSED` once the client is gone or the body was finished.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_body_write(SturdyAsyncObject body, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_body_write_sse(SturdyAsyncObject body, SturdySseEvent* @event, SturdyAsyncOp* out_op);
+
+        /// Closes idle pooled connections.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_client_close_idle(SturdyAsyncObject client);
+
+        /// The jar a client uses (shared, not a copy). `STURDY_ERROR_NOT_AVAILABLE` when cookies are off.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_client_cookie_jar(SturdyAsyncObject client, SturdyAsyncObject* out_jar);
+
+        /// Creates a client with a connection pool (HTTP/1.1 keep-alive, HTTP/2 multiplexing, HTTP/3 after `Alt-Svc`). Object "http_client".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_client_create(SturdyHttpClientOptions* options, SturdyAsyncObject* out_client);
+
+        /// Sends a request. Number: status. Fields: the response headers. Bytes: the body. Text: the final URL after redirects. Non-2xx statuses are ordinary results; only transport, TLS, protocol, limit and timeout problems fail the op. `X-` headers etc. are yours; `Host`, `Content-Length`, `Connection` and `Transfer-Encoding` are managed by the client and ignored if supplied.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_client_request(SturdyAsyncObject client, byte* method, byte* url, SturdyKeyValue* headers, uint header_count, byte* body, ulong body_size, SturdyAsyncOp* out_op);
+
+        /// The wire format of one event, ending with the blank line that dispatches it (string-output convention).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_format_sse(SturdySseEvent* @event, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Percent-decodes `text` (string-output convention); `STURDY_ERROR_INVALID_ARGUMENT` on a malformed escape or an encoded NUL.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_percent_decode(byte* text, byte plus_is_space, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Sends the response for a request. `headers` may be null. CR/LF in a header makes the server answer 500 instead.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_respond(SturdyHttpResponder responder, uint status, SturdyKeyValue* headers, uint header_count, byte* body, ulong body_size);
+
+        /// Sends a canned response of `kind` with `status` (a redirect usually 302/301/307/308) and the null-terminated `body`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_respond_canned(SturdyHttpResponder responder, SturdyHttpResponseKind kind, uint status, byte* body);
+
+        /// Sends a response. Fails (without spending `responder`) with `STURDY_ERROR_INVALID_ARGUMENT` if more than one body is given. For `stream` or `sse` responses `out_body` receives the writer object (required then); otherwise it is ignored and may be null. The writer is yours to release; releasing it ends the body.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_respond_ex(SturdyHttpResponder responder, SturdyHttpResponse* response, SturdyAsyncObject* out_body);
+
+        /// Opens the listener and starts serving.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_begin(SturdyAsyncObject server);
+
+        /// Creates a server without starting it, so WebSocket paths can be added first; `sturdy_http_server_begin` then starts it. Object "http_server". `handler` answers every request that is not a WebSocket upgrade.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_create(SturdyHttpServerOptions* options, delegate* unmanaged[Cdecl]<void*, SturdyHttpRequest*, SturdyHttpResponder, void> handler, void* user_data, SturdyAsyncObject* out_server);
+
+        /// Same, serving a router (see below). The router may be released afterwards: the server keeps an immutable snapshot of it.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_create_router(SturdyHttpServerOptions* options, SturdyAsyncObject router, SturdyAsyncObject* out_server);
+
+        /// 0 when HTTP/3 is not served.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_http3_port(SturdyAsyncObject server, ushort* out_port);
+
+        /// Static server facts as a finished op's fields: `running`, `tls`, `http2` ("1"/"0"), `port`, `http3_port`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_info(SturdyAsyncObject server, SturdyAsyncOp* out_op);
+
+        /// Counters as a finished op's fields (decimal text): connections_accepted, requests, responses_2xx..5xx, active_connections, ...
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_metrics(SturdyAsyncObject server, SturdyAsyncOp* out_op);
+
+        /// Upgrades requests whose path (without query) equals `path` to WebSockets, on the same port and over TLS when the server uses it. Call before `sturdy_http_server_begin`. `user_data` must stay valid until the server object is released.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_on_websocket(SturdyAsyncObject server, byte* path, delegate* unmanaged[Cdecl]<void*, SturdyAsyncObject, SturdyHttpRequest*, void> handler, void* user_data);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_port(SturdyAsyncObject server, ushort* out_port);
+
+        /// Starts an HTTP(S) server. Object "http_server". Stops (and drains) when the object is released.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_start(SturdyHttpServerOptions* options, delegate* unmanaged[Cdecl]<void*, SturdyHttpRequest*, SturdyHttpResponder, void> handler, void* user_data, SturdyAsyncObject* out_server);
+
+        /// `sturdy_http_server_create_router` and `sturdy_http_server_begin` in one step.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_start_router(SturdyHttpServerOptions* options, SturdyAsyncObject router, SturdyAsyncObject* out_server);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_http_server_stop(SturdyAsyncObject server);
+
+        /// A periodic timer that does not drift. Object "interval"; `sturdy_interval_tick` finishes at each period boundary.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_interval_create(long period_ms, SturdyAsyncObject* out_interval);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_interval_tick(SturdyAsyncObject interval, SturdyAsyncOp* out_op);
+
+        /// Copies until the reader ends, overlapping each read with the previous write. Number: bytes copied.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_io_copy(SturdyAsyncObject reader, SturdyProcessStream reader_stream, SturdyAsyncObject writer, SturdyProcessStream writer_stream, SturdyCopyOptions* options, SturdyAsyncOp* out_op);
+
+        /// Tunes the blocking-IO lane (0 workers: automatic; 0 `max_pending`: 1024). `out_applied` says whether it took effect (false once it started).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_io_lane_configure(uint workers, uint max_pending, byte* out_applied);
+
+        /// Fields `backend`, `workers`, `pending`, `capacity` (a finished op).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_io_lane_stats(SturdyAsyncOp* out_op);
+
+        /// Bytes: everything until the reader ends; `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes` (0: unlimited).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_io_read_to_end(SturdyAsyncObject reader, SturdyProcessStream stream, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_io_write_all(SturdyAsyncObject writer, SturdyProcessStream stream, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        /// Sets the cancel token of every running task in the set.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_join_set_abort_all(SturdyAsyncObject set);
+
+        /// A dynamic set of tasks joined in completion order. Object "join_set".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_join_set_create(SturdyAsyncObject* out_set);
+
+        /// Finishes with the next task to complete. Field `outcome` is "ok", "failed" (field `error` says why) or "empty" (nothing left); number, bytes and text are the task's.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_join_set_join_next(SturdyAsyncObject set, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_join_set_len(SturdyAsyncObject set, ulong* out_len);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_join_set_spawn(SturdyAsyncObject set, delegate* unmanaged[Cdecl]<void*, SturdyAsyncObject, SturdyTaskOutput*, void> work, void* user_data, SturdyTaskLane lane);
+
         /// Detail for the most recent failing call **on the calling thread**.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern byte* sturdy_last_error_message();
@@ -3672,6 +4791,21 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_lighting_settings_init(SturdyLightingSettings* settings);
 
+        /// Runs queued tasks on the calling thread until `op` finishes (blocks).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_local_set_block_on(SturdyAsyncObject set, SturdyAsyncOp op);
+
+        /// Tasks that run only on the thread that pumps the set. Object "local_set".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_local_set_create(SturdyAsyncObject* out_set);
+
+        /// Runs queued tasks on the calling thread until none are left. `out_ran` (may be null): how many.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_local_set_run_pending(SturdyAsyncObject set, ulong* out_ran);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_local_set_spawn(SturdyAsyncObject set, delegate* unmanaged[Cdecl]<void*, SturdyAsyncObject, SturdyTaskOutput*, void> work, void* user_data, SturdyAsyncOp* out_op);
+
         /// Registers a callback to receive every subsequent log message.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_log_add_sink(delegate* unmanaged[Cdecl]<SturdyLogLevel, byte*, ulong, void*, void> callback, void* user_data, SturdyLogSink* out_sink);
@@ -3679,6 +4813,33 @@ namespace Sturdy
         /// Unregisters a sink added by `sturdy_log_add_sink`. A null/zero handle, or one already removed, is a no-op.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_log_remove_sink(SturdyLogSink sink);
+
+        /// Runs the queued main-thread work on the calling thread.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_main_thread_pump();
+
+        /// Queues `fn` for the engine's main thread (run when it pumps). `user_data` must stay valid until `fn` has run.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_main_thread_run(delegate* unmanaged[Cdecl]<void*, void> fn, void* user_data);
+
+        /// Installs a callback run (on the posting thread) after every queued job, so a loop that blocks waiting for events can wake and pump. Null removes it.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_main_thread_set_wake_hook(delegate* unmanaged[Cdecl]<void*, void> hook, void* user_data);
+
+        /// Two connected in-memory ends ("pipe_end"): what one writes the other reads. `chunks`: messages buffered per direction (0: 8).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_memory_pipe_create(ulong chunks, SturdyAsyncObject* out_end_a, SturdyAsyncObject* out_end_b);
+
+        /// A reader over a copy of `data`. Object "memory_reader".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_memory_reader_create(byte* data, ulong size, SturdyAsyncObject* out_reader);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_memory_writer_bytes(SturdyAsyncObject writer, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// A writer that collects what it is given. Object "memory_writer".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_memory_writer_create(SturdyAsyncObject* out_writer);
 
         /// Imports a model file of any supported format, chosen from its extension: `.gltf`/`.glb`, `.fbx`, `.obj`. Same ownership and release rules as `sturdy_gltf_import`; the handle works with every `sturdy_gltf_*` call.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -3712,6 +4873,22 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_motion_blur_settings_init(SturdyMotionBlurSettings* settings);
 
+        /// The default gateway's address ("" when it cannot be determined).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_nat_default_gateway(byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Asks the router to forward a public port to this machine (PCP, NAT-PMP or UPnP IGD). Object "mapping". Number: granted lifetime in seconds (0: permanent — remove it yourself). Fields: external_host, external_port, method, gateway. Renew before half the lifetime.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_nat_map_port(byte tcp, ushort internal_port, SturdyPortMapOptions* options, SturdyAsyncOp* out_op);
+
+        /// UDP hole punching: both peers call this at once with the other's candidate addresses ("host:port") and a shared secret. Text/number: the candidate that answered; keep using the same socket afterwards. Fails with `STURDY_IO_TIMED_OUT` (typical of symmetric NATs: use a relay).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_nat_punch_hole(SturdyAsyncObject udp_socket, byte** candidates, uint candidate_count, byte* shared_secret, long timeout_ms, SturdyAsyncOp* out_op);
+
+        /// Removes a mapping made by `sturdy_nat_map_port`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_nat_unmap_port(SturdyAsyncObject mapping, SturdyPortMapOptions* options, SturdyAsyncOp* out_op);
+
         /// Reports whether raw native handles are available.
         ///
         /// False when `SturdyRuntimeConfig::enable_native_access` was not set, or when the backend could not publish them. Check this before calling the getters below rather than treating their failure as fatal.
@@ -3737,6 +4914,272 @@ namespace Sturdy
         /// Reads the engine's raw WebGPU objects.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_native_webgpu(SturdyEngine engine, SturdyWebGpuHandles* out_handles);
+
+        /// Sets the number of network reactor threads. `out_applied` says whether it took effect (false once the reactor is running).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_network_reactor_configure(uint threads, byte* out_applied);
+
+        /// A wake-up signal with at most one stored permit. Object "notify".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_notify_create(SturdyAsyncObject* out_notify);
+
+        /// Finishes when notified; a `sturdy_notify_one` that happened earlier with nobody waiting is consumed first.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_notify_notified(SturdyAsyncObject notify, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_notify_one(SturdyAsyncObject notify);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_notify_waiters(SturdyAsyncObject notify);
+
+        /// The object's kind ("tcp", "websocket", "quic_stream", ...), following the string-output convention.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_object_kind(SturdyAsyncObject @object, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Releases an object, closing whatever it wraps. Operations still pending on it finish as closed or cancelled.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_object_release(SturdyAsyncObject @object);
+
+        /// One-shot value hand-off. Objects "oneshot_sender" / "oneshot_receiver". A sender released without sending fails the receiver with `STURDY_IO_CLOSED`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_oneshot_create(SturdyAsyncObject* out_sender, SturdyAsyncObject* out_receiver);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_oneshot_fail(SturdyAsyncObject sender, byte* message, byte* out_first);
+
+        /// Bytes: the value. A receiver can be waited on once.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_oneshot_recv(SturdyAsyncObject receiver, SturdyAsyncOp* out_op);
+
+        /// `out_first` (may be null) says whether this call set the value.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_oneshot_send(SturdyAsyncObject sender, byte* data, ulong size, byte* out_first);
+
+        /// The result's bytes. Pass a null buffer to learn the size; `out_length` always receives the full size, and `STURDY_ERROR_BUFFER_TOO_SMALL` is returned (after copying what fits) when the buffer was smaller. No terminator is added.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_bytes(SturdyAsyncOp op, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Asks the operation to stop. It then finishes as `STURDY_OP_CANCELLED` (or with its result, if it already had one). Harmless on a finished op.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_cancel(SturdyAsyncOp op);
+
+        /// The failure kind of a `STURDY_OP_FAILED` op (`STURDY_IO_NONE` otherwise). `STURDY_ERROR_BUSY` while pending.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_error_code(SturdyAsyncOp op, SturdyIoError* out_code);
+
+        /// The failure message of a failed op (empty otherwise), following the string-output convention.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_error_message(SturdyAsyncOp op, byte* buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_failed(SturdyIoError code, byte* message, SturdyAsyncOp* out_op);
+
+        /// Value of the first field called `name` (HTTP header lookup is case-insensitive; other fields are exact). `STURDY_ERROR_NOT_AVAILABLE` when there is none.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_field(SturdyAsyncOp op, byte* name, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// How many named fields the result has.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_field_count(SturdyAsyncOp op, uint* out_count);
+
+        /// Name of field `index`, following the string-output convention.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_field_name(SturdyAsyncOp op, uint index, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Value of field `index`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_field_value(SturdyAsyncOp op, uint index, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Cancelling `token` cancels `op`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_link_cancel(SturdyAsyncOp op, SturdyAsyncObject token);
+
+        /// The result's number (byte count, status code, port, ... — see the function that made the op).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_number(SturdyAsyncOp op, long* out_number);
+
+        /// The object the operation produced (a connection, a file, ...), as a new handle you own. Calling it again returns the same handle. `STURDY_ERROR_NOT_AVAILABLE` when the op produced none. The object lives until **both** its handle and the operation are released, so a "permit" or a "mutex_guard" is only dropped once the op is released too — or release it explicitly with its own function.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_object(SturdyAsyncOp op, SturdyAsyncObject* out_object);
+
+        /// Runs `callback` when the operation finishes — at once, on this thread, if it already has.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_on_complete(SturdyAsyncOp op, delegate* unmanaged[Cdecl]<void*, SturdyAsyncOp, void> callback, void* user_data);
+
+        /// An already-finished op (Tokio's `ready`): useful to answer an operation-shaped API without work.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_ready(long number, byte* data, ulong size, byte* text, SturdyAsyncOp* out_op);
+
+        /// Releases an operation. A pending one keeps running; its result is dropped.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_release(SturdyAsyncOp op);
+
+        /// Reads an operation's status without blocking.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_status(SturdyAsyncOp op, SturdyOpStatus* out_status);
+
+        /// The result's text, following the string-output convention.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_text(SturdyAsyncOp op, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Waits until the operation finishes or `timeout_ms` passes (negative: no limit). `out_done` says which. Blocks the calling thread; do not call it from a completion callback.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_wait(SturdyAsyncOp op, long timeout_ms, byte* out_done);
+
+        /// Waits for the first of `ops` to finish. `out_index` is its position, or -1 when `timeout_ms` passed first.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_wait_any(SturdyAsyncOp* ops, uint count, long timeout_ms, int* out_index);
+
+        /// A new op that finishes as `op` does, or fails with `STURDY_IO_TIMED_OUT` after `timeout_ms` — cancelling `op` then. Cancelling the new op cancels `op`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_op_with_timeout(SturdyAsyncOp op, long timeout_ms, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_all(ulong count, delegate* unmanaged[Cdecl]<void*, ulong, byte> pred, void* user_data, byte* out_result);
+
+        /// Parallel predicates over `[0, count)`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_any(ulong count, delegate* unmanaged[Cdecl]<void*, ulong, byte> pred, void* user_data, byte* out_result);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_count(ulong count, delegate* unmanaged[Cdecl]<void*, ulong, byte> pred, void* user_data, ulong* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_find_any(ulong count, delegate* unmanaged[Cdecl]<void*, ulong, byte> pred, void* user_data, long* out_index);
+
+        /// The lowest index for which `pred` holds (-1: none) / any such index.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_find_first(ulong count, delegate* unmanaged[Cdecl]<void*, ulong, byte> pred, void* user_data, long* out_index);
+
+        /// Runs `body` for every index in `[0, count)` across the worker pool and returns when all are done (the caller helps, so it never deadlocks the pool). `min_chunk` is the smallest run of indices handed to one task (0/1: let the engine decide). Calling it from inside a body is fine.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_for(ulong count, ulong min_chunk, delegate* unmanaged[Cdecl]<void*, ulong, void> body, void* user_data);
+
+        /// Runs `body` over consecutive ranges of at most `chunk` indices (`chunk` must be positive).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_for_chunks(ulong count, ulong chunk, delegate* unmanaged[Cdecl]<void*, ulong, ulong, void> body, void* user_data);
+
+        /// Calls `body(begin)` for every window start in `[0, count - window]`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_for_windows(ulong count, ulong window, delegate* unmanaged[Cdecl]<void*, ulong, void> body, void* user_data);
+
+        /// Runs `a` and `b` in parallel and returns when both are done.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_join(delegate* unmanaged[Cdecl]<void*, void> a, void* a_user_data, delegate* unmanaged[Cdecl]<void*, void> b, void* b_user_data);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_map_reduce_f64(ulong count, delegate* unmanaged[Cdecl]<void*, ulong, double> map, double identity, delegate* unmanaged[Cdecl]<void*, double, double, double> reduce, void* user_data, double* out_result);
+
+        /// Maps every index and combines the results with an associative `reduce` that has `identity`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_map_reduce_i64(ulong count, delegate* unmanaged[Cdecl]<void*, ulong, long> map, long identity, delegate* unmanaged[Cdecl]<void*, long, long, long> reduce, void* user_data, long* out_result);
+
+        /// Parallel minimum and maximum. `STURDY_ERROR_OUT_OF_RANGE` when `count` is 0.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_min_max_f32(float* data, ulong count, float* out_min, float* out_max);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_min_max_f64(double* data, ulong count, double* out_min, double* out_max);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_min_max_i64(long* data, ulong count, long* out_min, long* out_max);
+
+        /// The threads a parallel call can use right now.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_num_threads(uint* out_threads);
+
+        /// Reduces a typed array in parallel. `out_has_value` is false for an empty array with min/max.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_reduce(SturdyNumericType type, SturdyReduction reduction, void* data, ulong count, SturdyNumericValue* out_value, byte* out_has_value);
+
+        /// Runs `body` with a scope; every task spawned on the scope finishes before this returns.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_scope(delegate* unmanaged[Cdecl]<void*, SturdyAsyncObject, void> body, void* user_data);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_scope_spawn(SturdyAsyncObject scope, delegate* unmanaged[Cdecl]<void*, void> fn, void* user_data);
+
+        /// Sorts `count` elements of `type` in place, ascending, in parallel.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_sort(SturdyNumericType type, void* data, ulong count);
+
+        /// Sorts `count` elements of `element_size` bytes in place with `less`; `stable` keeps equal elements in order.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_sort_by(void* data, ulong count, ulong element_size, byte stable, delegate* unmanaged[Cdecl]<void*, void*, void*, byte> less, void* user_data);
+
+        /// Parallel sums. Float sums use SIMD and may differ from a sequential sum by rounding.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_sum_f32(float* data, ulong count, float* out_sum);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_sum_f64(double* data, ulong count, double* out_sum);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_sum_i64(long* data, ulong count, long* out_sum);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_par_sum_u64(ulong* data, ulong count, ulong* out_sum);
+
+        /// Refuses the peer from now on and drops it if connected.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_block(SturdyAsyncObject peer, byte* peer_id);
+
+        /// Sends to every connected peer, except `except_peer_id` when non-null (forwarding what that peer just sent). Number: how many links took it.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_broadcast(SturdyAsyncObject peer, ushort channel, byte* data, ulong size, byte* except_peer_id, SturdyAsyncOp* out_op);
+
+        /// Dials a peer. `expected_id` non-null pins it (the link is refused if someone else answers). Fields of the linked peer: id, name, address, inbound, listen_port.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_connect(SturdyAsyncObject peer, byte* host, ushort port, byte* expected_id, SturdyAsyncOp* out_op);
+
+        /// Meets a peer through a relay when neither can be dialed. Both sides use the same `token` and opposite `dial`; the peer-to-peer TLS runs through the relay end to end. `relay_tls` non-null: the hop to the relay itself uses TLS too.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_connect_via_relay(SturdyAsyncObject peer, byte* relay_host, ushort relay_port, byte* token, byte dial, byte* expected_id, SturdyTlsClientOptions* relay_tls, SturdyAsyncOp* out_op);
+
+        /// Drops a peer; `reason` (null: "disconnected by application") is what the other side sees.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_disconnect(SturdyAsyncObject peer, byte* peer_id, byte* reason);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_id(SturdyAsyncObject peer, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// The node's identity as a finished op: fields `certificate_pem`, `private_key_pem`, `sha256`. Persist it to keep the same id.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_identity(SturdyAsyncObject peer, SturdyAsyncOp* out_op);
+
+        /// Connected peers as a finished op: fields `id:N`, `name:N`, `address:N`, `inbound:N`, `listen_port:N` for N = 0, 1, ...
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_list(SturdyAsyncObject peer, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_listen_port(SturdyAsyncObject peer, ushort* out_port);
+
+        /// Next event. Number: 0 connected, 1 disconnected, 2 message, 3 discovered. Bytes: the message. Fields: peer, channel, name, address, reason, inbound. Not consuming events eventually stalls the peers' readers.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_next_event(SturdyAsyncObject peer, SturdyAsyncOp* out_op);
+
+        /// Sends a message on channel 0..0xFEFF to one peer.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_send(SturdyAsyncObject peer, byte* peer_id, ushort channel, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        /// Starts a peer node: encrypted, mutually authenticated links with self-certifying ids. Object "peer"; text: our peer id.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_start(SturdyPeerOptions* options, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_peer_stop(SturdyAsyncObject peer);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_permit_count(SturdyAsyncObject permit, ulong* out_count);
+
+        /// Keeps the permits consumed forever (they are never returned).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_permit_forget(SturdyAsyncObject permit);
+
+        /// Returns the permits now.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_permit_release(SturdyAsyncObject permit);
 
         /// The language the plugin reported through `set_info`, empty when it did not. See the string-output convention above.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -3778,9 +5221,177 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_plugin_take_modules(SturdyPlugin plugin, SturdyGameModule* out_modules, uint capacity, uint* out_count);
 
+        /// Creates a separate worker pool (Rayon's `ThreadPoolBuilder`): work run through it stays on its own threads, so a long job cannot starve the engine's scheduler. `threads` 0: the machine's core count. Object "pool"; released objects shut their threads down.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_pool_create(uint threads, byte* name, SturdyAsyncObject* out_pool);
+
+        /// `sturdy_par_for` on the pool's own threads.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_pool_par_for(SturdyAsyncObject pool, ulong count, ulong min_chunk, delegate* unmanaged[Cdecl]<void*, ulong, void> body, void* user_data);
+
+        /// Runs `task` on the pool and waits for it (anything it parallelises stays on the pool).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_pool_run(SturdyAsyncObject pool, delegate* unmanaged[Cdecl]<void*, void> task, void* user_data);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_pool_threads(SturdyAsyncObject pool, uint* out_threads);
+
         /// Fills `settings` with `struct_size` and the engine's defaults (vsync on, no HDR, opaque composition, automatic image count).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_presentation_settings_init(SturdyPresentationSettings* settings);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_process_close_stdin(SturdyAsyncObject process);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_process_id(SturdyAsyncObject process, long* out_id);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_process_kill(SturdyAsyncObject process);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_process_read_stderr(SturdyAsyncObject process, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Bytes: up to `max_bytes` from the child's stdout / stderr (empty at end).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_process_read_stdout(SturdyAsyncObject process, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Asks the child to exit (SIGTERM / a close request); `sturdy_process_kill` forces it.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_process_request_exit(SturdyAsyncObject process);
+
+        /// Runs a program to completion, feeding `stdin_data` and collecting stdout/stderr (bounded; the child is killed past `max_output_bytes` — 0: 16 MiB — or `timeout_ms` — 0: no limit). Bytes: stdout. Text: stderr. Number: exit code (the signal number if signalled). Fields: `signaled`, `success`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_process_run(SturdyProcessOptions* options, byte* stdin_data, ulong stdin_size, long timeout_ms, ulong max_output_bytes, SturdyAsyncOp* out_op);
+
+        /// Starts a child (standard streams per the options, piped by default). Object "process".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_process_spawn(SturdyProcessOptions* options, SturdyAsyncObject* out_process);
+
+        /// Number: exit code (the signal number if signalled). Fields: `signaled`, `success`, `signal`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_process_wait(SturdyAsyncObject process, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_process_write_stdin(SturdyAsyncObject process, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        /// Completes the future as cancelled.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_promise_cancel(SturdyAsyncObject promise, byte* out_first);
+
+        /// The producing half of an operation: something other than the engine finishes `out_future` by calling `sturdy_promise_set_*`. Object "promise"; `out_future` is an ordinary op (wait on it, attach a callback, link or time it out). Only the first completion wins; a promise released while pending fails its future with `STURDY_IO_CLOSED`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_promise_create(SturdyAsyncObject* out_promise, SturdyAsyncOp* out_future);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_promise_is_completed(SturdyAsyncObject promise, byte* out_completed);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_promise_set_error(SturdyAsyncObject promise, SturdyIoError code, byte* message, byte* out_first);
+
+        /// Completes the future with a number, bytes and text. `out_first` (may be null) says whether this call completed it.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_promise_set_value(SturdyAsyncObject promise, long number, byte* data, ulong size, byte* text, byte* out_first);
+
+        /// Next connection whose handshake completed. Object "quic_conn".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_accept(SturdyAsyncObject listener, SturdyAsyncOp* out_op);
+
+        /// Next stream the peer opened. Object "quic_stream".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_accept_stream(SturdyAsyncObject connection, SturdyAsyncOp* out_op);
+
+        /// Closes the connection with an application error code (0 = clean).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_close(SturdyAsyncObject connection, ulong error_code, byte* reason);
+
+        /// Finishes when the connection ends, for any reason. Number: the code. Text: the reason. Fields: `from_peer`, `application`, `timed_out` ("1"/"0").
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_closed(SturdyAsyncObject connection, SturdyAsyncOp* out_op);
+
+        /// Connects and completes the TLS 1.3 handshake. Object "quic_conn". Datagrams and many streams, no head-of-line blocking.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_connect(byte* host, ushort port, SturdyQuicClientOptions* options, SturdyAsyncOp* out_op);
+
+        /// Fields: `peer`, `local`, and once the handshake finished `protocol`, `alpn`, `peer_sha256`, `cipher` (a finished op).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_info(SturdyAsyncObject connection, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_is_open(SturdyAsyncObject connection, byte* out_open);
+
+        /// Starts a QUIC server. Object "quic_listener" (finished op).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_listen(SturdyQuicServerOptions* options, SturdyAsyncOp* out_op);
+
+        /// Counters as a finished op's fields: connections_accepted, retries_sent, rejected_limit, ...
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_listener_metrics(SturdyAsyncObject listener, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_listener_port(SturdyAsyncObject listener, ushort* out_port);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_listener_stop(SturdyAsyncObject listener);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_max_datagram_size(SturdyAsyncObject connection, ulong* out_size);
+
+        /// Opens a stream (waits if the peer's stream limit is reached). Object "quic_stream".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_open_stream(SturdyAsyncObject connection, byte bidirectional, SturdyAsyncOp* out_op);
+
+        /// Next received datagram. Bytes: the payload.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_receive_datagram(SturdyAsyncObject connection, SturdyAsyncOp* out_op);
+
+        /// Sends one unreliable datagram; it may be lost or reordered. `STURDY_ERROR_OUT_OF_RANGE` when larger than the current maximum, `STURDY_ERROR_BUSY` when the send queue is full, `STURDY_ERROR_NOT_AVAILABLE` when the peer takes no datagrams.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_send_datagram(SturdyAsyncObject connection, byte* data, ulong size);
+
+        /// Fields (decimal): rtt_us, min_rtt_us, bytes_in_flight, cwnd, packets_lost, bytes_sent, bytes_received (a finished op).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_stats(SturdyAsyncObject connection, SturdyAsyncOp* out_op);
+
+        /// Ends the sending side cleanly after everything queued.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_stream_finish(SturdyAsyncObject stream, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_stream_id(SturdyAsyncObject stream, long* out_id);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_stream_is_bidirectional(SturdyAsyncObject stream, byte* out_bidirectional);
+
+        /// 1..`max_bytes` bytes as they arrive. Bytes: empty means the peer finished. Reading is what grants the peer more credit.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_stream_receive(SturdyAsyncObject stream, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Abruptly stops sending (the peer's reads fail with `error_code`) / asks the peer to stop sending.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_stream_reset(SturdyAsyncObject stream, ulong error_code);
+
+        /// Queues data on a stream; finishes once it fits under `stream_send_buffer` (so a slow peer paces the sender).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_stream_send(SturdyAsyncObject stream, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_quic_stream_stop_sending(SturdyAsyncObject stream, ulong error_code);
+
+        /// A keyed token bucket: each key may use `rate_per_second` operations per second on average, with bursts up to `burst`. Thread-safe; memory is bounded by `max_keys` (0: 10000). Object "rate_limiter".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_rate_limiter_create(double rate_per_second, double burst, ulong max_keys, SturdyAsyncObject* out_limiter);
+
+        /// Milliseconds until `key` could take `cost` tokens (0 if it could now).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_rate_limiter_retry_after_ms(SturdyAsyncObject limiter, byte* key, double cost, long* out_ms);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_rate_limiter_tracked_keys(SturdyAsyncObject limiter, ulong* out_keys);
+
+        /// Takes `cost` tokens for `key` if available.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_rate_limiter_try_acquire(SturdyAsyncObject limiter, byte* key, double cost, byte* out_acquired);
 
         /// Adds a listener that fires just after a method returns. See `sturdy_reflection_add_before_hook`.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -3924,6 +5535,28 @@ namespace Sturdy
         /// Removes a listener added by `sturdy_reflection_subscribe_event`.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_reflection_unsubscribe_event(SturdyReflectionId type, SturdyReflectionId @event, SturdyReflectionSubscription subscription);
+
+        /// Connects to a relay and waits for the partner. Object "tcp" connected to the partner: start TLS on it before sending anything private. `relay_tls` non-null: TLS to the relay itself. `timeout_ms` 0: 35 s.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_relay_connect(byte* host, ushort port, byte* token, byte dial, SturdyTlsClientOptions* relay_tls, long timeout_ms, SturdyAsyncOp* out_op);
+
+        /// A fresh unguessable rendezvous token (32 hex characters).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_relay_random_token(byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Counters as a finished op's fields: sessions_started, sessions_active, waiting, bytes_relayed, rejected, timed_out.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_relay_server_metrics(SturdyAsyncObject relay, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_relay_server_port(SturdyAsyncObject relay, ushort* out_port);
+
+        /// Starts a rendezvous relay: pairs two connections that name the same token and forwards opaque bytes. It cannot read the peers' traffic when they run TLS through it. Object "relay_server". `authorize` may be null (any token is accepted).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_relay_server_start(SturdyRelayOptions* options, delegate* unmanaged[Cdecl]<void*, byte*, byte*, byte> authorize, void* user_data, SturdyAsyncObject* out_relay);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_relay_server_stop(SturdyAsyncObject relay);
 
         /// Creates a renderable model from your own geometry.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -4618,6 +6251,58 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_rhi_write_ray_tracing_shader_group_handles(SturdyEngine engine, SturdyRayTracingPipeline pipeline, uint first_group, uint group_count, void* dst, ulong dst_size);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ring_capacity(SturdyAsyncObject ring, ulong* out_capacity);
+
+        /// A wait-free single-producer single-consumer ring of byte messages. Object "spsc_ring". Exactly one thread may push and exactly one (possibly another) may pop. Items are at most `max_item_bytes` (rounded up to 32, 128, 512, 2 Ki, 8 Ki or 64 Ki; 64 Ki is the limit); the capacity (1..16 Mi items) is rounded up to a power of two.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ring_create(ulong capacity, ulong max_item_bytes, SturdyAsyncObject* out_ring);
+
+        /// Pops up to `max_items` (0: all) as a finished op: bytes are the items as packed frames (`sturdy_frames_count` / `sturdy_frames_get`), number is how many.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ring_drain(SturdyAsyncObject ring, ulong max_items, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ring_max_item_bytes(SturdyAsyncObject ring, ulong* out_bytes);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ring_size(SturdyAsyncObject ring, ulong* out_size);
+
+        /// Pops the oldest item into `buffer`, which must hold at least `sturdy_ring_max_item_bytes` (a smaller one is refused before anything is popped). `out_length` receives the item's size. `out_status` is `STURDY_RING_EMPTY` when there was nothing.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ring_try_pop(SturdyAsyncObject ring, byte* buffer, ulong capacity, ulong* out_length, SturdyRingStatus* out_status);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_ring_try_push(SturdyAsyncObject ring, byte* data, ulong size, SturdyRingStatus* out_status);
+
+        /// Creates a URL router. Patterns are '/'-separated literals, `:name` (one segment) and a final `*name` (the rest); literals beat parameters, which beat wildcards. Object "router". HEAD requests reuse GET routes; unmatched methods on known paths get 405 with an Allow header; malformed paths get 400.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_router_create(SturdyAsyncObject* out_router);
+
+        /// Runs one request through the router synchronously (tests, in-process calls). Number: status. Fields: headers. Bytes: body (a streamed body is not collected).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_router_dispatch(SturdyAsyncObject router, byte* method, byte* target, byte* remote_address, SturdyKeyValue* headers, uint header_count, byte* body, ulong body_size, SturdyAsyncOp* out_op);
+
+        /// Replaces the default 404. The handler must answer before it returns.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_router_not_found(SturdyAsyncObject router, delegate* unmanaged[Cdecl]<void*, SturdyHttpRequest*, SturdyHttpResponder, void> handler, void* user_data);
+
+        /// Middleware answering 429 with Retry-After once one client address exceeds `rate_per_second` (bursts up to `burst`). `max_keys` 0: 10000.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_router_rate_limit(SturdyAsyncObject router, double rate_per_second, double burst, ulong max_keys);
+
+        /// Adds a route (`method` upper-case, e.g. "GET"). `handler` runs on a handler thread, exactly like a server handler, with `path`, `query` and `params` filled in. `user_data` must stay valid until every server serving this router is released.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_router_route(SturdyAsyncObject router, byte* method, byte* pattern, delegate* unmanaged[Cdecl]<void*, SturdyHttpRequest*, SturdyHttpResponder, void> handler, void* user_data);
+
+        /// Serves files under `mount` (e.g. "/assets") from `options->root`, GET and HEAD only. `STURDY_ERROR_INVALID_ARGUMENT` when the root is not a directory.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_router_static_files(SturdyAsyncObject router, byte* mount, SturdyStaticFilesOptions* options);
+
+        /// Adds middleware that runs before every matching route. Call `sturdy_http_respond*` with the responder **before returning** to answer the request yourself (auth, rate limits); return without answering to let it continue. Answering later is ignored.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_router_use(SturdyAsyncObject router, delegate* unmanaged[Cdecl]<void*, SturdyHttpRequest*, SturdyHttpResponder, void> middleware, void* user_data);
+
         /// Fills `config` with engine defaults and the correct `struct_size`.
         ///
         /// Always call this before setting fields. It is what makes a binding compiled against an older header keep working against a newer engine: fields you have never heard of still get sane values instead of whatever was on your stack.
@@ -4660,13 +6345,139 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_scene_spawn(SturdyEngine engine, SturdyGltfScene scene, SturdySpawnOptions* options, SturdyEntity* out_entities, uint capacity, uint* out_count);
 
+        /// Starts the worker pool (0 workers: one per hardware thread). The engine starts it on first use; call this only to choose the size first, or in a program that does not run the engine.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_scheduler_initialize(uint workers);
+
+        /// Stops the worker pool. The engine owns it: only a standalone program should call this.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_scheduler_shutdown();
+
         /// Fills `settings` with `struct_size` and engine defaults (disabled).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_screen_space_gi_settings_init(SturdyScreenSpaceGiSettings* settings);
 
+        /// Calls a function of a script now (taking the script lock, so it is safe from any thread). Returns a finished op: bytes on success, a failure otherwise (an unknown script or function, or the script's own error).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_call(SturdyEngine engine, byte* script, byte* function, byte* args, ulong args_size, SturdyAsyncOp* out_op);
+
+        /// Calls a host function (what an adapter does on a script's behalf). Returns a finished op: bytes on success, a failure otherwise.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_call_host_function(byte* name, byte* args, ulong args_size, SturdyAsyncOp* out_op);
+
+        /// How many scripts are loaded, and the name of script `index` (start order, string-output convention).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_count(SturdyEngine engine, uint* out_count);
+
+        /// A script's details as a finished op's fields: `language`, `path`, `generation` (1 + reloads), `healthy` ("1"/"0") and `failure`. `STURDY_ERROR_NOT_AVAILABLE` for an unknown script.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_info(SturdyEngine engine, byte* name, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_language_count(uint* out_count);
+
+        /// The name of language `index` (string-output convention).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_language_name(uint index, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Registers a language adapter for the whole process (before the runtime starts, or while it runs).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_language_register(SturdyScriptLanguage* language);
+
+        /// Forgets a language. Scripts already running keep working until they are unloaded.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_language_unregister(byte* name);
+
+        /// `sturdy_script_module_create` and `sturdy_module_request_load` in one step: adds a script to the running game at the next update boundary.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_load(SturdyEngine engine, SturdyScriptModuleDesc* desc);
+
+        /// Makes the module for a script that loads through a registered language adapter when the game starts. Pass it to `sturdy_runtime_run_modules` or `sturdy_module_request_load`, or release it with `sturdy_script_module_discard` if you never will. The strings inside `out_module` stay valid until then.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_module_create(SturdyScriptModuleDesc* desc, SturdyGameModule* out_module);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_module_create_native(SturdyNativeScriptDesc* desc, SturdyGameModule* out_module);
+
+        /// Destroys a module made by the functions above that was never handed to the engine.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_module_discard(SturdyGameModule* module);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_name(SturdyEngine engine, uint index, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Queues a message for every script subscribed to `topic` except `from`. `out_receivers` (may be null) receives how many.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_publish(SturdyEngine engine, byte* from, byte* topic, byte* payload, ulong size, uint* out_receivers);
+
+        /// Registers `function` under `name` for the whole process. `destroy` (may be null) releases `user_data` when the function is unregistered.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_register_host_function(byte* name, delegate* unmanaged[Cdecl]<void*, byte*, ulong, SturdyBytesSink*, SturdyBytesSink*, byte> function, void* user_data, delegate* unmanaged[Cdecl]<void*, void> destroy);
+
+        /// Hot reload (see above). Takes effect at the next update boundary; a parse error is reported at once. Failures after that are reported through `sturdy_module_take_failure`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_reload(SturdyEngine engine, SturdyScriptSource* source);
+
+        /// Hot reload of a script built from callbacks: `instance` replaces the running one.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_reload_native(SturdyEngine engine, byte* name, SturdyScriptInstance* instance);
+
+        /// Queues a message for `to` (delivered at the next update boundary). `from` null: the host application. `STURDY_ERROR_NOT_AVAILABLE` when no such script is loaded.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_send(SturdyEngine engine, byte* from, byte* to, byte* topic, byte* payload, ulong size);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_subscribe(SturdyEngine engine, byte* script, byte* topic);
+
+        /// Removes a script (as `sturdy_module_request_unload`).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_unload(SturdyEngine engine, byte* name);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_unregister_host_function(byte* name);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_script_unsubscribe(SturdyEngine engine, byte* script, byte* topic);
+
+        /// Waits for `count` permits. Object "permit". `STURDY_IO_CLOSED` if the semaphore closes first.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_semaphore_acquire(SturdyAsyncObject semaphore, ulong count, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_semaphore_add_permits(SturdyAsyncObject semaphore, ulong count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_semaphore_available(SturdyAsyncObject semaphore, ulong* out_permits);
+
+        /// Fails every waiter and every future acquire.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_semaphore_close(SturdyAsyncObject semaphore);
+
+        /// A counting semaphore. Object "semaphore".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_semaphore_create(ulong permits, SturdyAsyncObject* out_semaphore);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_semaphore_is_closed(SturdyAsyncObject semaphore, byte* out_closed);
+
+        /// `out_permit` receives the zero handle when the permits are not available.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_semaphore_try_acquire(SturdyAsyncObject semaphore, ulong count, SturdyAsyncObject* out_permit);
+
         /// Fills `settings` with `struct_size` and engine defaults (4 cascades, 4096 atlas, contact shadows on, contact hardening off).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_shadow_settings_init(SturdyShadowSettings* settings);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_signal_ctrl_c(SturdyAsyncOp* out_op);
+
+        /// Finishes when the process receives SIGINT or SIGTERM (Ctrl+C / termination). Number: the signal.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_signal_shutdown(SturdyAsyncOp* out_op);
+
+        /// Number: the first of `signals` (SIGINT, SIGTERM, ...) delivered to the process.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_signal_wait(int* signals, uint count, SturdyAsyncOp* out_op);
 
         /// Decodes a file (any supported codec; cached by path) without playing it.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -4682,6 +6493,108 @@ namespace Sturdy
         /// Fills `options` with the defaults: auto-play, looping, speed 1, first clip, identity transform.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_spawn_options_init(SturdySpawnOptions* options);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_chain(SturdyAsyncObject first, SturdyAsyncObject second, SturdyAsyncObject* out_stream);
+
+        /// Items become packed frames of up to `count` items; the `_timeout` form also emits a partial batch once `max_wait_ms` passed since its first item.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_chunks(SturdyAsyncObject stream, ulong count, SturdyAsyncObject* out_stream);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_chunks_timeout(SturdyAsyncObject stream, ulong count, long max_wait_ms, SturdyAsyncObject* out_stream);
+
+        /// Drains the stream. Bytes: the items as packed frames. Number: how many.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_collect(SturdyAsyncObject stream, SturdyAsyncOp* out_op);
+
+        /// Number: how many items.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_count(SturdyAsyncObject stream, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_empty(SturdyAsyncObject* out_stream);
+
+        /// Items become frames {index as 8-byte little-endian, item}.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_enumerate(SturdyAsyncObject stream, SturdyAsyncObject* out_stream);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_filter(SturdyAsyncObject stream, delegate* unmanaged[Cdecl]<void*, byte*, ulong, byte> pred, void* user_data, SturdyAsyncObject* out_stream);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_filter_map(SturdyAsyncObject stream, delegate* unmanaged[Cdecl]<void*, byte*, ulong, SturdyBytesSink*, byte> fn, void* user_data, SturdyAsyncObject* out_stream);
+
+        /// Bytes: the final accumulator.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_fold(SturdyAsyncObject stream, byte* initial, ulong initial_size, delegate* unmanaged[Cdecl]<void*, byte*, ulong, byte*, ulong, SturdyBytesSink*, void> fn, void* user_data, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_for_each(SturdyAsyncObject stream, delegate* unmanaged[Cdecl]<void*, byte*, ulong, void> fn, void* user_data, SturdyAsyncOp* out_op);
+
+        /// Sends every item into a channel (does not close it).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_forward(SturdyAsyncObject stream, SturdyAsyncObject sender, SturdyAsyncOp* out_op);
+
+        /// Sources. Every callback's `user_data` must stay valid until the stream is finished with.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_from_channel(SturdyAsyncObject receiver, SturdyAsyncObject* out_stream);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_generate(delegate* unmanaged[Cdecl]<void*, SturdyBytesSink*, byte> source, void* user_data, SturdyAsyncObject* out_stream);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_inspect(SturdyAsyncObject stream, delegate* unmanaged[Cdecl]<void*, byte*, ulong, void> fn, void* user_data, SturdyAsyncObject* out_stream);
+
+        /// Items are 8-byte little-endian steady-clock nanoseconds, one per period.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_interval(long period_ms, SturdyAsyncObject* out_stream);
+
+        /// Number 1 and bytes: the last item; number 0 for an empty stream.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_last(SturdyAsyncObject stream, SturdyAsyncOp* out_op);
+
+        /// Adapters. Each takes (consumes) its input stream(s) and returns a new one.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_map(SturdyAsyncObject stream, delegate* unmanaged[Cdecl]<void*, byte*, ulong, SturdyBytesSink*, void> fn, void* user_data, SturdyAsyncObject* out_stream);
+
+        /// Runs `fn` on the worker pool for up to `concurrency` items at once (0: twice the worker count); `ordered` keeps the input order.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_map_concurrent(SturdyAsyncObject stream, delegate* unmanaged[Cdecl]<void*, byte*, ulong, SturdyBytesSink*, void> fn, void* user_data, ulong concurrency, byte ordered, SturdyAsyncObject* out_stream);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_merge(SturdyAsyncObject first, SturdyAsyncObject second, SturdyAsyncObject* out_stream);
+
+        /// Sinks. Number 1 and bytes: the next item; number 0 at the end. (Not consuming; cannot be cancelled — close the source to stop it.)
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_next(SturdyAsyncObject stream, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_of_items(SturdyBytesView* items, uint count, SturdyAsyncObject* out_stream);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_skip(SturdyAsyncObject stream, ulong count, SturdyAsyncObject* out_stream);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_take(SturdyAsyncObject stream, ulong count, SturdyAsyncObject* out_stream);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_take_while(SturdyAsyncObject stream, delegate* unmanaged[Cdecl]<void*, byte*, ulong, byte> pred, void* user_data, SturdyAsyncObject* out_stream);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_throttle(SturdyAsyncObject stream, long period_ms, SturdyAsyncObject* out_stream);
+
+        /// An item that takes longer than `limit_ms` fails the next pull with `STURDY_IO_TIMED_OUT`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_timeout_each(SturdyAsyncObject stream, long limit_ms, SturdyAsyncObject* out_stream);
+
+        /// Items become frames {a, b}.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stream_zip(SturdyAsyncObject first, SturdyAsyncObject second, SturdyAsyncObject* out_stream);
+
+        /// Asks a STUN server what public address this machine appears as. Text: host. Number: port. `server` null: stun.l.google.com:19302.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_stun_query(byte* server, ushort port, long timeout_ms, SturdyAsyncOp* out_op);
 
         /// Reads what `surface`'s presentation policy actually resolved to.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -4702,6 +6615,116 @@ namespace Sturdy
         /// Updates HDR10 static content light level metadata (MaxCLL/MaxFALL) on `surface`'s live swapchain, without recreating it.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_surface_update_hdr_content_light_level(SturdyEngine engine, SturdySurface surface, float max_content_light_level_nits, float max_frame_average_light_level_nits);
+
+        /// A blocking mutex around a byte-string value, named for the profiler. Object "sync_mutex". It blocks the calling thread: never lock it on a network or timer thread, never hold it across a wait, and release a guard on the thread that locked it. (`sturdy_async_mutex_*` waits without a thread.)
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_sync_mutex_create(byte* initial, ulong size, byte* debug_name, SturdyAsyncObject* out_mutex);
+
+        /// Blocks until the lock is free. Object "sync_guard": read and replace the value with `sturdy_guard_get` / `sturdy_guard_set`, unlock with `sturdy_guard_release`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_sync_mutex_lock(SturdyAsyncObject mutex, SturdyAsyncObject* out_guard);
+
+        /// `out_guard` receives the zero handle when the lock is held.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_sync_mutex_try_lock(SturdyAsyncObject mutex, SturdyAsyncObject* out_guard);
+
+        /// A value that follows the flow of work: tasks spawned while it is bound inherit it. Object "task_local".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_task_local_create(SturdyAsyncObject* out_local);
+
+        /// The bound value (bytes-output convention); `STURDY_ERROR_NOT_AVAILABLE` when none is bound here.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_task_local_get(SturdyAsyncObject local, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Runs `body` with `value` bound.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_task_local_scope(SturdyAsyncObject local, byte* value, ulong size, delegate* unmanaged[Cdecl]<void*, void> body, void* user_data);
+
+        /// Sets a task's result: a number, bytes and text; a non-null, non-empty `error` fails the task with that message.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_task_output_set(SturdyTaskOutput* output, long number, byte* bytes, ulong size, byte* text, byte* error);
+
+        /// Runs `work` and reports its result as an op: number, bytes and text as set; a task error fails the op. `user_data` must stay valid until the task finishes. Cancelling the op sets the token the work polls.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_task_spawn(delegate* unmanaged[Cdecl]<void*, SturdyAsyncObject, SturdyTaskOutput*, void> work, void* user_data, SturdyTaskLane lane, SturdyAsyncOp* out_op);
+
+        /// Same, on a custom pool (`sturdy_pool_create`).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_task_spawn_on(SturdyAsyncObject pool, delegate* unmanaged[Cdecl]<void*, SturdyAsyncObject, SturdyTaskOutput*, void> work, void* user_data, SturdyAsyncOp* out_op);
+
+        /// Waits for the next connection. Object "tcp".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_accept(SturdyAsyncObject listener, SturdyAsyncOp* out_op);
+
+        /// Closes now (the object is still released separately).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_close(SturdyAsyncObject connection);
+
+        /// Connects (resolving, trying each address). Object "tcp". `tls` null: plain TCP; otherwise a verified TLS handshake. `timeout_ms` 0: 30 seconds.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_connect(byte* host, ushort port, SturdyTlsClientOptions* tls, long timeout_ms, SturdyAsyncOp* out_op);
+
+        /// Connection details as a finished op: fields `peer`, `local` ("host:port") and, over TLS, `protocol`, `cipher`, `alpn`, `peer_sha256`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_info(SturdyAsyncObject connection, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_is_open(SturdyAsyncObject connection, byte* out_open);
+
+        /// Starts listening. Object "tcp_listener" (finished op). `tls` non-null: every accepted connection completes a TLS handshake first. `backlog` is the pending-connection queue length; 0: 1024.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_listen(byte* host, ushort port, SturdyTlsServerOptions* tls, int backlog, SturdyAsyncOp* out_op);
+
+        /// "host:port" the listener is bound to, following the string-output convention.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_listener_address(SturdyAsyncObject listener, byte* buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_listener_close(SturdyAsyncObject listener);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_listener_is_open(SturdyAsyncObject listener, byte* out_open);
+
+        /// The port a listener is bound to.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_listener_port(SturdyAsyncObject listener, ushort* out_port);
+
+        /// Receives 1..`max_bytes` bytes as soon as any arrive. Bytes: empty means the peer finished.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_receive(SturdyAsyncObject connection, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Receives exactly `count` bytes (`STURDY_IO_UNEXPECTED_EOF` if the peer closes first).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_receive_exact(SturdyAsyncObject connection, ulong count, SturdyAsyncOp* out_op);
+
+        /// Receives up to and including `delimiter` (a line, a header block); `STURDY_IO_LIMIT_EXCEEDED` past `max_bytes`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_receive_until(SturdyAsyncObject connection, byte* delimiter, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Sends all of `data`. Number: bytes sent. The data is copied.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_send(SturdyAsyncObject connection, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_set_keepalive(SturdyAsyncObject connection, byte enabled, SturdyAsyncOp* out_op);
+
+        /// Socket options; each finishes once applied (a failure is reported on the op).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_set_nodelay(SturdyAsyncObject connection, byte enabled, SturdyAsyncOp* out_op);
+
+        /// Half-close: tells the peer no more data is coming while reads continue.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_shutdown_write(SturdyAsyncObject connection, SturdyAsyncOp* out_op);
+
+        /// Upgrades an open, quiet connection to TLS in place (STARTTLS, after an HTTP CONNECT). Client or server role.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_start_tls_client(SturdyAsyncObject connection, byte* host, SturdyTlsClientOptions* tls, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tcp_start_tls_server(SturdyAsyncObject connection, SturdyTlsServerOptions* tls, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_thread_pin_current(uint core_index, byte* out_pinned);
 
         /// Reads the time step for the current tick, after the time scale is applied.
         ///
@@ -4727,9 +6750,29 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_time_unscaled_delta_seconds(SturdyEngine engine, double* out_seconds);
 
+        /// Finishes (OK) after `milliseconds`, without occupying a thread.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_timer_sleep(long milliseconds, SturdyAsyncOp* out_op);
+
+        /// Finishes at an absolute wall-clock time (milliseconds since the Unix epoch), at once if it has passed.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_timer_sleep_until(long unix_ms, SturdyAsyncOp* out_op);
+
+        /// Hex SHA-256 of the first certificate in `certificate_pem`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tls_certificate_sha256(byte* certificate_pem, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Generates a self-signed ECDSA P-256 identity (for peers and dev servers). Returns an already-finished op with fields `certificate_pem`, `private_key_pem`, `sha256`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tls_generate_identity(byte* common_name, uint valid_days, SturdyAsyncOp* out_op);
+
         /// Fills `settings` with `struct_size` and engine defaults (AGX operator, no look, neutral PsychoV/Hermite curve parameters).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_tone_mapping_settings_init(SturdyToneMappingSettings* settings);
+
+        /// Logical (or physical) cores ranked fastest first (bytes-output convention in `uint32_t` units: `out_count` always receives the number).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_topology_ranked_cores(byte physical, uint* buffer, ulong capacity, ulong* out_count);
 
         /// Replaces the calling thread's trace with the stack at this call (foreign site, engine scopes, native stack per the detail setting). For a foreign language that wants the engine's side of a stack at a moment of its choosing, such as a panic hook.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -4754,6 +6797,55 @@ namespace Sturdy
         /// Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_trace_set_foreign_call_site(byte* language, uint language_length, byte* file, uint file_length, uint line, uint column, byte* function, uint function_length);
+
+        /// "host:port" the socket is bound to, following the string-output convention.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_address(SturdyAsyncObject socket, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Binds a UDP socket. Object "udp". `host` null/empty: all interfaces. `port` 0: any. `options` may be null.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_bind(byte* host, ushort port, SturdyUdpOptions* options, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_close(SturdyAsyncObject socket);
+
+        /// Fixes the peer: `sturdy_udp_send` then needs no address and only that peer's datagrams are received.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_connect(SturdyAsyncObject socket, byte* host, ushort port, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_is_open(SturdyAsyncObject socket, byte* out_open);
+
+        /// `interface_address` null/empty: the default interface.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_join_multicast(SturdyAsyncObject socket, byte* group, byte* interface_address, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_leave_multicast(SturdyAsyncObject socket, byte* group, byte* interface_address, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_port(SturdyAsyncObject socket, ushort* out_port);
+
+        /// Receives the next datagram (at most `max_bytes`). Bytes: the datagram. Text: sender host. Number: sender port.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_receive(SturdyAsyncObject socket, ulong max_bytes, SturdyAsyncOp* out_op);
+
+        /// Sends one datagram on a connected socket. Number: bytes sent.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_send(SturdyAsyncObject socket, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        /// Sends one datagram. Number: bytes sent.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_send_to(SturdyAsyncObject socket, byte* host, ushort port, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_set_broadcast(SturdyAsyncObject socket, byte enabled, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_set_multicast_loopback(SturdyAsyncObject socket, byte enabled, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_udp_set_multicast_ttl(SturdyAsyncObject socket, uint hops, SturdyAsyncOp* out_op);
 
         /// Opens a UI frame, to be built and then closed with `sturdy_ui_end`.
         ///
@@ -4885,6 +6977,100 @@ namespace Sturdy
         /// Fills `settings` with `struct_size` and engine defaults (disabled — fog is opt-in).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_volumetric_fog_settings_init(SturdyVolumetricFogSettings* settings);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_close(SturdyAsyncObject watcher);
+
+        /// The remaining events as a "stream" object; each item is `sturdy_frames_pack` of {kind as decimal text, path, old_path, "1"/"0" for is_directory}.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_events_stream(SturdyAsyncObject watcher, SturdyAsyncObject* out_stream);
+
+        /// Next change. Number: 0 created, 1 modified, 2 removed, 3 renamed, 4 overflow (rescan). Text: path. Fields: old_path, is_directory.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_next(SturdyAsyncObject watcher, SturdyAsyncOp* out_op);
+
+        /// Watches a path for changes (inotify on Linux, polling elsewhere). Object "watcher". `options` may be null.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_path(byte* path, SturdyWatchOptions* options, SturdyAsyncObject* out_watcher);
+
+        /// Whether the OS's event API is used (false: polling).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_uses_native_backend(SturdyAsyncObject watcher, byte* out_native);
+
+        /// The current value (bytes-output convention); `_and_update` also marks it seen.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_value_borrow(SturdyAsyncObject receiver, byte* buffer, ulong capacity, ulong* out_length);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_value_borrow_and_update(SturdyAsyncObject receiver, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// Finishes when the value changed since this receiver last looked; `STURDY_IO_CLOSED` once the sender is gone and nothing new remains.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_value_changed(SturdyAsyncObject receiver, SturdyAsyncOp* out_op);
+
+        /// A single value many tasks observe. Objects "watch_sender" / "watch_receiver"; each receiver tracks what it has seen on its own.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_value_create(byte* initial, ulong size, SturdyAsyncObject* out_sender, SturdyAsyncObject* out_receiver);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_value_has_changed(SturdyAsyncObject receiver, byte* out_changed);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_value_receiver_clone(SturdyAsyncObject receiver, SturdyAsyncObject* out_receiver);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_value_send(SturdyAsyncObject sender, byte* data, ulong size);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_watch_value_subscribe(SturdyAsyncObject sender, SturdyAsyncObject* out_receiver);
+
+        /// Drops the connection without a closing handshake.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_abort(SturdyAsyncObject socket);
+
+        /// Waits for the next upgraded connection. Object "websocket".
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_accept(SturdyAsyncObject server, SturdyAsyncOp* out_op);
+
+        /// Graceful close with an RFC 6455 code (1000 normal) and a reason of up to 123 bytes.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_close(SturdyAsyncObject socket, ushort code, byte* reason, SturdyAsyncOp* out_op);
+
+        /// Connects (`ws://` or `wss://`). Object "websocket". `options` may be null.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_connect(byte* url, SturdyWebSocketClientOptions* options, SturdyAsyncOp* out_op);
+
+        /// Fields: `target`, `origin`, `subprotocol`, `header: <Name >` for each upgrade-request header, `peer` ("host:port"), the TLS fields over wss, and once closed `close_code`, `close_reason` (a finished op).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_info(SturdyAsyncObject socket, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_is_open(SturdyAsyncObject socket, byte* out_open);
+
+        /// Sends a ping (payload up to 125 bytes).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_ping(SturdyAsyncObject socket, byte* payload, ulong size, SturdyAsyncOp* out_op);
+
+        /// Next data message. Bytes: payload. Number: 1 for text, 0 for binary. Fails with `STURDY_IO_CLOSED` once the connection ended.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_receive(SturdyAsyncObject socket, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_send_binary(SturdyAsyncObject socket, byte* data, ulong size, SturdyAsyncOp* out_op);
+
+        /// Queues a text message (UTF-8, `size` bytes; no terminator needed). The data is copied.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_send_text(SturdyAsyncObject socket, byte* text, ulong size, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_server_close(SturdyAsyncObject server);
+
+        /// Starts a WebSocket server. Object "ws_server" (finished op).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_server_listen(SturdyWebSocketServerOptions* options, SturdyAsyncOp* out_op);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_websocket_server_port(SturdyAsyncObject server, ushort* out_port);
 
         /// Fills `config` with the engine's default window configuration (1280x720, windowed, decorated, visible, resizable, OS-placed).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

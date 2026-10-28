@@ -33,6 +33,7 @@
 #include <Engine/InputState.hpp>
 #include <Engine/RenderTarget.hpp>
 #include <Engine/TimeScale.hpp>
+#include <Engine/UiTree.hpp>
 #include <Engine/WindowRequests.hpp>
 #include <Engine/WindowState.hpp>
 #include <Core/Core.hpp>
@@ -163,6 +164,18 @@ namespace SFT::Engine {
         void destroy_offscreen_render_target(RenderTargetHandle target) noexcept;
         /// Resizes an off-screen render target in place; see `Renderer::resize_offscreen_render_target`.
         [[nodiscard]] Core::RendererResult resize_offscreen_render_target(RenderTargetHandle target, u32 width, u32 height);
+        /// Changes a target's size, format and/or sampling in place; the handle and its texture stay valid (materials and UI images using
+        /// it keep working). A new size or format starts from an empty image; a sampling change keeps the pixels. Waits for the GPU unless
+        /// only the label changed. On failure (unsupported format, zero size) the target is left as it was.
+        [[nodiscard]] Core::RendererResult reconfigure_offscreen_render_target(RenderTargetHandle target,
+                                                                               const OffscreenRenderTargetDescription &description);
+        /// Writes a target with storage access (config `storage`) from a compute kernel (prepare one with `renderer()->prepare_compute_kernel`),
+        /// rebuilds its mip chain, and waits for the GPU. The target is bound as a storage texture to the kernel resource named
+        /// `target_binding`. See `Renderer::dispatch_into_offscreen_render_target`.
+        [[nodiscard]] Core::RendererResult dispatch_into_offscreen_render_target(
+            RenderTargetHandle target, SFT::Renderer::ComputeKernelId kernel, std::string_view target_binding, glm::uvec3 groups,
+            std::span<const SFT::Renderer::ComputeBinding> bindings = {}, std::span<const std::byte> push_constants = {},
+            std::span<const SFT::Renderer::ComputeBufferBinding> buffers = {});
 
 
         /// Performs the offscreen render target description operation for `Engine` using the supplied arguments.
@@ -172,6 +185,9 @@ namespace SFT::Engine {
         /// @return Returns an engaged optional containing the result on success; returns `std::nullopt` when no result can be produced.
         [[nodiscard]] optional<OffscreenRenderTargetDescription> offscreen_render_target_description(
             RenderTargetHandle target) const;
+        /// What the target's request resolved to on the current device (format, size, mips, anisotropy, storage, MSAA) and any
+        /// fallbacks made. Empty for an unknown or destroyed target.
+        [[nodiscard]] optional<RenderTargetConfig> offscreen_render_target_config(RenderTargetHandle target) const;
 
 
         /// Performs the offscreen render target texture operation for `Engine` using the supplied arguments.
@@ -321,6 +337,18 @@ namespace SFT::Engine {
         /// action runs in the following update.
         void defer_to_update_boundary(std::function<void()> action);
 
+        /// Identifies an update hook.
+        using UpdateHookId = u64;
+
+        /// Registers `hook` to run at the start of every `update` -- after the queued boundary actions and after the clocks advanced, before
+        /// transforms propagate and before the update schedule runs. At that moment nothing else touches the world, so a hook may spawn,
+        /// destroy and change entities, and register or remove systems, directly. Hooks run in registration order on the thread that calls
+        /// `update`; the argument is the scaled delta of this update. Callable from any thread, and from inside a hook (the new hook first
+        /// runs in the following update).
+        UpdateHookId add_update_hook(std::function<void(f64 delta_seconds)> hook);
+        /// Removes a hook. Safe from inside the hook itself; a hook removed during an update does not run again. Returns false for an unknown id.
+        bool remove_update_hook(UpdateHookId id);
+
         /// Recomputes every `WorldTransform` driven by a `Transform` (parents first). `update` and render extraction already
         /// do this; call it after moving things outside a frame (editor tools, tests) to see the result immediately.
         PropagationStats propagate_transforms();
@@ -392,6 +420,17 @@ namespace SFT::Engine {
         /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
         /// @note This function does not throw exceptions.
         [[nodiscard]] RenderFrameRequests &render_frame_requests() noexcept;
+
+        /// The UI trees (entities with a `UiTree` component; see `Engine/UiTree.hpp`). `update` lays them out after the update
+        /// schedule, `prepare_render_frame` attaches window trees to their window's frames, and `render_ui_tree_targets` renders
+        /// off-screen trees into their targets.
+        [[nodiscard]] UiTrees &ui_trees() noexcept { return ui_trees_; }
+        /// Shorthand for spawning an entity whose only component is a `UiTree` built from `desc`.
+        Ecs::Entity spawn_ui_tree(UiTreeDesc desc);
+        /// Renders every off-screen UI tree that has a frame its target has not shown yet. The application loop calls this after
+        /// `update`, on the thread that submits frames; an embedder driving frames itself calls it at the same point. Returns how many
+        /// targets were rendered.
+        usize render_ui_tree_targets();
         /// Returns the current or globally available light frame requests value.
         ///
         /// @return Returns a reference to the requested state; the reference is tied to the lifetime of its owning object.
@@ -668,6 +707,7 @@ namespace SFT::Engine {
         UiImageCache ui_image_cache_{};
         UiSvgCache ui_svg_cache_{};
         Ecs::Schedule update_schedule_;
+        UiTrees ui_trees_;
         /// Previous frame's view-projection per surface, for `engine_managed_camera_history`.
         struct DeviceObservers {
             std::vector<std::pair<usize, std::function<void(const DeviceChangeEvent &)>>> observers;
@@ -685,6 +725,12 @@ namespace SFT::Engine {
         RedrawHandle redraw_{std::make_shared<RedrawHandle::State>()};
         void dispatch_device_change(const Core::DeviceChangeNotice &notice);
         Async::Mutex<std::vector<std::function<void()>>> deferred_actions_;
+        struct UpdateHook {
+            UpdateHookId id;
+            std::function<void(f64)> fn;
+        };
+        Async::Mutex<std::vector<UpdateHook>> update_hooks_;
+        UpdateHookId next_update_hook_id_ = 1;
         Async::Mutex<std::unordered_map<usize, glm::mat4>> camera_history_;
         /// Per surface: the temporal upscaler's jitter (scene UV shift) applied last frame.
         Async::Mutex<std::unordered_map<usize, glm::vec2>> jitter_history_;

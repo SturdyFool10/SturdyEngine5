@@ -593,6 +593,21 @@ endfunction()
 # Executable composition root for a product: links Runtime and one GameLogic package and applies the
 # per-platform entry-point plumbing every such host needs. Extra per-host settings go on the target
 # afterwards. Usage: sturdy_add_host_executable(<name> <GameLogic package>)
+
+# Exports an executable's symbols to the dynamic symbol table so runtime stack traces can name functions (see STURDY_EXPORT_SYMBOLS in the
+# root CMakeLists.txt). Linux/FreeBSD use --export-dynamic; Apple's linker spells it -export_dynamic. Windows and WebAssembly need nothing.
+# Usage: sturdy_export_symbols(<executable target>)
+function(sturdy_export_symbols target)
+  if(NOT STURDY_EXPORT_SYMBOLS)
+    return()
+  endif()
+  if(APPLE)
+    target_link_options("${target}" PRIVATE "LINKER:-export_dynamic")
+  elseif(UNIX AND NOT EMSCRIPTEN)
+    target_link_options("${target}" PRIVATE "LINKER:--export-dynamic")
+  endif()
+endfunction()
+
 function(sturdy_add_host_executable name game_logic)
   sturdy_add_package("${name}"
     EXECUTABLE
@@ -601,6 +616,8 @@ function(sturdy_add_host_executable name game_logic)
       Sturdy::Runtime
       "Sturdy::${game_logic}"
   )
+
+  sturdy_export_symbols("${name}")
 
   if(WIN32)
     # Foundation's WinMain command-line tokenizer currently uses CommandLineToArgvW.

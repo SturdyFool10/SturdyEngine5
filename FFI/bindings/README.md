@@ -12,7 +12,8 @@ every language and no binding can disagree with another about a type.
 | any | `../api/sturdy_abi.json` | machine-readable description | regenerated and diffed |
 
 The first-party Rust crates (`Rust/sturdy`) use `cxx` over `CxxApi/` (see `plans/cxx-api.md`). The Rust binding here exists for **native
-plugins** (`Rust/sturdy-plugin`, a safe layer over it): a plugin must call the engine that loaded it, not link a second copy, so it
+plugins** (`Rust/sturdy-plugin`, a safe layer over it, plus `Rust/sturdy-net`, the safe async networking / files / processes / parallelism
+layer over the `sturdy_op_*` family): a plugin must call the engine that loaded it, not link a second copy, so it
 declares the C functions and leaves them undefined for the loader to resolve.
 
 ## How it works

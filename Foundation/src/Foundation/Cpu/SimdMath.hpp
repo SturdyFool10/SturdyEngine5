@@ -2,6 +2,9 @@
 
 #include <Foundation/Types.hpp>
 
+// Wider kernel variants are enabled only inside an active Cpu::IsaScope. Unscoped calls are scalar,
+// so callers must keep the scope alive for the entire non-suspending region that uses those variants.
+
 namespace SFT::Foundation::Cpu {
 
 

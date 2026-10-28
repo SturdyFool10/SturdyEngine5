@@ -15,6 +15,16 @@ namespace SFT::Async {
         TimedOut,
         Unsupported,
         Unknown,
+        /// The peer closed the stream before a fixed-size read (`receive_exact`) was satisfied.
+        UnexpectedEof,
+        /// The local object was closed (or never opened) before/while the operation ran.
+        Closed,
+        /// TLS handshake or certificate/pin verification failed, or the TLS session broke.
+        TlsFailure,
+        /// A configured size/count limit was exceeded (message, frame, header, body, queue).
+        LimitExceeded,
+        /// The peer violated the protocol (bad HTTP/WebSocket framing, handshake mismatch).
+        ProtocolError,
     };
 
     struct IoError {

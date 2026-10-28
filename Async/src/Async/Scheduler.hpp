@@ -75,10 +75,25 @@ namespace SFT::Async {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         template <typename F>
         [[nodiscard]] static auto spawn(F &&fn, TaskWeight weight = TaskWeight::Light) {
+            return spawn(std::forward<F>(fn), Foundation::Cpu::IsaSet{}, weight);
+        }
+
+        /// Spawns work that may execute only while the worker is constrained to CPUs supporting `required_isa`.
+        /// The callback may change its active ISA set with `Cpu::IsaScope::try_set_requirements`.
+        /// Nested `TaskHandle::wait()` calls suspend and restore this affinity scope around scheduler work.
+        template <typename F>
+        [[nodiscard]] static auto spawn(F &&fn, const Foundation::Cpu::IsaSet &required_isa,
+                                        TaskWeight weight = TaskWeight::Light) {
             using R = std::invoke_result_t<std::decay_t<F>>;
             auto state = std::make_shared<Detail::TaskState<R>>();
-            auto task = std::make_unique<Detail::ConcreteTask<std::decay_t<F>, R>>(std::forward<F>(fn), state);
-            enqueue(std::move(task), weight);
+            auto task = std::make_unique<Detail::ConcreteTask<std::decay_t<F>, R>>(
+                std::forward<F>(fn), state, required_isa);
+            if (task->can_run_anywhere()) {
+                if (Detail::t_pool != nullptr) Detail::t_pool->enqueue(std::move(task)); // spawned from a user pool: stays there
+                else enqueue(std::move(task), weight);
+            } else {
+                task->fail_isa_requirements();
+            }
             return TaskHandle<R>(std::move(state));
         }
 

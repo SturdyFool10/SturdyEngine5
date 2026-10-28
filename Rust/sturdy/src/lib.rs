@@ -60,6 +60,12 @@ pub mod trace;
 pub mod ui;
 pub mod ui_kit;
 pub mod markdown;
+/// Async networking, files, processes and data-parallel loops (the `sturdy-net` crate): TCP/UDP/TLS, HTTP/1-3, WebSocket, QUIC, peers, NAT
+/// traversal, `par::*`. Futures any executor can drive; `net::block_on` is a small built-in one.
+pub use sturdy_net as net;
+/// Scripts: units of game logic in any language side by side. Write one in Rust (`script::Script`), or register a `script::ScriptLanguage`
+/// adapter that runs JavaScript, Lua or any interpreter the application embeds. The engine ships no interpreter, only the seam.
+pub use sturdy_script as script;
 pub mod window;
 pub mod widgets;
 

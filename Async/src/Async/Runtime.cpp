@@ -1,4 +1,5 @@
 #include <Async/Runtime.hpp>
+#include <Foundation/Cpu/IsaScope.hpp>
 
 
 namespace SFT::Async {
@@ -27,7 +28,10 @@ namespace SFT::Async {
     ///
     /// @return Returns the value produced by the operation.
     /// @note This function does not throw exceptions.
-    void SynchronousRuntime::run_on_main_thread(std::function<void()> fn) noexcept { fn(); }
+    void SynchronousRuntime::run_on_main_thread(std::function<void()> fn) noexcept {
+        Foundation::Cpu::IsaScope isa_scope(Foundation::Cpu::IsaSet{});
+        fn();
+    }
 
     /// Pumps main thread using the supplied arguments and current state.
     ///

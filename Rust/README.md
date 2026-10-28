@@ -10,6 +10,8 @@ engine's own CMake build. It builds against this checkout, so there is no pinned
 |---|---|
 | `sturdy-sys/` | Builds the vendored engine as static archives (CMake, from `build.rs`), the C++ shim, and the `cxx` bridges — one bridge module per engine subsystem |
 | `sturdy/` | The ergonomic API on top: `GameLogic` trait, `RuntimeConfig` builder, `Engine<'_>` (lifetime-scoped) and its subsystem accessors, a Tokio-shaped `task`/`sync`/`time` layer |
+| `sturdy-net/` | Safe async networking, files, processes and data parallelism over the C ABI's `sturdy_op_*` family (no dependencies; futures are lazy and cancel on drop). Re-exported as `sturdy::net` and `sturdy_plugin::net` |
+| `sturdy-script/` | Scripts: units of game logic in any language side by side. Implement `Script` in Rust, or register a `ScriptLanguage` adapter that runs an interpreter the application embeds (the engine ships none). Re-exported as `sturdy::script` and `sturdy_plugin::script`; see `plans/scripting.md` |
 | `sturdy-macros/` | `#[derive(Bundle)]` for spawning multi-component ECS entities in one call |
 | `examples/hello/` | Rust game logic running on the real engine, doubling as the integration test — every subsystem below is exercised against a live engine run, not just compiled |
 
@@ -70,6 +72,13 @@ plain-array-based throughout (`cxx` shared structs can't carry a foreign crate's
   on an engine worker, woken by a small waker that resubmits itself to that same scheduler. The one
   exception is `time`'s single dedicated timer-driver thread, which only tracks deadlines and wakes
   expired wakers — it never polls a future itself.
+- **`net`** (the `sturdy-net` crate, re-exported as `sturdy::net` and `sturdy_plugin::net`): the engine's Tokio-and-Rayon networking half —
+  async TCP/UDP/TLS, an HTTP client and server (HTTP/1.1, /2, /3), WebSocket, QUIC (streams + datagrams), peer-to-peer links, relay and
+  NAT traversal (PCP / NAT-PMP / UPnP / hole punching), files (io_uring on Linux), file watching, child processes, a `Router` with middleware / static files / SSE / streamed bodies, channels,
+  semaphores and locks, tasks and join sets, `Stream` pipelines, generic copy / buffer / frame IO, `par::{for_each, sum, sort, sort_by,
+  join, scope, ...}` and `ThreadPool`. Everything that waits is an ordinary `Future` (lazy, cancel-on-drop) that any executor can drive;
+  `net::block_on` is a small built-in one. It is a safe layer over the C ABI (`Sturdy.h`, the `sturdy_op_*` / `sturdy_tcp_*` / ... family) —
+  those entry points need no engine session — and is self-tested against the real engine by `FfiNetRustTest`.
 - **`assets`**: texture/shader/sound loading, glTF import, asset queries.
 - **`render`**: render-graph settings (shadow, AO, anti-aliasing, bloom, tone-mapping, ReSTIR GI,
   motion blur) and per-frame scene ambient lighting, both attached to a frame via
@@ -131,9 +140,9 @@ Cargo's `OUT_DIR`). The first build compiles ~2300 C++ files; later builds are i
 
     cargo build --release -p hello
 
-Environment knobs (see the top of `sturdy-sys/build.rs`): `STURDY_RS_TARGET_CPU` (default
-`x86-64-v2`, never `native` unless you opt in — see the `native-cpu` feature below),
-`STURDY_RS_BUILD_TYPE`, `STURDY_RS_CMAKE_ARGS`.
+Environment knobs (see the top of `sturdy-sys/build.rs`): `STURDY_RS_TARGET_CPU` (optional explicit
+`-march` override; unset uses the compiler's architecture baseline), `STURDY_RS_BUILD_TYPE`,
+`STURDY_RS_CMAKE_ARGS`. `native` is never selected implicitly; see the `native-cpu` feature below.
 
 ## Engine build flags, as Cargo features
 

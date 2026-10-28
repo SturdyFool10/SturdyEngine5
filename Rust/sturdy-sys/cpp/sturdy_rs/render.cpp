@@ -748,13 +748,36 @@ namespace sturdy_rs::render {
         return W::window_effect_supported_on_platform(map(kind));
     }
 
-    OffscreenTargetCreateResult offscreen_target_create(EngineView &engine, const OffscreenTargetDesc &desc) {
-        E::OffscreenRenderTargetDescription description{};
-        description.width = desc.width;
-        description.height = desc.height;
-        description.label = to_ustring(desc.label);
+    namespace {
+        E::OffscreenRenderTargetDescription to_engine_description(const OffscreenTargetDesc &desc) {
+            E::OffscreenRenderTargetDescription description{};
+            description.width = desc.width;
+            description.height = desc.height;
+            description.label = to_ustring(desc.label);
+            switch (desc.format) {
+                case OffscreenTargetFormat::Rgba8Srgb: description.format = E::RenderTargetFormat::Rgba8Srgb; break;
+                case OffscreenTargetFormat::Rgba16Float: description.format = E::RenderTargetFormat::Rgba16Float; break;
+                case OffscreenTargetFormat::Rgb10A2: description.format = E::RenderTargetFormat::Rgb10A2; break;
+                default: description.format = E::RenderTargetFormat::Bgra8Srgb; break;
+            }
+            description.mip_levels = desc.mip_levels;
+            description.storage = desc.allow_storage ? E::RenderTargetFeature::Required : E::RenderTargetFeature::Auto;
+            description.sampling.filter =
+                desc.filter == OffscreenTargetFilter::Nearest ? E::RenderTargetFilter::Nearest : E::RenderTargetFilter::Linear;
+            switch (desc.address) {
+                case OffscreenTargetAddressMode::Repeat: description.sampling.address = E::RenderTargetAddressMode::Repeat; break;
+                case OffscreenTargetAddressMode::MirroredRepeat:
+                    description.sampling.address = E::RenderTargetAddressMode::MirroredRepeat;
+                    break;
+                default: description.sampling.address = E::RenderTargetAddressMode::ClampToEdge; break;
+            }
+            description.sampling.max_anisotropy = desc.max_anisotropy;
+            return description;
+        }
+    } // namespace
 
-        auto created = engine.create_offscreen_render_target(description);
+    OffscreenTargetCreateResult offscreen_target_create(EngineView &engine, const OffscreenTargetDesc &desc) {
+        auto created = engine.create_offscreen_render_target(to_engine_description(desc));
         if (!created) {
             return OffscreenTargetCreateResult{false, to_rust_string(created.error().message), 0};
         }
@@ -773,6 +796,14 @@ namespace sturdy_rs::render {
         return Status{true, rust::String()};
     }
 
+    Status offscreen_target_reconfigure(EngineView &engine, std::uint64_t handle, const OffscreenTargetDesc &desc) {
+        const C::RendererResult result = engine.reconfigure_offscreen_render_target(E::RenderTargetHandle{handle}, to_engine_description(desc));
+        if (!result) {
+            return Status{false, to_rust_string(result.error().message)};
+        }
+        return Status{true, rust::String()};
+    }
+
     bool offscreen_target_description(const EngineView &engine, std::uint64_t handle, OffscreenTargetDesc &out) {
         const auto description = engine.offscreen_render_target_description(E::RenderTargetHandle{handle});
         if (!description) {
@@ -781,6 +812,22 @@ namespace sturdy_rs::render {
         out.width = description->width;
         out.height = description->height;
         out.label = to_rust_string(description->label);
+        switch (description->format) {
+            case E::RenderTargetFormat::Bgra8Srgb: out.format = OffscreenTargetFormat::Bgra8Srgb; break;
+            case E::RenderTargetFormat::Rgba8Srgb: out.format = OffscreenTargetFormat::Rgba8Srgb; break;
+            case E::RenderTargetFormat::Rgba16Float: out.format = OffscreenTargetFormat::Rgba16Float; break;
+            case E::RenderTargetFormat::Rgb10A2: out.format = OffscreenTargetFormat::Rgb10A2; break;
+        }
+        out.mip_levels = description->mip_levels;
+        out.allow_storage = description->storage == E::RenderTargetFeature::Required || description->storage == E::RenderTargetFeature::IfSupported;
+        out.filter = description->sampling.filter == E::RenderTargetFilter::Nearest ? OffscreenTargetFilter::Nearest
+                                                                                    : OffscreenTargetFilter::Linear;
+        switch (description->sampling.address) {
+            case E::RenderTargetAddressMode::ClampToEdge: out.address = OffscreenTargetAddressMode::ClampToEdge; break;
+            case E::RenderTargetAddressMode::Repeat: out.address = OffscreenTargetAddressMode::Repeat; break;
+            case E::RenderTargetAddressMode::MirroredRepeat: out.address = OffscreenTargetAddressMode::MirroredRepeat; break;
+        }
+        out.max_anisotropy = description->sampling.max_anisotropy;
         return true;
     }
 

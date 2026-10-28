@@ -10,7 +10,11 @@
 #include <Foundation/Foundation.hpp>
 
 #include <exception>
+#include <functional>
+
+#include <Engine/GameLogic.hpp>
 #include <new>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -33,6 +37,11 @@ namespace SFT::Ffi {
     /// @note This function does not throw exceptions. If copying `message` would allocate and
     ///       fail, the stored detail is truncated or dropped rather than propagating.
     SturdyResult set_error(SturdyResult result, std::string_view message) noexcept;
+
+    /// A callback that is about to report failure through a bare boolean (an `on_engine_initialized`) may leave the reason here; the code that
+    /// invoked it adds it to the error it builds. Per thread; taking it clears it.
+    void set_callback_failure_detail(std::string message) noexcept;
+    [[nodiscard]] std::string take_callback_failure_detail() noexcept;
 
     /// Like `set_error`, for a failure that arrived as a C++ exception: the trace includes the engine scopes the exception unwound through
     /// (the logical stack at the throw), which are gone by the time a `catch` runs.
@@ -89,6 +98,10 @@ namespace SFT::Ffi {
         AudioCapture = 17,
         /// Also owned: a native plugin library and the modules it added. Lives until `sturdy_plugin_release`.
         Plugin = 18,
+        /// Also owned (async I/O): operations, the objects they produce, and one-shot HTTP responders. Live until their release / respond call.
+        AsyncOp = 19,
+        AsyncObject = 20,
+        HttpResponder = 21,
     };
 
     /// Mints a token referring to `pointer`, valid until `revoke_handle`.
@@ -133,6 +146,9 @@ namespace SFT::Ffi {
     /// @return `STURDY_OK`, or the handle failure `resolve_handle` reported.
     /// @note This function does not throw exceptions. The error slot is populated on failure.
     [[nodiscard]] SturdyResult resolve_engine(SturdyEngine engine, Engine::Engine **out_engine) noexcept;
+
+    /// A completion callback for a live module change that remembers a failure for `sturdy_module_take_failure`.
+    [[nodiscard]] std::function<void(Engine::GameLogicResult)> module_failure_recorder(Engine::Engine &engine);
 
 
     /// Writes `text` into a caller-supplied buffer following the ABI's string-output convention.

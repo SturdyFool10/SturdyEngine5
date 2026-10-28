@@ -1,0 +1,13 @@
+[package]
+name = "net_fixture"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# A self-test for `sturdy-net`, packaged as a cdylib so a C++ host (FFI/tests/NetRustFixtureTest.cpp) can load it and run it against the
+# real engine: the host exports the C ABI, this library leaves it undefined, exactly like a plugin. Needs no engine session.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sturdy-net = { path = "../../sturdy-net" }
