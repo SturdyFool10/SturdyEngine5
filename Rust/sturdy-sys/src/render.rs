@@ -103,6 +103,12 @@ pub mod ffi {
         AccentAcrylic,
         CornerPreference,
         VisualEffect,
+        Opacity,
+        TransitionsDisabled,
+        TitlebarTransparent,
+        WindowShadow,
+        GlassEffect,
+        CornerRadius,
     }
 
     /// Mirrors `SFT::WindowManager::LinuxBlurProtocol`.
@@ -131,6 +137,11 @@ pub mod ffi {
         mac_state: u8,
         mac_emphasized: bool,
         mac_appearance: u8,
+        mac_glass_style: u8,
+        mac_glass_corner_radius: f32,
+        opacity: f32,
+        hide_border: bool,
+        window_corner_radius: f32,
     }
 
     /// Mirrors `SFT::WindowManager::EffectAvailability`.

@@ -37,6 +37,31 @@ namespace SFT::WindowManager {
         CornerPreference,
         /// macOS: an `NSVisualEffectView` behind the content (material, blending, state, emphasis, appearance).
         VisualEffect,
+        /// Whole-window opacity (`WindowEffectOptions::opacity`): `SetLayeredWindowAttributes` on Windows,
+        /// `NSWindow.alphaValue` on macOS, `_NET_WM_WINDOW_OPACITY` on X11, `wp_alpha_modifier_v1` on Wayland.
+        Opacity,
+        /// Windows: turn off DWM's minimise/maximise/restore animations for this window
+        /// (`DWMWA_TRANSITIONS_FORCEDISABLED`).
+        TransitionsDisabled,
+        /// macOS: the title bar draws no background of its own (`titlebarAppearsTransparent`).
+        TitlebarTransparent,
+        /// macOS: the window casts a shadow (`hasShadow`). Disabling it removes the shadow.
+        WindowShadow,
+        /// macOS 26+: a Liquid Glass `NSGlassEffectView` behind the content (style, tint, corner radius).
+        GlassEffect,
+        /// Rounds the window's own outline by `WindowEffectOptions::window_corner_radius` logical pixels, whatever
+        /// its frame: a window region on Windows (hard-edged, works on frameless windows where
+        /// `CornerPreference` may not), the content layer's corner radius on macOS, the X11 Shape extension on X11.
+        /// Wayland has no client-side request for it.
+        CornerRadius,
+        /// Mouse clicks fall through the window to what is behind it: the X11 empty input shape, `WS_EX_TRANSPARENT` on
+        /// Windows, `ignoresMouseEvents` on macOS, an empty input region on Wayland.
+        MousePassthrough,
+        /// Disabling it makes the window refuse keyboard focus when clicked: the ICCCM input hint on X11,
+        /// `WS_EX_NOACTIVATE` on Windows.
+        Focusable,
+        /// Grabs all keyboard input for the window, including system shortcuts the window manager would take (X11).
+        KeyboardGrab,
     };
 
 
@@ -64,6 +89,15 @@ namespace SFT::WindowManager {
             case WindowEffectKind::AccentAcrylic: return "Accent Acrylic";
             case WindowEffectKind::CornerPreference: return "Corner Preference";
             case WindowEffectKind::VisualEffect: return "Visual Effect";
+            case WindowEffectKind::Opacity: return "Opacity";
+            case WindowEffectKind::TransitionsDisabled: return "Transitions Disabled";
+            case WindowEffectKind::TitlebarTransparent: return "Titlebar Transparent";
+            case WindowEffectKind::WindowShadow: return "Window Shadow";
+            case WindowEffectKind::GlassEffect: return "Glass Effect";
+            case WindowEffectKind::CornerRadius: return "Corner Radius";
+            case WindowEffectKind::MousePassthrough: return "Mouse Passthrough";
+            case WindowEffectKind::Focusable: return "Focusable";
+            case WindowEffectKind::KeyboardGrab: return "Keyboard Grab";
         }
         return "Unknown";
     }
@@ -73,12 +107,20 @@ namespace SFT::WindowManager {
     /// `WindowRequests::effect_status`.
     [[nodiscard]] constexpr bool window_effect_supported_on_platform(WindowEffectKind kind) noexcept {
 #if defined(_WIN32)
-        return kind != WindowEffectKind::VisualEffect;
+        return kind != WindowEffectKind::VisualEffect && kind != WindowEffectKind::TitlebarTransparent &&
+               kind != WindowEffectKind::WindowShadow && kind != WindowEffectKind::GlassEffect &&
+               kind != WindowEffectKind::KeyboardGrab;
 #elif defined(__linux__)
-        return kind == WindowEffectKind::Blur;
+        return kind == WindowEffectKind::Blur || kind == WindowEffectKind::Opacity ||
+               kind == WindowEffectKind::DarkMode || kind == WindowEffectKind::CornerRadius ||
+               kind == WindowEffectKind::MousePassthrough || kind == WindowEffectKind::Focusable ||
+               kind == WindowEffectKind::KeyboardGrab;
 #elif defined(__APPLE__)
         return kind == WindowEffectKind::VisualEffect || kind == WindowEffectKind::Blur ||
-               kind == WindowEffectKind::Transparent;
+               kind == WindowEffectKind::Transparent || kind == WindowEffectKind::Opacity ||
+               kind == WindowEffectKind::DarkMode || kind == WindowEffectKind::TitlebarTransparent ||
+               kind == WindowEffectKind::WindowShadow || kind == WindowEffectKind::GlassEffect ||
+               kind == WindowEffectKind::CornerRadius || kind == WindowEffectKind::MousePassthrough;
 #else
         (void)kind;
         return false;
@@ -151,6 +193,12 @@ namespace SFT::WindowManager {
         VibrantDark,
     };
 
+    /// `NSGlassEffectViewStyle` (macOS 26).
+    enum class MacGlassStyle : u8 {
+        Regular,
+        Clear,
+    };
+
     /// Per-effect settings. Every field has a meaning for specific effects and is ignored by the others; the doc on
     /// each says which. Plain data (fixed capacity, no heap) so a request can be copied across threads freely.
     struct WindowEffectOptions {
@@ -188,9 +236,29 @@ namespace SFT::WindowManager {
         bool mac_emphasized = false;
         MacAppearance mac_appearance = MacAppearance::Inherit;
 
+        /// `GlassEffect` (macOS 26): the glass variant, and its corner radius in logical points (0 = square).
+        /// The tint is `tint_argb` (alpha 0 = untinted).
+        MacGlassStyle mac_glass_style = MacGlassStyle::Regular;
+        f32 mac_glass_corner_radius = 0.0f;
+
+        /// `Opacity`: 0 (invisible) to 1 (opaque); values outside are clamped.
+        f32 opacity = 1.0f;
+
+        /// `CornerRadius`: the window outline's corner radius in logical pixels (0 = square). Needs
+        /// `window_width/height` on Linux, which the window fills in.
+        f32 window_corner_radius = 0.0f;
+
+        /// `BorderColor` (Windows 11): draw no border at all (`DWMWA_COLOR_NONE`) instead of using `color_argb`.
+        bool hide_border = false;
+
         /// Whether the blur region depends on the window size, so it must be rebuilt when the window resizes.
         [[nodiscard]] constexpr bool region_follows_window_size() const noexcept {
             return corner_radius > 0.0f;
+        }
+
+        /// Whether the `CornerRadius` outline depends on the window size, so it must be rebuilt on resize.
+        [[nodiscard]] constexpr bool outline_follows_window_size() const noexcept {
+            return window_corner_radius > 0.0f;
         }
     };
 

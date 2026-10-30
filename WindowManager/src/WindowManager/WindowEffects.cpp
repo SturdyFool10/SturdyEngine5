@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 
 #include <tracy/Tracy.hpp>
 
@@ -88,6 +89,45 @@ std::vector<EffectRect> resolve_blur_region(const WindowEffectOptions &options) 
             if (rect.height - 2 * radius > 0) {
                 out.push_back(EffectRect{rect.x, rect.y + radius, rect.width, rect.height - 2 * radius});
             }
+        }
+        return out;
+    }
+
+std::vector<EffectRect> resolve_shape_region(const WindowShapeMask &mask, WindowExtent pixel_size) {
+        std::vector<EffectRect> out;
+        if (mask.coverage.empty() || mask.width == 0 || mask.height == 0 || pixel_size.x == 0 || pixel_size.y == 0) {
+            return out;
+        }
+        // Rectangles still growing downward, keyed by (x, width): a run identical to the previous row's extends it.
+        std::unordered_map<u64, usize> open;
+        std::unordered_map<u64, usize> next_open;
+        for (u32 y = 0; y < pixel_size.y; ++y) {
+            const u32 source_y = static_cast<u32>(static_cast<u64>(y) * mask.height / pixel_size.y);
+            const auto *row = mask.coverage.data() + static_cast<usize>(source_y) * mask.width;
+            next_open.clear();
+            u32 x = 0;
+            while (x < pixel_size.x) {
+                const auto covered = [&](u32 px) {
+                    return std::to_integer<u32>(row[static_cast<usize>(static_cast<u64>(px) * mask.width / pixel_size.x)]) > 127;
+                };
+                if (!covered(x)) {
+                    ++x;
+                    continue;
+                }
+                const u32 start = x;
+                while (x < pixel_size.x && covered(x)) {
+                    ++x;
+                }
+                const u64 key = (static_cast<u64>(start) << 32) | (x - start);
+                if (const auto found = open.find(key); found != open.end()) {
+                    out[found->second].height += 1;
+                    next_open.emplace(key, found->second);
+                } else {
+                    out.push_back(EffectRect{static_cast<i32>(start), static_cast<i32>(y), static_cast<i32>(x - start), 1});
+                    next_open.emplace(key, out.size() - 1);
+                }
+            }
+            open.swap(next_open);
         }
         return out;
     }

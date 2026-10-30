@@ -34,7 +34,9 @@ namespace {
                   FieldKind, ComponentFieldDesc, AccessMode, ComponentAccess, LayoutFingerprint, ResourceId, ResourceAccess, LogLevel,
                   // Window
                   Int2Result, HdrProperties, WindowSnapshot, CursorIcon, WindowEffect, WindowDesc, WindowRequestKind,
-                  WindowRequestCompletion,
+                  WindowRequestCompletion, WindowEffectOptions, LinuxBlurProtocol, WindowCornerPreference, MacMaterial,
+                  MacBlendingMode, MacEffectState, MacAppearance, MacGlassStyle, WindowFeature, WindowOperation, WindowType,
+                  WindowOperationInfo, WindowGeometryInfo,
                   // Render (the RenderSettings records, bound as they are)
                   FrameSettings, SceneSettings, ShadowSettings, AmbientOcclusionSettings, AntiAliasingSettings, BloomSettings,
                   HermiteSplineSettings, PsychoVSettings, ToneMappingSettings, RestirGiSettings, ScreenSpaceGiSettings,

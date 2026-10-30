@@ -67,6 +67,12 @@ pub use sturdy_net as net;
 /// adapter that runs JavaScript, Lua or any interpreter the application embeds. The engine ships no interpreter, only the seam.
 pub use sturdy_script as script;
 pub mod window;
+/// Desktop services that belong to the process, not one window: file dialogs, message boxes, the screen saver and a tray
+/// icon. They behave the same whichever window provider the program's windows come from.
+pub mod desktop;
+/// Gamepads and joysticks, whatever the window provider: standard-layout state, raw joystick state, hot-plug events,
+/// rumble, lights and motion sensors.
+pub mod gamepad;
 pub mod widgets;
 
 // Re-exported so implementing `ecs::Component` (which requires `bytemuck::Pod` +
@@ -86,7 +92,7 @@ pub use config::{
 };
 pub use ecs::{Component, ComponentId, EcsError, Entity, World};
 pub use engine::{Engine, Frame, FrameDescription, GpuInfo, SceneLighting};
-pub use input::{Input, Modifiers, MouseButton};
+pub use input::{GamepadFrame, Input, Modifiers, MouseButton, PenPoint, TouchPoint};
 pub use keys::Key;
 pub use runtime::{run, run_with_args, Error, GameLogic};
 

@@ -2,6 +2,9 @@
 
 #include <Foundation/Foundation.hpp>
 
+#include <optional>
+
+#include <WindowManager/WindowFeatures.hpp>
 #include <WindowManager/WindowGeometry.hpp>
 
 namespace SFT::WindowManager {
@@ -9,6 +12,8 @@ namespace SFT::WindowManager {
                                                                                                   
                                                                                                       
                                                                                  
+    class Window;
+
     enum class WindowBackendKind {
         SDL3,
         GLFW,
@@ -82,6 +87,30 @@ namespace SFT::WindowManager {
         /// files / Flatpak match the window to. Process-wide and read when the window system is first initialised, so
         /// set it on the first window. Null = the window system's default.
         const char *app_id = nullptr;
+
+        // -- Creation-time window behaviour (the union surface; each is applied through the matching `Window` setter
+        //    right after the window exists, and one a provider cannot honour is skipped with a warning). --
+        bool always_on_top = false;
+        bool maximized = false;
+        bool minimized = false;
+        /// False creates a window that never takes keyboard focus (overlays, palettes).
+        bool focusable = true;
+        /// Mouse clicks fall through the window.
+        bool mouse_passthrough = false;
+        /// Unset leaves the provider's default (fullscreen windows minimise on focus loss on most systems).
+        std::optional<bool> auto_minimize_on_focus_loss;
+        WindowType window_type = WindowType::Normal;
+        /// A child of this window (it must outlive the child's creation, not the child); null for a top-level window.
+        Window *parent = nullptr;
+        bool modal = false;
+        /// 0 leaves a dimension unconstrained.
+        WindowExtent min_size = {0, 0};
+        WindowExtent max_size = {0, 0};
+        /// Width / height limits; 0 and 0 mean none.
+        f32 aspect_min = 0.0f;
+        f32 aspect_max = 0.0f;
+        /// The display and mode used when the window goes fullscreen (including creation in a fullscreen `mode`).
+        FullscreenTarget fullscreen_target{};
     };
 
 } // namespace SFT::WindowManager

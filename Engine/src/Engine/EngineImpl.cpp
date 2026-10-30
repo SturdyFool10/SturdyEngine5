@@ -210,6 +210,8 @@ namespace SFT::Engine {
         ecs_world_.bind_resource(mouse_move_events_);
         ecs_world_.bind_resource(mouse_button_events_);
         ecs_world_.bind_resource(mouse_wheel_events_);
+        ecs_world_.bind_resource(touch_events_);
+        ecs_world_.bind_resource(pen_events_);
         ecs_world_.bind_resource(window_state_events_);
         ecs_world_.bind_resource(animation_events_);
         ecs_world_.bind_resource(window_state_);
@@ -319,6 +321,8 @@ namespace SFT::Engine {
                Ecs::EventWriter<MouseMoveEvent> mouse_move_events,
                Ecs::EventWriter<MouseButtonEvent> mouse_button_events,
                Ecs::EventWriter<MouseWheelEvent> mouse_wheel_events,
+               Ecs::EventWriter<TouchEvent> touch_events,
+               Ecs::EventWriter<PenEvent> pen_events,
                Ecs::EventWriter<WindowStateEvent> window_state_events) noexcept {
                 const vector<WindowEvent> pending = inbox->drain();
                 for (const WindowEvent &queued : pending) {
@@ -363,6 +367,22 @@ namespace SFT::Engine {
                         case WindowManager::WindowEventKind::MouseWheel:
                             mouse_wheel_events.send(MouseWheelEvent{.window = queued.window, .wheel = event.mouse_wheel, .timestamp_ns = event.timestamp_ns});
                             break;
+                        case WindowManager::WindowEventKind::TouchDown:
+                        case WindowManager::WindowEventKind::TouchUp:
+                        case WindowManager::WindowEventKind::TouchMotion:
+                        case WindowManager::WindowEventKind::TouchCanceled:
+                            touch_events.send(TouchEvent{.window = queued.window, .kind = event.kind, .touch = event.touch, .timestamp_ns = event.timestamp_ns});
+                            break;
+                        case WindowManager::WindowEventKind::PenProximityIn:
+                        case WindowManager::WindowEventKind::PenProximityOut:
+                        case WindowManager::WindowEventKind::PenDown:
+                        case WindowManager::WindowEventKind::PenUp:
+                        case WindowManager::WindowEventKind::PenMotion:
+                        case WindowManager::WindowEventKind::PenButtonDown:
+                        case WindowManager::WindowEventKind::PenButtonUp:
+                        case WindowManager::WindowEventKind::PenAxis:
+                            pen_events.send(PenEvent{.window = queued.window, .kind = event.kind, .pen = event.pen, .timestamp_ns = event.timestamp_ns});
+                            break;
                         default:
                             window_state_events.send(WindowStateEvent{
                                 .window = queued.window,
@@ -384,8 +404,17 @@ namespace SFT::Engine {
                Ecs::EventReader<TextEditingEvent> text_editing,
                Ecs::EventReader<MouseMoveEvent> mouse_move,
                Ecs::EventReader<MouseButtonEvent> mouse_button,
-               Ecs::EventReader<MouseWheelEvent> mouse_wheel) noexcept {
+               Ecs::EventReader<MouseWheelEvent> mouse_wheel,
+               Ecs::EventReader<TouchEvent> touch,
+               Ecs::EventReader<PenEvent> pen) noexcept {
                 input->begin_tick();
+                for (const TouchEvent &event : touch.read()) {
+                    input->apply(event);
+                }
+                for (const PenEvent &event : pen.read()) {
+                    input->apply(event);
+                }
+                input->poll_gamepads();
                 for (const KeyboardEvent &event : keyboard.read()) {
                     input->apply(event);
                 }

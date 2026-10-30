@@ -127,7 +127,7 @@ namespace SFT::WindowManager {
     /// @note This function does not throw exceptions.
     bool operating_system_may_support_window_effect(WindowEffectKind effect) noexcept {
 #if defined(__linux__)
-        return effect == WindowEffectKind::Blur;
+        return window_effect_supported_on_platform(effect);
 #else
         (void)effect;
         return false;
@@ -160,9 +160,50 @@ namespace SFT::WindowManager {
     WindowEffectSupport query_native_window_effect_support(NativeWindowHandle handle, WindowEffectKind kind) noexcept {
         WindowEffectSupport support;
 #if defined(__linux__)
+        if (kind == WindowEffectKind::Opacity) {
+            if (handle.system == NativeWindowSystem::Wayland) {
+                return Detail::query_wayland_opacity_support(handle);
+            }
+            support.add("_NET_WM_WINDOW_OPACITY", handle.system == NativeWindowSystem::X11 ? EffectAvailability::Unknown
+                                                                                          : EffectAvailability::Unavailable,
+                        "X11 cannot report whether the compositor reads this property");
+            return support;
+        }
+        if (kind == WindowEffectKind::MousePassthrough) {
+            support.add(handle.system == NativeWindowSystem::Wayland ? "wl_surface input region" : "X Shape input region",
+                        handle.system == NativeWindowSystem::Wayland || handle.system == NativeWindowSystem::X11
+                            ? EffectAvailability::Available
+                            : EffectAvailability::Unavailable,
+                        "the window is neither a Wayland nor an X11 window");
+            return support;
+        }
+        if (kind == WindowEffectKind::Focusable || kind == WindowEffectKind::KeyboardGrab) {
+            if (handle.system == NativeWindowSystem::X11) {
+                support.add(kind == WindowEffectKind::Focusable ? "WM_HINTS input flag" : "XGrabKeyboard", EffectAvailability::Unknown,
+                            "X11 cannot report whether the window manager honours this");
+            } else {
+                support.add("none", EffectAvailability::Unavailable, "Wayland compositors own focus and keyboard routing");
+            }
+            return support;
+        }
+        if (kind == WindowEffectKind::CornerRadius) {
+            if (handle.system == NativeWindowSystem::X11) {
+                support.add("X Shape extension", EffectAvailability::Available, "hard-edged; the compositor may still draw its own shadow");
+            } else {
+                support.add("none", EffectAvailability::Unavailable,
+                            "Wayland compositors own the window outline; use a transparent window and draw the corners");
+            }
+            return support;
+        }
+        if (kind == WindowEffectKind::DarkMode) {
+            support.add("_GTK_THEME_VARIANT", handle.system == NativeWindowSystem::X11 ? EffectAvailability::Unknown
+                                                                                      : EffectAvailability::Unavailable,
+                        "X11 only; Wayland has no per-window theme request");
+            return support;
+        }
         if (kind != WindowEffectKind::Blur) {
             support.add("none", EffectAvailability::Unavailable,
-                        "Linux compositors only offer background blur; transparency is a creation-time window flag");
+                        "Linux offers background blur, opacity and (X11) dark decorations; transparency is a creation-time window flag");
             return support;
         }
         if (handle.system == NativeWindowSystem::Wayland) {
@@ -178,6 +219,44 @@ namespace SFT::WindowManager {
         support.add("none", EffectAvailability::Unavailable, "not a Linux build");
 #endif
         return support;
+    }
+
+    WindowEffectResult set_native_window_type(NativeWindowHandle handle, WindowType type) noexcept {
+#if defined(__linux__)
+        return handle.system == NativeWindowSystem::X11
+                   ? Detail::set_x11_window_type(handle, type)
+                   : WindowEffectResult::failed("Wayland leaves a window's role to the compositor and the toplevel's parent.");
+#else
+        (void)handle;
+        (void)type;
+        return WindowEffectResult::failed("Linux window types are only available on Linux builds.");
+#endif
+    }
+
+    WindowEffectResult set_native_window_shape(NativeWindowHandle handle, const WindowShapeMask &mask, WindowExtent pixel_size) noexcept {
+#if defined(__linux__)
+        return handle.system == NativeWindowSystem::X11 ? Detail::set_x11_window_shape(handle, mask, pixel_size)
+                                                        : WindowEffectResult::failed("Wayland has no client-side window outline.");
+#else
+        (void)handle;
+        (void)mask;
+        (void)pixel_size;
+        return WindowEffectResult::failed("Linux window shapes are only available on Linux builds.");
+#endif
+    }
+
+    WindowEffectResult set_native_window_parent(NativeWindowHandle child, std::optional<NativeWindowHandle> parent, bool modal) noexcept {
+#if defined(__linux__)
+        if (child.system == NativeWindowSystem::X11) {
+            return Detail::set_x11_window_parent(child, parent, modal);
+        }
+        return WindowEffectResult::failed("Wayland ties a toplevel to its parent through xdg_toplevel, which the window provider owns.");
+#else
+        (void)child;
+        (void)parent;
+        (void)modal;
+        return WindowEffectResult::failed("Linux window parenting is only available on Linux builds.");
+#endif
     }
 
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
@@ -197,7 +276,37 @@ namespace SFT::WindowManager {
             return try_linux_blur(handle, effect);
         }
 
-        return WindowEffectResult::failed("Only blur is currently modeled for Linux window effects.");
+        if (effect.kind == WindowEffectKind::Opacity) {
+            return handle.system == NativeWindowSystem::Wayland ? Detail::set_wayland_window_opacity(handle, effect)
+                                                                : Detail::set_x11_window_opacity(handle, effect);
+        }
+        if (effect.kind == WindowEffectKind::MousePassthrough) {
+            return handle.system == NativeWindowSystem::Wayland ? Detail::set_wayland_mouse_passthrough(handle, effect.enabled)
+                                                                : Detail::set_x11_mouse_passthrough(handle, effect.enabled);
+        }
+        if (effect.kind == WindowEffectKind::Focusable) {
+            return handle.system == NativeWindowSystem::X11
+                       ? Detail::set_x11_focusable(handle, effect.enabled)
+                       : WindowEffectResult::failed("Wayland compositors decide focus; a client cannot refuse it.");
+        }
+        if (effect.kind == WindowEffectKind::KeyboardGrab) {
+            return handle.system == NativeWindowSystem::X11
+                       ? Detail::set_x11_keyboard_grab(handle, effect.enabled)
+                       : WindowEffectResult::failed("Wayland has no keyboard grab (keyboard-shortcuts-inhibit is a compositor opt-in).");
+        }
+        if (effect.kind == WindowEffectKind::CornerRadius) {
+            return handle.system == NativeWindowSystem::X11
+                       ? Detail::set_x11_corner_radius(handle, effect)
+                       : WindowEffectResult::failed(
+                             "Wayland has no client request for a window outline; draw rounded corners into a transparent window instead.");
+        }
+        if (effect.kind == WindowEffectKind::DarkMode) {
+            return handle.system == NativeWindowSystem::X11
+                       ? Detail::set_x11_dark_mode(handle, effect.enabled)
+                       : WindowEffectResult::failed("Wayland has no per-window dark-mode request.");
+        }
+
+        return WindowEffectResult::failed("This window effect is not modeled for Linux.");
 #else
         (void)handle;
         Detail::window_warn(

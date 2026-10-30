@@ -9,7 +9,7 @@
 use core::ffi::{c_char, c_void};
 
 pub const ABI_VERSION_MAJOR: u32 = 0;
-pub const ABI_VERSION_MINOR: u32 = 40;
+pub const ABI_VERSION_MINOR: u32 = 42;
 
 /// Matches `RHI::AccelerationStructureCopyMode`.
 pub type SturdyAccelerationStructureCopyMode = i32;
@@ -69,6 +69,11 @@ pub const STURDY_ASYNC_FEATURE_IO_URING: SturdyAsyncFeature = 8;
 pub const STURDY_ASYNC_FEATURE_PROCESS: SturdyAsyncFeature = 16;
 pub const STURDY_ASYNC_FEATURE_GZIP: SturdyAsyncFeature = 32;
 pub const STURDY_ASYNC_FEATURE_NATIVE_FILE_WATCH: SturdyAsyncFeature = 64;
+
+pub type SturdyAttentionRequest = i32;
+pub const STURDY_ATTENTION_CANCEL: SturdyAttentionRequest = 0;
+pub const STURDY_ATTENTION_BRIEFLY: SturdyAttentionRequest = 1;
+pub const STURDY_ATTENTION_UNTIL_FOCUSED: SturdyAttentionRequest = 2;
 
 /// How a sound attached to an entity is anchored.
 pub type SturdyAudioAttachment = i32;
@@ -195,6 +200,18 @@ pub const STURDY_CURSOR_ICON_RESIZE_VERTICAL: SturdyCursorIcon = 6;
 pub const STURDY_CURSOR_ICON_RESIZE_NWSE: SturdyCursorIcon = 7;
 pub const STURDY_CURSOR_ICON_RESIZE_NESW: SturdyCursorIcon = 8;
 pub const STURDY_CURSOR_ICON_NOT_ALLOWED: SturdyCursorIcon = 9;
+pub const STURDY_CURSOR_ICON_CROSSHAIR: SturdyCursorIcon = 10;
+pub const STURDY_CURSOR_ICON_MOVE: SturdyCursorIcon = 11;
+pub const STURDY_CURSOR_ICON_WAIT: SturdyCursorIcon = 12;
+pub const STURDY_CURSOR_ICON_PROGRESS: SturdyCursorIcon = 13;
+pub const STURDY_CURSOR_ICON_RESIZE_N: SturdyCursorIcon = 14;
+pub const STURDY_CURSOR_ICON_RESIZE_NE: SturdyCursorIcon = 15;
+pub const STURDY_CURSOR_ICON_RESIZE_E: SturdyCursorIcon = 16;
+pub const STURDY_CURSOR_ICON_RESIZE_SE: SturdyCursorIcon = 17;
+pub const STURDY_CURSOR_ICON_RESIZE_S: SturdyCursorIcon = 18;
+pub const STURDY_CURSOR_ICON_RESIZE_SW: SturdyCursorIcon = 19;
+pub const STURDY_CURSOR_ICON_RESIZE_W: SturdyCursorIcon = 20;
+pub const STURDY_CURSOR_ICON_RESIZE_NW: SturdyCursorIcon = 21;
 
 /// Broad class of a physical device — the engine's active one (`SturdyAdapterInfo::device_type`) or one reported by `sturdy_gpu_enumerate` before any engine exists.
 pub type SturdyDeviceType = i32;
@@ -203,6 +220,13 @@ pub const STURDY_DEVICE_TYPE_INTEGRATED_GPU: SturdyDeviceType = 1;
 pub const STURDY_DEVICE_TYPE_DISCRETE_GPU: SturdyDeviceType = 2;
 pub const STURDY_DEVICE_TYPE_VIRTUAL_GPU: SturdyDeviceType = 3;
 pub const STURDY_DEVICE_TYPE_CPU: SturdyDeviceType = 4;
+
+pub type SturdyDisplayOrientation = i32;
+pub const STURDY_DISPLAY_ORIENTATION_UNKNOWN: SturdyDisplayOrientation = 0;
+pub const STURDY_DISPLAY_ORIENTATION_LANDSCAPE: SturdyDisplayOrientation = 1;
+pub const STURDY_DISPLAY_ORIENTATION_LANDSCAPE_FLIPPED: SturdyDisplayOrientation = 2;
+pub const STURDY_DISPLAY_ORIENTATION_PORTRAIT: SturdyDisplayOrientation = 3;
+pub const STURDY_DISPLAY_ORIENTATION_PORTRAIT_FLIPPED: SturdyDisplayOrientation = 4;
 
 /// The scalar kinds a component field can have (since 0.35). These are what two languages must agree on to share a component's memory: a C `float`, a Rust `f32` and a C# `float` are all `STURDY_FIELD_F32`. Values never change.
 pub type SturdyFieldKind = i32;
@@ -217,6 +241,11 @@ pub const STURDY_FIELD_U32: SturdyFieldKind = 7;
 pub const STURDY_FIELD_U64: SturdyFieldKind = 8;
 pub const STURDY_FIELD_F32: SturdyFieldKind = 9;
 pub const STURDY_FIELD_F64: SturdyFieldKind = 10;
+
+pub type SturdyFileDialogKind = i32;
+pub const STURDY_FILE_DIALOG_OPEN_FILE: SturdyFileDialogKind = 0;
+pub const STURDY_FILE_DIALOG_SAVE_FILE: SturdyFileDialogKind = 1;
+pub const STURDY_FILE_DIALOG_OPEN_FOLDER: SturdyFileDialogKind = 2;
 
 pub type SturdyFileMode = i32;
 pub const STURDY_FILE_READ: SturdyFileMode = 1;
@@ -298,6 +327,72 @@ pub type SturdyFrontFace = i32;
 pub const STURDY_FRONT_FACE_COUNTER_CLOCKWISE: SturdyFrontFace = 0;
 pub const STURDY_FRONT_FACE_CLOCKWISE: SturdyFrontFace = 1;
 
+/// The standard layout's axes: the sticks run -1 to 1, the triggers 0 to 1.
+pub type SturdyGamepadAxis = i32;
+pub const STURDY_GAMEPAD_AXIS_LEFT_X: SturdyGamepadAxis = 0;
+pub const STURDY_GAMEPAD_AXIS_LEFT_Y: SturdyGamepadAxis = 1;
+pub const STURDY_GAMEPAD_AXIS_RIGHT_X: SturdyGamepadAxis = 2;
+pub const STURDY_GAMEPAD_AXIS_RIGHT_Y: SturdyGamepadAxis = 3;
+pub const STURDY_GAMEPAD_AXIS_LEFT_TRIGGER: SturdyGamepadAxis = 4;
+pub const STURDY_GAMEPAD_AXIS_RIGHT_TRIGGER: SturdyGamepadAxis = 5;
+
+/// The standard layout's buttons; bit `n` of `SturdyGamepadState::buttons` is the button with value `n`.
+pub type SturdyGamepadButton = i32;
+pub const STURDY_GAMEPAD_BUTTON_SOUTH: SturdyGamepadButton = 0;
+pub const STURDY_GAMEPAD_BUTTON_EAST: SturdyGamepadButton = 1;
+pub const STURDY_GAMEPAD_BUTTON_WEST: SturdyGamepadButton = 2;
+pub const STURDY_GAMEPAD_BUTTON_NORTH: SturdyGamepadButton = 3;
+pub const STURDY_GAMEPAD_BUTTON_BACK: SturdyGamepadButton = 4;
+pub const STURDY_GAMEPAD_BUTTON_GUIDE: SturdyGamepadButton = 5;
+pub const STURDY_GAMEPAD_BUTTON_START: SturdyGamepadButton = 6;
+pub const STURDY_GAMEPAD_BUTTON_LEFT_STICK: SturdyGamepadButton = 7;
+pub const STURDY_GAMEPAD_BUTTON_RIGHT_STICK: SturdyGamepadButton = 8;
+pub const STURDY_GAMEPAD_BUTTON_LEFT_SHOULDER: SturdyGamepadButton = 9;
+pub const STURDY_GAMEPAD_BUTTON_RIGHT_SHOULDER: SturdyGamepadButton = 10;
+pub const STURDY_GAMEPAD_BUTTON_DPAD_UP: SturdyGamepadButton = 11;
+pub const STURDY_GAMEPAD_BUTTON_DPAD_DOWN: SturdyGamepadButton = 12;
+pub const STURDY_GAMEPAD_BUTTON_DPAD_LEFT: SturdyGamepadButton = 13;
+pub const STURDY_GAMEPAD_BUTTON_DPAD_RIGHT: SturdyGamepadButton = 14;
+pub const STURDY_GAMEPAD_BUTTON_MISC1: SturdyGamepadButton = 15;
+pub const STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE1: SturdyGamepadButton = 16;
+pub const STURDY_GAMEPAD_BUTTON_LEFT_PADDLE1: SturdyGamepadButton = 17;
+pub const STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE2: SturdyGamepadButton = 18;
+pub const STURDY_GAMEPAD_BUTTON_LEFT_PADDLE2: SturdyGamepadButton = 19;
+pub const STURDY_GAMEPAD_BUTTON_TOUCHPAD: SturdyGamepadButton = 20;
+pub const STURDY_GAMEPAD_BUTTON_MISC2: SturdyGamepadButton = 21;
+pub const STURDY_GAMEPAD_BUTTON_MISC3: SturdyGamepadButton = 22;
+pub const STURDY_GAMEPAD_BUTTON_MISC4: SturdyGamepadButton = 23;
+pub const STURDY_GAMEPAD_BUTTON_MISC5: SturdyGamepadButton = 24;
+pub const STURDY_GAMEPAD_BUTTON_MISC6: SturdyGamepadButton = 25;
+
+pub type SturdyGamepadConnection = i32;
+pub const STURDY_GAMEPAD_CONNECTION_UNKNOWN: SturdyGamepadConnection = 0;
+pub const STURDY_GAMEPAD_CONNECTION_WIRED: SturdyGamepadConnection = 1;
+pub const STURDY_GAMEPAD_CONNECTION_WIRELESS: SturdyGamepadConnection = 2;
+
+pub type SturdyGamepadEventKind = i32;
+pub const STURDY_GAMEPAD_EVENT_CONNECTED: SturdyGamepadEventKind = 0;
+pub const STURDY_GAMEPAD_EVENT_DISCONNECTED: SturdyGamepadEventKind = 1;
+
+pub type SturdyGamepadKind = i32;
+pub const STURDY_GAMEPAD_KIND_UNKNOWN: SturdyGamepadKind = 0;
+pub const STURDY_GAMEPAD_KIND_STANDARD: SturdyGamepadKind = 1;
+pub const STURDY_GAMEPAD_KIND_XBOX360: SturdyGamepadKind = 2;
+pub const STURDY_GAMEPAD_KIND_XBOX_ONE: SturdyGamepadKind = 3;
+pub const STURDY_GAMEPAD_KIND_PS3: SturdyGamepadKind = 4;
+pub const STURDY_GAMEPAD_KIND_PS4: SturdyGamepadKind = 5;
+pub const STURDY_GAMEPAD_KIND_PS5: SturdyGamepadKind = 6;
+pub const STURDY_GAMEPAD_KIND_SWITCH_PRO: SturdyGamepadKind = 7;
+pub const STURDY_GAMEPAD_KIND_JOYCON_LEFT: SturdyGamepadKind = 8;
+pub const STURDY_GAMEPAD_KIND_JOYCON_RIGHT: SturdyGamepadKind = 9;
+pub const STURDY_GAMEPAD_KIND_JOYCON_PAIR: SturdyGamepadKind = 10;
+pub const STURDY_GAMEPAD_KIND_GAMECUBE: SturdyGamepadKind = 11;
+pub const STURDY_GAMEPAD_KIND_STEAM: SturdyGamepadKind = 12;
+
+pub type SturdyGamepadSensor = i32;
+pub const STURDY_GAMEPAD_SENSOR_ACCELEROMETER: SturdyGamepadSensor = 0;
+pub const STURDY_GAMEPAD_SENSOR_GYROSCOPE: SturdyGamepadSensor = 1;
+
 /// What kind of light a glTF file declared.
 pub type SturdyGltfLightKind = i32;
 pub const STURDY_GLTF_LIGHT_DIRECTIONAL: SturdyGltfLightKind = 0;
@@ -378,6 +473,13 @@ pub const STURDY_LATENCY_MODE_NORMAL: SturdyLatencyMode = 0;
 pub const STURDY_LATENCY_MODE_LOW: SturdyLatencyMode = 1;
 pub const STURDY_LATENCY_MODE_ULTRA: SturdyLatencyMode = 2;
 
+/// Which Linux blur route a `STURDY_WINDOW_EFFECT_BLUR` request takes.
+pub type SturdyLinuxBlurProtocol = i32;
+pub const STURDY_LINUX_BLUR_AUTOMATIC: SturdyLinuxBlurProtocol = 0;
+pub const STURDY_LINUX_BLUR_EXT_BACKGROUND_EFFECT: SturdyLinuxBlurProtocol = 1;
+pub const STURDY_LINUX_BLUR_KDE_BLUR: SturdyLinuxBlurProtocol = 2;
+pub const STURDY_LINUX_BLUR_KDE_X11: SturdyLinuxBlurProtocol = 3;
+
 /// Load/store behavior for a render pass attachment.
 pub type SturdyLoadOp = i32;
 pub const STURDY_LOAD_OP_LOAD: SturdyLoadOp = 0;
@@ -393,11 +495,57 @@ pub const STURDY_LOG_LEVEL_WARN: SturdyLogLevel = 3;
 pub const STURDY_LOG_LEVEL_ERROR: SturdyLogLevel = 4;
 pub const STURDY_LOG_LEVEL_CRITICAL: SturdyLogLevel = 5;
 
+/// `NSAppearanceName` override for the effect view.
+pub type SturdyMacAppearance = i32;
+pub const STURDY_MAC_APPEARANCE_INHERIT: SturdyMacAppearance = 0;
+pub const STURDY_MAC_APPEARANCE_AQUA: SturdyMacAppearance = 1;
+pub const STURDY_MAC_APPEARANCE_DARK_AQUA: SturdyMacAppearance = 2;
+pub const STURDY_MAC_APPEARANCE_VIBRANT_LIGHT: SturdyMacAppearance = 3;
+pub const STURDY_MAC_APPEARANCE_VIBRANT_DARK: SturdyMacAppearance = 4;
+
+/// `NSVisualEffectBlendingMode`.
+pub type SturdyMacBlendingMode = i32;
+pub const STURDY_MAC_BLENDING_BEHIND_WINDOW: SturdyMacBlendingMode = 0;
+pub const STURDY_MAC_BLENDING_WITHIN_WINDOW: SturdyMacBlendingMode = 1;
+
+/// `NSVisualEffectState`.
+pub type SturdyMacEffectState = i32;
+pub const STURDY_MAC_STATE_FOLLOWS_WINDOW_ACTIVE_STATE: SturdyMacEffectState = 0;
+pub const STURDY_MAC_STATE_ACTIVE: SturdyMacEffectState = 1;
+pub const STURDY_MAC_STATE_INACTIVE: SturdyMacEffectState = 2;
+
+/// `NSGlassEffectViewStyle` (macOS 26).
+pub type SturdyMacGlassStyle = i32;
+pub const STURDY_MAC_GLASS_REGULAR: SturdyMacGlassStyle = 0;
+pub const STURDY_MAC_GLASS_CLEAR: SturdyMacGlassStyle = 1;
+
+/// `NSVisualEffectMaterial` (macOS 10.14 semantic materials), in the engine's own order.
+pub type SturdyMacMaterial = i32;
+pub const STURDY_MAC_MATERIAL_TITLEBAR: SturdyMacMaterial = 0;
+pub const STURDY_MAC_MATERIAL_SELECTION: SturdyMacMaterial = 1;
+pub const STURDY_MAC_MATERIAL_MENU: SturdyMacMaterial = 2;
+pub const STURDY_MAC_MATERIAL_POPOVER: SturdyMacMaterial = 3;
+pub const STURDY_MAC_MATERIAL_SIDEBAR: SturdyMacMaterial = 4;
+pub const STURDY_MAC_MATERIAL_HEADER_VIEW: SturdyMacMaterial = 5;
+pub const STURDY_MAC_MATERIAL_SHEET: SturdyMacMaterial = 6;
+pub const STURDY_MAC_MATERIAL_WINDOW_BACKGROUND: SturdyMacMaterial = 7;
+pub const STURDY_MAC_MATERIAL_HUD_WINDOW: SturdyMacMaterial = 8;
+pub const STURDY_MAC_MATERIAL_FULL_SCREEN_UI: SturdyMacMaterial = 9;
+pub const STURDY_MAC_MATERIAL_TOOL_TIP: SturdyMacMaterial = 10;
+pub const STURDY_MAC_MATERIAL_CONTENT_BACKGROUND: SturdyMacMaterial = 11;
+pub const STURDY_MAC_MATERIAL_UNDER_WINDOW_BACKGROUND: SturdyMacMaterial = 12;
+pub const STURDY_MAC_MATERIAL_UNDER_PAGE_BACKGROUND: SturdyMacMaterial = 13;
+
 /// Where a buffer's backing memory lives.
 pub type SturdyMemoryLocation = i32;
 pub const STURDY_MEMORY_LOCATION_DEVICE_LOCAL: SturdyMemoryLocation = 0;
 pub const STURDY_MEMORY_LOCATION_HOST_UPLOAD: SturdyMemoryLocation = 1;
 pub const STURDY_MEMORY_LOCATION_HOST_READBACK: SturdyMemoryLocation = 2;
+
+pub type SturdyMessageBoxKind = i32;
+pub const STURDY_MESSAGE_BOX_INFORMATION: SturdyMessageBoxKind = 0;
+pub const STURDY_MESSAGE_BOX_WARNING: SturdyMessageBoxKind = 1;
+pub const STURDY_MESSAGE_BOX_ERROR: SturdyMessageBoxKind = 2;
 
 pub type SturdyMipmapMode = i32;
 pub const STURDY_MIPMAP_MODE_NEAREST: SturdyMipmapMode = 0;
@@ -679,6 +827,30 @@ pub type SturdyTaskWeight = i32;
 pub const STURDY_TASK_LIGHT: SturdyTaskWeight = 0;
 pub const STURDY_TASK_HEAVY: SturdyTaskWeight = 1;
 
+pub type SturdyTaskbarProgress = i32;
+pub const STURDY_TASKBAR_PROGRESS_NONE: SturdyTaskbarProgress = 0;
+pub const STURDY_TASKBAR_PROGRESS_INDETERMINATE: SturdyTaskbarProgress = 1;
+pub const STURDY_TASKBAR_PROGRESS_NORMAL: SturdyTaskbarProgress = 2;
+pub const STURDY_TASKBAR_PROGRESS_PAUSED: SturdyTaskbarProgress = 3;
+pub const STURDY_TASKBAR_PROGRESS_ERROR: SturdyTaskbarProgress = 4;
+
+pub type SturdyTextCapitalization = i32;
+pub const STURDY_TEXT_CAPITALIZATION_NONE: SturdyTextCapitalization = 0;
+pub const STURDY_TEXT_CAPITALIZATION_SENTENCES: SturdyTextCapitalization = 1;
+pub const STURDY_TEXT_CAPITALIZATION_WORDS: SturdyTextCapitalization = 2;
+pub const STURDY_TEXT_CAPITALIZATION_LETTERS: SturdyTextCapitalization = 3;
+
+pub type SturdyTextInputType = i32;
+pub const STURDY_TEXT_INPUT_TEXT: SturdyTextInputType = 0;
+pub const STURDY_TEXT_INPUT_NAME: SturdyTextInputType = 1;
+pub const STURDY_TEXT_INPUT_EMAIL: SturdyTextInputType = 2;
+pub const STURDY_TEXT_INPUT_USERNAME: SturdyTextInputType = 3;
+pub const STURDY_TEXT_INPUT_PASSWORD_HIDDEN: SturdyTextInputType = 4;
+pub const STURDY_TEXT_INPUT_PASSWORD_VISIBLE: SturdyTextInputType = 5;
+pub const STURDY_TEXT_INPUT_NUMBER: SturdyTextInputType = 6;
+pub const STURDY_TEXT_INPUT_NUMBER_PASSWORD_HIDDEN: SturdyTextInputType = 7;
+pub const STURDY_TEXT_INPUT_NUMBER_PASSWORD_VISIBLE: SturdyTextInputType = 8;
+
 /// Dimensionality of a texture.
 pub type SturdyTextureDimension = i32;
 pub const STURDY_TEXTURE_DIMENSION_1D: SturdyTextureDimension = 0;
@@ -804,6 +976,13 @@ pub type SturdyVertexStepMode = i32;
 pub const STURDY_VERTEX_STEP_MODE_VERTEX: SturdyVertexStepMode = 0;
 pub const STURDY_VERTEX_STEP_MODE_INSTANCE: SturdyVertexStepMode = 1;
 
+/// Windows 11 `DWM_WINDOW_CORNER_PREFERENCE`.
+pub type SturdyWindowCornerPreference = i32;
+pub const STURDY_WINDOW_CORNER_DEFAULT: SturdyWindowCornerPreference = 0;
+pub const STURDY_WINDOW_CORNER_DO_NOT_ROUND: SturdyWindowCornerPreference = 1;
+pub const STURDY_WINDOW_CORNER_ROUND: SturdyWindowCornerPreference = 2;
+pub const STURDY_WINDOW_CORNER_ROUND_SMALL: SturdyWindowCornerPreference = 3;
+
 /// Platform-composited visual effect a window can request. Support is OS-dependent — an effect this platform cannot render (e.g. Mica off Windows 11) is rejected with `STURDY_ERROR_NOT_AVAILABLE` rather than silently ignored.
 pub type SturdyWindowEffectKind = i32;
 pub const STURDY_WINDOW_EFFECT_BLUR: SturdyWindowEffectKind = 0;
@@ -816,6 +995,69 @@ pub const STURDY_WINDOW_EFFECT_BORDER_COLOR: SturdyWindowEffectKind = 6;
 pub const STURDY_WINDOW_EFFECT_CAPTION_COLOR: SturdyWindowEffectKind = 7;
 pub const STURDY_WINDOW_EFFECT_TEXT_COLOR: SturdyWindowEffectKind = 8;
 pub const STURDY_WINDOW_EFFECT_TRANSPARENT: SturdyWindowEffectKind = 9;
+pub const STURDY_WINDOW_EFFECT_BACKDROP_AUTO: SturdyWindowEffectKind = 10;
+pub const STURDY_WINDOW_EFFECT_BACKDROP_NONE: SturdyWindowEffectKind = 11;
+pub const STURDY_WINDOW_EFFECT_ACCENT_BLUR: SturdyWindowEffectKind = 12;
+pub const STURDY_WINDOW_EFFECT_ACCENT_ACRYLIC: SturdyWindowEffectKind = 13;
+pub const STURDY_WINDOW_EFFECT_CORNER_PREFERENCE: SturdyWindowEffectKind = 14;
+pub const STURDY_WINDOW_EFFECT_VISUAL_EFFECT: SturdyWindowEffectKind = 15;
+pub const STURDY_WINDOW_EFFECT_OPACITY: SturdyWindowEffectKind = 16;
+pub const STURDY_WINDOW_EFFECT_TRANSITIONS_DISABLED: SturdyWindowEffectKind = 17;
+pub const STURDY_WINDOW_EFFECT_TITLEBAR_TRANSPARENT: SturdyWindowEffectKind = 18;
+pub const STURDY_WINDOW_EFFECT_WINDOW_SHADOW: SturdyWindowEffectKind = 19;
+pub const STURDY_WINDOW_EFFECT_GLASS_EFFECT: SturdyWindowEffectKind = 20;
+pub const STURDY_WINDOW_EFFECT_CORNER_RADIUS: SturdyWindowEffectKind = 21;
+
+pub type SturdyWindowErrorKind = i32;
+pub const STURDY_WINDOW_ERROR_NONE: SturdyWindowErrorKind = 0;
+pub const STURDY_WINDOW_ERROR_UNSUPPORTED: SturdyWindowErrorKind = 1;
+pub const STURDY_WINDOW_ERROR_INVALID_ARGUMENT: SturdyWindowErrorKind = 2;
+pub const STURDY_WINDOW_ERROR_FAILED: SturdyWindowErrorKind = 3;
+
+/// A capability a window may or may not have on this provider, OS and session type.
+pub type SturdyWindowFeature = i32;
+pub const STURDY_WINDOW_FEATURE_ALWAYS_ON_TOP: SturdyWindowFeature = 0;
+pub const STURDY_WINDOW_FEATURE_ASPECT_RATIO: SturdyWindowFeature = 1;
+pub const STURDY_WINDOW_FEATURE_MOUSE_PASSTHROUGH: SturdyWindowFeature = 2;
+pub const STURDY_WINDOW_FEATURE_FOCUSABLE: SturdyWindowFeature = 3;
+pub const STURDY_WINDOW_FEATURE_AUTO_MINIMIZE_ON_FOCUS_LOSS: SturdyWindowFeature = 4;
+pub const STURDY_WINDOW_FEATURE_PARENT_WINDOW: SturdyWindowFeature = 5;
+pub const STURDY_WINDOW_FEATURE_MODAL_WINDOW: SturdyWindowFeature = 6;
+pub const STURDY_WINDOW_FEATURE_KEYBOARD_GRAB: SturdyWindowFeature = 7;
+pub const STURDY_WINDOW_FEATURE_MOUSE_CONFINE_RECT: SturdyWindowFeature = 8;
+pub const STURDY_WINDOW_FEATURE_WARP_CURSOR: SturdyWindowFeature = 9;
+pub const STURDY_WINDOW_FEATURE_CUSTOM_CURSOR: SturdyWindowFeature = 10;
+pub const STURDY_WINDOW_FEATURE_FRAME_EXTENTS: SturdyWindowFeature = 11;
+pub const STURDY_WINDOW_FEATURE_SAFE_AREA: SturdyWindowFeature = 12;
+pub const STURDY_WINDOW_FEATURE_FULLSCREEN_TARGET: SturdyWindowFeature = 13;
+pub const STURDY_WINDOW_FEATURE_TEXT_INPUT_OPTIONS: SturdyWindowFeature = 14;
+pub const STURDY_WINDOW_FEATURE_SCREEN_KEYBOARD: SturdyWindowFeature = 15;
+pub const STURDY_WINDOW_FEATURE_CLIPBOARD_MIME_TYPES: SturdyWindowFeature = 16;
+pub const STURDY_WINDOW_FEATURE_TYPED_CLIPBOARD: SturdyWindowFeature = 17;
+pub const STURDY_WINDOW_FEATURE_HIT_TEST_REGIONS: SturdyWindowFeature = 18;
+pub const STURDY_WINDOW_FEATURE_SYSTEM_MENU: SturdyWindowFeature = 19;
+pub const STURDY_WINDOW_FEATURE_WINDOW_ICON: SturdyWindowFeature = 20;
+pub const STURDY_WINDOW_FEATURE_REQUEST_ATTENTION: SturdyWindowFeature = 21;
+pub const STURDY_WINDOW_FEATURE_TASKBAR_PROGRESS: SturdyWindowFeature = 22;
+pub const STURDY_WINDOW_FEATURE_SYSTEM_THEME: SturdyWindowFeature = 23;
+pub const STURDY_WINDOW_FEATURE_DISPLAY_LIST: SturdyWindowFeature = 24;
+pub const STURDY_WINDOW_FEATURE_DISPLAY_MODES: SturdyWindowFeature = 25;
+pub const STURDY_WINDOW_FEATURE_DISPLAY_EVENTS: SturdyWindowFeature = 26;
+pub const STURDY_WINDOW_FEATURE_LIVE_RESIZE_CALLBACK: SturdyWindowFeature = 27;
+pub const STURDY_WINDOW_FEATURE_WAIT_FOR_EVENTS: SturdyWindowFeature = 28;
+pub const STURDY_WINDOW_FEATURE_FILE_DROP: SturdyWindowFeature = 29;
+pub const STURDY_WINDOW_FEATURE_TEXT_DROP: SturdyWindowFeature = 30;
+pub const STURDY_WINDOW_FEATURE_WINDOW_TYPE_HINT: SturdyWindowFeature = 31;
+pub const STURDY_WINDOW_FEATURE_WINDOW_SHAPE: SturdyWindowFeature = 32;
+pub const STURDY_WINDOW_FEATURE_ANIMATED_CURSOR: SturdyWindowFeature = 33;
+pub const STURDY_WINDOW_FEATURE_KEYBOARD_QUERY: SturdyWindowFeature = 34;
+pub const STURDY_WINDOW_FEATURE_WARP_CURSOR_GLOBAL: SturdyWindowFeature = 35;
+pub const STURDY_WINDOW_FEATURE_MOUSE_CAPTURE: SturdyWindowFeature = 36;
+pub const STURDY_WINDOW_FEATURE_ICC_PROFILE: SturdyWindowFeature = 37;
+pub const STURDY_WINDOW_FEATURE_SYSTEM_TRAY: SturdyWindowFeature = 38;
+pub const STURDY_WINDOW_FEATURE_TOUCH_INPUT: SturdyWindowFeature = 39;
+pub const STURDY_WINDOW_FEATURE_PEN_INPUT: SturdyWindowFeature = 40;
+pub const STURDY_WINDOW_FEATURE_COUNT: SturdyWindowFeature = 41;
 
 /// Presentation mode of a window.
 pub type SturdyWindowMode = i32;
@@ -823,11 +1065,73 @@ pub const STURDY_WINDOW_MODE_WINDOWED: SturdyWindowMode = 0;
 pub const STURDY_WINDOW_MODE_BORDERLESS_FULLSCREEN: SturdyWindowMode = 1;
 pub const STURDY_WINDOW_MODE_EXCLUSIVE_FULLSCREEN: SturdyWindowMode = 2;
 
+/// Each operation a window can be asked to run; the key to `sturdy_window_operation_status`.
+pub type SturdyWindowOperation = i32;
+pub const STURDY_WINDOW_OP_TITLE: SturdyWindowOperation = 0;
+pub const STURDY_WINDOW_OP_POSITION: SturdyWindowOperation = 1;
+pub const STURDY_WINDOW_OP_SIZE: SturdyWindowOperation = 2;
+pub const STURDY_WINDOW_OP_MINIMUM_SIZE: SturdyWindowOperation = 3;
+pub const STURDY_WINDOW_OP_MAXIMUM_SIZE: SturdyWindowOperation = 4;
+pub const STURDY_WINDOW_OP_RESIZABLE: SturdyWindowOperation = 5;
+pub const STURDY_WINDOW_OP_OPACITY: SturdyWindowOperation = 6;
+pub const STURDY_WINDOW_OP_MAXIMIZE: SturdyWindowOperation = 7;
+pub const STURDY_WINDOW_OP_MINIMIZE: SturdyWindowOperation = 8;
+pub const STURDY_WINDOW_OP_RESTORE: SturdyWindowOperation = 9;
+pub const STURDY_WINDOW_OP_RAISE: SturdyWindowOperation = 10;
+pub const STURDY_WINDOW_OP_FOCUS: SturdyWindowOperation = 11;
+pub const STURDY_WINDOW_OP_SHOW: SturdyWindowOperation = 12;
+pub const STURDY_WINDOW_OP_HIDE: SturdyWindowOperation = 13;
+pub const STURDY_WINDOW_OP_ALWAYS_ON_TOP: SturdyWindowOperation = 14;
+pub const STURDY_WINDOW_OP_ASPECT_RATIO: SturdyWindowOperation = 15;
+pub const STURDY_WINDOW_OP_MOUSE_PASSTHROUGH: SturdyWindowOperation = 16;
+pub const STURDY_WINDOW_OP_FOCUSABLE: SturdyWindowOperation = 17;
+pub const STURDY_WINDOW_OP_AUTO_MINIMIZE: SturdyWindowOperation = 18;
+pub const STURDY_WINDOW_OP_PARENT: SturdyWindowOperation = 19;
+pub const STURDY_WINDOW_OP_KEYBOARD_GRAB: SturdyWindowOperation = 20;
+pub const STURDY_WINDOW_OP_MOUSE_CONFINE_RECT: SturdyWindowOperation = 21;
+pub const STURDY_WINDOW_OP_CURSOR_POSITION: SturdyWindowOperation = 22;
+pub const STURDY_WINDOW_OP_GLOBAL_CURSOR_POSITION: SturdyWindowOperation = 23;
+pub const STURDY_WINDOW_OP_MOUSE_CAPTURE: SturdyWindowOperation = 24;
+pub const STURDY_WINDOW_OP_CUSTOM_CURSOR: SturdyWindowOperation = 25;
+pub const STURDY_WINDOW_OP_ANIMATED_CURSOR: SturdyWindowOperation = 26;
+pub const STURDY_WINDOW_OP_CLEAR_CUSTOM_CURSOR: SturdyWindowOperation = 27;
+pub const STURDY_WINDOW_OP_TEXT_INPUT_OPTIONS: SturdyWindowOperation = 28;
+pub const STURDY_WINDOW_OP_FULLSCREEN_TARGET: SturdyWindowOperation = 29;
+pub const STURDY_WINDOW_OP_WINDOW_TYPE: SturdyWindowOperation = 30;
+pub const STURDY_WINDOW_OP_SHAPE: SturdyWindowOperation = 31;
+pub const STURDY_WINDOW_OP_DISPLAY_GAMMA: SturdyWindowOperation = 32;
+pub const STURDY_WINDOW_OP_ICON: SturdyWindowOperation = 33;
+pub const STURDY_WINDOW_OP_ATTENTION: SturdyWindowOperation = 34;
+pub const STURDY_WINDOW_OP_TASKBAR_PROGRESS: SturdyWindowOperation = 35;
+pub const STURDY_WINDOW_OP_HIT_TEST_REGIONS: SturdyWindowOperation = 36;
+pub const STURDY_WINDOW_OP_SYSTEM_MENU: SturdyWindowOperation = 37;
+pub const STURDY_WINDOW_OP_CLIPBOARD_TEXT: SturdyWindowOperation = 38;
+pub const STURDY_WINDOW_OP_SET_CLIPBOARD_TEXT: SturdyWindowOperation = 39;
+pub const STURDY_WINDOW_OP_CLIPBOARD_MIME_TYPES: SturdyWindowOperation = 40;
+pub const STURDY_WINDOW_OP_CLIPBOARD_DATA: SturdyWindowOperation = 41;
+pub const STURDY_WINDOW_OP_SET_CLIPBOARD_DATA: SturdyWindowOperation = 42;
+pub const STURDY_WINDOW_OP_KEY_NAME: SturdyWindowOperation = 43;
+pub const STURDY_WINDOW_OP_KEY_DOWN: SturdyWindowOperation = 44;
+pub const STURDY_WINDOW_OP_ICC_PROFILE: SturdyWindowOperation = 45;
+pub const STURDY_WINDOW_OP_FILE_DIALOG: SturdyWindowOperation = 46;
+pub const STURDY_WINDOW_OP_MESSAGE_BOX: SturdyWindowOperation = 47;
+pub const STURDY_WINDOW_OP_COUNT: SturdyWindowOperation = 48;
+
 /// Which kind of window request a `SturdyWindowRequestCompletion` reports the outcome of.
 pub type SturdyWindowRequestKind = i32;
 pub const STURDY_WINDOW_REQUEST_SPAWN: SturdyWindowRequestKind = 0;
 pub const STURDY_WINDOW_REQUEST_RECREATE_PRIMARY: SturdyWindowRequestKind = 1;
 pub const STURDY_WINDOW_REQUEST_CLOSE: SturdyWindowRequestKind = 2;
+
+/// How the window manager should treat a window.
+pub type SturdyWindowType = i32;
+pub const STURDY_WINDOW_TYPE_NORMAL: SturdyWindowType = 0;
+pub const STURDY_WINDOW_TYPE_UTILITY: SturdyWindowType = 1;
+pub const STURDY_WINDOW_TYPE_TOOLTIP: SturdyWindowType = 2;
+pub const STURDY_WINDOW_TYPE_POPUP_MENU: SturdyWindowType = 3;
+pub const STURDY_WINDOW_TYPE_DROPDOWN_MENU: SturdyWindowType = 4;
+pub const STURDY_WINDOW_TYPE_DIALOG: SturdyWindowType = 5;
+pub const STURDY_WINDOW_TYPE_SPLASH: SturdyWindowType = 6;
 
 /// Frees a foreign pointer owned by an arc. Runs once, when the last reference goes away, on whichever thread dropped it.
 pub type SturdyArcDestroyFn = unsafe extern "C" fn(*mut c_void);
@@ -851,6 +1155,9 @@ pub type SturdyChunkSystemFn = unsafe extern "C" fn(*const SturdyEntity, u32, *m
 ///
 /// While a visit is in progress the world is locked, so this callback must **not** call any other `sturdy_ecs_*` function; each returns `STURDY_ERROR_BUSY`. That guard is doing real work — the engine underneath treats a structural change made during iteration as a fatal contract violation, so without it a reentrant spawn would terminate the process rather than fail. Read and write through `components`; if you need to spawn or destroy, record what you want and do it after `sturdy_ecs_for_each` returns.
 pub type SturdyEcsVisitFn = unsafe extern "C" fn(SturdyEntity, *mut *mut c_void, *mut c_void);
+
+/// Called once when the dialog closes, possibly on another thread. `paths` holds `count` strings valid only during the call (none when `cancelled`); `filter_index` is the active filter or -1; `error` is null unless the dialog failed.
+pub type SturdyFileDialogCallback = unsafe extern "C" fn(*mut c_void, *const *const c_char, u32, i32, u8, *const c_char);
 
 /// Called for every request, on a handler thread (not the network thread). Call `sturdy_http_respond` exactly once with `responder`, now or later from any thread. A request that is never answered holds its connection until the client gives up.
 pub type SturdyHttpHandlerFn = unsafe extern "C" fn(*mut c_void, *const SturdyHttpRequest, SturdyHttpResponder);
@@ -944,6 +1251,9 @@ pub type SturdyTaskThenFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncObject,
 
 /// The work of a task, run on a worker thread. `cancel_token` (a "cancel_token", valid only during the call) turns cancelled when the task's op is cancelled or its join set aborted: poll `sturdy_cancel_token_is_cancelled` to stop early. Fill `output` before returning. Must not unwind.
 pub type SturdyTaskWorkFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncObject, *mut SturdyTaskOutput);
+
+/// Called on the main thread when a tray menu entry is clicked; `id` is the entry's `id`.
+pub type SturdyTrayCallback = unsafe extern "C" fn(*mut c_void, u32);
 
 /// Called for each WebSocket upgraded on a path registered with `sturdy_http_server_on_websocket`, on a handler thread. `socket` is a new "websocket" object **you own** (release it when done; releasing closes the connection). `request` is valid only during the call.
 pub type SturdyWebSocketFn = unsafe extern "C" fn(*mut c_void, SturdyAsyncObject, *const SturdyHttpRequest);
@@ -2333,6 +2643,23 @@ const _: () = assert!(core::mem::offset_of!(SturdyCopyOptions, chunk_bytes) == 0
 const _: () = assert!(core::mem::offset_of!(SturdyCopyOptions, limit) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyCopyOptions, shutdown_writer) == 16);
 
+/// One frame of an animated cursor: tightly packed RGBA8 (`width * height * 4` bytes, the size given to the call).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyCursorFrame {
+    pub rgba: *const u8,
+    pub duration_ms: u32,
+}
+impl Default for SturdyCursorFrame {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyCursorFrame>() == 16 && core::mem::align_of::<SturdyCursorFrame>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyCursorFrame, rgba) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyCursorFrame, duration_ms) == 8);
+
 /// The engine's raw D3D12 objects.
 ///
 /// Fields are `void *` for the same reason as `SturdyVulkanHandles`, and carry the same borrowing rules. These pointers are **not** `AddRef`'d on your behalf: call `AddRef` yourself if you intend to hold one past the call.
@@ -2543,6 +2870,87 @@ const _: () = assert!(core::mem::offset_of!(SturdyDeviceLimits, supports_minimum
 const _: () = assert!(core::mem::offset_of!(SturdyDeviceLimits, supports_bc_texture_compression) == 77);
 const _: () = assert!(core::mem::offset_of!(SturdyDeviceLimits, reserved) == 78);
 
+/// An integer rectangle in window or desktop coordinates (origin top-left).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyWindowRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+impl Default for SturdyWindowRect {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyWindowRect>() == 16 && core::mem::align_of::<SturdyWindowRect>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowRect, x) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowRect, y) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowRect, width) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowRect, height) == 12);
+
+/// One video mode of a display.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDisplayMode {
+    pub width: u32,
+    pub height: u32,
+    pub refresh_rate_hz: f32,
+    pub pixel_density: f32,
+}
+impl Default for SturdyDisplayMode {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDisplayMode>() == 16 && core::mem::align_of::<SturdyDisplayMode>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayMode, width) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayMode, height) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayMode, refresh_rate_hz) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayMode, pixel_density) == 12);
+
+/// One connected monitor. Read with `sturdy_display_get`; the name and the modes come from their own calls.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyDisplayInfo {
+    pub struct_size: u32,
+    pub id: u32,
+    pub bounds: SturdyWindowRect,
+    pub usable_bounds: SturdyWindowRect,
+    pub content_scale: f32,
+    pub refresh_rate_hz: f32,
+    pub hdr_enabled: u8,
+    pub primary: u8,
+    pub current_mode: SturdyDisplayMode,
+    pub mode_count: u32,
+    pub physical_width_mm: u32,
+    pub physical_height_mm: u32,
+    pub orientation: i32,
+}
+impl Default for SturdyDisplayInfo {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyDisplayInfo>() == 84 && core::mem::align_of::<SturdyDisplayInfo>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, id) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, bounds) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, usable_bounds) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, content_scale) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, refresh_rate_hz) == 44);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, hdr_enabled) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, primary) == 49);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, current_mode) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, mode_count) == 68);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, physical_width_mm) == 72);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, physical_height_mm) == 76);
+const _: () = assert!(core::mem::offset_of!(SturdyDisplayInfo, orientation) == 80);
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SturdyDrawArgs {
@@ -2640,6 +3048,23 @@ const _: () = assert!(core::mem::size_of::<SturdyEntity>() == 8 && core::mem::al
 const _: () = assert!(core::mem::offset_of!(SturdyEntity, index) == 0);
 const _: () = assert!(core::mem::offset_of!(SturdyEntity, generation) == 4);
 
+/// Whether a feature is available, with the reason when it is not (or only partly). `note` is a static string owned by the engine: it stays valid for the life of the process; it is empty when the feature is fully supported.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyFeatureSupport {
+    pub supported: u8,
+    pub note: *const c_char,
+}
+impl Default for SturdyFeatureSupport {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyFeatureSupport>() == 16 && core::mem::align_of::<SturdyFeatureSupport>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyFeatureSupport, supported) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyFeatureSupport, note) == 8);
+
 /// Handle to a fence: a GPU-to-host synchronization primitive signaled when a submission completes. See the "RHI resources" section header for its lifetime rules.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -2676,6 +3101,52 @@ const _: () = assert!(core::mem::offset_of!(SturdyFenceDesc, signaled) == 4);
 const _: () = assert!(core::mem::offset_of!(SturdyFenceDesc, reserved) == 5);
 const _: () = assert!(core::mem::offset_of!(SturdyFenceDesc, label) == 8);
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyFileDialogOptions {
+    pub struct_size: u32,
+    pub kind: i32,
+    pub title: *const c_char,
+    pub accept_label: *const c_char,
+    pub cancel_label: *const c_char,
+    pub default_location: *const c_char,
+    pub filters: *const SturdyFileFilter,
+    pub filter_count: u32,
+    pub allow_multiple: u8,
+}
+impl Default for SturdyFileDialogOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyFileDialogOptions>() == 56 && core::mem::align_of::<SturdyFileDialogOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyFileDialogOptions, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyFileDialogOptions, kind) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyFileDialogOptions, title) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyFileDialogOptions, accept_label) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyFileDialogOptions, cancel_label) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyFileDialogOptions, default_location) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyFileDialogOptions, filters) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyFileDialogOptions, filter_count) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyFileDialogOptions, allow_multiple) == 52);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyFileFilter {
+    pub name: *const c_char,
+    pub pattern: *const c_char,
+}
+impl Default for SturdyFileFilter {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyFileFilter>() == 16 && core::mem::align_of::<SturdyFileFilter>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyFileFilter, name) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyFileFilter, pattern) == 8);
+
 /// Borrowed reference to the render-frame parameters being built for the current frame.
 ///
 /// Same scope and reuse rules as `SturdyEngine`. Valid only inside `request_render_frame`.
@@ -2692,6 +3163,27 @@ impl Default for SturdyFrame {
 }
 const _: () = assert!(core::mem::size_of::<SturdyFrame>() == 8 && core::mem::align_of::<SturdyFrame>() == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyFrame, token) == 0);
+
+/// The decoration thickness around the client area, in window units.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyFrameExtents {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+impl Default for SturdyFrameExtents {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyFrameExtents>() == 16 && core::mem::align_of::<SturdyFrameExtents>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyFrameExtents, left) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyFrameExtents, top) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyFrameExtents, right) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyFrameExtents, bottom) == 12);
 
 /// Per-frame timing and surface geometry, supplied by the engine to `request_render_frame`.
 ///
@@ -2723,6 +3215,27 @@ const _: () = assert!(core::mem::offset_of!(SturdyFrameInput, framebuffer_width)
 const _: () = assert!(core::mem::offset_of!(SturdyFrameInput, framebuffer_height) == 28);
 const _: () = assert!(core::mem::offset_of!(SturdyFrameInput, live_resize) == 32);
 const _: () = assert!(core::mem::offset_of!(SturdyFrameInput, reserved_tail) == 33);
+
+/// The display and mode a fullscreen window uses. Unset fields mean "the window's current display" / "the desktop mode".
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyFullscreenTarget {
+    pub has_display: u8,
+    pub display_id: u32,
+    pub has_mode: u8,
+    pub mode: SturdyDisplayMode,
+}
+impl Default for SturdyFullscreenTarget {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyFullscreenTarget>() == 28 && core::mem::align_of::<SturdyFullscreenTarget>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyFullscreenTarget, has_display) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyFullscreenTarget, display_id) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyFullscreenTarget, has_mode) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyFullscreenTarget, mode) == 12);
 
 /// Callbacks implementing your application, mirroring the C++ `Engine::GameLogic` interface.
 ///
@@ -2779,6 +3292,108 @@ const _: () = assert!(core::mem::offset_of!(SturdyGameModule, after) == 16);
 const _: () = assert!(core::mem::offset_of!(SturdyGameModule, contributes_scene) == 24);
 const _: () = assert!(core::mem::offset_of!(SturdyGameModule, reserved) == 25);
 const _: () = assert!(core::mem::offset_of!(SturdyGameModule, logic) == 32);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyGamepadEvent {
+    pub kind: i32,
+    pub id: u32,
+}
+impl Default for SturdyGamepadEvent {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyGamepadEvent>() == 8 && core::mem::align_of::<SturdyGamepadEvent>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadEvent, kind) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadEvent, id) == 4);
+
+/// One mapped gamepad as it is this tick; the masks hold the buttons that changed since the last tick.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyGamepadFrame {
+    pub id: u32,
+    pub buttons: u32,
+    pub pressed_this_tick: u32,
+    pub released_this_tick: u32,
+    pub axes: [f32; 6],
+}
+impl Default for SturdyGamepadFrame {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyGamepadFrame>() == 40 && core::mem::align_of::<SturdyGamepadFrame>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadFrame, id) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadFrame, buttons) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadFrame, pressed_this_tick) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadFrame, released_this_tick) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadFrame, axes) == 16);
+
+/// One connected device. Read with `sturdy_gamepad_get`; the name comes from `sturdy_gamepad_name`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyGamepadInfo {
+    pub struct_size: u32,
+    pub id: u32,
+    pub kind: i32,
+    pub vendor: u16,
+    pub product: u16,
+    pub connection: i32,
+    pub player_index: i32,
+    pub mapped: u8,
+    pub has_rumble: u8,
+    pub has_trigger_rumble: u8,
+    pub has_led: u8,
+    pub has_accelerometer: u8,
+    pub has_gyroscope: u8,
+    pub has_touchpad: u8,
+    pub battery_percent: i32,
+    pub charging: u8,
+}
+impl Default for SturdyGamepadInfo {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyGamepadInfo>() == 40 && core::mem::align_of::<SturdyGamepadInfo>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, id) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, kind) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, vendor) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, product) == 14);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, connection) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, player_index) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, mapped) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, has_rumble) == 25);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, has_trigger_rumble) == 26);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, has_led) == 27);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, has_accelerometer) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, has_gyroscope) == 29);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, has_touchpad) == 30);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, battery_percent) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadInfo, charging) == 36);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyGamepadState {
+    pub struct_size: u32,
+    pub buttons: u32,
+    pub axes: [f32; 6],
+}
+impl Default for SturdyGamepadState {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyGamepadState>() == 32 && core::mem::align_of::<SturdyGamepadState>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadState, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadState, buttons) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyGamepadState, axes) == 8);
 
 /// A pipeline barrier with no specific resource — orders every matching access before/after it.
 #[repr(C)]
@@ -3002,6 +3617,33 @@ const _: () = assert!(core::mem::size_of::<SturdyHdrPresentationMode>() == 12 &&
 const _: () = assert!(core::mem::offset_of!(SturdyHdrPresentationMode, transfer) == 0);
 const _: () = assert!(core::mem::offset_of!(SturdyHdrPresentationMode, gamut) == 4);
 const _: () = assert!(core::mem::offset_of!(SturdyHdrPresentationMode, requires_os_hdr_mode) == 8);
+
+/// Rectangles of a custom title bar; see `sturdy_window_set_hit_test_regions`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyHitTestRegions {
+    pub struct_size: u32,
+    pub enabled: u8,
+    pub resize_border: u32,
+    pub drag: *const SturdyWindowRect,
+    pub drag_count: u32,
+    pub no_drag: *const SturdyWindowRect,
+    pub no_drag_count: u32,
+}
+impl Default for SturdyHitTestRegions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyHitTestRegions>() == 48 && core::mem::align_of::<SturdyHitTestRegions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHitTestRegions, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyHitTestRegions, enabled) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyHitTestRegions, resize_border) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyHitTestRegions, drag) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyHitTestRegions, drag_count) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyHitTestRegions, no_drag) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyHitTestRegions, no_drag_count) == 40);
 
 /// How to verify a server (client side of TLS/QUIC/HTTPS/WSS). Chain and host name are always checked unless `pinned_sha256` names the exact certificate(s) accepted.
 #[repr(C)]
@@ -3318,6 +3960,34 @@ const _: () = assert!(core::mem::offset_of!(SturdyLogSink, id) == 0);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct SturdyMessageBoxOptions {
+    pub struct_size: u32,
+    pub kind: i32,
+    pub title: *const c_char,
+    pub message: *const c_char,
+    pub buttons: *const *const c_char,
+    pub button_count: u32,
+    pub default_button: i32,
+    pub escape_button: i32,
+}
+impl Default for SturdyMessageBoxOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyMessageBoxOptions>() == 48 && core::mem::align_of::<SturdyMessageBoxOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyMessageBoxOptions, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyMessageBoxOptions, kind) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyMessageBoxOptions, title) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyMessageBoxOptions, message) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyMessageBoxOptions, buttons) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyMessageBoxOptions, button_count) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyMessageBoxOptions, default_button) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyMessageBoxOptions, escape_button) == 40);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct SturdyMotionBlurSettings {
     pub struct_size: u32,
     pub enabled: u8,
@@ -3590,6 +4260,53 @@ const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, event_queue) == 1
 const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, discovery_port) == 128);
 const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, discovery_group) == 136);
 const _: () = assert!(core::mem::offset_of!(SturdyPeerOptions, discovery_interval_ms) == 144);
+
+/// One pen. Listed while in range, and for the tick it left range in.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyPenPoint {
+    pub window: u64,
+    pub pen: u32,
+    pub x: f32,
+    pub y: f32,
+    pub in_range: u8,
+    pub down: u8,
+    pub eraser: u8,
+    pub just_down: u8,
+    pub just_up: u8,
+    pub pressure: f32,
+    pub x_tilt: f32,
+    pub y_tilt: f32,
+    pub distance: f32,
+    pub rotation: f32,
+    pub slider: f32,
+    pub tangential_pressure: f32,
+    pub buttons: u32,
+}
+impl Default for SturdyPenPoint {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyPenPoint>() == 64 && core::mem::align_of::<SturdyPenPoint>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, window) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, pen) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, x) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, y) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, in_range) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, down) == 21);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, eraser) == 22);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, just_down) == 23);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, just_up) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, pressure) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, x_tilt) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, y_tilt) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, distance) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, rotation) == 44);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, slider) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, tangential_pressure) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyPenPoint, buttons) == 56);
 
 /// Describes a pipeline layout to create.
 #[repr(C)]
@@ -5397,6 +6114,29 @@ const _: () = assert!(core::mem::offset_of!(SturdyTextInputArea, width) == 8);
 const _: () = assert!(core::mem::offset_of!(SturdyTextInputArea, height) == 12);
 const _: () = assert!(core::mem::offset_of!(SturdyTextInputArea, cursor_offset_x) == 16);
 
+/// What kind of text a field takes, for IMEs and on-screen keyboards. Populate with `sturdy_text_input_options_init`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyTextInputOptions {
+    pub struct_size: u32,
+    pub r#type: i32,
+    pub capitalization: i32,
+    pub autocorrect: u8,
+    pub multiline: u8,
+}
+impl Default for SturdyTextInputOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTextInputOptions>() == 16 && core::mem::align_of::<SturdyTextInputOptions>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyTextInputOptions, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyTextInputOptions, r#type) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyTextInputOptions, capitalization) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTextInputOptions, autocorrect) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyTextInputOptions, multiline) == 13);
+
 /// Handle to a GPU texture. See the "RHI resources" section header for its lifetime rules.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -5632,6 +6372,43 @@ const _: () = assert!(core::mem::offset_of!(SturdyToneMappingSettings, psychov_c
 const _: () = assert!(core::mem::offset_of!(SturdyToneMappingSettings, psychov_adapted_gray_bt709) == 84);
 const _: () = assert!(core::mem::offset_of!(SturdyToneMappingSettings, psychov_background_gray_bt709) == 96);
 
+/// One finger on a touch screen or pad. A lifted finger is listed for the tick it lifted in, then disappears.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyTouchPoint {
+    pub window: u64,
+    pub device: u64,
+    pub finger: u64,
+    pub x: f32,
+    pub y: f32,
+    pub dx: f32,
+    pub dy: f32,
+    pub pressure: f32,
+    pub down: u8,
+    pub just_pressed: u8,
+    pub just_released: u8,
+    pub cancelled: u8,
+}
+impl Default for SturdyTouchPoint {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTouchPoint>() == 48 && core::mem::align_of::<SturdyTouchPoint>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, window) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, device) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, finger) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, x) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, y) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, dx) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, dy) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, pressure) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, down) == 44);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, just_pressed) == 45);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, just_released) == 46);
+const _: () = assert!(core::mem::offset_of!(SturdyTouchPoint, cancelled) == 47);
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SturdyTraceFrame {
@@ -5687,6 +6464,49 @@ const _: () = assert!(core::mem::offset_of!(SturdyTraceRaysDesc, callable) == 96
 const _: () = assert!(core::mem::offset_of!(SturdyTraceRaysDesc, width) == 128);
 const _: () = assert!(core::mem::offset_of!(SturdyTraceRaysDesc, height) == 132);
 const _: () = assert!(core::mem::offset_of!(SturdyTraceRaysDesc, depth) == 136);
+
+/// A notification-area / menu-bar icon. Owned: lives until `sturdy_tray_destroy`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyTray {
+    pub token: u64,
+}
+impl Default for SturdyTray {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTray>() == 8 && core::mem::align_of::<SturdyTray>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTray, token) == 0);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyTrayEntry {
+    pub id: u32,
+    pub label: *const c_char,
+    pub separator: u8,
+    pub checkable: u8,
+    pub checked: u8,
+    pub enabled: u8,
+    pub submenu: *const SturdyTrayEntry,
+    pub submenu_count: u32,
+}
+impl Default for SturdyTrayEntry {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyTrayEntry>() == 40 && core::mem::align_of::<SturdyTrayEntry>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTrayEntry, id) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyTrayEntry, label) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyTrayEntry, separator) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyTrayEntry, checkable) == 17);
+const _: () = assert!(core::mem::offset_of!(SturdyTrayEntry, checked) == 18);
+const _: () = assert!(core::mem::offset_of!(SturdyTrayEntry, enabled) == 19);
+const _: () = assert!(core::mem::offset_of!(SturdyTrayEntry, submenu) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyTrayEntry, submenu_count) == 32);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -6311,6 +7131,143 @@ const _: () = assert!(core::mem::offset_of!(SturdyWindowConfig, high_dpi) == 36)
 const _: () = assert!(core::mem::offset_of!(SturdyWindowConfig, transparent) == 37);
 const _: () = assert!(core::mem::offset_of!(SturdyWindowConfig, mode) == 40);
 
+/// Creation-time window behaviour, for `sturdy_window_spawn_ex`. Populate with `sturdy_window_creation_options_init`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyWindowCreationOptions {
+    pub struct_size: u32,
+    pub always_on_top: u8,
+    pub maximized: u8,
+    pub minimized: u8,
+    pub focusable: u8,
+    pub mouse_passthrough: u8,
+    pub has_auto_minimize: u8,
+    pub auto_minimize_on_focus_loss: u8,
+    pub window_type: i32,
+    pub has_parent: u8,
+    pub parent: SturdySurface,
+    pub modal: u8,
+    pub min_width: u32,
+    pub min_height: u32,
+    pub max_width: u32,
+    pub max_height: u32,
+    pub aspect_min: f32,
+    pub aspect_max: f32,
+    pub fullscreen_target: SturdyFullscreenTarget,
+}
+impl Default for SturdyWindowCreationOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyWindowCreationOptions>() == 88 && core::mem::align_of::<SturdyWindowCreationOptions>() == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, always_on_top) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, maximized) == 5);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, minimized) == 6);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, focusable) == 7);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, mouse_passthrough) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, has_auto_minimize) == 9);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, auto_minimize_on_focus_loss) == 10);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, window_type) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, has_parent) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, parent) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, modal) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, min_width) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, min_height) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, max_width) == 44);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, max_height) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, aspect_min) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, aspect_max) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowCreationOptions, fullscreen_target) == 60);
+
+/// Everything beyond kind and on/off for `sturdy_window_set_effect_ex`. Populate with `sturdy_window_effect_options_init` first: that sets `struct_size` and the defaults (full opacity, all accent borders, the platform's own look). Each field applies to specific effects and is ignored by the rest.
+///
+/// Blur regions are not part of this struct: a blur covers the whole window (optionally with rounded corners).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyWindowEffectOptions {
+    pub struct_size: u32,
+    pub linux_blur_protocol: i32,
+    pub color_argb: u32,
+    pub blur_corner_radius: f32,
+    pub tint_argb: u32,
+    pub accent_border_left: u8,
+    pub accent_border_top: u8,
+    pub accent_border_right: u8,
+    pub accent_border_bottom: u8,
+    pub hide_border: u8,
+    pub corner_preference: i32,
+    pub mac_material: i32,
+    pub mac_blending: i32,
+    pub mac_state: i32,
+    pub mac_emphasized: u8,
+    pub mac_appearance: i32,
+    pub mac_glass_style: i32,
+    pub mac_glass_corner_radius: f32,
+    pub opacity: f32,
+    pub window_corner_radius: f32,
+}
+impl Default for SturdyWindowEffectOptions {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyWindowEffectOptions>() == 68 && core::mem::align_of::<SturdyWindowEffectOptions>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, linux_blur_protocol) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, color_argb) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, blur_corner_radius) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, tint_argb) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, accent_border_left) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, accent_border_top) == 21);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, accent_border_right) == 22);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, accent_border_bottom) == 23);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, hide_border) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, corner_preference) == 28);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, mac_material) == 32);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, mac_blending) == 36);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, mac_state) == 40);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, mac_emphasized) == 44);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, mac_appearance) == 48);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, mac_glass_style) == 52);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, mac_glass_corner_radius) == 56);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, opacity) == 60);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowEffectOptions, window_corner_radius) == 64);
+
+/// The outcome of the last run of one operation on one window.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SturdyWindowOperationStatus {
+    pub struct_size: u32,
+    pub completed: u8,
+    pub ok: u8,
+    pub error: i32,
+    pub flag: u8,
+    pub text_length: u32,
+    pub bytes_size: u32,
+    pub list_count: u32,
+    pub number: i32,
+}
+impl Default for SturdyWindowOperationStatus {
+    /// All zero: null pointers, absent callbacks, zero numbers. Set `struct_size` where the struct has one.
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+const _: () = assert!(core::mem::size_of::<SturdyWindowOperationStatus>() == 32 && core::mem::align_of::<SturdyWindowOperationStatus>() == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowOperationStatus, struct_size) == 0);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowOperationStatus, completed) == 4);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowOperationStatus, ok) == 5);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowOperationStatus, error) == 8);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowOperationStatus, flag) == 12);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowOperationStatus, text_length) == 16);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowOperationStatus, bytes_size) == 20);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowOperationStatus, list_count) == 24);
+const _: () = assert!(core::mem::offset_of!(SturdyWindowOperationStatus, number) == 28);
+
 /// Outcome of one completed window request: `sturdy_window_spawn`, `sturdy_window_recreate_primary`, or `sturdy_window_request_close`.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -6586,10 +7543,26 @@ unsafe extern "C" {
     pub fn sturdy_dedicated_thread_run(thread: SturdyAsyncObject, work: Option<SturdyTaskWorkFn>, user_data: *mut c_void, out_op: *mut SturdyAsyncOp) -> i32;
     /// Fills `settings` with `struct_size` and engine defaults (disabled).
     pub fn sturdy_depth_of_field_settings_init(settings: *mut SturdyDepthOfFieldSettings) -> i32;
+    /// Delivers tray clicks for a program whose windows are not pumping SDL. Cheap when no tray exists.
+    pub fn sturdy_desktop_pump_events() -> i32;
+    pub fn sturdy_desktop_screensaver_enabled(out_enabled: *mut u8) -> i32;
+    /// Allows or inhibits the screen saver / display blanking (games turn it off).
+    pub fn sturdy_desktop_set_screensaver_enabled(enabled: u8) -> i32;
+    /// Opens a file or folder dialog and returns at once; `callback` reports the outcome.
+    pub fn sturdy_desktop_show_file_dialog(engine: SturdyEngine, options: *const SturdyFileDialogOptions, callback: Option<SturdyFileDialogCallback>, user: *mut c_void) -> i32;
+    /// Shows a message box and blocks until it is dismissed; writes the pressed button's index (or -1). Main thread only.
+    pub fn sturdy_desktop_show_message_box(engine: SturdyEngine, options: *const SturdyMessageBoxOptions, out_button: *mut i32) -> i32;
     /// Walks a directory entry by entry. Object "dir_iter".
     pub fn sturdy_dir_iter_create(path: *const c_char, recursive: u8, out_iter: *mut SturdyAsyncObject) -> i32;
     /// Number: 1 and text: the next path, or number 0 at the end.
     pub fn sturdy_dir_iter_next(iter: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
+    /// How many monitors are connected (refreshed when the window system reports a change).
+    pub fn sturdy_display_count(engine: SturdyEngine, out_count: *mut u32) -> i32;
+    pub fn sturdy_display_get(engine: SturdyEngine, index: u32, out_info: *mut SturdyDisplayInfo) -> i32;
+    /// Mode `mode_index` (below `SturdyDisplayInfo::mode_count`) of monitor `index`.
+    pub fn sturdy_display_mode(engine: SturdyEngine, index: u32, mode_index: u32, out_mode: *mut SturdyDisplayMode) -> i32;
+    /// The monitor's name. See the string-output convention above.
+    pub fn sturdy_display_name(engine: SturdyEngine, index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
     /// Resolves a host name. Fields: one `address` per result (numeric text).
     pub fn sturdy_dns_resolve(host: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
     /// Registers a chunk system (since 0.35) with a removable handle. Declaration, ordering, conflict detection, `commands` and removal behave exactly as for `sturdy_ecs_add_system_ex`; only the body differs.
@@ -6848,6 +7821,27 @@ unsafe extern "C" {
     pub fn sturdy_fs_size(path: *const c_char, out_op: *mut SturdyAsyncOp) -> i32;
     /// Creates or replaces the file with `data`, or appends to it.
     pub fn sturdy_fs_write_file(path: *const c_char, data: *const u8, size: u64, append: u8, out_op: *mut SturdyAsyncOp) -> i32;
+    /// How many devices are connected (also starts the joystick subsystem on first use).
+    pub fn sturdy_gamepad_count(out_count: *mut u32) -> i32;
+    pub fn sturdy_gamepad_get(index: u32, out_info: *mut SturdyGamepadInfo) -> i32;
+    /// The device's name. See the string-output convention above.
+    pub fn sturdy_gamepad_name(index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// How many axes, buttons and hats a device reports raw.
+    pub fn sturdy_gamepad_raw_counts(id: u32, out_axes: *mut u32, out_buttons: *mut u32, out_hats: *mut u32) -> i32;
+    /// A device as the hardware reports it. Each buffer may be null; axes are -1 to 1, buttons 0/1, hats a bit set (1 up, 2 right, 4 down, 8 left).
+    pub fn sturdy_gamepad_raw_read(id: u32, axes: *mut f32, axes_capacity: u32, buttons: *mut u8, buttons_capacity: u32, hats: *mut u8, hats_capacity: u32) -> i32;
+    /// Motor strengths are 0..1; the rumble stops after `duration_ms`.
+    pub fn sturdy_gamepad_rumble(id: u32, low_frequency: f32, high_frequency: f32, duration_ms: u32) -> i32;
+    pub fn sturdy_gamepad_rumble_triggers(id: u32, left: f32, right: f32, duration_ms: u32) -> i32;
+    /// x, y, z of an enabled sensor (m/s^2 for the accelerometer, rad/s for the gyroscope).
+    pub fn sturdy_gamepad_sensor(id: u32, sensor: i32, out_xyz: *mut f32) -> i32;
+    pub fn sturdy_gamepad_set_led(id: u32, red: u8, green: u8, blue: u8) -> i32;
+    pub fn sturdy_gamepad_set_player_index(id: u32, player_index: i32) -> i32;
+    pub fn sturdy_gamepad_set_sensor_enabled(id: u32, sensor: i32, enabled: u8) -> i32;
+    /// The current state of a mapped gamepad (`STURDY_ERROR_NOT_AVAILABLE` for an unknown or unmapped device).
+    pub fn sturdy_gamepad_state(id: u32, out_state: *mut SturdyGamepadState) -> i32;
+    /// Devices connected or disconnected since the last call: writes up to `capacity` events and sets `*out_count`.
+    pub fn sturdy_gamepad_take_events(events: *mut SturdyGamepadEvent, capacity: u32, out_count: *mut u32) -> i32;
     /// Imports a glTF or GLB file, creating a model asset for every mesh it contains.
     ///
     /// Importing does not put anything in the world — it produces assets and a description of how the file arranged them. Call `sturdy_gltf_spawn_all` to reproduce that arrangement, or walk the instances yourself if you want to filter or re-place them.
@@ -6931,6 +7925,17 @@ unsafe extern "C" {
     /// `sturdy_http_server_create_router` and `sturdy_http_server_begin` in one step.
     pub fn sturdy_http_server_start_router(options: *const SturdyHttpServerOptions, router: SturdyAsyncObject, out_server: *mut SturdyAsyncObject) -> i32;
     pub fn sturdy_http_server_stop(server: SturdyAsyncObject) -> i32;
+    pub fn sturdy_input_gamepad_count(engine: SturdyEngine, out_count: *mut u32) -> i32;
+    /// Pads plugged or unplugged since the previous tick.
+    pub fn sturdy_input_gamepad_event_count(engine: SturdyEngine, out_count: *mut u32) -> i32;
+    pub fn sturdy_input_gamepad_event_get(engine: SturdyEngine, index: u32, out_event: *mut SturdyGamepadEvent) -> i32;
+    pub fn sturdy_input_gamepad_get(engine: SturdyEngine, index: u32, out_frame: *mut SturdyGamepadFrame) -> i32;
+    pub fn sturdy_input_pen_count(engine: SturdyEngine, out_count: *mut u32) -> i32;
+    pub fn sturdy_input_pen_get(engine: SturdyEngine, index: u32, out_point: *mut SturdyPenPoint) -> i32;
+    /// Starts (or stops) sampling gamepads every tick. Off by default.
+    pub fn sturdy_input_set_gamepads_enabled(engine: SturdyEngine, enabled: u8) -> i32;
+    pub fn sturdy_input_touch_count(engine: SturdyEngine, out_count: *mut u32) -> i32;
+    pub fn sturdy_input_touch_get(engine: SturdyEngine, index: u32, out_point: *mut SturdyTouchPoint) -> i32;
     /// A periodic timer that does not drift. Object "interval"; `sturdy_interval_tick` finishes at each period boundary.
     pub fn sturdy_interval_create(period_ms: i64, out_interval: *mut SturdyAsyncObject) -> i32;
     pub fn sturdy_interval_tick(interval: SturdyAsyncObject, out_op: *mut SturdyAsyncOp) -> i32;
@@ -7889,6 +8894,7 @@ unsafe extern "C" {
     /// Upgrades an open, quiet connection to TLS in place (STARTTLS, after an HTTP CONNECT). Client or server role.
     pub fn sturdy_tcp_start_tls_client(connection: SturdyAsyncObject, host: *const c_char, tls: *const SturdyTlsClientOptions, out_op: *mut SturdyAsyncOp) -> i32;
     pub fn sturdy_tcp_start_tls_server(connection: SturdyAsyncObject, tls: *const SturdyTlsServerOptions, out_op: *mut SturdyAsyncOp) -> i32;
+    pub fn sturdy_text_input_options_init(options: *mut SturdyTextInputOptions) -> i32;
     pub fn sturdy_thread_pin_current(core_index: u32, out_pinned: *mut u8) -> i32;
     /// Reads the time step for the current tick, after the time scale is applied.
     ///
@@ -7928,6 +8934,13 @@ unsafe extern "C" {
     pub fn sturdy_trace_set_detail(detail: i32) -> i32;
     /// Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.
     pub fn sturdy_trace_set_foreign_call_site(language: *const c_char, language_length: u32, file: *const c_char, file_length: u32, line: u32, column: u32, function: *const c_char, function_length: u32) -> i32;
+    /// Creates a tray icon (RGBA8 `width * height * 4` bytes) with a menu. Fails with `STURDY_ERROR_NOT_AVAILABLE` when the system has no tray.
+    pub fn sturdy_tray_create(engine: SturdyEngine, width: u32, height: u32, rgba: *const u8, tooltip: *const c_char, entries: *const SturdyTrayEntry, entry_count: u32, callback: Option<SturdyTrayCallback>, user: *mut c_void, out_tray: *mut SturdyTray) -> i32;
+    pub fn sturdy_tray_destroy(tray: SturdyTray) -> i32;
+    pub fn sturdy_tray_set_icon(tray: SturdyTray, width: u32, height: u32, rgba: *const u8) -> i32;
+    /// Replaces the whole menu.
+    pub fn sturdy_tray_set_menu(tray: SturdyTray, entries: *const SturdyTrayEntry, entry_count: u32) -> i32;
+    pub fn sturdy_tray_set_tooltip(tray: SturdyTray, tooltip: *const c_char) -> i32;
     /// "host:port" the socket is bound to, following the string-output convention.
     pub fn sturdy_udp_address(socket: SturdyAsyncObject, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
     /// Binds a UDP socket. Object "udp". `host` null/empty: all interfaces. `port` 0: any. `options` may be null.
@@ -8058,52 +9071,135 @@ unsafe extern "C" {
     /// Starts a WebSocket server. Object "ws_server" (finished op).
     pub fn sturdy_websocket_server_listen(options: *const SturdyWebSocketServerOptions, out_op: *mut SturdyAsyncOp) -> i32;
     pub fn sturdy_websocket_server_port(server: SturdyAsyncObject, out_port: *mut u16) -> i32;
+    pub fn sturdy_window_clear_custom_cursor(engine: SturdyEngine, surface: SturdySurface) -> i32;
     /// Fills `config` with the engine's default window configuration (1280x720, windowed, decorated, visible, resizable, OS-placed).
     pub fn sturdy_window_config_init(config: *mut SturdyWindowConfig) -> i32;
     /// Reads the UI scale the OS asks for on the display the window is on (1.0 at 100%, 2.0 at 200%). Updated when the window moves to a display with a different scale.
     pub fn sturdy_window_content_scale(engine: SturdyEngine, surface: SturdySurface, out_scale: *mut f32) -> i32;
     /// Returns how many windows the engine currently manages.
     pub fn sturdy_window_count(engine: SturdyEngine, out_count: *mut u32) -> i32;
+    pub fn sturdy_window_creation_options_init(options: *mut SturdyWindowCreationOptions) -> i32;
+    /// The display the window is mostly on; `*out_has_display` is false when the provider cannot say.
+    pub fn sturdy_window_display_id(engine: SturdyEngine, surface: SturdySurface, out_has_display: *mut u8, out_display_id: *mut u32) -> i32;
+    /// Fills `options` with the defaults and the correct `struct_size`.
+    pub fn sturdy_window_effect_options_init(options: *mut SturdyWindowEffectOptions) -> i32;
+    /// Whether, and how fully, a window supports a feature. Reads the snapshot, so it is current as of the last frame.
+    pub fn sturdy_window_feature(engine: SturdyEngine, surface: SturdySurface, feature: i32, out_support: *mut SturdyFeatureSupport) -> i32;
     /// Reads the window a surface belongs to.
     pub fn sturdy_window_find(engine: SturdyEngine, surface: SturdySurface, out_snapshot: *mut SturdyWindowSnapshot) -> i32;
+    pub fn sturdy_window_focus(engine: SturdyEngine, surface: SturdySurface) -> i32;
+    pub fn sturdy_window_frame_extents(engine: SturdyEngine, surface: SturdySurface, out_extents: *mut SturdyFrameExtents) -> i32;
+    pub fn sturdy_window_hide(engine: SturdyEngine, surface: SturdySurface) -> i32;
+    pub fn sturdy_window_maximize(engine: SturdyEngine, surface: SturdySurface) -> i32;
+    pub fn sturdy_window_minimize(engine: SturdyEngine, surface: SturdySurface) -> i32;
+    /// A query's byte output: writes up to `capacity` bytes and sets `*out_size` to the full size.
+    pub fn sturdy_window_operation_bytes(engine: SturdyEngine, surface: SturdySurface, operation: i32, buffer: *mut u8, capacity: u64, out_size: *mut u64) -> i32;
+    /// Entry `index` of a query's list output. See the string-output convention above.
+    pub fn sturdy_window_operation_list_item(engine: SturdyEngine, surface: SturdySurface, operation: i32, index: u32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// The platform's message for a failed operation. See the string-output convention above.
+    pub fn sturdy_window_operation_message(engine: SturdyEngine, surface: SturdySurface, operation: i32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
+    /// The outcome of the last run of `operation` on a window. `completed` is false until it has run.
+    pub fn sturdy_window_operation_status(engine: SturdyEngine, surface: SturdySurface, operation: i32, out_status: *mut SturdyWindowOperationStatus) -> i32;
+    /// A query's text output. See the string-output convention above.
+    pub fn sturdy_window_operation_text(engine: SturdyEngine, surface: SturdySurface, operation: i32, buffer: *mut c_char, capacity: u64, out_length: *mut u64) -> i32;
     /// Reads the primary window.
     pub fn sturdy_window_primary(engine: SturdyEngine, out_snapshot: *mut SturdyWindowSnapshot) -> i32;
+    pub fn sturdy_window_query_clipboard_data(engine: SturdyEngine, surface: SturdySurface, mime_type: *const c_char) -> i32;
+    pub fn sturdy_window_query_clipboard_mime_types(engine: SturdyEngine, surface: SturdySurface) -> i32;
+    pub fn sturdy_window_query_clipboard_text(engine: SturdyEngine, surface: SturdySurface) -> i32;
+    pub fn sturdy_window_query_icc_profile(engine: SturdyEngine, surface: SturdySurface) -> i32;
+    pub fn sturdy_window_query_key_down(engine: SturdyEngine, surface: SturdySurface, key: i32) -> i32;
+    /// Asks for a key's name on the current layout. `key` is the `key_code` value input events report.
+    pub fn sturdy_window_query_key_name(engine: SturdyEngine, surface: SturdySurface, key: i32) -> i32;
+    pub fn sturdy_window_raise(engine: SturdyEngine, surface: SturdySurface) -> i32;
     /// Requests that the primary window be destroyed and recreated with a new configuration — changing decorations or transparency after creation on a platform where the window must be recreated to do so, for instance.
     ///
     /// Queued and completion-reported the same way as `sturdy_window_spawn`.
     pub fn sturdy_window_recreate_primary(engine: SturdyEngine, config: *const SturdyWindowConfig, out_request_id: *mut u64) -> i32;
+    pub fn sturdy_window_request_attention(engine: SturdyEngine, surface: SturdySurface, request: i32) -> i32;
     /// Requests that a window close.
     ///
     /// Queued rather than immediate: the engine applies window changes at a defined point in the frame so a request made from a render callback cannot destroy the window being drawn. Every function in this section behaves that way.
     pub fn sturdy_window_request_close(engine: SturdyEngine, surface: SturdySurface, out_request_id: *mut u64) -> i32;
+    pub fn sturdy_window_restore(engine: SturdyEngine, surface: SturdySurface) -> i32;
+    /// The part of the client area not under notches or system bars (the whole area on desktops).
+    pub fn sturdy_window_safe_area(engine: SturdyEngine, surface: SturdySurface, out_area: *mut SturdyWindowRect) -> i32;
+    pub fn sturdy_window_set_always_on_top(engine: SturdyEngine, surface: SturdySurface, enabled: u8) -> i32;
+    /// A cursor cycling through `frame_count` same-sized frames; the hot spot is shared by every frame.
+    pub fn sturdy_window_set_animated_cursor(engine: SturdyEngine, surface: SturdySurface, width: u32, height: u32, frames: *const SturdyCursorFrame, frame_count: u32, hot_x: i32, hot_y: i32) -> i32;
+    /// Constrains resizing to width/height ratios in [min, max]; 0 and 0 remove the constraint. GLFW holds one exact ratio.
+    pub fn sturdy_window_set_aspect_ratio(engine: SturdyEngine, surface: SturdySurface, min_ratio: f32, max_ratio: f32) -> i32;
+    pub fn sturdy_window_set_auto_minimize_on_focus_loss(engine: SturdyEngine, surface: SturdySurface, enabled: u8) -> i32;
+    pub fn sturdy_window_set_clipboard_data(engine: SturdyEngine, surface: SturdySurface, mime_type: *const c_char, bytes: *const u8, size: u64) -> i32;
+    pub fn sturdy_window_set_clipboard_text(engine: SturdyEngine, surface: SturdySurface, text: *const c_char) -> i32;
     /// Requests that a window grab (confine) or release the cursor at the OS level.
     pub fn sturdy_window_set_cursor_grabbed(engine: SturdyEngine, surface: SturdySurface, grabbed: u8) -> i32;
     /// Requests a cursor shape for a window.
     pub fn sturdy_window_set_cursor_icon(engine: SturdyEngine, surface: SturdySurface, icon: i32) -> i32;
+    pub fn sturdy_window_set_cursor_position(engine: SturdyEngine, surface: SturdySurface, x: i32, y: i32) -> i32;
+    /// A cursor drawn from an RGBA8 image (`width * height * 4` bytes) with its hot spot in image pixels.
+    pub fn sturdy_window_set_custom_cursor(engine: SturdyEngine, surface: SturdySurface, width: u32, height: u32, rgba: *const u8, hot_x: i32, hot_y: i32) -> i32;
     /// Requests that a window show or hide its system decorations.
     pub fn sturdy_window_set_decorated(engine: SturdyEngine, surface: SturdySurface, decorated: u8) -> i32;
+    /// Sets a display's gamma (1.0 = unchanged); `has_display` false uses the window's display.
+    pub fn sturdy_window_set_display_gamma(engine: SturdyEngine, surface: SturdySurface, has_display: u8, display_id: u32, gamma: f32) -> i32;
     /// Requests a platform-composited visual effect for a window (Windows' Mica/Acrylic/blur, etc.).
     ///
     /// Queued like every other request in this section: this call only reports a bad engine handle or argument. Whether the platform actually supports `kind` is decided when the request is applied, and (like every other queued window request) that outcome is not currently reported back.
     pub fn sturdy_window_set_effect(engine: SturdyEngine, surface: SturdySurface, kind: i32, enabled: u8) -> i32;
+    /// `sturdy_window_set_effect` with every per-effect setting: colours, tint, corner preference, opacity, the macOS material and glass options, and the Linux blur protocol. `options` may be null for the defaults. Queued the same way.
+    pub fn sturdy_window_set_effect_ex(engine: SturdyEngine, surface: SturdySurface, kind: i32, enabled: u8, options: *const SturdyWindowEffectOptions) -> i32;
+    pub fn sturdy_window_set_focusable(engine: SturdyEngine, surface: SturdySurface, enabled: u8) -> i32;
+    pub fn sturdy_window_set_fullscreen_target(engine: SturdyEngine, surface: SturdySurface, target: *const SturdyFullscreenTarget) -> i32;
+    pub fn sturdy_window_set_global_cursor_position(engine: SturdyEngine, surface: SturdySurface, x: i32, y: i32) -> i32;
+    /// Installs (or, with `enabled` false, removes) the drag and resize regions of a custom title bar.
+    pub fn sturdy_window_set_hit_test_regions(engine: SturdyEngine, surface: SturdySurface, regions: *const SturdyHitTestRegions) -> i32;
+    pub fn sturdy_window_set_icon(engine: SturdyEngine, surface: SturdySurface, width: u32, height: u32, rgba: *const u8) -> i32;
+    pub fn sturdy_window_set_keyboard_grab(engine: SturdyEngine, surface: SturdySurface, enabled: u8) -> i32;
+    pub fn sturdy_window_set_maximum_size(engine: SturdyEngine, surface: SturdySurface, width: u32, height: u32) -> i32;
+    pub fn sturdy_window_set_minimum_size(engine: SturdyEngine, surface: SturdySurface, width: u32, height: u32) -> i32;
     /// Requests a windowed/fullscreen mode change.
     pub fn sturdy_window_set_mode(engine: SturdyEngine, surface: SturdySurface, mode: i32) -> i32;
+    pub fn sturdy_window_set_mouse_capture(engine: SturdyEngine, surface: SturdySurface, enabled: u8) -> i32;
+    /// Confines the cursor to a client-area rectangle; null releases it.
+    pub fn sturdy_window_set_mouse_confine_rect(engine: SturdyEngine, surface: SturdySurface, rect: *const SturdyWindowRect) -> i32;
     /// Requests that a window confine the cursor to its bounds while keeping it visible at an absolute position — see `SturdyWindowSnapshot::mouse_locked` for the resulting state. Distinct from `sturdy_window_set_relative_mouse_mode`, which also hides the cursor and switches to unbounded motion deltas.
     pub fn sturdy_window_set_mouse_locked(engine: SturdyEngine, surface: SturdySurface, locked: u8) -> i32;
+    pub fn sturdy_window_set_mouse_passthrough(engine: SturdyEngine, surface: SturdySurface, enabled: u8) -> i32;
+    pub fn sturdy_window_set_opacity(engine: SturdyEngine, surface: SturdySurface, opacity: f32) -> i32;
+    /// Makes the window a child of `parent`; null detaches. A modal child blocks its parent where the system allows.
+    pub fn sturdy_window_set_parent(engine: SturdyEngine, surface: SturdySurface, parent: *const SturdySurface, modal: u8) -> i32;
+    pub fn sturdy_window_set_position(engine: SturdyEngine, surface: SturdySurface, x: i32, y: i32) -> i32;
     /// Requests relative mouse mode (the OS cursor is hidden and confined, and mouse motion reports as unbounded deltas instead of absolute position) for a window — the mode a first-person camera or any other mouse-look control needs. See `SturdyWindowSnapshot::mouse_locked` and `sturdy_engine_mouse_delta` for reading the resulting state and motion.
     pub fn sturdy_window_set_relative_mouse_mode(engine: SturdyEngine, surface: SturdySurface, enabled: u8) -> i32;
+    pub fn sturdy_window_set_resizable(engine: SturdyEngine, surface: SturdySurface, resizable: u8) -> i32;
+    /// A non-rectangular outline from `width * height` coverage bytes (above 127 = inside). Null `coverage` restores the rectangle.
+    pub fn sturdy_window_set_shape(engine: SturdyEngine, surface: SturdySurface, width: u32, height: u32, coverage: *const u8) -> i32;
+    pub fn sturdy_window_set_size(engine: SturdyEngine, surface: SturdySurface, width: u32, height: u32) -> i32;
+    pub fn sturdy_window_set_taskbar_progress(engine: SturdyEngine, surface: SturdySurface, state: i32, value: f32) -> i32;
     /// Requests that a window start or stop IME text composition (on-screen keyboards, CJK input methods, etc.). Most text fields need this active only while focused and editable.
     pub fn sturdy_window_set_text_input_active(engine: SturdyEngine, surface: SturdySurface, active: u8) -> i32;
     /// Hints the IME where to draw its candidate/composition window, in window coordinates. Only meaningful while text input is active (see `sturdy_window_set_text_input_active`).
     pub fn sturdy_window_set_text_input_area(engine: SturdyEngine, surface: SturdySurface, area: *const SturdyTextInputArea) -> i32;
+    pub fn sturdy_window_set_title(engine: SturdyEngine, surface: SturdySurface, title: *const c_char) -> i32;
     /// Requests that a window become transparent or opaque.
     pub fn sturdy_window_set_transparent(engine: SturdyEngine, surface: SturdySurface, transparent: u8) -> i32;
+    pub fn sturdy_window_set_window_type(engine: SturdyEngine, surface: SturdySurface, r#type: i32) -> i32;
+    pub fn sturdy_window_show(engine: SturdyEngine, surface: SturdySurface) -> i32;
+    /// `sturdy_desktop_show_file_dialog` as a child of a window: the dialog stays above it and is attached to it by the window system. Queued like every window request; `callback` is called once when the dialog closes.
+    pub fn sturdy_window_show_file_dialog(engine: SturdyEngine, surface: SturdySurface, options: *const SturdyFileDialogOptions, callback: Option<SturdyFileDialogCallback>, user: *mut c_void) -> i32;
+    /// `sturdy_desktop_show_message_box` over a window. Queued: it blocks that window's thread until dismissed, and the pressed button arrives as `sturdy_window_operation_status(..., STURDY_WINDOW_OP_MESSAGE_BOX, ...).number`.
+    pub fn sturdy_window_show_message_box(engine: SturdyEngine, surface: SturdySurface, options: *const SturdyMessageBoxOptions) -> i32;
+    pub fn sturdy_window_show_system_menu(engine: SturdyEngine, surface: SturdySurface, x: i32, y: i32) -> i32;
     /// Reads the window at `index`.
     pub fn sturdy_window_snapshot(engine: SturdyEngine, index: u32, out_snapshot: *mut SturdyWindowSnapshot) -> i32;
     /// Requests a new, additional window.
     ///
     /// Queued like every other request in this section: this only reports a bad engine handle, argument, or struct-size mismatch. Whether the window was actually created is reported later through `sturdy_window_take_completions`, keyed by `*out_request_id`.
     pub fn sturdy_window_spawn(engine: SturdyEngine, config: *const SturdyWindowConfig, out_request_id: *mut u64) -> i32;
+    /// `sturdy_window_spawn` with creation-time behaviour. `options` may be null for the defaults.
+    pub fn sturdy_window_spawn_ex(engine: SturdyEngine, config: *const SturdyWindowConfig, options: *const SturdyWindowCreationOptions, out_request_id: *mut u64) -> i32;
+    pub fn sturdy_window_start_text_input_ex(engine: SturdyEngine, surface: SturdySurface, options: *const SturdyTextInputOptions) -> i32;
     /// Copies up to `capacity` completed window requests into `out_completions` and reports the true number available in `*out_count`, which may exceed `capacity` — completions beyond `capacity` are dropped, not held for a later call, since window lifecycle events are rare enough that a caller should simply pass a generously sized buffer (8 is enough for any realistic frame).
     pub fn sturdy_window_take_completions(engine: SturdyEngine, out_completions: *mut SturdyWindowRequestCompletion, capacity: u32, out_count: *mut u32) -> i32;
 }

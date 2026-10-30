@@ -34,6 +34,9 @@ namespace SFT::WindowManager {
         constexpr DWORD sturdy_dwmwa_system_backdrop_type = 38;
 
         constexpr DWORD sturdy_dwmwa_window_corner_preference = 33;
+        constexpr DWORD sturdy_dwmwa_transitions_forcedisabled = 3;
+        // Windows 11 21H2 (build 22000..22620) predates `DWMWA_SYSTEMBACKDROP_TYPE`; Mica there is this boolean attribute.
+        constexpr DWORD sturdy_dwmwa_mica_effect = 1029;
 
         // Windows build numbers that introduced each facility (docs: DWMWINDOWATTRIBUTE and community-documented
         // accent policy). System backdrops (`DWMWA_SYSTEMBACKDROP_TYPE`) shipped in Windows 11 22H2.
@@ -50,6 +53,7 @@ namespace SFT::WindowManager {
         constexpr int sturdy_dwmsbt_tabbed_window = 4;
 
         constexpr COLORREF sturdy_dwm_color_default = 0xFFFFFFFF;
+        constexpr COLORREF sturdy_dwm_color_none = 0xFFFFFFFE; // DWMWA_COLOR_NONE
 
         /// Performs the colorref from argb operation for `Windowing` using the supplied arguments.
         ///
@@ -252,6 +256,14 @@ namespace SFT::WindowManager {
                 return result;
             }
 
+            // Windows 11 21H2 has Mica only as the older boolean attribute.
+            if (backdrop == sturdy_dwmsbt_main_window && windows_build_number() >= sturdy_build_win11) {
+                const BOOL mica = TRUE;
+                if (set_dwm_attribute(hwnd, sturdy_dwmwa_mica_effect, &mica, sizeof(mica), label).succeeded()) {
+                    return WindowEffectResult::degraded("The system backdrop is unavailable on this Windows 11; the legacy Mica attribute was applied.");
+                }
+            }
+
             // Windows without system backdrops (before 11 22H2): the accent-policy acrylic is the closest match,
             // then the pre-Windows-10 DWM blur-behind. Each step is reported as a degradation, never silently.
             if (windows_build_number() >= sturdy_build_accent_acrylic) {
@@ -316,13 +328,130 @@ namespace SFT::WindowManager {
                 case WindowEffectKind::Transparent:
                     support.add("WS_EX_LAYERED + DwmExtendFrameIntoClientArea", EffectAvailability::Available);
                     break;
+                case WindowEffectKind::Opacity:
+                    support.add("WS_EX_LAYERED + SetLayeredWindowAttributes", EffectAvailability::Available);
+                    break;
+                case WindowEffectKind::CornerRadius:
+                    support.add("SetWindowRgn (hard-edged)", EffectAvailability::Available);
+                    break;
+                case WindowEffectKind::MousePassthrough:
+                    support.add("WS_EX_LAYERED | WS_EX_TRANSPARENT", EffectAvailability::Available);
+                    break;
+                case WindowEffectKind::Focusable:
+                    support.add("WS_EX_NOACTIVATE", EffectAvailability::Available);
+                    break;
+                case WindowEffectKind::KeyboardGrab:
+                    support.add("none", EffectAvailability::Unavailable, "Windows has no per-window keyboard grab for applications");
+                    break;
+                case WindowEffectKind::TransitionsDisabled:
+                    needs("DWMWA_TRANSITIONS_FORCEDISABLED", sturdy_build_win10, "needs Windows 10");
+                    break;
                 case WindowEffectKind::VisualEffect:
-                    support.add("none", EffectAvailability::Unavailable, "NSVisualEffectView is a macOS facility");
+                case WindowEffectKind::GlassEffect:
+                case WindowEffectKind::TitlebarTransparent:
+                case WindowEffectKind::WindowShadow:
+                    support.add("none", EffectAvailability::Unavailable, "this is a macOS facility");
                     break;
             }
             return support;
         }
 
+
+        /// Toggles one extended style bit; `SWP_FRAMECHANGED` makes the window manager re-read it.
+        WindowEffectResult set_ex_style(HWND hwnd, LONG_PTR bit, bool enabled, const char *success) noexcept {
+            const LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            const LONG_PTR updated = enabled ? (ex_style | bit) : (ex_style & ~bit);
+            if (updated != ex_style) {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, updated);
+                SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            return WindowEffectResult::success(success);
+        }
+
+        /// Click-through needs a layered window: `WS_EX_TRANSPARENT` alone only changes painting order. A freshly
+        /// layered window shows nothing until it has an alpha, so give it full opacity.
+        WindowEffectResult set_mouse_passthrough(HWND hwnd, bool enabled) noexcept {
+            if (enabled && (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_LAYERED) == 0) {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, GetWindowLongPtrW(hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
+                if (!SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)) {
+                    return WindowEffectResult::failed("This window cannot be layered (a DirectComposition swapchain window cannot).");
+                }
+            }
+            return set_ex_style(hwnd, WS_EX_TRANSPARENT, enabled, "Windows click-through set.");
+        }
+
+        /// Applies `DWMWA_WINDOW_CORNER_PREFERENCE`, then reads it back and checks whether DWM can act on it. DWM
+        /// returns S_OK for the attribute on any window but only rounds windows that have a frame, so a frameless
+        /// (WS_POPUP, no WS_CAPTION/WS_THICKFRAME) window is reported as degraded rather than silently doing nothing.
+        WindowEffectResult set_corner_preference(HWND hwnd, int preference) noexcept {
+            if (windows_build_number() < sturdy_build_win11) {
+                return WindowEffectResult::failed("Window corner preference needs Windows 11 (build 22000).");
+            }
+            WindowEffectResult applied =
+                set_dwm_attribute(hwnd, sturdy_dwmwa_window_corner_preference, &preference, sizeof(preference), "CornerPreference");
+            if (!applied.succeeded()) {
+                return applied;
+            }
+            int stored = -1;
+            if (FAILED(DwmGetWindowAttribute(hwnd, sturdy_dwmwa_window_corner_preference, &stored, sizeof(stored))) ||
+                stored != preference) {
+                Detail::window_warn("Windows corner preference read back as {} after requesting {}: hwnd={}", stored, preference, log_hwnd(hwnd));
+                return WindowEffectResult::failed("DWM did not keep the corner preference.");
+            }
+            const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+            const bool framed = (style & (WS_CAPTION | WS_THICKFRAME)) != 0;
+            if (!framed) {
+                Detail::window_warn("Windows corner preference set on a frameless window; DWM may not round it: hwnd={}", log_hwnd(hwnd));
+                return WindowEffectResult::degraded(
+                    "The preference was stored, but this window has no frame (WS_CAPTION/WS_THICKFRAME), which DWM needs to round or square it; use the CornerRadius effect for frameless windows.");
+            }
+            if (IsZoomed(hwnd)) {
+                return WindowEffectResult::degraded("The preference was stored; DWM draws maximized windows square.");
+            }
+            return WindowEffectResult::success("Windows corner preference applied.");
+        }
+
+        /// Rounds the window outline with a window region. Hard-edged (no anti-aliasing: a region is a 1-bit mask) but
+        /// independent of the window's frame, so it works on frameless windows and on Windows 10. Re-applied on resize.
+        WindowEffectResult set_corner_radius(HWND hwnd, bool enabled, const WindowEffectOptions &options) noexcept {
+            RECT rect{};
+            const bool round = enabled && options.window_corner_radius > 0.0f && !IsZoomed(hwnd) &&
+                               GetWindowRect(hwnd, &rect) != FALSE && rect.right > rect.left && rect.bottom > rect.top;
+            if (!round) {
+                SetWindowRgn(hwnd, nullptr, TRUE);
+                return WindowEffectResult::success("Windows window region cleared.");
+            }
+            const f32 scale = options.pixel_scale > 0.0f ? options.pixel_scale : 1.0f;
+            const int diameter = static_cast<int>(std::lround(options.window_corner_radius * scale * 2.0f));
+            // CreateRoundRectRgn's right/bottom edges are exclusive, so +1 keeps the full window area.
+            HRGN region = CreateRoundRectRgn(0, 0, rect.right - rect.left + 1, rect.bottom - rect.top + 1, diameter, diameter);
+            if (region == nullptr) [[unlikely]] {
+                return WindowEffectResult::failed("CreateRoundRectRgn failed.");
+            }
+            // On success the system owns the region; only free it when it was not taken.
+            if (SetWindowRgn(hwnd, region, TRUE) == 0) [[unlikely]] {
+                DeleteObject(region);
+                return WindowEffectResult::failed("SetWindowRgn failed.");
+            }
+            Detail::window_info("Windows window region rounded: hwnd={} diameter={}", log_hwnd(hwnd), diameter);
+            return WindowEffectResult::success("Windows window region applied (hard-edged corners).");
+        }
+
+        /// Sets the whole-window opacity (0..1) through a layered window; 1 restores full opacity.
+        WindowEffectResult set_opacity(HWND hwnd, f32 opacity) noexcept {
+            const f32 clamped = opacity < 0.0f ? 0.0f : (opacity > 1.0f ? 1.0f : opacity);
+            const LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            if ((ex_style & WS_EX_LAYERED) == 0) {
+                SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED);
+            }
+            const BYTE alpha = static_cast<BYTE>(std::lround(clamped * 255.0f));
+            if (!SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA)) [[unlikely]] {
+                Detail::window_error("Windows SetLayeredWindowAttributes failed: hwnd={} alpha={}", log_hwnd(hwnd), static_cast<int>(alpha));
+                return WindowEffectResult::failed("SetLayeredWindowAttributes failed.");
+            }
+            Detail::window_info("Windows window opacity set: hwnd={} alpha={}", log_hwnd(hwnd), static_cast<int>(alpha));
+            return WindowEffectResult::success("Windows window opacity applied.");
+        }
 
         /// Sets the transparent for this `Windowing`.
         ///
@@ -389,8 +518,18 @@ namespace SFT::WindowManager {
             case WindowEffectKind::AccentBlur:
             case WindowEffectKind::AccentAcrylic:
             case WindowEffectKind::CornerPreference:
+            case WindowEffectKind::Opacity:
+            case WindowEffectKind::TransitionsDisabled:
+            case WindowEffectKind::CornerRadius:
+            case WindowEffectKind::MousePassthrough:
+            case WindowEffectKind::Focusable:
                 return true;
+            case WindowEffectKind::KeyboardGrab:
+                return false;
             case WindowEffectKind::VisualEffect:
+            case WindowEffectKind::GlassEffect:
+            case WindowEffectKind::TitlebarTransparent:
+            case WindowEffectKind::WindowShadow:
                 return false;
         }
 #else
@@ -428,6 +567,105 @@ namespace SFT::WindowManager {
         WindowEffectSupport support;
         support.add("none", EffectAvailability::Unavailable, "not a Windows build");
         return support;
+#endif
+    }
+
+    WindowEffectResult set_native_window_type(NativeWindowHandle handle, WindowType type) noexcept {
+#if defined(_WIN32)
+        if (handle.system != NativeWindowSystem::Win32 || handle.window == nullptr) {
+            return WindowEffectResult::failed("Windows window types require a Win32 HWND.");
+        }
+        const HWND hwnd = static_cast<HWND>(handle.window);
+        // The extended styles that separate a palette, popup or dialog from a document window.
+        const bool tool = type == WindowType::Utility || type == WindowType::Tooltip || type == WindowType::PopupMenu ||
+                          type == WindowType::DropdownMenu || type == WindowType::Splash;
+        const bool no_activate = type == WindowType::Tooltip || type == WindowType::PopupMenu || type == WindowType::DropdownMenu;
+        const bool topmost = tool && type != WindowType::Utility;
+        LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ex_style = tool ? (ex_style | WS_EX_TOOLWINDOW) : (ex_style & ~static_cast<LONG_PTR>(WS_EX_TOOLWINDOW));
+        ex_style = no_activate ? (ex_style | WS_EX_NOACTIVATE) : (ex_style & ~static_cast<LONG_PTR>(WS_EX_NOACTIVATE));
+        ex_style = type == WindowType::Dialog ? (ex_style | WS_EX_DLGMODALFRAME) : (ex_style & ~static_cast<LONG_PTR>(WS_EX_DLGMODALFRAME));
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style);
+        SetWindowPos(hwnd, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        return WindowEffectResult::success("Windows window styles set.");
+#else
+        (void)handle;
+        (void)type;
+        return WindowEffectResult::failed("Windows window types are only available on Windows builds.");
+#endif
+    }
+
+    WindowEffectResult set_native_window_shape(NativeWindowHandle handle, const WindowShapeMask &mask, WindowExtent pixel_size) noexcept {
+#if defined(_WIN32)
+        if (handle.system != NativeWindowSystem::Win32 || handle.window == nullptr) {
+            return WindowEffectResult::failed("Windows window shapes require a Win32 HWND.");
+        }
+        const HWND hwnd = static_cast<HWND>(handle.window);
+        if (mask.coverage.empty()) {
+            SetWindowRgn(hwnd, nullptr, TRUE);
+            return WindowEffectResult::success("Windows window region cleared.");
+        }
+        const std::vector<EffectRect> rects = resolve_shape_region(mask, pixel_size);
+        if (rects.empty()) {
+            return WindowEffectResult::failed("The shape mask covers nothing; a window needs at least one visible pixel.");
+        }
+        // One RGNDATA with every rectangle: far cheaper than combining thousands of regions one by one.
+        std::vector<unsigned char> storage(sizeof(RGNDATAHEADER) + rects.size() * sizeof(RECT));
+        auto *data = reinterpret_cast<RGNDATA *>(storage.data());
+        data->rdh.dwSize = sizeof(RGNDATAHEADER);
+        data->rdh.iType = RDH_RECTANGLES;
+        data->rdh.nCount = static_cast<DWORD>(rects.size());
+        data->rdh.nRgnSize = static_cast<DWORD>(rects.size() * sizeof(RECT));
+        data->rdh.rcBound = RECT{0, 0, static_cast<LONG>(pixel_size.x), static_cast<LONG>(pixel_size.y)};
+        auto *buffer = reinterpret_cast<RECT *>(data->Buffer);
+        for (usize i = 0; i < rects.size(); ++i) {
+            buffer[i] = RECT{rects[i].x, rects[i].y, rects[i].x + rects[i].width, rects[i].y + rects[i].height};
+        }
+        HRGN region = ExtCreateRegion(nullptr, static_cast<DWORD>(storage.size()), data);
+        if (region == nullptr) {
+            return WindowEffectResult::failed("ExtCreateRegion failed.");
+        }
+        if (SetWindowRgn(hwnd, region, TRUE) == 0) {
+            DeleteObject(region);
+            return WindowEffectResult::failed("SetWindowRgn failed.");
+        }
+        return WindowEffectResult::success("Windows window region applied (hard-edged).");
+#else
+        (void)handle;
+        (void)mask;
+        (void)pixel_size;
+        return WindowEffectResult::failed("Windows window shapes are only available on Windows builds.");
+#endif
+    }
+
+    WindowEffectResult set_native_window_parent(NativeWindowHandle child, std::optional<NativeWindowHandle> parent, bool modal) noexcept {
+#if defined(_WIN32)
+        if (child.system != NativeWindowSystem::Win32 || child.window == nullptr) {
+            return WindowEffectResult::failed("Windows window parenting requires a Win32 HWND.");
+        }
+        HWND owner = nullptr;
+        if (parent) {
+            if (parent->system != NativeWindowSystem::Win32 || parent->window == nullptr) {
+                return WindowEffectResult::failed("The parent window is not a Win32 window.");
+            }
+            owner = static_cast<HWND>(parent->window);
+        }
+        // For a top-level window GWLP_HWNDPARENT sets the *owner*: the child stays above it, minimises with it and
+        // closes with it, which is what "child window" means for a dialog.
+        SetLastError(0);
+        if (SetWindowLongPtrW(static_cast<HWND>(child.window), GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(owner)) == 0 && GetLastError() != 0) {
+            return WindowEffectResult::failed("SetWindowLongPtr(GWLP_HWNDPARENT) failed.");
+        }
+        // Real modality means disabling the owner until the child closes. Doing that from here could leave the owner
+        // disabled for good if the child is destroyed without being detached first, so only the owner link is set.
+        return parent && modal ? WindowEffectResult::degraded("The window is owned by its parent; the parent is not disabled, so modality is not enforced.")
+                               : WindowEffectResult::success("Windows owner window set.");
+#else
+        (void)child;
+        (void)parent;
+        (void)modal;
+        return WindowEffectResult::failed("Windows window parenting is only available on Windows builds.");
 #endif
     }
 
@@ -503,10 +741,29 @@ namespace SFT::WindowManager {
                 {
                     // DWM_WINDOW_CORNER_PREFERENCE: 0 default, 1 do not round, 2 round, 3 round small.
                     const int preference = effect.enabled ? static_cast<int>(effect.options.corner_preference) : 0;
-                    return set_dwm_attribute(hwnd, sturdy_dwmwa_window_corner_preference, &preference, sizeof(preference), "CornerPreference");
+                    return set_corner_preference(hwnd, preference);
+                }
+            case WindowEffectKind::CornerRadius:
+                return set_corner_radius(hwnd, effect.enabled, effect.options);
+            case WindowEffectKind::MousePassthrough:
+                return set_mouse_passthrough(hwnd, effect.enabled);
+            case WindowEffectKind::Focusable:
+                // Disabled focus is the NOACTIVATE bit: clicks no longer activate the window.
+                return set_ex_style(hwnd, WS_EX_NOACTIVATE, !effect.enabled, "Windows activation behaviour set.");
+            case WindowEffectKind::KeyboardGrab:
+                return WindowEffectResult::failed("Windows has no per-window keyboard grab for applications.");
+            case WindowEffectKind::Opacity:
+                return set_opacity(hwnd, effect.enabled ? effect.options.opacity : 1.0f);
+            case WindowEffectKind::TransitionsDisabled:
+                {
+                    const BOOL disabled = effect.enabled ? TRUE : FALSE;
+                    return set_dwm_attribute(hwnd, sturdy_dwmwa_transitions_forcedisabled, &disabled, sizeof(disabled), "TransitionsDisabled");
                 }
             case WindowEffectKind::VisualEffect:
-                return WindowEffectResult::failed("NSVisualEffectView is a macOS facility.");
+            case WindowEffectKind::GlassEffect:
+            case WindowEffectKind::TitlebarTransparent:
+            case WindowEffectKind::WindowShadow:
+                return WindowEffectResult::failed("This window effect is a macOS facility.");
             case WindowEffectKind::DarkMode:
                 {
                     const BOOL enabled = effect.enabled ? TRUE : FALSE;
@@ -514,7 +771,9 @@ namespace SFT::WindowManager {
                 }
             case WindowEffectKind::BorderColor:
                 {
-                    const COLORREF color = effect.enabled ? colorref_from_argb(effect.color_argb) : sturdy_dwm_color_default;
+                    const COLORREF color = !effect.enabled                ? sturdy_dwm_color_default
+                                           : effect.options.hide_border ? sturdy_dwm_color_none
+                                                                        : colorref_from_argb(effect.color_argb);
                     return set_dwm_attribute(hwnd, sturdy_dwmwa_border_color, &color, sizeof(color), "BorderColor");
                 }
             case WindowEffectKind::CaptionColor:

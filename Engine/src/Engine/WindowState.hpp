@@ -3,6 +3,7 @@
 #include <Ecs/Resource.hpp>
 #include <WindowManager/WindowManager.hpp>
 
+#include <array>
 #include <optional>
 #include <span>
 #include <utility>
@@ -34,6 +35,18 @@ namespace SFT::Engine {
         /// The window's OS-level handle, captured when the window is created. Empty when the
         /// platform could not provide one.
         std::optional<WindowManager::NativeWindowHandle> native_handle;
+
+        /// What this window's provider can do on this system, indexed by `WindowFeature`. Notes are static literals.
+        std::array<WindowManager::FeatureSupport, static_cast<usize>(WindowManager::WindowFeature::Count)> features{};
+        /// Decoration thickness around the client area, and the part of it not under notches or system bars.
+        WindowManager::FrameExtents frame_extents{};
+        WindowManager::WindowRect safe_area{};
+        /// The display the window is mostly on (`DisplayInfo::id`), when the provider can say.
+        std::optional<u32> display_id;
+
+        [[nodiscard]] WindowManager::FeatureSupport feature(WindowManager::WindowFeature which) const noexcept {
+            return features[static_cast<usize>(which)];
+        }
 
         /// Physical pixels per window-coordinate unit (see `WindowManager::pixel_density`).
         ///
@@ -87,7 +100,12 @@ namespace SFT::Engine {
         /// @note This function does not throw exceptions.
         [[nodiscard]] const WindowSnapshot *primary() const noexcept;
 
+        /// Every connected monitor, refreshed when the window system reports a change.
+        void set_displays(std::vector<WindowManager::DisplayInfo> displays) noexcept;
+        [[nodiscard]] std::span<const WindowManager::DisplayInfo> displays() const noexcept;
+
       private:
+        std::vector<WindowManager::DisplayInfo> displays_;
         std::vector<WindowSnapshot> windows_;
         std::optional<WindowManager::WindowId> primary_;
     };

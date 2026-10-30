@@ -102,6 +102,8 @@ namespace SFT::Ffi {
         AsyncOp = 19,
         AsyncObject = 20,
         HttpResponder = 21,
+        /// Also owned: a tray icon. Lives until `sturdy_tray_destroy`.
+        Tray = 22,
     };
 
     /// Mints a token referring to `pointer`, valid until `revoke_handle`.

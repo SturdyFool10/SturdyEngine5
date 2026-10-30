@@ -67,6 +67,17 @@ int main() {
     const std::uint64_t close_id = window_request_close_window(engine, 7);
     window_request_cursor_icon(engine, 7, CursorIcon::Pointer);
     window_request_effect(engine, 7, WindowEffect::Mica, true);
+    WindowEffectOptions opacity_options;
+    opacity_options.opacity = 0.5f;
+    window_request_effect_ex(engine, 7, WindowEffect::Opacity, true, opacity_options);
+    // The union surface: queued operations leave no status until a window runs them, and an unknown window has no
+    // features or geometry rather than a crash.
+    window_queue_set_always_on_top(engine, 7, true);
+    window_queue_query_clipboard_text(engine, 7);
+    check(!window_operation_status(engine, 7, WindowOperation::AlwaysOnTop).completed, "a queued operation has not run yet");
+    check(!window_feature_supported(engine, 7, WindowFeature::AlwaysOnTop), "an unknown window supports nothing");
+    check(window_geometry(engine, 7).safe_width == 0, "an unknown window has no geometry");
+    check(throws_error([&] { window_queue_set_parent(engine, 7, true, 99, false); }), "parenting to a window that does not exist throws");
     window_request_text_input_area(engine, 7, {1.0f, 2.0f, 3.0f, 4.0f, 5.0f});
     check(close_id != 0, "a queued close returns a request id");
 

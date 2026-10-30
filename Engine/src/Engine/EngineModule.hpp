@@ -693,6 +693,8 @@ namespace SFT::Engine {
         Ecs::Events<MouseMoveEvent> mouse_move_events_{};
         Ecs::Events<MouseButtonEvent> mouse_button_events_{};
         Ecs::Events<MouseWheelEvent> mouse_wheel_events_{};
+        Ecs::Events<TouchEvent> touch_events_{};
+        Ecs::Events<PenEvent> pen_events_{};
         Ecs::Events<WindowStateEvent> window_state_events_{};
         Ecs::Events<AnimationEvent> animation_events_{};
         WindowState window_state_{};

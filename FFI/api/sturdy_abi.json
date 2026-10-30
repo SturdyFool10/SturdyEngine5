@@ -1,7 +1,7 @@
 {
  "abi_version": {
   "major": 0,
-  "minor": 40
+  "minor": 42
  },
  "source": "Sturdy.h",
  "enums": [
@@ -195,6 +195,24 @@
     {
      "name": "STURDY_ASYNC_FEATURE_NATIVE_FILE_WATCH",
      "value": 64
+    }
+   ]
+  },
+  {
+   "name": "SturdyAttentionRequest",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_ATTENTION_CANCEL",
+     "value": 0
+    },
+    {
+     "name": "STURDY_ATTENTION_BRIEFLY",
+     "value": 1
+    },
+    {
+     "name": "STURDY_ATTENTION_UNTIL_FOCUSED",
+     "value": 2
     }
    ]
   },
@@ -639,6 +657,65 @@
     {
      "name": "STURDY_CURSOR_ICON_NOT_ALLOWED",
      "value": 9
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_CROSSHAIR",
+     "value": 10
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_MOVE",
+     "value": 11,
+     "doc": "Four-way move / resize-all."
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_WAIT",
+     "value": 12,
+     "doc": "Busy, cannot take input. A provider without it reports `STURDY_ERROR_NOT_AVAILABLE` through the operation status."
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_PROGRESS",
+     "value": 13,
+     "doc": "Busy but still interactive."
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_RESIZE_N",
+     "value": 14,
+     "doc": "Edge and corner resize arrows; a provider with only the axis cursors shows the matching axis one."
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_RESIZE_NE",
+     "value": 15,
+     "doc": "Edge and corner resize arrows; a provider with only the axis cursors shows the matching axis one."
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_RESIZE_E",
+     "value": 16,
+     "doc": "Edge and corner resize arrows; a provider with only the axis cursors shows the matching axis one."
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_RESIZE_SE",
+     "value": 17,
+     "doc": "Edge and corner resize arrows; a provider with only the axis cursors shows the matching axis one."
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_RESIZE_S",
+     "value": 18,
+     "doc": "Edge and corner resize arrows; a provider with only the axis cursors shows the matching axis one."
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_RESIZE_SW",
+     "value": 19,
+     "doc": "Edge and corner resize arrows; a provider with only the axis cursors shows the matching axis one."
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_RESIZE_W",
+     "value": 20,
+     "doc": "Edge and corner resize arrows; a provider with only the axis cursors shows the matching axis one."
+    },
+    {
+     "name": "STURDY_CURSOR_ICON_RESIZE_NW",
+     "value": 21,
+     "doc": "Edge and corner resize arrows; a provider with only the axis cursors shows the matching axis one."
     }
    ]
   },
@@ -664,6 +741,32 @@
     },
     {
      "name": "STURDY_DEVICE_TYPE_CPU",
+     "value": 4
+    }
+   ]
+  },
+  {
+   "name": "SturdyDisplayOrientation",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_DISPLAY_ORIENTATION_UNKNOWN",
+     "value": 0
+    },
+    {
+     "name": "STURDY_DISPLAY_ORIENTATION_LANDSCAPE",
+     "value": 1
+    },
+    {
+     "name": "STURDY_DISPLAY_ORIENTATION_LANDSCAPE_FLIPPED",
+     "value": 2
+    },
+    {
+     "name": "STURDY_DISPLAY_ORIENTATION_PORTRAIT",
+     "value": 3
+    },
+    {
+     "name": "STURDY_DISPLAY_ORIENTATION_PORTRAIT_FLIPPED",
      "value": 4
     }
    ]
@@ -715,6 +818,24 @@
     {
      "name": "STURDY_FIELD_F64",
      "value": 10
+    }
+   ]
+  },
+  {
+   "name": "SturdyFileDialogKind",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_FILE_DIALOG_OPEN_FILE",
+     "value": 0
+    },
+    {
+     "name": "STURDY_FILE_DIALOG_SAVE_FILE",
+     "value": 1
+    },
+    {
+     "name": "STURDY_FILE_DIALOG_OPEN_FOLDER",
+     "value": 2
     }
    ]
   },
@@ -1016,6 +1137,250 @@
    ]
   },
   {
+   "name": "SturdyGamepadAxis",
+   "doc": "The standard layout's axes: the sticks run -1 to 1, the triggers 0 to 1.",
+   "values": [
+    {
+     "name": "STURDY_GAMEPAD_AXIS_LEFT_X",
+     "value": 0
+    },
+    {
+     "name": "STURDY_GAMEPAD_AXIS_LEFT_Y",
+     "value": 1
+    },
+    {
+     "name": "STURDY_GAMEPAD_AXIS_RIGHT_X",
+     "value": 2
+    },
+    {
+     "name": "STURDY_GAMEPAD_AXIS_RIGHT_Y",
+     "value": 3
+    },
+    {
+     "name": "STURDY_GAMEPAD_AXIS_LEFT_TRIGGER",
+     "value": 4
+    },
+    {
+     "name": "STURDY_GAMEPAD_AXIS_RIGHT_TRIGGER",
+     "value": 5
+    }
+   ]
+  },
+  {
+   "name": "SturdyGamepadButton",
+   "doc": "The standard layout's buttons; bit `n` of `SturdyGamepadState::buttons` is the button with value `n`.",
+   "values": [
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_SOUTH",
+     "value": 0
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_EAST",
+     "value": 1
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_WEST",
+     "value": 2
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_NORTH",
+     "value": 3
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_BACK",
+     "value": 4
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_GUIDE",
+     "value": 5
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_START",
+     "value": 6
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_LEFT_STICK",
+     "value": 7
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_RIGHT_STICK",
+     "value": 8
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_LEFT_SHOULDER",
+     "value": 9
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_RIGHT_SHOULDER",
+     "value": 10
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_DPAD_UP",
+     "value": 11
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_DPAD_DOWN",
+     "value": 12
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_DPAD_LEFT",
+     "value": 13
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_DPAD_RIGHT",
+     "value": 14
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_MISC1",
+     "value": 15
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE1",
+     "value": 16
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_LEFT_PADDLE1",
+     "value": 17
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE2",
+     "value": 18
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_LEFT_PADDLE2",
+     "value": 19
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_TOUCHPAD",
+     "value": 20
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_MISC2",
+     "value": 21
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_MISC3",
+     "value": 22
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_MISC4",
+     "value": 23
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_MISC5",
+     "value": 24
+    },
+    {
+     "name": "STURDY_GAMEPAD_BUTTON_MISC6",
+     "value": 25
+    }
+   ]
+  },
+  {
+   "name": "SturdyGamepadConnection",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_GAMEPAD_CONNECTION_UNKNOWN",
+     "value": 0
+    },
+    {
+     "name": "STURDY_GAMEPAD_CONNECTION_WIRED",
+     "value": 1
+    },
+    {
+     "name": "STURDY_GAMEPAD_CONNECTION_WIRELESS",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "name": "SturdyGamepadEventKind",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_GAMEPAD_EVENT_CONNECTED",
+     "value": 0
+    },
+    {
+     "name": "STURDY_GAMEPAD_EVENT_DISCONNECTED",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "SturdyGamepadKind",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_GAMEPAD_KIND_UNKNOWN",
+     "value": 0
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_STANDARD",
+     "value": 1
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_XBOX360",
+     "value": 2
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_XBOX_ONE",
+     "value": 3
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_PS3",
+     "value": 4
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_PS4",
+     "value": 5
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_PS5",
+     "value": 6
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_SWITCH_PRO",
+     "value": 7
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_JOYCON_LEFT",
+     "value": 8
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_JOYCON_RIGHT",
+     "value": 9
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_JOYCON_PAIR",
+     "value": 10
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_GAMECUBE",
+     "value": 11
+    },
+    {
+     "name": "STURDY_GAMEPAD_KIND_STEAM",
+     "value": 12
+    }
+   ]
+  },
+  {
+   "name": "SturdyGamepadSensor",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_GAMEPAD_SENSOR_ACCELEROMETER",
+     "value": 0
+    },
+    {
+     "name": "STURDY_GAMEPAD_SENSOR_GYROSCOPE",
+     "value": 1
+    }
+   ]
+  },
+  {
    "name": "SturdyGltfLightKind",
    "doc": "What kind of light a glTF file declared.",
    "values": [
@@ -1293,6 +1658,32 @@
    ]
   },
   {
+   "name": "SturdyLinuxBlurProtocol",
+   "doc": "Which Linux blur route a `STURDY_WINDOW_EFFECT_BLUR` request takes.",
+   "values": [
+    {
+     "name": "STURDY_LINUX_BLUR_AUTOMATIC",
+     "value": 0,
+     "doc": "`ext-background-effect-v1`, then KDE's `org_kde_kwin_blur`; on X11 the KDE blur property."
+    },
+    {
+     "name": "STURDY_LINUX_BLUR_EXT_BACKGROUND_EFFECT",
+     "value": 1,
+     "doc": "`ext-background-effect-v1`, then KDE's `org_kde_kwin_blur`; on X11 the KDE blur property."
+    },
+    {
+     "name": "STURDY_LINUX_BLUR_KDE_BLUR",
+     "value": 2,
+     "doc": "`ext-background-effect-v1`, then KDE's `org_kde_kwin_blur`; on X11 the KDE blur property."
+    },
+    {
+     "name": "STURDY_LINUX_BLUR_KDE_X11",
+     "value": 3,
+     "doc": "X11 only: the `_KDE_NET_WM_BLUR_BEHIND_REGION` property."
+    }
+   ]
+  },
+  {
    "name": "SturdyLoadOp",
    "doc": "Load/store behavior for a render pass attachment.",
    "values": [
@@ -1341,6 +1732,140 @@
    ]
   },
   {
+   "name": "SturdyMacAppearance",
+   "doc": "`NSAppearanceName` override for the effect view.",
+   "values": [
+    {
+     "name": "STURDY_MAC_APPEARANCE_INHERIT",
+     "value": 0
+    },
+    {
+     "name": "STURDY_MAC_APPEARANCE_AQUA",
+     "value": 1
+    },
+    {
+     "name": "STURDY_MAC_APPEARANCE_DARK_AQUA",
+     "value": 2
+    },
+    {
+     "name": "STURDY_MAC_APPEARANCE_VIBRANT_LIGHT",
+     "value": 3
+    },
+    {
+     "name": "STURDY_MAC_APPEARANCE_VIBRANT_DARK",
+     "value": 4
+    }
+   ]
+  },
+  {
+   "name": "SturdyMacBlendingMode",
+   "doc": "`NSVisualEffectBlendingMode`.",
+   "values": [
+    {
+     "name": "STURDY_MAC_BLENDING_BEHIND_WINDOW",
+     "value": 0
+    },
+    {
+     "name": "STURDY_MAC_BLENDING_WITHIN_WINDOW",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "SturdyMacEffectState",
+   "doc": "`NSVisualEffectState`.",
+   "values": [
+    {
+     "name": "STURDY_MAC_STATE_FOLLOWS_WINDOW_ACTIVE_STATE",
+     "value": 0
+    },
+    {
+     "name": "STURDY_MAC_STATE_ACTIVE",
+     "value": 1
+    },
+    {
+     "name": "STURDY_MAC_STATE_INACTIVE",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "name": "SturdyMacGlassStyle",
+   "doc": "`NSGlassEffectViewStyle` (macOS 26).",
+   "values": [
+    {
+     "name": "STURDY_MAC_GLASS_REGULAR",
+     "value": 0
+    },
+    {
+     "name": "STURDY_MAC_GLASS_CLEAR",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "SturdyMacMaterial",
+   "doc": "`NSVisualEffectMaterial` (macOS 10.14 semantic materials), in the engine's own order.",
+   "values": [
+    {
+     "name": "STURDY_MAC_MATERIAL_TITLEBAR",
+     "value": 0
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_SELECTION",
+     "value": 1
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_MENU",
+     "value": 2
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_POPOVER",
+     "value": 3
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_SIDEBAR",
+     "value": 4
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_HEADER_VIEW",
+     "value": 5
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_SHEET",
+     "value": 6
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_WINDOW_BACKGROUND",
+     "value": 7
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_HUD_WINDOW",
+     "value": 8
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_FULL_SCREEN_UI",
+     "value": 9
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_TOOL_TIP",
+     "value": 10
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_CONTENT_BACKGROUND",
+     "value": 11
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_UNDER_WINDOW_BACKGROUND",
+     "value": 12
+    },
+    {
+     "name": "STURDY_MAC_MATERIAL_UNDER_PAGE_BACKGROUND",
+     "value": 13
+    }
+   ]
+  },
+  {
    "name": "SturdyMemoryLocation",
    "doc": "Where a buffer's backing memory lives.",
    "values": [
@@ -1354,6 +1879,24 @@
     },
     {
      "name": "STURDY_MEMORY_LOCATION_HOST_READBACK",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "name": "SturdyMessageBoxKind",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_MESSAGE_BOX_INFORMATION",
+     "value": 0
+    },
+    {
+     "name": "STURDY_MESSAGE_BOX_WARNING",
+     "value": 1
+    },
+    {
+     "name": "STURDY_MESSAGE_BOX_ERROR",
      "value": 2
     }
    ]
@@ -2359,6 +2902,96 @@
    ]
   },
   {
+   "name": "SturdyTaskbarProgress",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_TASKBAR_PROGRESS_NONE",
+     "value": 0
+    },
+    {
+     "name": "STURDY_TASKBAR_PROGRESS_INDETERMINATE",
+     "value": 1
+    },
+    {
+     "name": "STURDY_TASKBAR_PROGRESS_NORMAL",
+     "value": 2
+    },
+    {
+     "name": "STURDY_TASKBAR_PROGRESS_PAUSED",
+     "value": 3
+    },
+    {
+     "name": "STURDY_TASKBAR_PROGRESS_ERROR",
+     "value": 4
+    }
+   ]
+  },
+  {
+   "name": "SturdyTextCapitalization",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_TEXT_CAPITALIZATION_NONE",
+     "value": 0
+    },
+    {
+     "name": "STURDY_TEXT_CAPITALIZATION_SENTENCES",
+     "value": 1
+    },
+    {
+     "name": "STURDY_TEXT_CAPITALIZATION_WORDS",
+     "value": 2
+    },
+    {
+     "name": "STURDY_TEXT_CAPITALIZATION_LETTERS",
+     "value": 3
+    }
+   ]
+  },
+  {
+   "name": "SturdyTextInputType",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_TEXT_INPUT_TEXT",
+     "value": 0
+    },
+    {
+     "name": "STURDY_TEXT_INPUT_NAME",
+     "value": 1
+    },
+    {
+     "name": "STURDY_TEXT_INPUT_EMAIL",
+     "value": 2
+    },
+    {
+     "name": "STURDY_TEXT_INPUT_USERNAME",
+     "value": 3
+    },
+    {
+     "name": "STURDY_TEXT_INPUT_PASSWORD_HIDDEN",
+     "value": 4
+    },
+    {
+     "name": "STURDY_TEXT_INPUT_PASSWORD_VISIBLE",
+     "value": 5
+    },
+    {
+     "name": "STURDY_TEXT_INPUT_NUMBER",
+     "value": 6
+    },
+    {
+     "name": "STURDY_TEXT_INPUT_NUMBER_PASSWORD_HIDDEN",
+     "value": 7
+    },
+    {
+     "name": "STURDY_TEXT_INPUT_NUMBER_PASSWORD_VISIBLE",
+     "value": 8
+    }
+   ]
+  },
+  {
    "name": "SturdyTextureDimension",
    "doc": "Dimensionality of a texture.",
    "values": [
@@ -2789,6 +3422,28 @@
    ]
   },
   {
+   "name": "SturdyWindowCornerPreference",
+   "doc": "Windows 11 `DWM_WINDOW_CORNER_PREFERENCE`.",
+   "values": [
+    {
+     "name": "STURDY_WINDOW_CORNER_DEFAULT",
+     "value": 0
+    },
+    {
+     "name": "STURDY_WINDOW_CORNER_DO_NOT_ROUND",
+     "value": 1
+    },
+    {
+     "name": "STURDY_WINDOW_CORNER_ROUND",
+     "value": 2
+    },
+    {
+     "name": "STURDY_WINDOW_CORNER_ROUND_SMALL",
+     "value": 3
+    }
+   ]
+  },
+  {
    "name": "SturdyWindowEffectKind",
    "doc": "Platform-composited visual effect a window can request. Support is OS-dependent \u2014 an effect this platform cannot render (e.g. Mica off Windows 11) is rejected with `STURDY_ERROR_NOT_AVAILABLE` rather than silently ignored.",
    "values": [
@@ -2831,6 +3486,265 @@
     {
      "name": "STURDY_WINDOW_EFFECT_TRANSPARENT",
      "value": 9
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_BACKDROP_AUTO",
+     "value": 10,
+     "doc": "Windows 11 22H2+: let DWM choose the system backdrop (`DWMSBT_AUTO`)."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_BACKDROP_NONE",
+     "value": 11,
+     "doc": "Windows 11 22H2+: no system backdrop at all."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_ACCENT_BLUR",
+     "value": 12,
+     "doc": "Windows 10+: accent-policy blur-behind. Tint colour in `SturdyWindowEffectOptions::tint_argb`."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_ACCENT_ACRYLIC",
+     "value": 13,
+     "doc": "Windows 10 1803+: accent-policy acrylic (tint and its opacity in `tint_argb`)."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_CORNER_PREFERENCE",
+     "value": 14,
+     "doc": "Windows 11: window corner rounding (`SturdyWindowEffectOptions::corner_preference`)."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_VISUAL_EFFECT",
+     "value": 15,
+     "doc": "macOS: an `NSVisualEffectView` behind the content (the `mac_*` options)."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_OPACITY",
+     "value": 16,
+     "doc": "Whole-window opacity (`SturdyWindowEffectOptions::opacity`) on every platform: Windows layered window, macOS `alphaValue`, X11 `_NET_WM_WINDOW_OPACITY`, Wayland `wp_alpha_modifier_v1`."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_TRANSITIONS_DISABLED",
+     "value": 17,
+     "doc": "Windows: no minimise/maximise/restore animations (`DWMWA_TRANSITIONS_FORCEDISABLED`)."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_TITLEBAR_TRANSPARENT",
+     "value": 18,
+     "doc": "macOS: the title bar draws no background of its own."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_WINDOW_SHADOW",
+     "value": 19,
+     "doc": "macOS: the window casts a shadow (disable to remove it)."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_GLASS_EFFECT",
+     "value": 20,
+     "doc": "macOS 26+: a Liquid Glass `NSGlassEffectView` (`mac_glass_style`, `tint_argb`, `mac_glass_corner_radius`)."
+    },
+    {
+     "name": "STURDY_WINDOW_EFFECT_CORNER_RADIUS",
+     "value": 21,
+     "doc": "Rounds the window outline (`SturdyWindowEffectOptions::window_corner_radius`), whatever its frame: a window region on Windows, the content layer on macOS, the X Shape extension on X11. Not available on Wayland."
+    }
+   ]
+  },
+  {
+   "name": "SturdyWindowErrorKind",
+   "doc": "",
+   "values": [
+    {
+     "name": "STURDY_WINDOW_ERROR_NONE",
+     "value": 0
+    },
+    {
+     "name": "STURDY_WINDOW_ERROR_UNSUPPORTED",
+     "value": 1,
+     "doc": "The provider or system cannot do it. Not a bug: check `sturdy_window_feature` first."
+    },
+    {
+     "name": "STURDY_WINDOW_ERROR_INVALID_ARGUMENT",
+     "value": 2,
+     "doc": "The provider or system cannot do it. Not a bug: check `sturdy_window_feature` first."
+    },
+    {
+     "name": "STURDY_WINDOW_ERROR_FAILED",
+     "value": 3,
+     "doc": "The provider or system cannot do it. Not a bug: check `sturdy_window_feature` first."
+    }
+   ]
+  },
+  {
+   "name": "SturdyWindowFeature",
+   "doc": "A capability a window may or may not have on this provider, OS and session type.",
+   "values": [
+    {
+     "name": "STURDY_WINDOW_FEATURE_ALWAYS_ON_TOP",
+     "value": 0
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_ASPECT_RATIO",
+     "value": 1
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_MOUSE_PASSTHROUGH",
+     "value": 2
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_FOCUSABLE",
+     "value": 3
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_AUTO_MINIMIZE_ON_FOCUS_LOSS",
+     "value": 4
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_PARENT_WINDOW",
+     "value": 5
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_MODAL_WINDOW",
+     "value": 6
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_KEYBOARD_GRAB",
+     "value": 7
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_MOUSE_CONFINE_RECT",
+     "value": 8
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_WARP_CURSOR",
+     "value": 9
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_CUSTOM_CURSOR",
+     "value": 10
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_FRAME_EXTENTS",
+     "value": 11
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_SAFE_AREA",
+     "value": 12
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_FULLSCREEN_TARGET",
+     "value": 13
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_TEXT_INPUT_OPTIONS",
+     "value": 14
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_SCREEN_KEYBOARD",
+     "value": 15
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_CLIPBOARD_MIME_TYPES",
+     "value": 16
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_TYPED_CLIPBOARD",
+     "value": 17
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_HIT_TEST_REGIONS",
+     "value": 18
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_SYSTEM_MENU",
+     "value": 19
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_WINDOW_ICON",
+     "value": 20
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_REQUEST_ATTENTION",
+     "value": 21
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_TASKBAR_PROGRESS",
+     "value": 22
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_SYSTEM_THEME",
+     "value": 23
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_DISPLAY_LIST",
+     "value": 24
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_DISPLAY_MODES",
+     "value": 25
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_DISPLAY_EVENTS",
+     "value": 26
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_LIVE_RESIZE_CALLBACK",
+     "value": 27
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_WAIT_FOR_EVENTS",
+     "value": 28
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_FILE_DROP",
+     "value": 29
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_TEXT_DROP",
+     "value": 30
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_WINDOW_TYPE_HINT",
+     "value": 31
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_WINDOW_SHAPE",
+     "value": 32
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_ANIMATED_CURSOR",
+     "value": 33
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_KEYBOARD_QUERY",
+     "value": 34
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_WARP_CURSOR_GLOBAL",
+     "value": 35
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_MOUSE_CAPTURE",
+     "value": 36
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_ICC_PROFILE",
+     "value": 37
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_SYSTEM_TRAY",
+     "value": 38
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_TOUCH_INPUT",
+     "value": 39
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_PEN_INPUT",
+     "value": 40
+    },
+    {
+     "name": "STURDY_WINDOW_FEATURE_COUNT",
+     "value": 41
     }
    ]
   },
@@ -2853,6 +3767,219 @@
    ]
   },
   {
+   "name": "SturdyWindowOperation",
+   "doc": "Each operation a window can be asked to run; the key to `sturdy_window_operation_status`.",
+   "values": [
+    {
+     "name": "STURDY_WINDOW_OP_TITLE",
+     "value": 0
+    },
+    {
+     "name": "STURDY_WINDOW_OP_POSITION",
+     "value": 1
+    },
+    {
+     "name": "STURDY_WINDOW_OP_SIZE",
+     "value": 2
+    },
+    {
+     "name": "STURDY_WINDOW_OP_MINIMUM_SIZE",
+     "value": 3
+    },
+    {
+     "name": "STURDY_WINDOW_OP_MAXIMUM_SIZE",
+     "value": 4
+    },
+    {
+     "name": "STURDY_WINDOW_OP_RESIZABLE",
+     "value": 5
+    },
+    {
+     "name": "STURDY_WINDOW_OP_OPACITY",
+     "value": 6
+    },
+    {
+     "name": "STURDY_WINDOW_OP_MAXIMIZE",
+     "value": 7
+    },
+    {
+     "name": "STURDY_WINDOW_OP_MINIMIZE",
+     "value": 8
+    },
+    {
+     "name": "STURDY_WINDOW_OP_RESTORE",
+     "value": 9
+    },
+    {
+     "name": "STURDY_WINDOW_OP_RAISE",
+     "value": 10
+    },
+    {
+     "name": "STURDY_WINDOW_OP_FOCUS",
+     "value": 11
+    },
+    {
+     "name": "STURDY_WINDOW_OP_SHOW",
+     "value": 12
+    },
+    {
+     "name": "STURDY_WINDOW_OP_HIDE",
+     "value": 13
+    },
+    {
+     "name": "STURDY_WINDOW_OP_ALWAYS_ON_TOP",
+     "value": 14
+    },
+    {
+     "name": "STURDY_WINDOW_OP_ASPECT_RATIO",
+     "value": 15
+    },
+    {
+     "name": "STURDY_WINDOW_OP_MOUSE_PASSTHROUGH",
+     "value": 16
+    },
+    {
+     "name": "STURDY_WINDOW_OP_FOCUSABLE",
+     "value": 17
+    },
+    {
+     "name": "STURDY_WINDOW_OP_AUTO_MINIMIZE",
+     "value": 18
+    },
+    {
+     "name": "STURDY_WINDOW_OP_PARENT",
+     "value": 19
+    },
+    {
+     "name": "STURDY_WINDOW_OP_KEYBOARD_GRAB",
+     "value": 20
+    },
+    {
+     "name": "STURDY_WINDOW_OP_MOUSE_CONFINE_RECT",
+     "value": 21
+    },
+    {
+     "name": "STURDY_WINDOW_OP_CURSOR_POSITION",
+     "value": 22
+    },
+    {
+     "name": "STURDY_WINDOW_OP_GLOBAL_CURSOR_POSITION",
+     "value": 23
+    },
+    {
+     "name": "STURDY_WINDOW_OP_MOUSE_CAPTURE",
+     "value": 24
+    },
+    {
+     "name": "STURDY_WINDOW_OP_CUSTOM_CURSOR",
+     "value": 25
+    },
+    {
+     "name": "STURDY_WINDOW_OP_ANIMATED_CURSOR",
+     "value": 26
+    },
+    {
+     "name": "STURDY_WINDOW_OP_CLEAR_CUSTOM_CURSOR",
+     "value": 27
+    },
+    {
+     "name": "STURDY_WINDOW_OP_TEXT_INPUT_OPTIONS",
+     "value": 28
+    },
+    {
+     "name": "STURDY_WINDOW_OP_FULLSCREEN_TARGET",
+     "value": 29
+    },
+    {
+     "name": "STURDY_WINDOW_OP_WINDOW_TYPE",
+     "value": 30
+    },
+    {
+     "name": "STURDY_WINDOW_OP_SHAPE",
+     "value": 31
+    },
+    {
+     "name": "STURDY_WINDOW_OP_DISPLAY_GAMMA",
+     "value": 32
+    },
+    {
+     "name": "STURDY_WINDOW_OP_ICON",
+     "value": 33
+    },
+    {
+     "name": "STURDY_WINDOW_OP_ATTENTION",
+     "value": 34
+    },
+    {
+     "name": "STURDY_WINDOW_OP_TASKBAR_PROGRESS",
+     "value": 35
+    },
+    {
+     "name": "STURDY_WINDOW_OP_HIT_TEST_REGIONS",
+     "value": 36
+    },
+    {
+     "name": "STURDY_WINDOW_OP_SYSTEM_MENU",
+     "value": 37
+    },
+    {
+     "name": "STURDY_WINDOW_OP_CLIPBOARD_TEXT",
+     "value": 38,
+     "doc": "Query: the text is the clipboard's text."
+    },
+    {
+     "name": "STURDY_WINDOW_OP_SET_CLIPBOARD_TEXT",
+     "value": 39,
+     "doc": "Query: the text is the clipboard's text."
+    },
+    {
+     "name": "STURDY_WINDOW_OP_CLIPBOARD_MIME_TYPES",
+     "value": 40,
+     "doc": "Query: the list is the MIME types on the clipboard."
+    },
+    {
+     "name": "STURDY_WINDOW_OP_CLIPBOARD_DATA",
+     "value": 41,
+     "doc": "Query: the bytes are the clipboard's data in the asked MIME type; the flag says whether it was there."
+    },
+    {
+     "name": "STURDY_WINDOW_OP_SET_CLIPBOARD_DATA",
+     "value": 42,
+     "doc": "Query: the bytes are the clipboard's data in the asked MIME type; the flag says whether it was there."
+    },
+    {
+     "name": "STURDY_WINDOW_OP_KEY_NAME",
+     "value": 43,
+     "doc": "Query: the text is the key's name on the current layout."
+    },
+    {
+     "name": "STURDY_WINDOW_OP_KEY_DOWN",
+     "value": 44,
+     "doc": "Query: the flag says whether the key is held."
+    },
+    {
+     "name": "STURDY_WINDOW_OP_ICC_PROFILE",
+     "value": 45,
+     "doc": "Query: the bytes are the display's ICC profile."
+    },
+    {
+     "name": "STURDY_WINDOW_OP_FILE_DIALOG",
+     "value": 46,
+     "doc": "A file dialog parented to the window (`sturdy_window_show_file_dialog`); the answer comes through its callback."
+    },
+    {
+     "name": "STURDY_WINDOW_OP_MESSAGE_BOX",
+     "value": 47,
+     "doc": "A message box over the window (`sturdy_window_show_message_box`); the pressed button is the status's `number`."
+    },
+    {
+     "name": "STURDY_WINDOW_OP_COUNT",
+     "value": 48,
+     "doc": "A message box over the window (`sturdy_window_show_message_box`); the pressed button is the status's `number`."
+    }
+   ]
+  },
+  {
    "name": "SturdyWindowRequestKind",
    "doc": "Which kind of window request a `SturdyWindowRequestCompletion` reports the outcome of.",
    "values": [
@@ -2868,6 +3995,46 @@
      "name": "STURDY_WINDOW_REQUEST_CLOSE",
      "value": 2,
      "doc": "Also reported for `sturdy_window_request_close`, keyed by that call's own request id \u2014 most callers don't need to wait for it, since the window disappearing is its own confirmation."
+    }
+   ]
+  },
+  {
+   "name": "SturdyWindowType",
+   "doc": "How the window manager should treat a window.",
+   "values": [
+    {
+     "name": "STURDY_WINDOW_TYPE_NORMAL",
+     "value": 0
+    },
+    {
+     "name": "STURDY_WINDOW_TYPE_UTILITY",
+     "value": 1,
+     "doc": "A tool palette: no taskbar entry, lighter frame."
+    },
+    {
+     "name": "STURDY_WINDOW_TYPE_TOOLTIP",
+     "value": 2,
+     "doc": "A tool palette: no taskbar entry, lighter frame."
+    },
+    {
+     "name": "STURDY_WINDOW_TYPE_POPUP_MENU",
+     "value": 3,
+     "doc": "A tool palette: no taskbar entry, lighter frame."
+    },
+    {
+     "name": "STURDY_WINDOW_TYPE_DROPDOWN_MENU",
+     "value": 4,
+     "doc": "A tool palette: no taskbar entry, lighter frame."
+    },
+    {
+     "name": "STURDY_WINDOW_TYPE_DIALOG",
+     "value": 5,
+     "doc": "A tool palette: no taskbar entry, lighter frame."
+    },
+    {
+     "name": "STURDY_WINDOW_TYPE_SPLASH",
+     "value": 6,
+     "doc": "A tool palette: no taskbar entry, lighter frame."
     }
    ]
   }
@@ -5901,6 +7068,35 @@
    ]
   },
   {
+   "name": "SturdyCursorFrame",
+   "doc": "One frame of an animated cursor: tightly packed RGBA8 (`width * height * 4` bytes, the size given to the call).",
+   "fields": [
+    {
+     "name": "rgba",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "duration_ms",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ]
+  },
+  {
    "name": "SturdyD3D12Handles",
    "doc": "The engine's raw D3D12 objects.\n\nFields are `void *` for the same reason as `SturdyVulkanHandles`, and carry the same borrowing rules. These pointers are **not** `AddRef`'d on your behalf: call `AddRef` yourself if you intend to hold one past the call.",
    "fields": [
@@ -6501,6 +7697,169 @@
    ]
   },
   {
+   "name": "SturdyDisplayInfo",
+   "doc": "One connected monitor. Read with `sturdy_display_get`; the name and the modes come from their own calls.",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyDisplayInfo)` before the call."
+    },
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Stable for as long as the monitor stays connected; pass it as a fullscreen target's `display_id`."
+    },
+    {
+     "name": "bounds",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyWindowRect"
+     }
+    },
+    {
+     "name": "usable_bounds",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyWindowRect"
+     }
+    },
+    {
+     "name": "content_scale",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "refresh_rate_hz",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "hdr_enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "primary",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "current_mode",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyDisplayMode"
+     }
+    },
+    {
+     "name": "mode_count",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "How many modes `sturdy_display_mode` can read."
+    },
+    {
+     "name": "physical_width_mm",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Panel size in millimetres; 0 when the provider cannot tell."
+    },
+    {
+     "name": "physical_height_mm",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "orientation",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyDisplayOrientation"
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyDisplayMode",
+   "doc": "One video mode of a display.",
+   "fields": [
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "refresh_rate_hz",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "pixel_density",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    }
+   ]
+  },
+  {
    "name": "SturdyDrawArgs",
    "doc": "",
    "fields": [
@@ -6666,6 +8025,36 @@
    ]
   },
   {
+   "name": "SturdyFeatureSupport",
+   "doc": "Whether a feature is available, with the reason when it is not (or only partly). `note` is a static string owned by the engine: it stays valid for the life of the process; it is empty when the feature is fully supported.",
+   "fields": [
+    {
+     "name": "supported",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "note",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    }
+   ]
+  },
+  {
    "name": "SturdyFence",
    "doc": "Handle to a fence: a GPU-to-host synchronization primitive signaled when a submission completes. See the \"RHI resources\" section header for its lifetime rules.",
    "fields": [
@@ -6736,6 +8125,150 @@
    ]
   },
   {
+   "name": "SturdyFileDialogOptions",
+   "doc": "",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyFileDialogOptions)` before the call."
+    },
+    {
+     "name": "kind",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyFileDialogKind"
+     }
+    },
+    {
+     "name": "title",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "accept_label",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "cancel_label",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "default_location",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "filters",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyFileFilter"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "filter_count",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "allow_multiple",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyFileFilter",
+   "doc": "",
+   "fields": [
+    {
+     "name": "name",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "pattern",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     },
+     "doc": "Extensions without the dot, separated by `;` (\"png;jpg\"), or \"*\"."
+    }
+   ]
+  },
+  {
    "name": "SturdyFrame",
    "doc": "Borrowed reference to the render-frame parameters being built for the current frame.\n\nSame scope and reuse rules as `SturdyEngine`. Valid only inside `request_render_frame`.",
    "fields": [
@@ -6746,6 +8279,48 @@
       "width": 64,
       "signed": false,
       "name": "uint64_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyFrameExtents",
+   "doc": "The decoration thickness around the client area, in window units.",
+   "fields": [
+    {
+     "name": "left",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "top",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "right",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "bottom",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
      }
     }
    ]
@@ -6833,6 +8408,48 @@
        "name": "uint8_t"
       },
       "count": 7
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyFullscreenTarget",
+   "doc": "The display and mode a fullscreen window uses. Unset fields mean \"the window's current display\" / \"the desktop mode\".",
+   "fields": [
+    {
+     "name": "has_display",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "display_id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "has_mode",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "mode",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyDisplayMode"
      }
     }
    ]
@@ -7081,6 +8698,282 @@
       "name": "SturdyGameLogic"
      },
      "doc": "The module's callbacks, with `struct_size` set as for `sturdy_runtime_run`."
+    }
+   ]
+  },
+  {
+   "name": "SturdyGamepadEvent",
+   "doc": "",
+   "fields": [
+    {
+     "name": "kind",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyGamepadEventKind"
+     }
+    },
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyGamepadFrame",
+   "doc": "One mapped gamepad as it is this tick; the masks hold the buttons that changed since the last tick.",
+   "fields": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "buttons",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Bit `n` is the `SturdyGamepadButton` with value `n`."
+    },
+    {
+     "name": "pressed_this_tick",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "released_this_tick",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "axes",
+     "type": {
+      "kind": "array",
+      "of": {
+       "kind": "float",
+       "width": 32,
+       "signed": true,
+       "name": "float"
+      },
+      "count": 6
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyGamepadInfo",
+   "doc": "One connected device. Read with `sturdy_gamepad_get`; the name comes from `sturdy_gamepad_name`.",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyGamepadInfo)` before the call."
+    },
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Stable while the device stays connected; pass it to the other gamepad functions."
+    },
+    {
+     "name": "kind",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyGamepadKind"
+     }
+    },
+    {
+     "name": "vendor",
+     "type": {
+      "kind": "int",
+      "width": 16,
+      "signed": false,
+      "name": "uint16_t"
+     }
+    },
+    {
+     "name": "product",
+     "type": {
+      "kind": "int",
+      "width": 16,
+      "signed": false,
+      "name": "uint16_t"
+     }
+    },
+    {
+     "name": "connection",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyGamepadConnection"
+     }
+    },
+    {
+     "name": "player_index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     },
+     "doc": "The player slot (0-based), or -1."
+    },
+    {
+     "name": "mapped",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     },
+     "doc": "True when the device follows the standard layout (`sturdy_gamepad_state`); false for a raw joystick."
+    },
+    {
+     "name": "has_rumble",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "has_trigger_rumble",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "has_led",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "has_accelerometer",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "has_gyroscope",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "has_touchpad",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "battery_percent",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     },
+     "doc": "-1 when unknown."
+    },
+    {
+     "name": "charging",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyGamepadState",
+   "doc": "",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyGamepadState)` before the call."
+    },
+    {
+     "name": "buttons",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Bit `n` is the `SturdyGamepadButton` with value `n`."
+    },
+    {
+     "name": "axes",
+     "type": {
+      "kind": "array",
+      "of": {
+       "kind": "float",
+       "width": 32,
+       "signed": true,
+       "name": "float"
+      },
+      "count": 6
+     }
     }
    ]
   },
@@ -7605,6 +9498,83 @@
       "alias": "SturdyBool"
      },
      "doc": "Whether the OS-level HDR toggle must be on for this mode to work, independent of what the application requests."
+    }
+   ]
+  },
+  {
+   "name": "SturdyHitTestRegions",
+   "doc": "Rectangles of a custom title bar; see `sturdy_window_set_hit_test_regions`.",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyHitTestRegions)` before the call."
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "resize_border",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Thickness of the invisible resize border, in window units."
+    },
+    {
+     "name": "drag",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyWindowRect"
+      },
+      "const": true
+     },
+     "doc": "Areas that drag the window; `no_drag` areas inside them (buttons) do not."
+    },
+    {
+     "name": "drag_count",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "no_drag",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyWindowRect"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "no_drag_count",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
     }
    ]
   },
@@ -8628,6 +10598,104 @@
    ]
   },
   {
+   "name": "SturdyMessageBoxOptions",
+   "doc": "",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyMessageBoxOptions)` before the call."
+    },
+    {
+     "name": "kind",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyMessageBoxKind"
+     }
+    },
+    {
+     "name": "title",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "message",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "buttons",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "pointer",
+       "to": {
+        "kind": "char",
+        "width": 8,
+        "signed": true,
+        "name": "char",
+        "const_pointee": true
+       },
+       "const": true
+      },
+      "const": true
+     },
+     "doc": "Button labels, left to right; none gives a single \"OK\"."
+    },
+    {
+     "name": "button_count",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "default_button",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     },
+     "doc": "Button chosen by Enter / Escape (an index), or -1."
+    },
+    {
+     "name": "escape_button",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    }
+   ]
+  },
+  {
    "name": "SturdyMotionBlurSettings",
    "doc": "",
    "fields": [
@@ -9349,6 +11417,173 @@
       "signed": true,
       "name": "int64_t"
      }
+    }
+   ]
+  },
+  {
+   "name": "SturdyPenPoint",
+   "doc": "One pen. Listed while in range, and for the tick it left range in.",
+   "fields": [
+    {
+     "name": "window",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "uint64_t"
+     }
+    },
+    {
+     "name": "pen",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "x",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "y",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "in_range",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "down",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     },
+     "doc": "The tip is on the surface."
+    },
+    {
+     "name": "eraser",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "just_down",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "just_up",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "pressure",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     },
+     "doc": "Pressure 0..1, tilt in degrees, distance 0..1, rotation in degrees, slider 0..1, barrel pressure 0..1."
+    },
+    {
+     "name": "x_tilt",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "y_tilt",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "distance",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "rotation",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "slider",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "tangential_pressure",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "buttons",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Bit `n` is barrel button `n + 1`."
     }
    ]
   },
@@ -14783,6 +17018,56 @@
    ]
   },
   {
+   "name": "SturdyTextInputOptions",
+   "doc": "What kind of text a field takes, for IMEs and on-screen keyboards. Populate with `sturdy_text_input_options_init`.",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyTextInputOptions)` before the call."
+    },
+    {
+     "name": "type",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyTextInputType"
+     }
+    },
+    {
+     "name": "capitalization",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyTextCapitalization"
+     }
+    },
+    {
+     "name": "autocorrect",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "multiline",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
    "name": "SturdyTexture",
    "doc": "Handle to a GPU texture. See the \"RHI resources\" section header for its lifetime rules.",
    "fields": [
@@ -15802,6 +18087,128 @@
    ]
   },
   {
+   "name": "SturdyTouchPoint",
+   "doc": "One finger on a touch screen or pad. A lifted finger is listed for the tick it lifted in, then disappears.",
+   "fields": [
+    {
+     "name": "window",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "uint64_t"
+     },
+     "doc": "The window the finger is over (a `SturdySurface::id`)."
+    },
+    {
+     "name": "device",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "uint64_t"
+     }
+    },
+    {
+     "name": "finger",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "uint64_t"
+     }
+    },
+    {
+     "name": "x",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     },
+     "doc": "Window coordinates."
+    },
+    {
+     "name": "y",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "dx",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     },
+     "doc": "Movement since the previous tick."
+    },
+    {
+     "name": "dy",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "pressure",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "down",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "just_pressed",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "just_released",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "cancelled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     },
+     "doc": "The system took the touch away (a palm, a gesture): treat it as released without activating anything."
+    }
+   ]
+  },
+  {
    "name": "SturdyTraceFrame",
    "doc": "",
    "fields": [
@@ -15959,6 +18366,112 @@
     },
     {
      "name": "depth",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyTray",
+   "doc": "A notification-area / menu-bar icon. Owned: lives until `sturdy_tray_destroy`.",
+   "fields": [
+    {
+     "name": "token",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "uint64_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyTrayEntry",
+   "doc": "",
+   "fields": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Reported to the callback; unique within the menu."
+    },
+    {
+     "name": "label",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "separator",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "checkable",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "checked",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "submenu",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyTrayEntry"
+      },
+      "const": true
+     },
+     "doc": "A submenu of `submenu_count` entries; when non-zero the row opens it and `id` is not reported."
+    },
+    {
+     "name": "submenu_count",
      "type": {
       "kind": "int",
       "width": 32,
@@ -17954,6 +20467,516 @@
    ]
   },
   {
+   "name": "SturdyWindowCreationOptions",
+   "doc": "Creation-time window behaviour, for `sturdy_window_spawn_ex`. Populate with `sturdy_window_creation_options_init`.",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyWindowCreationOptions)` before the call."
+    },
+    {
+     "name": "always_on_top",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "maximized",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "minimized",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "focusable",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     },
+     "doc": "False creates a window that never takes keyboard focus."
+    },
+    {
+     "name": "mouse_passthrough",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "has_auto_minimize",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "auto_minimize_on_focus_loss",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "window_type",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowType"
+     }
+    },
+    {
+     "name": "has_parent",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     },
+     "doc": "Make the window a child of `parent` (a live window's surface)."
+    },
+    {
+     "name": "parent",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "modal",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "min_width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "0 leaves a dimension unconstrained."
+    },
+    {
+     "name": "min_height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "max_width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "max_height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "aspect_min",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     },
+     "doc": "Width / height limits; 0 and 0 mean none."
+    },
+    {
+     "name": "aspect_max",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "fullscreen_target",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyFullscreenTarget"
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyWindowEffectOptions",
+   "doc": "Everything beyond kind and on/off for `sturdy_window_set_effect_ex`. Populate with `sturdy_window_effect_options_init` first: that sets `struct_size` and the defaults (full opacity, all accent borders, the platform's own look). Each field applies to specific effects and is ignored by the rest.\n\nBlur regions are not part of this struct: a blur covers the whole window (optionally with rounded corners).",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyWindowEffectOptions)` before the call."
+    },
+    {
+     "name": "linux_blur_protocol",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyLinuxBlurProtocol"
+     },
+     "doc": "Linux `STURDY_WINDOW_EFFECT_BLUR`: which compositor protocol to use."
+    },
+    {
+     "name": "color_argb",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "ARGB colour for `BORDER_COLOR`, `CAPTION_COLOR` and `TEXT_COLOR`."
+    },
+    {
+     "name": "blur_corner_radius",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     },
+     "doc": "`BLUR` (Linux/Windows): round the blurred region's corners by this many logical pixels (0 = square)."
+    },
+    {
+     "name": "tint_argb",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "`ACCENT_BLUR`, `ACCENT_ACRYLIC` and `GLASS_EFFECT`: tint colour, ARGB. Acrylic and glass honour the alpha as tint opacity; glass with alpha 0 is untinted."
+    },
+    {
+     "name": "accent_border_left",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     },
+     "doc": "Accent effects: draw the window border on these sides."
+    },
+    {
+     "name": "accent_border_top",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "accent_border_right",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "accent_border_bottom",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "hide_border",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     },
+     "doc": "`BORDER_COLOR` (Windows 11): draw no border at all instead of using `color_argb`."
+    },
+    {
+     "name": "corner_preference",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowCornerPreference"
+     },
+     "doc": "`CORNER_PREFERENCE` (Windows 11)."
+    },
+    {
+     "name": "mac_material",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyMacMaterial"
+     },
+     "doc": "`VISUAL_EFFECT` (macOS)."
+    },
+    {
+     "name": "mac_blending",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyMacBlendingMode"
+     }
+    },
+    {
+     "name": "mac_state",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyMacEffectState"
+     }
+    },
+    {
+     "name": "mac_emphasized",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "mac_appearance",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyMacAppearance"
+     }
+    },
+    {
+     "name": "mac_glass_style",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyMacGlassStyle"
+     },
+     "doc": "`GLASS_EFFECT` (macOS 26): the glass variant and its corner radius in logical points (0 = square)."
+    },
+    {
+     "name": "mac_glass_corner_radius",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "opacity",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     },
+     "doc": "`OPACITY`: 0 (invisible) to 1 (opaque)."
+    },
+    {
+     "name": "window_corner_radius",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     },
+     "doc": "`CORNER_RADIUS`: the window outline's corner radius in logical pixels (0 = square)."
+    }
+   ]
+  },
+  {
+   "name": "SturdyWindowOperationStatus",
+   "doc": "The outcome of the last run of one operation on one window.",
+   "fields": [
+    {
+     "name": "struct_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Set to `sizeof(SturdyWindowOperationStatus)` before the call."
+    },
+    {
+     "name": "completed",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     },
+     "doc": "False until the operation has run once on that window."
+    },
+    {
+     "name": "ok",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "error",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowErrorKind"
+     }
+    },
+    {
+     "name": "flag",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     },
+     "doc": "A query's boolean answer (`KEY_DOWN`, `CLIPBOARD_DATA`'s \"was present\")."
+    },
+    {
+     "name": "text_length",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     },
+     "doc": "Sizes of the query's outputs, for sizing the buffers passed to the `_output_` functions."
+    },
+    {
+     "name": "bytes_size",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "list_count",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "number",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     },
+     "doc": "A numeric answer: the index of the button a message box returned (-1 when closed another way)."
+    }
+   ]
+  },
+  {
+   "name": "SturdyWindowRect",
+   "doc": "An integer rectangle in window or desktop coordinates (origin top-left).",
+   "fields": [
+    {
+     "name": "x",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "y",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    }
+   ]
+  },
+  {
    "name": "SturdyWindowRequestCompletion",
    "doc": "Outcome of one completed window request: `sturdy_window_spawn`, `sturdy_window_recreate_primary`, or `sturdy_window_request_close`.",
    "fields": [
@@ -18353,6 +21376,87 @@
        "name": "void"
       },
       "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyFileDialogCallback",
+   "doc": "Called once when the dialog closes, possibly on another thread. `paths` holds `count` strings valid only during the call (none when `cancelled`); `filter_index` is the active filter or -1; `error` is null unless the dialog failed.",
+   "ret": {
+    "kind": "void",
+    "name": "void"
+   },
+   "params": [
+    {
+     "name": "user",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "void",
+       "name": "void"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "paths",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "pointer",
+       "to": {
+        "kind": "char",
+        "width": 8,
+        "signed": true,
+        "name": "char",
+        "const_pointee": true
+       },
+       "const": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "count",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "filter_index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "cancelled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "error",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
      }
     }
    ]
@@ -19728,6 +22832,36 @@
        "name": "SturdyTaskOutput"
       },
       "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "SturdyTrayCallback",
+   "doc": "Called on the main thread when a tray menu entry is clicked; `id` is the entry's `id`.",
+   "ret": {
+    "kind": "void",
+    "name": "void"
+   },
+   "params": [
+    {
+     "name": "user",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "void",
+       "name": "void"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
      }
     }
    ]
@@ -23967,6 +27101,146 @@
    ]
   },
   {
+   "name": "sturdy_desktop_pump_events",
+   "doc": "Delivers tray clicks for a program whose windows are not pumping SDL. Cheap when no tray exists.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": []
+  },
+  {
+   "name": "sturdy_desktop_screensaver_enabled",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "out_enabled",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t",
+       "alias": "SturdyBool"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_desktop_set_screensaver_enabled",
+   "doc": "Allows or inhibits the screen saver / display blanking (games turn it off).",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_desktop_show_file_dialog",
+   "doc": "Opens a file or folder dialog and returns at once; `callback` reports the outcome.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "options",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyFileDialogOptions"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "callback",
+     "type": {
+      "kind": "callback",
+      "name": "SturdyFileDialogCallback"
+     }
+    },
+    {
+     "name": "user",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "void",
+       "name": "void"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_desktop_show_message_box",
+   "doc": "Shows a message box and blocks until it is dismissed; writes the pressed button's index (or -1). Main thread only.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "options",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyMessageBoxOptions"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "out_button",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": true,
+       "name": "int32_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_dir_iter_create",
    "doc": "Walks a directory entry by entry. Object \"dir_iter\".",
    "ret": {
@@ -24033,6 +27307,180 @@
       "to": {
        "kind": "struct",
        "name": "SturdyAsyncOp"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_display_count",
+   "doc": "How many monitors are connected (refreshed when the window system reports a change).",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "out_count",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_display_get",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_info",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyDisplayInfo"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_display_mode",
+   "doc": "Mode `mode_index` (below `SturdyDisplayInfo::mode_count`) of monitor `index`.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "mode_index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_mode",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyDisplayMode"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_display_name",
+   "doc": "The monitor's name. See the string-output convention above.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "buffer",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "capacity",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "size_t"
+     }
+    },
+    {
+     "name": "out_length",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 64,
+       "signed": false,
+       "name": "size_t"
       },
       "const": false
      }
@@ -28811,6 +32259,570 @@
    ]
   },
   {
+   "name": "sturdy_gamepad_count",
+   "doc": "How many devices are connected (also starts the joystick subsystem on first use).",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "out_count",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_get",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_info",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyGamepadInfo"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_name",
+   "doc": "The device's name. See the string-output convention above.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "buffer",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "capacity",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "size_t"
+     }
+    },
+    {
+     "name": "out_length",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 64,
+       "signed": false,
+       "name": "size_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_raw_counts",
+   "doc": "How many axes, buttons and hats a device reports raw.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_axes",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "out_buttons",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "out_hats",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_raw_read",
+   "doc": "A device as the hardware reports it. Each buffer may be null; axes are -1 to 1, buttons 0/1, hats a bit set (1 up, 2 right, 4 down, 8 left).",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "axes",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "float",
+       "width": 32,
+       "signed": true,
+       "name": "float"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "axes_capacity",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "buttons",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "buttons_capacity",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "hats",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "hats_capacity",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_rumble",
+   "doc": "Motor strengths are 0..1; the rumble stops after `duration_ms`.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "low_frequency",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "high_frequency",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "duration_ms",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_rumble_triggers",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "left",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "right",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "duration_ms",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_sensor",
+   "doc": "x, y, z of an enabled sensor (m/s^2 for the accelerometer, rad/s for the gyroscope).",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "sensor",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyGamepadSensor"
+     }
+    },
+    {
+     "name": "out_xyz",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "float",
+       "width": 32,
+       "signed": true,
+       "name": "float"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_set_led",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "red",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t"
+     }
+    },
+    {
+     "name": "green",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t"
+     }
+    },
+    {
+     "name": "blue",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_set_player_index",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "player_index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_set_sensor_enabled",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "sensor",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyGamepadSensor"
+     }
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_state",
+   "doc": "The current state of a mapped gamepad (`STURDY_ERROR_NOT_AVAILABLE` for an unknown or unmapped device).",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_state",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyGamepadState"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_gamepad_take_events",
+   "doc": "Devices connected or disconnected since the last call: writes up to `capacity` events and sets `*out_count`.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "events",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyGamepadEvent"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "capacity",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_count",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_gltf_import",
    "doc": "Imports a glTF or GLB file, creating a model asset for every mesh it contains.\n\nImporting does not put anything in the world \u2014 it produces assets and a description of how the file arranged them. Call `sturdy_gltf_spawn_all` to reproduce that arrangement, or walk the instances yourself if you want to filter or re-place them.",
    "ret": {
@@ -30359,6 +34371,301 @@
      "type": {
       "kind": "struct",
       "name": "SturdyAsyncObject"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_input_gamepad_count",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "out_count",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_input_gamepad_event_count",
+   "doc": "Pads plugged or unplugged since the previous tick.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "out_count",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_input_gamepad_event_get",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_event",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyGamepadEvent"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_input_gamepad_get",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_frame",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyGamepadFrame"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_input_pen_count",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "out_count",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_input_pen_get",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_point",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyPenPoint"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_input_set_gamepads_enabled",
+   "doc": "Starts (or stops) sampling gamepads every tick. Off by default.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_input_touch_count",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "out_count",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_input_touch_get",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "out_point",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyTouchPoint"
+      },
+      "const": false
      }
     }
    ]
@@ -50999,6 +55306,27 @@
    ]
   },
   {
+   "name": "sturdy_text_input_options_init",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "options",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyTextInputOptions"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_thread_pin_current",
    "doc": "",
    "ret": {
@@ -51601,6 +55929,252 @@
    ],
    "notes": [
     "Never changes the error state."
+   ]
+  },
+  {
+   "name": "sturdy_tray_create",
+   "doc": "Creates a tray icon (RGBA8 `width * height * 4` bytes) with a menu. Fails with `STURDY_ERROR_NOT_AVAILABLE` when the system has no tray.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "rgba",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "tooltip",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "entries",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyTrayEntry"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "entry_count",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "callback",
+     "type": {
+      "kind": "callback",
+      "name": "SturdyTrayCallback"
+     }
+    },
+    {
+     "name": "user",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "void",
+       "name": "void"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "out_tray",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyTray"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_tray_destroy",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "tray",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyTray"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_tray_set_icon",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "tray",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyTray"
+     }
+    },
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "rgba",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_tray_set_menu",
+   "doc": "Replaces the whole menu.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "tray",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyTray"
+     }
+    },
+    {
+     "name": "entries",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyTrayEntry"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "entry_count",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_tray_set_tooltip",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "tray",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyTray"
+     }
+    },
+    {
+     "name": "tooltip",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    }
    ]
   },
   {
@@ -54139,6 +58713,30 @@
    ]
   },
   {
+   "name": "sturdy_window_clear_custom_cursor",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_window_config_init",
    "doc": "Fills `config` with the engine's default window configuration (1280x720, windowed, decorated, visible, resizable, OS-placed).",
    "ret": {
@@ -54229,6 +58827,141 @@
    ]
   },
   {
+   "name": "sturdy_window_creation_options_init",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "options",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyWindowCreationOptions"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_display_id",
+   "doc": "The display the window is mostly on; `*out_has_display` is false when the provider cannot say.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "out_has_display",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t",
+       "alias": "SturdyBool"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "out_display_id",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 32,
+       "signed": false,
+       "name": "uint32_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_effect_options_init",
+   "doc": "Fills `options` with the defaults and the correct `struct_size`.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "options",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyWindowEffectOptions"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_feature",
+   "doc": "Whether, and how fully, a window supports a feature. Reads the snapshot, so it is current as of the last frame.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "feature",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowFeature"
+     }
+    },
+    {
+     "name": "out_support",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyFeatureSupport"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_window_find",
    "doc": "Reads the window a surface belongs to.",
    "ret": {
@@ -54266,6 +58999,452 @@
    "returns": "`STURDY_ERROR_NOT_AVAILABLE` when no managed window matches."
   },
   {
+   "name": "sturdy_window_focus",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_frame_extents",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "out_extents",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyFrameExtents"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_hide",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_maximize",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_minimize",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_operation_bytes",
+   "doc": "A query's byte output: writes up to `capacity` bytes and sets `*out_size` to the full size.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "operation",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowOperation"
+     }
+    },
+    {
+     "name": "buffer",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "capacity",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "size_t"
+     }
+    },
+    {
+     "name": "out_size",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 64,
+       "signed": false,
+       "name": "size_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_operation_list_item",
+   "doc": "Entry `index` of a query's list output. See the string-output convention above.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "operation",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowOperation"
+     }
+    },
+    {
+     "name": "index",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "buffer",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "capacity",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "size_t"
+     }
+    },
+    {
+     "name": "out_length",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 64,
+       "signed": false,
+       "name": "size_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_operation_message",
+   "doc": "The platform's message for a failed operation. See the string-output convention above.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "operation",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowOperation"
+     }
+    },
+    {
+     "name": "buffer",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "capacity",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "size_t"
+     }
+    },
+    {
+     "name": "out_length",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 64,
+       "signed": false,
+       "name": "size_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_operation_status",
+   "doc": "The outcome of the last run of `operation` on a window. `completed` is false until it has run.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "operation",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowOperation"
+     }
+    },
+    {
+     "name": "out_status",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyWindowOperationStatus"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_operation_text",
+   "doc": "A query's text output. See the string-output convention above.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "operation",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowOperation"
+     }
+    },
+    {
+     "name": "buffer",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char"
+      },
+      "const": false
+     }
+    },
+    {
+     "name": "capacity",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "size_t"
+     }
+    },
+    {
+     "name": "out_length",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 64,
+       "signed": false,
+       "name": "size_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_window_primary",
    "doc": "Reads the primary window.",
    "ret": {
@@ -54293,6 +59472,206 @@
     }
    ],
    "returns": "`STURDY_ERROR_NOT_AVAILABLE` when there is no primary window, which is the case during teardown after it has closed."
+  },
+  {
+   "name": "sturdy_window_query_clipboard_data",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "mime_type",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_query_clipboard_mime_types",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_query_clipboard_text",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_query_icc_profile",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_query_key_down",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "key",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_query_key_name",
+   "doc": "Asks for a key's name on the current layout. `key` is the `key_code` value input events report.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "key",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_raise",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
   },
   {
    "name": "sturdy_window_recreate_primary",
@@ -54337,6 +59716,37 @@
    ]
   },
   {
+   "name": "sturdy_window_request_attention",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "request",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyAttentionRequest"
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_window_request_close",
    "doc": "Requests that a window close.\n\nQueued rather than immediate: the engine applies window changes at a defined point in the frame so a request made from a render callback cannot destroy the window being drawn. Every function in this section behaves that way.",
    "ret": {
@@ -54371,6 +59781,354 @@
       "const": false
      },
      "doc": "Receives an identifier for the queued request. May be null."
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_restore",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_safe_area",
+   "doc": "The part of the client area not under notches or system bars (the whole area on desktops).",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "out_area",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyWindowRect"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_always_on_top",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_animated_cursor",
+   "doc": "A cursor cycling through `frame_count` same-sized frames; the hot spot is shared by every frame.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "frames",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyCursorFrame"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "frame_count",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "hot_x",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "hot_y",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_aspect_ratio",
+   "doc": "Constrains resizing to width/height ratios in [min, max]; 0 and 0 remove the constraint. GLFW holds one exact ratio.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "min_ratio",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    },
+    {
+     "name": "max_ratio",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_auto_minimize_on_focus_loss",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_clipboard_data",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "mime_type",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "bytes",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "size",
+     "type": {
+      "kind": "int",
+      "width": 64,
+      "signed": false,
+      "name": "size_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_clipboard_text",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "text",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
     }
    ]
   },
@@ -54440,6 +60198,122 @@
    ]
   },
   {
+   "name": "sturdy_window_set_cursor_position",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "x",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "y",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_custom_cursor",
+   "doc": "A cursor drawn from an RGBA8 image (`width * height * 4` bytes) with its hot spot in image pixels.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "rgba",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "hot_x",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "hot_y",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_window_set_decorated",
    "doc": "Requests that a window show or hide its system decorations.",
    "ret": {
@@ -54469,6 +60343,58 @@
       "signed": false,
       "name": "uint8_t",
       "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_display_gamma",
+   "doc": "Sets a display's gamma (1.0 = unchanged); `has_display` false uses the window's display.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "has_display",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "display_id",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "gamma",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
      }
     }
    ]
@@ -54515,6 +60441,378 @@
    ]
   },
   {
+   "name": "sturdy_window_set_effect_ex",
+   "doc": "`sturdy_window_set_effect` with every per-effect setting: colours, tint, corner preference, opacity, the macOS material and glass options, and the Linux blur protocol. `options` may be null for the defaults. Queued the same way.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "kind",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowEffectKind"
+     }
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    },
+    {
+     "name": "options",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyWindowEffectOptions"
+      },
+      "const": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_focusable",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_fullscreen_target",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "target",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyFullscreenTarget"
+      },
+      "const": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_global_cursor_position",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "x",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "y",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_hit_test_regions",
+   "doc": "Installs (or, with `enabled` false, removes) the drag and resize regions of a custom title bar.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "regions",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyHitTestRegions"
+      },
+      "const": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_icon",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "rgba",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_keyboard_grab",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_maximum_size",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_minimum_size",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_window_set_mode",
    "doc": "Requests a windowed/fullscreen mode change.",
    "ret": {
@@ -54541,6 +60839,75 @@
      "type": {
       "kind": "enum",
       "name": "SturdyWindowMode"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_mouse_capture",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_mouse_confine_rect",
+   "doc": "Confines the cursor to a client-area rectangle; null releases it.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "rect",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyWindowRect"
+      },
+      "const": true
      }
     }
    ]
@@ -54580,6 +60947,160 @@
    ]
   },
   {
+   "name": "sturdy_window_set_mouse_passthrough",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "enabled",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_opacity",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "opacity",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_parent",
+   "doc": "Makes the window a child of `parent`; null detaches. A modal child blocks its parent where the system allows.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "parent",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdySurface"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "modal",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_position",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "x",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "y",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_window_set_relative_mouse_mode",
    "doc": "Requests relative mouse mode (the OS cursor is hidden and confined, and mouse motion reports as unbounded deltas instead of absolute position) for a window \u2014 the mode a first-person camera or any other mouse-look control needs. See `SturdyWindowSnapshot::mouse_locked` and `sturdy_engine_mouse_delta` for reading the resulting state and motion.",
    "ret": {
@@ -54609,6 +61130,178 @@
       "signed": false,
       "name": "uint8_t",
       "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_resizable",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "resizable",
+     "type": {
+      "kind": "int",
+      "width": 8,
+      "signed": false,
+      "name": "uint8_t",
+      "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_shape",
+   "doc": "A non-rectangular outline from `width * height` coverage bytes (above 127 = inside). Null `coverage` restores the rectangle.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "coverage",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 8,
+       "signed": false,
+       "name": "uint8_t",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_size",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "width",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    },
+    {
+     "name": "height",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": false,
+      "name": "uint32_t"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_taskbar_progress",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "state",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyTaskbarProgress"
+     }
+    },
+    {
+     "name": "value",
+     "type": {
+      "kind": "float",
+      "width": 32,
+      "signed": true,
+      "name": "float"
      }
     }
    ]
@@ -54683,6 +61376,44 @@
    ]
   },
   {
+   "name": "sturdy_window_set_title",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "title",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "char",
+       "width": 8,
+       "signed": true,
+       "name": "char",
+       "const_pointee": true
+      },
+      "const": true
+     }
+    }
+   ]
+  },
+  {
    "name": "sturdy_window_set_transparent",
    "doc": "Requests that a window become transparent or opaque.",
    "ret": {
@@ -54712,6 +61443,191 @@
       "signed": false,
       "name": "uint8_t",
       "alias": "SturdyBool"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_set_window_type",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "type",
+     "type": {
+      "kind": "enum",
+      "name": "SturdyWindowType"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_show",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_show_file_dialog",
+   "doc": "`sturdy_desktop_show_file_dialog` as a child of a window: the dialog stays above it and is attached to it by the window system. Queued like every window request; `callback` is called once when the dialog closes.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "options",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyFileDialogOptions"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "callback",
+     "type": {
+      "kind": "callback",
+      "name": "SturdyFileDialogCallback"
+     }
+    },
+    {
+     "name": "user",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "void",
+       "name": "void"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_show_message_box",
+   "doc": "`sturdy_desktop_show_message_box` over a window. Queued: it blocks that window's thread until dismissed, and the pressed button arrives as `sturdy_window_operation_status(..., STURDY_WINDOW_OP_MESSAGE_BOX, ...).number`.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "options",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyMessageBoxOptions"
+      },
+      "const": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_show_system_menu",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "x",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
+     }
+    },
+    {
+     "name": "y",
+     "type": {
+      "kind": "int",
+      "width": 32,
+      "signed": true,
+      "name": "int32_t"
      }
     }
    ]
@@ -54792,6 +61708,93 @@
       "const": false
      },
      "doc": "Receives an identifier for the queued request. May be null."
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_spawn_ex",
+   "doc": "`sturdy_window_spawn` with creation-time behaviour. `options` may be null for the defaults.",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "config",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyWindowConfig"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "options",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyWindowCreationOptions"
+      },
+      "const": true
+     }
+    },
+    {
+     "name": "out_request_id",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "int",
+       "width": 64,
+       "signed": false,
+       "name": "uint64_t"
+      },
+      "const": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "sturdy_window_start_text_input_ex",
+   "doc": "",
+   "ret": {
+    "kind": "enum",
+    "name": "SturdyResult"
+   },
+   "params": [
+    {
+     "name": "engine",
+     "type": {
+      "kind": "struct",
+      "name": "SturdyEngine"
+     }
+    },
+    {
+     "name": "surface",
+     "type": {
+      "kind": "struct",
+      "name": "SturdySurface"
+     }
+    },
+    {
+     "name": "options",
+     "type": {
+      "kind": "pointer",
+      "to": {
+       "kind": "struct",
+       "name": "SturdyTextInputOptions"
+      },
+      "const": true
+     }
     }
    ]
   },

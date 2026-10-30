@@ -30,7 +30,8 @@ if(STURDY_OS STREQUAL "Windows")
     # API itself, comctl32 for SetWindowSubclass/RemoveWindowSubclass/DefSubclassProc. Neither is an
     # MSVC default lib, so both need an explicit link — same bare-name pattern Sturdy::DirectX
     # already uses for d3d12/dxgi/dxguid (cmake/SturdyDependencies.cmake).
-    target_link_libraries(WindowManagerGLFW PRIVATE imm32 comctl32)
+    # ole32 for CoCreateInstance (ITaskbarList3 taskbar progress), advapi32 for RegGetValueW (the system theme).
+    target_link_libraries(WindowManagerGLFW PRIVATE imm32 comctl32 ole32 advapi32)
 elseif(NOT STURDY_OS STREQUAL "MacOS")
     # X11 IME composition support (WindowManager/Providers/GLFW/Linux/GlfwWindowNative.cpp, XIMPreeditCallbacks path):
     # libX11 for Xlib itself. GLFW's own X11 backend already requires libX11 to exist on the system

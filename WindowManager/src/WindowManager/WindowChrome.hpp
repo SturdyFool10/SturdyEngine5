@@ -7,6 +7,7 @@
 #include <vector>
 #pragma endregion
 
+#include <WindowManager/WindowFeatures.hpp>
 #include <WindowManager/WindowGeometry.hpp>
 
 namespace SFT::WindowManager {
@@ -98,6 +99,13 @@ namespace SFT::WindowManager {
         f32 refresh_rate_hz = 0.0f;
         bool hdr_enabled = false;
         bool primary = false;
+        /// The mode the desktop is running in, and every mode a fullscreen window may ask for on this display.
+        DisplayMode current_mode{};
+        std::vector<DisplayMode> modes;
+        /// Physical size of the panel in millimetres; 0 when the provider cannot tell.
+        u32 physical_width_mm = 0;
+        u32 physical_height_mm = 0;
+        DisplayOrientation orientation = DisplayOrientation::Unknown;
     };
 
     /// A file path or a piece of text dropped onto a window. See `WindowEventKind::DropFile`.

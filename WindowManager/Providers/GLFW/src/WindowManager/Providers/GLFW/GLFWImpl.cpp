@@ -16,11 +16,15 @@
 #pragma endregion
 
 #include <Async/Mutex.hpp>
+#include <WindowManager/Desktop.hpp>
 #include <WindowManager/Window.hpp>
 #include <WindowManager/WindowTextUtil.hpp>
 #include <WindowManager/Providers/GLFW/Window.hpp>
 #include <WindowManager/Providers/GLFW/GlfwWindowNative.hpp>
 #include <WindowManager/WindowManager.hpp>
+#if defined(__linux__)
+#include <WindowManager/Linux/WaylandColorManagement.hpp>
+#endif
 
 #include <tracy/Tracy.hpp>
 
@@ -152,6 +156,14 @@ namespace SFT::WindowManager::GLFW {
             glfwWindowHint(GLFW_DECORATED, config.decorated ? GLFW_TRUE : GLFW_FALSE);
             glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, config.transparent ? GLFW_TRUE : GLFW_FALSE);
 
+            // The Wayland app_id / X11 WM_CLASS that desktop files and Flatpak match a window to (same as SDL3's
+            // SDL_HINT_APP_ID). Unlike SDL's it is per window, not process-wide.
+            if (config.app_id != nullptr && config.app_id[0] != '\0') {
+                glfwWindowHintString(GLFW_WAYLAND_APP_ID, config.app_id);
+                glfwWindowHintString(GLFW_X11_CLASS_NAME, config.app_id);
+                glfwWindowHintString(GLFW_X11_INSTANCE_NAME, config.app_id);
+            }
+
             if (config.graphics_api == WindowGraphicsApi::OpenGL) {
                 glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_API);
             } else {
@@ -199,6 +211,52 @@ namespace SFT::WindowManager::GLFW {
             return glfwGetPrimaryMonitor();
         }
 
+        /// The display id (`DisplayInfo::id`) GLFW windows report for a monitor: its 1-based index in `glfwGetMonitors`.
+        [[nodiscard]] GLFWmonitor *monitor_for_display_id(u32 display_id) noexcept {
+            int count = 0;
+            GLFWmonitor **monitors = glfwGetMonitors(&count);
+            if (monitors == nullptr || display_id == 0 || display_id > static_cast<u32>(count)) {
+                return nullptr;
+            }
+            return monitors[display_id - 1];
+        }
+
+        /// The monitor a window is on: the one containing the centre of the window, else the primary monitor.
+        [[nodiscard]] GLFWmonitor *monitor_containing(GLFWwindow *window) noexcept {
+            int x = 0;
+            int y = 0;
+            int width = 0;
+            int height = 0;
+            glfwGetWindowPos(window, &x, &y);
+            glfwGetWindowSize(window, &width, &height);
+            const int center_x = x + width / 2;
+            const int center_y = y + height / 2;
+            int count = 0;
+            GLFWmonitor **monitors = glfwGetMonitors(&count);
+            for (int i = 0; monitors != nullptr && i < count; ++i) {
+                int monitor_x = 0;
+                int monitor_y = 0;
+                glfwGetMonitorPos(monitors[i], &monitor_x, &monitor_y);
+                if (const GLFWvidmode *mode = glfwGetVideoMode(monitors[i])) {
+                    if (center_x >= monitor_x && center_x < monitor_x + mode->width && center_y >= monitor_y &&
+                        center_y < monitor_y + mode->height) {
+                        return monitors[i];
+                    }
+                }
+            }
+            return glfwGetPrimaryMonitor();
+        }
+
+        /// The monitor a fullscreen request lands on.
+        [[nodiscard]] GLFWmonitor *monitor_for_target(GLFWwindow *window, const FullscreenTarget &target) noexcept {
+            if (target.display_id.has_value()) {
+                if (GLFWmonitor *monitor = monitor_for_display_id(*target.display_id)) {
+                    return monitor;
+                }
+            }
+            return monitor_containing(window);
+        }
+
         /// Returns the current or globally available GLFW success value.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
@@ -234,6 +292,13 @@ namespace SFT::WindowManager::GLFW {
         int &glfw_window_count() noexcept {
             static int count = 0;
             return count;
+        }
+
+        /// Every live GLFW window, for events that belong to the whole process (monitors connecting). Guarded by
+        /// `glfw_window_mutex()`, like everything else here.
+        std::vector<GLFWWindow *> &glfw_live_windows() noexcept {
+            static std::vector<GLFWWindow *> windows;
+            return windows;
         }
 
         /// Creates an error result describing the supplied destroyed window failure.
@@ -285,6 +350,20 @@ namespace SFT::WindowManager::GLFW {
                 case CursorIcon::ResizeNwse: return GLFW_RESIZE_NWSE_CURSOR;
                 case CursorIcon::ResizeNesw: return GLFW_RESIZE_NESW_CURSOR;
                 case CursorIcon::NotAllowed: return GLFW_NOT_ALLOWED_CURSOR;
+                case CursorIcon::Crosshair: return GLFW_CROSSHAIR_CURSOR;
+                case CursorIcon::Move: return GLFW_RESIZE_ALL_CURSOR;
+                // GLFW has only the four axis arrows, so an edge or corner shows the axis it lies on.
+                case CursorIcon::ResizeN:
+                case CursorIcon::ResizeS: return GLFW_RESIZE_NS_CURSOR;
+                case CursorIcon::ResizeE:
+                case CursorIcon::ResizeW: return GLFW_RESIZE_EW_CURSOR;
+                case CursorIcon::ResizeNe:
+                case CursorIcon::ResizeSw: return GLFW_RESIZE_NESW_CURSOR;
+                case CursorIcon::ResizeNw:
+                case CursorIcon::ResizeSe: return GLFW_RESIZE_NWSE_CURSOR;
+                // GLFW has no busy cursors; the caller turns -1 into `Unsupported` rather than showing the wrong one.
+                case CursorIcon::Wait:
+                case CursorIcon::Progress: return -1;
             }
             return GLFW_ARROW_CURSOR;
         }
@@ -417,6 +496,24 @@ namespace SFT::WindowManager::GLFW {
     void glfw_window_size_callback(GLFWwindow *window, int width, int height) {
         ZoneScopedN("GLFW::glfw_window_size_callback");
         if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
+#if defined(_WIN32)
+            // Same contract as SDL3's event watch: only Windows runs a modal resize loop that blocks the poll loop, so
+            // only there is this callback the sole chance to redraw while the border is dragged. GLFW's size callback
+            // does fire from inside that loop. Everywhere else the normal event path redraws. Pixels, not window units.
+            if (target->live_resize_callback_) {
+                int framebuffer_width = 0;
+                int framebuffer_height = 0;
+                glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
+                const WindowExtent pixels{static_cast<u32>(std::max(framebuffer_width, 0)), static_cast<u32>(std::max(framebuffer_height, 0))};
+                if (pixels.x > 0 && pixels.y > 0 &&
+                    (pixels.x != target->last_live_resize_extent_.x || pixels.y != target->last_live_resize_extent_.y)) {
+                    target->last_live_resize_extent_ = pixels;
+                    target->live_resize_callback_(pixels);
+                }
+            }
+#endif
+            target->reapply_size_dependent_effects_locked();
+
             const WindowExtent previous = target->last_size_;
             const WindowExtent previous_framebuffer = target->last_framebuffer_size_;
             target->last_size_ =
@@ -434,6 +531,76 @@ namespace SFT::WindowManager::GLFW {
             };
             target->pending_resize_ = event.resize;
             target->events_.push_back(event);
+        }
+    }
+
+    /// GLFW reports maximise and restore separately from iconify; both map onto the provider-neutral events.
+    void glfw_window_maximize_callback(GLFWwindow *window, int maximized) {
+        ZoneScopedN("GLFW::glfw_window_maximize_callback");
+        if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
+            WindowEvent event{maximized == GLFW_TRUE ? WindowEventKind::Maximized : WindowEventKind::Restored};
+            event.timestamp_ns = steady_now_ns();
+            target->events_.push_back(event);
+        }
+    }
+
+    void glfw_window_iconify_callback(GLFWwindow *window, int iconified) {
+        ZoneScopedN("GLFW::glfw_window_iconify_callback");
+        if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
+            WindowEvent event{iconified == GLFW_TRUE ? WindowEventKind::Minimized : WindowEventKind::Restored};
+            event.timestamp_ns = steady_now_ns();
+            target->events_.push_back(event);
+        }
+    }
+
+    /// GLFW delivers a finished drop as one callback with every path: that becomes the same Begin / File* / Complete
+    /// sequence SDL3 emits. GLFW reports files only (no text drops) and no pointer position while dragging.
+    void glfw_drop_callback(GLFWwindow *window, int count, const char **paths) {
+        ZoneScopedN("GLFW::glfw_drop_callback");
+        GLFWWindow *target = window_from_glfw(window);
+        if (target == nullptr || count <= 0 || paths == nullptr) [[unlikely]] {
+            return;
+        }
+        f64 x = 0.0;
+        f64 y = 0.0;
+        glfwGetCursorPos(window, &x, &y);
+        const WindowPosition position{static_cast<i32>(x), static_cast<i32>(y)};
+        const u64 now = steady_now_ns();
+        const auto push = [&](WindowEventKind kind) {
+            WindowEvent event{kind};
+            event.timestamp_ns = now;
+            event.position = position;
+            target->events_.push_back(event);
+        };
+        push(WindowEventKind::DropBegin);
+        for (int i = 0; i < count; ++i) {
+            if (paths[i] != nullptr) {
+                push_dropped_item(target->id(), DroppedItem{false, paths[i]});
+                push(WindowEventKind::DropFile);
+            }
+        }
+        push(WindowEventKind::DropComplete);
+    }
+
+    /// The OS asks for the window's contents to be redrawn (uncovered, restored, ...).
+    void glfw_window_refresh_callback(GLFWwindow *window) {
+        ZoneScopedN("GLFW::glfw_window_refresh_callback");
+        if (GLFWWindow *target = window_from_glfw(window)) [[likely]] {
+            WindowEvent event{WindowEventKind::Exposed};
+            event.timestamp_ns = steady_now_ns();
+            target->events_.push_back(event);
+        }
+    }
+
+    /// A monitor was connected or disconnected. GLFW reports this process-wide, so every window hears about it.
+    void glfw_monitor_callback(GLFWmonitor *, int event) {
+        ZoneScopedN("GLFW::glfw_monitor_callback");
+        const WindowEventKind kind = event == GLFW_CONNECTED ? WindowEventKind::DisplayAdded : WindowEventKind::DisplayRemoved;
+        const u64 now = steady_now_ns();
+        for (GLFWWindow *target : glfw_live_windows()) {
+            WindowEvent display_event{kind};
+            display_event.timestamp_ns = now;
+            target->events_.push_back(display_event);
         }
     }
 
@@ -662,6 +829,23 @@ namespace SFT::WindowManager::GLFW {
                 .button_code = Detail::normalize_mouse_button(button),
             };
             target->events_.push_back(event);
+
+            // Custom title bar on a platform with no hit-test message (X11, macOS): a press on a drag region or edge
+            // asks the window system to start the move/resize, the way SDL's hit test would have.
+            if (action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && target->hit_test_.enabled &&
+                Detail::hit_test_is_press_driven(window)) {
+                int width = 0;
+                int height = 0;
+                glfwGetWindowSize(window, &width, &height);
+                const bool can_resize = glfwGetWindowAttrib(window, GLFW_RESIZABLE) == GLFW_TRUE &&
+                                        glfwGetWindowAttrib(window, GLFW_MAXIMIZED) != GLFW_TRUE;
+                const HitTestResult hit = classify_hit(
+                    target->hit_test_, WindowExtent{static_cast<u32>(std::max(width, 0)), static_cast<u32>(std::max(height, 0))},
+                    WindowPosition{static_cast<i32>(x), static_cast<i32>(y)}, can_resize);
+                if (hit != HitTestResult::Normal) {
+                    (void)Detail::begin_interactive_drag(window, hit);
+                }
+            }
         }
     }
 
@@ -721,6 +905,7 @@ namespace SFT::WindowManager::GLFW {
         ZoneScopedN("GLFWWindow::~GLFWWindow");
         auto lock = glfw_window_mutex().lock();
 
+        clear_animated_cursor_locked();
         if (current_cursor_ != nullptr) {
             glfwDestroyCursor(current_cursor_);
             current_cursor_ = nullptr;
@@ -737,6 +922,10 @@ namespace SFT::WindowManager::GLFW {
                             static_cast<void *>(this),
                             static_cast<void *>(window_));
         Detail::remove_ime_composition_hook(window_);
+        Detail::remove_hit_test_hook(window_);
+        std::erase(glfw_live_windows(), this);
+        active_blur_effect_.reset();
+        active_corner_effect_.reset();
         glfwDestroyWindow(window_);
         window_ = nullptr;
 
@@ -930,6 +1119,12 @@ namespace SFT::WindowManager::GLFW {
             glfwSetCursorPosCallback(window, glfw_cursor_pos_callback);
             glfwSetMouseButtonCallback(window, glfw_mouse_button_callback);
             glfwSetScrollCallback(window, glfw_scroll_callback);
+            glfwSetWindowMaximizeCallback(window, glfw_window_maximize_callback);
+            glfwSetWindowIconifyCallback(window, glfw_window_iconify_callback);
+            glfwSetDropCallback(window, glfw_drop_callback);
+            glfwSetWindowRefreshCallback(window, glfw_window_refresh_callback);
+            glfwSetMonitorCallback(glfw_monitor_callback); // process-wide; setting it again is harmless
+            glfw_live_windows().push_back(wrapper.get());
 
 
             (void)Detail::install_ime_composition_hook(window, &glfw_native_preedit_trampoline, wrapper.get());
@@ -1046,6 +1241,9 @@ namespace SFT::WindowManager::GLFW {
                              static_cast<void *>(window_),
                              close_requested_locked());
         glfwPollEvents();
+        poll_system_theme_locked();
+        advance_animated_cursor_locked();
+        Desktop::pump_events(); // tray clicks: this program is not pumping SDL itself
         Foundation::log_trace("GLFW poll events complete: wrapper={} native_ptr={} "
                              "close_requested_after={}",
                              static_cast<void *>(this),
@@ -1156,6 +1354,20 @@ namespace SFT::WindowManager::GLFW {
                              static_cast<void *>(this),
                              static_cast<void *>(window_));
         glfwShowWindow(window_);
+        {
+            // GLFW has no visibility callback, so the change this call makes is reported here.
+            WindowEvent shown{WindowEventKind::Shown};
+            shown.timestamp_ns = steady_now_ns();
+            events_.push_back(shown);
+        }
+        // Wayland destroys a hidden window's surface, taking its blur object with it; the recreated one needs the effect
+        // again. A no-op elsewhere (the effect is simply applied twice).
+        if (active_blur_effect_) {
+            if (const auto handle = native_window_handle_locked()) {
+                fill_effect_geometry_locked(*active_blur_effect_);
+                (void)enable_native_window_effect(*handle, *active_blur_effect_);
+            }
+        }
         return glfw_success();
     }
 
@@ -1174,6 +1386,11 @@ namespace SFT::WindowManager::GLFW {
                              static_cast<void *>(this),
                              static_cast<void *>(window_));
         glfwHideWindow(window_);
+        {
+            WindowEvent hidden{WindowEventKind::Hidden};
+            hidden.timestamp_ns = steady_now_ns();
+            events_.push_back(hidden);
+        }
         return glfw_success();
     }
 
@@ -1680,11 +1897,16 @@ namespace SFT::WindowManager::GLFW {
                 extent.x,
                 extent.y);
             glfwSetWindowMonitor(window_, nullptr, 0, 0, static_cast<int>(extent.x), static_cast<int>(extent.y), GLFW_DONT_CARE);
+            if (fullscreen_mode_ != WindowMode::Windowed) {
+                WindowEvent left{WindowEventKind::LeftFullscreen};
+                left.timestamp_ns = steady_now_ns();
+                events_.push_back(left);
+            }
             fullscreen_mode_ = mode;
             return glfw_success();
         }
 
-        GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+        GLFWmonitor *monitor = monitor_for_target(window_, fullscreen_target_);
         if (!monitor) [[unlikely]] {
             Foundation::log_error("GLFW set fullscreen failed missing primary monitor: "
                                  "wrapper={} native_ptr={} mode={}",
@@ -1717,10 +1939,24 @@ namespace SFT::WindowManager::GLFW {
                             mode_info->width,
                             mode_info->height,
                             mode_info->refreshRate);
-        glfwSetWindowMonitor(window_, monitor, 0, 0, mode_info->width, mode_info->height, mode_info->refreshRate);
-
+        // Only an explicit mode makes the fullscreen exclusive; without one both kinds stay at the desktop mode.
+        int fullscreen_width = mode_info->width;
+        int fullscreen_height = mode_info->height;
+        int fullscreen_refresh = mode_info->refreshRate;
+        if (mode == WindowMode::ExclusiveFullscreen && fullscreen_target_.mode.has_value()) {
+            fullscreen_width = static_cast<int>(fullscreen_target_.mode->width);
+            fullscreen_height = static_cast<int>(fullscreen_target_.mode->height);
+            fullscreen_refresh = static_cast<int>(fullscreen_target_.mode->refresh_rate_hz + 0.5f);
+        }
+        const bool was_fullscreen = fullscreen_mode_ != WindowMode::Windowed;
+        glfwSetWindowMonitor(window_, monitor, 0, 0, fullscreen_width, fullscreen_height, fullscreen_refresh);
 
         fullscreen_mode_ = mode;
+        if (!was_fullscreen) {
+            WindowEvent entered{WindowEventKind::EnteredFullscreen};
+            entered.timestamp_ns = steady_now_ns();
+            events_.push_back(entered);
+        }
         return glfw_success();
     }
 
@@ -1824,19 +2060,25 @@ namespace SFT::WindowManager::GLFW {
         if (current_cursor_icon_.has_value() && *current_cursor_icon_ == icon) {
             return glfw_success();
         }
-        GLFWcursor *cursor = glfwCreateStandardCursor(to_glfw_standard_cursor(icon));
+        const int standard_shape = to_glfw_standard_cursor(icon);
+        if (standard_shape < 0) {
+            return unexpected(WindowError{WindowErrorCode::Unsupported, "GLFW has no busy (wait/progress) cursor; use set_custom_cursor."});
+        }
+        GLFWcursor *cursor = glfwCreateStandardCursor(standard_shape);
         if (cursor == nullptr) [[unlikely]] {
             Foundation::log_error(
                 "GLFW create standard cursor failed: wrapper={} native_ptr={} icon={}",
                 static_cast<void *>(this), static_cast<void *>(window_), static_cast<i32>(icon));
             return unexpected(WindowError{WindowErrorCode::OperationFailed, "GLFW create standard cursor failed."});
         }
+        clear_animated_cursor_locked();
         glfwSetCursor(window_, cursor);
         if (current_cursor_ != nullptr) {
             glfwDestroyCursor(current_cursor_);
         }
         current_cursor_ = cursor;
         current_cursor_icon_ = icon;
+        custom_cursor_active_ = false;
         Foundation::log_trace(
             "GLFW set cursor icon: wrapper={} native_ptr={} icon={}",
             static_cast<void *>(this), static_cast<void *>(window_), static_cast<i32>(icon));
@@ -1970,6 +2212,29 @@ namespace SFT::WindowManager::GLFW {
         }
 
         // Platform code turns the effect options (rounded corners, regions) into pixel regions and needs the size.
+        fill_effect_geometry_locked(effect);
+        WindowEffectResult result = enable_native_window_effect(*handle, effect);
+
+        // Remember the effects whose shape follows the window, as SDL3 does, so a resize rebuilds them.
+        if (result.succeeded()) {
+            if (effect.kind == WindowEffectKind::Blur) {
+                if (effect.enabled) {
+                    active_blur_effect_ = effect;
+                } else {
+                    active_blur_effect_.reset();
+                }
+            } else if (effect.kind == WindowEffectKind::CornerRadius) {
+                if (effect.enabled && effect.options.outline_follows_window_size()) {
+                    active_corner_effect_ = effect;
+                } else {
+                    active_corner_effect_.reset();
+                }
+            }
+        }
+        return result;
+    }
+
+    void GLFWWindow::fill_effect_geometry_locked(WindowEffect &effect) const noexcept {
         int width = 0;
         int height = 0;
         glfwGetWindowSize(window_, &width, &height);
@@ -1979,8 +2244,24 @@ namespace SFT::WindowManager::GLFW {
         int framebuffer_height = 0;
         glfwGetFramebufferSize(window_, &framebuffer_width, &framebuffer_height);
         effect.options.pixel_scale = width > 0 ? static_cast<f32>(framebuffer_width) / static_cast<f32>(width) : 1.0f;
+    }
 
-        return enable_native_window_effect(*handle, effect);
+    void GLFWWindow::reapply_size_dependent_effects_locked() noexcept {
+        if (window_ == nullptr || (!active_blur_effect_ && !active_corner_effect_)) {
+            return;
+        }
+        const auto handle = native_window_handle_locked();
+        if (!handle) {
+            return;
+        }
+        if (active_blur_effect_ && active_blur_effect_->options.region_follows_window_size()) {
+            fill_effect_geometry_locked(*active_blur_effect_);
+            (void)enable_native_window_effect(*handle, *active_blur_effect_);
+        }
+        if (active_corner_effect_) {
+            fill_effect_geometry_locked(*active_corner_effect_);
+            (void)enable_native_window_effect(*handle, *active_corner_effect_);
+        }
     }
 
     /// Sets the effect for this `GLFW`.
@@ -2139,6 +2420,652 @@ namespace SFT::WindowManager::GLFW {
         ZoneScopedN("GLFWWindow::stop_text_input");
         Detail::set_ime_enabled(window_, false);
         return {};
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Window chrome and desktop integration
+    // ---------------------------------------------------------------------------------------------------------------
+
+    expected<void, WindowError> GLFWWindow::set_hit_test_regions(HitTestRegions regions) noexcept {
+        ZoneScopedN("GLFWWindow::set_hit_test_regions");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_hit_test_regions"); !live) [[unlikely]] {
+            return live;
+        }
+        const bool enabled = regions.enabled;
+        hit_test_ = std::move(regions);
+        if (!enabled) {
+            Detail::remove_hit_test_hook(window_);
+            return {};
+        }
+        if (!Detail::install_hit_test_hook(window_, &hit_test_)) {
+            hit_test_.enabled = false;
+            return unexpected(WindowError{WindowErrorCode::Unsupported,
+                                          "This window system gives GLFW no way to move or resize an undecorated window "
+                                          "(Wayland exposes the toplevel to GLFW only internally)."});
+        }
+        return {};
+    }
+
+    expected<void, WindowError> GLFWWindow::show_system_menu(WindowPosition position) noexcept {
+        ZoneScopedN("GLFWWindow::show_system_menu");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "show_system_menu"); !live) [[unlikely]] {
+            return live;
+        }
+        if (!Detail::show_native_system_menu(window_, position.x, position.y)) {
+            return unexpected(WindowError{WindowErrorCode::Unsupported, "The window system has no window menu."});
+        }
+        return {};
+    }
+
+    bool GLFWWindow::maximized() const noexcept {
+        auto lock = glfw_window_mutex().lock();
+        return window_ != nullptr && glfwGetWindowAttrib(window_, GLFW_MAXIMIZED) == GLFW_TRUE;
+    }
+
+    bool GLFWWindow::minimized() const noexcept {
+        auto lock = glfw_window_mutex().lock();
+        return window_ != nullptr && glfwGetWindowAttrib(window_, GLFW_ICONIFIED) == GLFW_TRUE;
+    }
+
+    expected<void, WindowError> GLFWWindow::set_icon(u32 width, u32 height, std::span<const std::byte> rgba) noexcept {
+        ZoneScopedN("GLFWWindow::set_icon");
+        if (width == 0 || height == 0 || rgba.size() < static_cast<usize>(width) * height * 4) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Window icon needs width * height * 4 bytes of RGBA8."});
+        }
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_icon"); !live) [[unlikely]] {
+            return live;
+        }
+        (void)glfwGetError(nullptr); // drop any stale error so the check below is about this call
+        GLFWimage image{static_cast<int>(width), static_cast<int>(height),
+                        const_cast<unsigned char *>(reinterpret_cast<const unsigned char *>(rgba.data()))};
+        glfwSetWindowIcon(window_, 1, &image);
+        const char *description = nullptr;
+        if (glfwGetError(&description) != GLFW_NO_ERROR) {
+            // GLFW cannot set icons on Wayland (the compositor uses the desktop file matching the app id) or macOS.
+            return unexpected(WindowError{WindowErrorCode::Unsupported,
+                                          description != nullptr && description[0] != '\0' ? description : "The window system rejected the window icon."});
+        }
+        return {};
+    }
+
+    expected<void, WindowError> GLFWWindow::request_attention(AttentionRequest request) noexcept {
+        ZoneScopedN("GLFWWindow::request_attention");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "request_attention"); !live) [[unlikely]] {
+            return live;
+        }
+        if (request == AttentionRequest::Cancel) {
+            // GLFW can ask for attention but never withdraw the request; focusing the window is what clears it.
+            return unexpected(WindowError{WindowErrorCode::Unsupported, "GLFW cannot cancel an attention request."});
+        }
+        // GLFW's request is "until the window gets focus" on every platform; there is no brief variant.
+        glfwRequestWindowAttention(window_);
+        return glfw_success();
+    }
+
+    expected<void, WindowError> GLFWWindow::set_taskbar_progress(TaskbarProgress state, f32 value) noexcept {
+        ZoneScopedN("GLFWWindow::set_taskbar_progress");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_taskbar_progress"); !live) [[unlikely]] {
+            return live;
+        }
+        if (!Detail::set_native_taskbar_progress(window_, state, value)) {
+            return unexpected(WindowError{WindowErrorCode::Unsupported, "The window system has no taskbar progress."});
+        }
+        return {};
+    }
+
+    SystemTheme GLFWWindow::system_theme() const noexcept { return Detail::native_system_theme(); }
+
+    void GLFWWindow::poll_system_theme_locked() noexcept {
+        // GLFW has no theme-change event, so compare against the OS preference about every two seconds.
+        constexpr u64 poll_interval_ns = 2'000'000'000ull;
+        const u64 now = steady_now_ns();
+        if (last_theme_poll_ns_ != 0 && now - last_theme_poll_ns_ < poll_interval_ns) {
+            return;
+        }
+        last_theme_poll_ns_ = now;
+        const SystemTheme current = Detail::native_system_theme();
+        if (current == last_system_theme_) {
+            return;
+        }
+        const bool first_reading = last_system_theme_ == SystemTheme::Unknown;
+        last_system_theme_ = current;
+        if (!first_reading && current != SystemTheme::Unknown) {
+            WindowEvent event{WindowEventKind::SystemThemeChanged};
+            event.timestamp_ns = now;
+            events_.push_back(event);
+        }
+    }
+
+    std::vector<DisplayInfo> GLFWWindow::displays() const noexcept {
+        std::vector<DisplayInfo> out;
+        auto lock = glfw_window_mutex().lock();
+        int count = 0;
+        GLFWmonitor **monitors = glfwGetMonitors(&count);
+        if (monitors == nullptr) {
+            return out;
+        }
+        GLFWmonitor *primary = glfwGetPrimaryMonitor();
+        for (int i = 0; i < count; ++i) {
+            GLFWmonitor *monitor = monitors[i];
+            DisplayInfo info;
+            info.id = static_cast<u32>(i + 1);
+            if (const char *name = glfwGetMonitorName(monitor)) {
+                info.name = name;
+            }
+            int x = 0;
+            int y = 0;
+            glfwGetMonitorPos(monitor, &x, &y);
+            if (const GLFWvidmode *mode = glfwGetVideoMode(monitor)) {
+                info.bounds = WindowRect{x, y, mode->width, mode->height};
+                info.refresh_rate_hz = static_cast<f32>(mode->refreshRate);
+            }
+            int work_x = 0;
+            int work_y = 0;
+            int work_width = 0;
+            int work_height = 0;
+            glfwGetMonitorWorkarea(monitor, &work_x, &work_y, &work_width, &work_height);
+            info.usable_bounds = WindowRect{work_x, work_y, work_width, work_height};
+            float scale_x = 1.0f;
+            float scale_y = 1.0f;
+            glfwGetMonitorContentScale(monitor, &scale_x, &scale_y);
+            info.content_scale = scale_x;
+            if (const GLFWvidmode *mode = glfwGetVideoMode(monitor)) {
+                info.current_mode = DisplayMode{static_cast<u32>(mode->width), static_cast<u32>(mode->height),
+                                                static_cast<f32>(mode->refreshRate), scale_x};
+            }
+            // GLFW has no rotation query; width versus height is the orientation a desktop display can show.
+            if (info.current_mode.width != 0) {
+                info.orientation = info.current_mode.width >= info.current_mode.height ? DisplayOrientation::Landscape : DisplayOrientation::Portrait;
+            }
+            int mode_count = 0;
+            if (const GLFWvidmode *modes = glfwGetVideoModes(monitor, &mode_count)) {
+                for (int m = 0; m < mode_count; ++m) {
+                    info.modes.push_back(DisplayMode{static_cast<u32>(modes[m].width), static_cast<u32>(modes[m].height),
+                                                     static_cast<f32>(modes[m].refreshRate), scale_x});
+                }
+            }
+            int physical_width = 0;
+            int physical_height = 0;
+            glfwGetMonitorPhysicalSize(monitor, &physical_width, &physical_height);
+            info.physical_width_mm = static_cast<u32>(std::max(physical_width, 0));
+            info.physical_height_mm = static_cast<u32>(std::max(physical_height, 0));
+            info.hdr_enabled = false; // GLFW has no display HDR query
+            info.primary = monitor == primary;
+            out.push_back(std::move(info));
+        }
+        return out;
+    }
+
+    optional<WindowHdrProperties> GLFWWindow::hdr_properties() const noexcept {
+        ZoneScopedN("GLFWWindow::hdr_properties");
+#if defined(__linux__)
+        // GLFW has no HDR query of its own; a Wayland compositor's colour-management protocol still reports the
+        // reference white, the same source the SDL3 provider reads.
+        auto lock = glfw_window_mutex().lock();
+        if (window_ != nullptr) {
+            if (const auto handle = native_window_handle_locked(); handle && handle->system == NativeWindowSystem::Wayland) {
+                if (const auto nits = ::SFT::WindowManager::Detail::query_wayland_surface_reference_white(*handle);
+                    nits && *nits > 0.0f) {
+                    WindowHdrProperties properties;
+                    properties.hdr_enabled = true;
+                    properties.sdr_white_level = *nits / 80.0f;
+                    return properties;
+                }
+            }
+        }
+#endif
+        return nullopt; // Windows and macOS display HDR state is not reachable through GLFW
+    }
+
+    void GLFWWindow::set_live_resize_callback(std::function<void(WindowExtent)> callback) noexcept {
+        ZoneScopedN("GLFWWindow::set_live_resize_callback");
+        auto lock = glfw_window_mutex().lock();
+        live_resize_callback_ = std::move(callback);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The union surface (WindowFeatures.hpp)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    FeatureSupport GLFWWindow::feature_support(WindowFeature feature) const noexcept {
+        // What the native layer can do depends on the session type, which is the native handle's `system`.
+        NativeWindowSystem system = NativeWindowSystem::Unknown;
+        {
+            auto lock = glfw_window_mutex().lock();
+            if (window_ != nullptr) {
+                if (const auto handle = native_window_handle_locked()) {
+                    system = handle->system;
+                }
+            }
+        }
+        const bool wayland = system == NativeWindowSystem::Wayland;
+        const bool x11 = system == NativeWindowSystem::X11;
+        const bool windows = system == NativeWindowSystem::Win32;
+        const bool cocoa = system == NativeWindowSystem::Cocoa;
+        switch (feature) {
+            case WindowFeature::AlwaysOnTop:
+            case WindowFeature::WarpCursor:
+            case WindowFeature::CustomCursor:
+            case WindowFeature::FrameExtents:
+            case WindowFeature::FullscreenTarget:
+            case WindowFeature::DisplayList:
+            case WindowFeature::DisplayModes:
+            case WindowFeature::FileDrop:
+            case WindowFeature::ClipboardMimeTypes:
+            case WindowFeature::AutoMinimizeOnFocusLoss:
+                return FeatureSupport::yes();
+            case WindowFeature::AspectRatio: return FeatureSupport::yes("one exact ratio, not a range");
+            case WindowFeature::SafeArea: return FeatureSupport::yes("the whole client area");
+            case WindowFeature::DisplayEvents: return FeatureSupport::yes("monitors connecting and disconnecting");
+            case WindowFeature::WindowIcon:
+                return wayland || cocoa ? FeatureSupport::no("Wayland and macOS take the icon from the desktop file / app bundle")
+                                        : FeatureSupport::yes();
+            case WindowFeature::RequestAttention: return FeatureSupport::yes("until the window is focused; it cannot be cancelled");
+            case WindowFeature::HitTestRegions:
+                return wayland ? FeatureSupport::no("GLFW does not expose the Wayland toplevel a move or resize request needs")
+                               : cocoa ? FeatureSupport::yes("drag regions only; AppKit has no edge-resize request")
+                                       : FeatureSupport::yes();
+            case WindowFeature::SystemMenu:
+                return windows || x11 ? FeatureSupport::yes() : FeatureSupport::no("the window system has no window menu to open");
+            case WindowFeature::TaskbarProgress:
+                return windows ? FeatureSupport::yes() : FeatureSupport::no("only Windows has a taskbar progress GLFW can reach");
+            case WindowFeature::SystemTheme: return FeatureSupport::yes("read from the OS settings; Linux reads the GTK/KDE config files");
+            case WindowFeature::LiveResizeCallback: return FeatureSupport::yes("Windows only: it is the one platform whose resize loop blocks polling");
+            case WindowFeature::MouseConfineRect:
+                return windows || x11 ? FeatureSupport::yes()
+                                      : FeatureSupport::no("only Windows and X11 let a GLFW client confine the cursor to a rectangle");
+            case WindowFeature::ParentWindow:
+                return wayland ? FeatureSupport::no("GLFW does not expose the Wayland toplevel a parent must be set on") : FeatureSupport::yes();
+            case WindowFeature::ModalWindow:
+                return wayland ? FeatureSupport::no("GLFW does not expose the Wayland toplevel a parent must be set on")
+                               : x11 ? FeatureSupport::yes("asked of the window manager")
+                                     : FeatureSupport::yes("the window is owned by its parent; the parent is not disabled");
+            case WindowFeature::Focusable:
+                return x11 || windows ? Window::feature_support(feature) : FeatureSupport::no("not controllable here");
+            case WindowFeature::TextInputOptions: return FeatureSupport::no("GLFW has no text input hints; the IME still works");
+            case WindowFeature::ScreenKeyboard: return FeatureSupport::no("GLFW is desktop-only and has no on-screen keyboard");
+            case WindowFeature::TypedClipboard:
+                return windows || cocoa ? FeatureSupport::yes()
+                                        : FeatureSupport::no("GLFW's clipboard is text only; X11 and Wayland selections need the event loop GLFW owns");
+            case WindowFeature::TextDrop: return FeatureSupport::no("GLFW reports dropped files only");
+            case WindowFeature::TouchInput: return FeatureSupport::no("GLFW has no touch events; the system synthesises mouse input from touches");
+            case WindowFeature::PenInput: return FeatureSupport::no("GLFW has no pen events; the system synthesises mouse input from pens");
+            case WindowFeature::AnimatedCursor: return FeatureSupport::yes("GLFW has no animated cursors; the frames are swapped on the poll clock");
+            case WindowFeature::KeyboardQuery: return FeatureSupport::yes("key names exist for printable keys only");
+            case WindowFeature::WarpCursorGlobal:
+                return wayland ? FeatureSupport::no("Wayland does not let a client move the cursor") : FeatureSupport::yes();
+            case WindowFeature::MouseCapture:
+                return windows || x11 ? FeatureSupport::yes() : FeatureSupport::no("Wayland and AppKit already deliver drags to the pressed window");
+            case WindowFeature::IccProfile: return FeatureSupport::no("GLFW cannot read a display's colour profile");
+            case WindowFeature::WaitForEvents: return FeatureSupport::no("GLFW's blocking wait would hold the window lock; the manager polls");
+            default: return Window::feature_support(feature);
+        }
+    }
+
+    expected<void, WindowError> GLFWWindow::set_always_on_top(bool enabled) noexcept {
+        ZoneScopedN("GLFWWindow::set_always_on_top");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_always_on_top"); !live) [[unlikely]] {
+            return live;
+        }
+        glfwSetWindowAttrib(window_, GLFW_FLOATING, enabled ? GLFW_TRUE : GLFW_FALSE);
+        return glfw_success();
+    }
+
+    expected<void, WindowError> GLFWWindow::set_aspect_ratio(f32 min_ratio, f32 max_ratio) noexcept {
+        ZoneScopedN("GLFWWindow::set_aspect_ratio");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_aspect_ratio"); !live) [[unlikely]] {
+            return live;
+        }
+        if (min_ratio < 0.0f || max_ratio < 0.0f || (max_ratio != 0.0f && min_ratio > max_ratio)) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Aspect ratios must satisfy 0 <= min <= max."});
+        }
+        if (min_ratio == 0.0f && max_ratio == 0.0f) {
+            glfwSetWindowAspectRatio(window_, GLFW_DONT_CARE, GLFW_DONT_CARE);
+            return glfw_success();
+        }
+        if (min_ratio != max_ratio) {
+            return unexpected(WindowError{WindowErrorCode::Unsupported, "GLFW can hold one exact aspect ratio, not a range."});
+        }
+        // GLFW takes a fraction; ten-thousandths keep any practical ratio exact enough.
+        glfwSetWindowAspectRatio(window_, static_cast<int>(min_ratio * 10000.0f + 0.5f), 10000);
+        return glfw_success();
+    }
+
+    expected<void, WindowError> GLFWWindow::set_auto_minimize_on_focus_loss(bool enabled) noexcept {
+        ZoneScopedN("GLFWWindow::set_auto_minimize_on_focus_loss");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_auto_minimize_on_focus_loss"); !live) [[unlikely]] {
+            return live;
+        }
+        glfwSetWindowAttrib(window_, GLFW_AUTO_ICONIFY, enabled ? GLFW_TRUE : GLFW_FALSE);
+        return glfw_success();
+    }
+
+    expected<void, WindowError> GLFWWindow::set_mouse_confine_rect(std::optional<WindowRect> rect) noexcept {
+        ZoneScopedN("GLFWWindow::set_mouse_confine_rect");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_mouse_confine_rect"); !live) [[unlikely]] {
+            return live;
+        }
+        if (!Detail::set_native_cursor_confine(window_, rect ? &*rect : nullptr)) {
+            return unexpected(WindowError{WindowErrorCode::Unsupported, "Only Windows and X11 let a GLFW client confine the cursor to a rectangle."});
+        }
+        return {};
+    }
+
+    expected<void, WindowError> GLFWWindow::set_cursor_position(WindowPosition position) noexcept {
+        ZoneScopedN("GLFWWindow::set_cursor_position");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_cursor_position"); !live) [[unlikely]] {
+            return live;
+        }
+        (void)glfwGetError(nullptr);
+        glfwSetCursorPos(window_, static_cast<f64>(position.x), static_cast<f64>(position.y));
+        const char *description = nullptr;
+        if (glfwGetError(&description) != GLFW_NO_ERROR) {
+            // Wayland refuses client-side cursor warping outside a pointer lock.
+            return unexpected(WindowError{WindowErrorCode::Unsupported,
+                                          description != nullptr && description[0] != '\0' ? description : "The window system refused to move the cursor."});
+        }
+        return {};
+    }
+
+    expected<void, WindowError> GLFWWindow::set_custom_cursor(const CursorImage &image) noexcept {
+        ZoneScopedN("GLFWWindow::set_custom_cursor");
+        if (image.width == 0 || image.height == 0 || image.rgba.size() < static_cast<usize>(image.width) * image.height * 4) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "A cursor image needs width * height * 4 bytes of RGBA8."});
+        }
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_custom_cursor"); !live) [[unlikely]] {
+            return live;
+        }
+        GLFWimage glfw_image{static_cast<int>(image.width), static_cast<int>(image.height),
+                             const_cast<unsigned char *>(reinterpret_cast<const unsigned char *>(image.rgba.data()))};
+        GLFWcursor *cursor = glfwCreateCursor(&glfw_image, image.hot_x, image.hot_y); // GLFW copies the pixels
+        if (cursor == nullptr) {
+            return unexpected(glfw_error(WindowErrorCode::OperationFailed, "GLFW could not create the cursor."));
+        }
+        clear_animated_cursor_locked();
+        glfwSetCursor(window_, cursor);
+        if (current_cursor_ != nullptr) {
+            glfwDestroyCursor(current_cursor_);
+        }
+        current_cursor_ = cursor;
+        current_cursor_icon_.reset(); // the next set_cursor_icon must really change the cursor
+        custom_cursor_active_ = true;
+        return glfw_success();
+    }
+
+    expected<void, WindowError> GLFWWindow::clear_custom_cursor() noexcept {
+        {
+            auto lock = glfw_window_mutex().lock();
+            if (!custom_cursor_active_) {
+                return {};
+            }
+            current_cursor_icon_.reset();
+            custom_cursor_active_ = false;
+        }
+        return set_cursor_icon(CursorIcon::Default);
+    }
+
+    void GLFWWindow::clear_animated_cursor_locked() noexcept {
+        for (GLFWcursor *cursor : animated_cursors_) {
+            glfwDestroyCursor(cursor);
+        }
+        animated_cursors_.clear();
+        animated_durations_ms_.clear();
+        animated_frame_ = 0;
+    }
+
+    void GLFWWindow::advance_animated_cursor_locked() noexcept {
+        if (animated_cursors_.size() < 2 || window_ == nullptr) {
+            return;
+        }
+        const u64 now = steady_now_ns();
+        if (now < animated_next_swap_ns_) {
+            return;
+        }
+        // Duration 0 means "stay on this frame forever", as in SDL's animated cursors.
+        if (animated_durations_ms_[animated_frame_] == 0) {
+            return;
+        }
+        animated_frame_ = (animated_frame_ + 1) % animated_cursors_.size();
+        glfwSetCursor(window_, animated_cursors_[animated_frame_]);
+        animated_next_swap_ns_ = now + static_cast<u64>(animated_durations_ms_[animated_frame_]) * 1'000'000ull;
+    }
+
+    expected<void, WindowError> GLFWWindow::set_animated_cursor(std::span<const CursorFrame> frames) noexcept {
+        ZoneScopedN("GLFWWindow::set_animated_cursor");
+        if (frames.empty()) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "An animated cursor needs at least one frame."});
+        }
+        const CursorImage &first = frames.front().image;
+        for (const CursorFrame &frame : frames) {
+            const CursorImage &image = frame.image;
+            if (image.width == 0 || image.height == 0 || image.width != first.width || image.height != first.height ||
+                image.rgba.size() < static_cast<usize>(image.width) * image.height * 4) {
+                return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Every cursor frame needs the same size and width * height * 4 bytes of RGBA8."});
+            }
+        }
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_animated_cursor"); !live) [[unlikely]] {
+            return live;
+        }
+        std::vector<GLFWcursor *> cursors;
+        std::vector<u32> durations;
+        for (const CursorFrame &frame : frames) {
+            GLFWimage image{static_cast<int>(frame.image.width), static_cast<int>(frame.image.height),
+                            const_cast<unsigned char *>(reinterpret_cast<const unsigned char *>(frame.image.rgba.data()))};
+            GLFWcursor *cursor = glfwCreateCursor(&image, first.hot_x, first.hot_y); // the hot spot is shared by every frame
+            if (cursor == nullptr) {
+                const WindowError error = glfw_error(WindowErrorCode::OperationFailed, "GLFW could not create a cursor frame.");
+                for (GLFWcursor *made : cursors) {
+                    glfwDestroyCursor(made);
+                }
+                return unexpected(error);
+            }
+            cursors.push_back(cursor);
+            durations.push_back(frame.duration_ms);
+        }
+        clear_animated_cursor_locked();
+        if (current_cursor_ != nullptr) {
+            glfwDestroyCursor(current_cursor_);
+            current_cursor_ = nullptr;
+        }
+        animated_cursors_ = std::move(cursors);
+        animated_durations_ms_ = std::move(durations);
+        animated_frame_ = 0;
+        glfwSetCursor(window_, animated_cursors_.front());
+        animated_next_swap_ns_ = steady_now_ns() + static_cast<u64>(animated_durations_ms_.front()) * 1'000'000ull;
+        current_cursor_icon_.reset();
+        custom_cursor_active_ = true;
+        return glfw_success();
+    }
+
+    expected<void, WindowError> GLFWWindow::set_global_cursor_position(WindowPosition position) noexcept {
+        ZoneScopedN("GLFWWindow::set_global_cursor_position");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_global_cursor_position"); !live) [[unlikely]] {
+            return live;
+        }
+        // GLFW warps within a window, so the desktop point is made relative to this window's origin.
+        int window_x = 0;
+        int window_y = 0;
+        glfwGetWindowPos(window_, &window_x, &window_y);
+        (void)glfwGetError(nullptr);
+        glfwSetCursorPos(window_, static_cast<f64>(position.x - window_x), static_cast<f64>(position.y - window_y));
+        const char *description = nullptr;
+        if (glfwGetError(&description) != GLFW_NO_ERROR) {
+            return unexpected(WindowError{WindowErrorCode::Unsupported,
+                                          description != nullptr && description[0] != '\0' ? description : "The window system refused to move the cursor."});
+        }
+        return {};
+    }
+
+    expected<void, WindowError> GLFWWindow::set_mouse_capture(bool enabled) noexcept {
+        ZoneScopedN("GLFWWindow::set_mouse_capture");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_mouse_capture"); !live) [[unlikely]] {
+            return live;
+        }
+        if (!Detail::set_native_mouse_capture(window_, enabled)) {
+            return unexpected(WindowError{WindowErrorCode::Unsupported, "Mouse capture is available on Windows and X11 only."});
+        }
+        return {};
+    }
+
+    namespace {
+        /// The GLFW key whose layout key is `key`, or GLFW_KEY_UNKNOWN. Walks GLFW's key range through the same mapping
+        /// the event path uses.
+        [[nodiscard]] int glfw_key_for(KeyboardKey key) noexcept {
+            for (int candidate = GLFW_KEY_SPACE; candidate <= GLFW_KEY_LAST; ++candidate) {
+                if (keyboard_key(candidate) == key) {
+                    return candidate;
+                }
+            }
+            return GLFW_KEY_UNKNOWN;
+        }
+    } // namespace
+
+    std::string GLFWWindow::key_name(KeyboardKey key) const noexcept {
+        const int glfw_key = glfw_key_for(key);
+        if (glfw_key == GLFW_KEY_UNKNOWN) {
+            return {};
+        }
+        auto lock = glfw_window_mutex().lock();
+        // Printable keys have a layout-dependent name; the rest (Enter, arrows, ...) have none in GLFW.
+        const char *name = glfwGetKeyName(glfw_key, 0);
+        return name != nullptr ? name : "";
+    }
+
+    bool GLFWWindow::key_down(KeyboardKey key) const noexcept {
+        const int glfw_key = glfw_key_for(key);
+        if (glfw_key == GLFW_KEY_UNKNOWN) {
+            return false;
+        }
+        auto lock = glfw_window_mutex().lock();
+        return window_ != nullptr && glfwGetKey(window_, glfw_key) == GLFW_PRESS;
+    }
+
+    expected<void, WindowError> GLFWWindow::set_display_gamma(std::optional<u32> display_id, f32 gamma) noexcept {
+        ZoneScopedN("GLFWWindow::set_display_gamma");
+        if (!(gamma > 0.0f)) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Gamma must be positive."});
+        }
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_display_gamma"); !live) [[unlikely]] {
+            return live;
+        }
+        GLFWmonitor *monitor = display_id.has_value() ? monitor_for_display_id(*display_id) : monitor_containing(window_);
+        if (monitor == nullptr) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "That display does not exist."});
+        }
+        (void)glfwGetError(nullptr);
+        glfwSetGamma(monitor, gamma);
+        const char *description = nullptr;
+        if (glfwGetError(&description) != GLFW_NO_ERROR) {
+            return unexpected(WindowError{WindowErrorCode::Unsupported,
+                                          description != nullptr && description[0] != '\0' ? description : "The window system cannot change the gamma ramp."});
+        }
+        return {};
+    }
+
+    std::optional<u32> GLFWWindow::current_display_id() const noexcept {
+        auto lock = glfw_window_mutex().lock();
+        if (window_ == nullptr) {
+            return std::nullopt;
+        }
+        GLFWmonitor *current = monitor_containing(window_);
+        int count = 0;
+        GLFWmonitor **monitors = glfwGetMonitors(&count);
+        for (int i = 0; monitors != nullptr && i < count; ++i) {
+            if (monitors[i] == current) {
+                return static_cast<u32>(i + 1);
+            }
+        }
+        return std::nullopt;
+    }
+
+    expected<FrameExtents, WindowError> GLFWWindow::frame_extents() const noexcept {
+        ZoneScopedN("GLFWWindow::frame_extents");
+        auto lock = glfw_window_mutex().lock();
+        if (auto live = require_live_window(window_, "frame_extents"); !live) [[unlikely]] {
+            return unexpected(live.error());
+        }
+        int left = 0;
+        int top = 0;
+        int right = 0;
+        int bottom = 0;
+        glfwGetWindowFrameSize(window_, &left, &top, &right, &bottom);
+        return FrameExtents{left, top, right, bottom};
+    }
+
+    namespace {
+        [[nodiscard]] bool is_text_mime(std::string_view mime_type) noexcept { return mime_type.rfind("text/plain", 0) == 0; }
+    } // namespace
+
+    bool GLFWWindow::clipboard_has_mime(std::string_view mime_type) const noexcept {
+        if (is_text_mime(mime_type)) {
+            return !clipboard_text().empty();
+        }
+        auto lock = glfw_window_mutex().lock();
+        return Detail::native_typed_clipboard_available() && Detail::native_clipboard_has(mime_type);
+    }
+
+    std::vector<std::byte> GLFWWindow::clipboard_data(std::string_view mime_type) const noexcept {
+        if (is_text_mime(mime_type)) {
+            const std::string text = clipboard_text();
+            const auto *bytes = reinterpret_cast<const std::byte *>(text.data());
+            return std::vector<std::byte>(bytes, bytes + text.size());
+        }
+        auto lock = glfw_window_mutex().lock();
+        return Detail::native_typed_clipboard_available() ? Detail::native_clipboard_get(mime_type) : std::vector<std::byte>{};
+    }
+
+    expected<void, WindowError> GLFWWindow::set_clipboard_data(std::string_view mime_type, std::span<const std::byte> bytes) noexcept {
+        if (is_text_mime(mime_type)) {
+            return set_clipboard_text(std::string_view{reinterpret_cast<const char *>(bytes.data()), bytes.size()});
+        }
+        auto lock = glfw_window_mutex().lock();
+        if (!Detail::native_typed_clipboard_available()) {
+            return unexpected(WindowError{WindowErrorCode::Unsupported, "GLFW's clipboard is text only on this platform."});
+        }
+        if (!Detail::native_clipboard_set(window_, mime_type, bytes)) {
+            return unexpected(WindowError{WindowErrorCode::OperationFailed, "The platform clipboard rejected the data."});
+        }
+        return {};
+    }
+
+    std::vector<std::string> GLFWWindow::clipboard_mime_types() const noexcept {
+        {
+            auto lock = glfw_window_mutex().lock();
+            if (Detail::native_typed_clipboard_available()) {
+                return Detail::native_clipboard_types();
+            }
+        }
+        return clipboard_text().empty() ? std::vector<std::string>{} : std::vector<std::string>{"text/plain;charset=utf-8"};
+    }
+
+    expected<void, WindowError> GLFWWindow::set_fullscreen_target(FullscreenTarget target) noexcept {
+        ZoneScopedN("GLFWWindow::set_fullscreen_target");
+        WindowMode reapply = WindowMode::Windowed;
+        {
+            auto lock = glfw_window_mutex().lock();
+            if (auto live = require_live_window(window_, "set_fullscreen_target"); !live) [[unlikely]] {
+                return live;
+            }
+            fullscreen_target_ = target;
+            reapply = fullscreen_mode_;
+        }
+        // Already fullscreen: move to the new target now. `set_fullscreen` takes the lock itself.
+        return reapply == WindowMode::Windowed ? expected<void, WindowError>{} : set_fullscreen(reapply);
     }
 
 } // namespace SFT::WindowManager::GLFW

@@ -77,6 +77,22 @@ namespace SFT::Engine {
         u64 timestamp_ns = 0;
     };
 
+    /// A finger going down, moving, lifting or being cancelled (`kind` is the matching `WindowEventKind::Touch*`).
+    struct TouchEvent {
+        WindowManager::WindowId window{};
+        WindowManager::WindowEventKind kind = WindowManager::WindowEventKind::TouchDown;
+        WindowManager::WindowTouchEvent touch{};
+        u64 timestamp_ns = 0;
+    };
+
+    /// A pen coming into or leaving range, touching or lifting, moving, a barrel button changing, or an axis changing.
+    struct PenEvent {
+        WindowManager::WindowId window{};
+        WindowManager::WindowEventKind kind = WindowManager::WindowEventKind::PenMotion;
+        WindowManager::WindowPenEvent pen{};
+        u64 timestamp_ns = 0;
+    };
+
     struct WindowStateEvent {
         WindowManager::WindowId window{};
         WindowManager::WindowEventKind kind = WindowManager::WindowEventKind::CloseRequested;
@@ -122,4 +138,6 @@ SFT_ECS_EVENT(SFT::Engine::TextEditingEvent, "sturdy.engine.text_editing_event")
 SFT_ECS_EVENT(SFT::Engine::MouseMoveEvent, "sturdy.engine.mouse_move_event");
 SFT_ECS_EVENT(SFT::Engine::MouseButtonEvent, "sturdy.engine.mouse_button_event");
 SFT_ECS_EVENT(SFT::Engine::MouseWheelEvent, "sturdy.engine.mouse_wheel_event");
+SFT_ECS_EVENT(SFT::Engine::TouchEvent, "sturdy.engine.touch_event");
+SFT_ECS_EVENT(SFT::Engine::PenEvent, "sturdy.engine.pen_event");
 SFT_ECS_EVENT(SFT::Engine::WindowStateEvent, "sturdy.engine.window_state_event");

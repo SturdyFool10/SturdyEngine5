@@ -103,6 +103,12 @@ namespace sturdy_rs::render {
             case WindowEffectKind::AccentAcrylic: return W::WindowEffectKind::AccentAcrylic;
             case WindowEffectKind::CornerPreference: return W::WindowEffectKind::CornerPreference;
             case WindowEffectKind::VisualEffect: return W::WindowEffectKind::VisualEffect;
+            case WindowEffectKind::Opacity: return W::WindowEffectKind::Opacity;
+            case WindowEffectKind::TransitionsDisabled: return W::WindowEffectKind::TransitionsDisabled;
+            case WindowEffectKind::TitlebarTransparent: return W::WindowEffectKind::TitlebarTransparent;
+            case WindowEffectKind::WindowShadow: return W::WindowEffectKind::WindowShadow;
+            case WindowEffectKind::GlassEffect: return W::WindowEffectKind::GlassEffect;
+            case WindowEffectKind::CornerRadius: return W::WindowEffectKind::CornerRadius;
             }
             return W::WindowEffectKind::Blur;
         }
@@ -132,6 +138,11 @@ namespace sturdy_rs::render {
             options.mac_state = clamp_enum(v.mac_state, W::MacVisualEffectState::Inactive);
             options.mac_emphasized = v.mac_emphasized;
             options.mac_appearance = clamp_enum(v.mac_appearance, W::MacAppearance::VibrantDark);
+            options.mac_glass_style = clamp_enum(v.mac_glass_style, W::MacGlassStyle::Clear);
+            options.mac_glass_corner_radius = std::max(v.mac_glass_corner_radius, 0.0f);
+            options.opacity = std::clamp(v.opacity, 0.0f, 1.0f);
+            options.hide_border = v.hide_border;
+            options.window_corner_radius = std::max(v.window_corner_radius, 0.0f);
             return options;
         }
 

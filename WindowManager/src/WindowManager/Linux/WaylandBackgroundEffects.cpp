@@ -12,6 +12,7 @@
 #include <vector>
 
 #include <wayland-client.h>
+#include <wayland-alpha-modifier-v1-client-protocol.h>
 #include <wayland-ext-background-effect-v1-client-protocol.h>
 #include <wayland-org-kde-kwin-blur-client-protocol.h>
 #pragma endregion
@@ -36,6 +37,8 @@ namespace SFT::WindowManager::Detail {
             u32 ext_capabilities = 0;
             std::unordered_map<wl_surface *, ext_background_effect_surface_v1 *> ext_surfaces;
             std::unordered_map<wl_surface *, org_kde_kwin_blur *> kde_surfaces;
+            wp_alpha_modifier_v1 *alpha_manager = nullptr;
+            std::unordered_map<wl_surface *, wp_alpha_modifier_surface_v1 *> alpha_surfaces;
         };
 
         /// Returns the current or globally available connection mutex value.
@@ -114,6 +117,12 @@ namespace SFT::WindowManager::Detail {
                 connection.kde_manager = static_cast<org_kde_kwin_blur_manager *>(
                     wl_registry_bind(registry, name, &org_kde_kwin_blur_manager_interface, 1));
                 assign_queue(connection.kde_manager, connection.event_queue);
+                return;
+            }
+            if (std::strcmp(interface, wp_alpha_modifier_v1_interface.name) == 0 && connection.alpha_manager == nullptr) {
+                connection.alpha_manager = static_cast<wp_alpha_modifier_v1 *>(
+                    wl_registry_bind(registry, name, &wp_alpha_modifier_v1_interface, 1));
+                assign_queue(connection.alpha_manager, connection.event_queue);
             }
         }
 
@@ -178,6 +187,20 @@ namespace SFT::WindowManager::Detail {
             connection.kde_surfaces.erase(found);
         }
 
+        /// Drops the surface's alpha modifier, which restores full opacity.
+        void remove_alpha_modifier(WaylandBackgroundEffectConnection &connection, wl_surface *surface,
+                                   bool commit_surface) noexcept {
+            const auto found = connection.alpha_surfaces.find(surface);
+            if (found == connection.alpha_surfaces.end()) {
+                return;
+            }
+            wp_alpha_modifier_surface_v1_destroy(found->second);
+            connection.alpha_surfaces.erase(found);
+            if (commit_surface) {
+                wl_surface_commit(surface);
+            }
+        }
+
         /// Destroys the connection identified by the supplied parameters.
         ///
         /// @param connection Connection used or affected by the operation.
@@ -196,6 +219,14 @@ namespace SFT::WindowManager::Detail {
                 org_kde_kwin_blur_release(effect);
             }
             connection.kde_surfaces.clear();
+            for (auto &[surface, modifier] : connection.alpha_surfaces) {
+                (void)surface;
+                wp_alpha_modifier_surface_v1_destroy(modifier);
+            }
+            connection.alpha_surfaces.clear();
+            if (connection.alpha_manager != nullptr) {
+                wp_alpha_modifier_v1_destroy(connection.alpha_manager);
+            }
             if (connection.ext_manager != nullptr) {
                 ext_background_effect_manager_v1_destroy(connection.ext_manager);
             }
@@ -440,6 +471,95 @@ namespace SFT::WindowManager::Detail {
             "Neither ext-background-effect-v1 nor org_kde_kwin_blur is available on this compositor.");
     }
 
+    WindowEffectResult set_wayland_window_opacity(NativeWindowHandle handle, WindowEffect effect) noexcept {
+        ZoneScopedN("Windowing::set_wayland_window_opacity");
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr) {
+            return WindowEffectResult::failed("Wayland opacity requires a wl_display and wl_surface.");
+        }
+        auto *display = static_cast<wl_display *>(handle.display);
+        auto *surface = static_cast<wl_surface *>(handle.window);
+        const std::lock_guard lock{connection_mutex()};
+        WaylandBackgroundEffectConnection *connection = ensure_connection(display);
+        if (connection == nullptr) {
+            return WindowEffectResult::failed("Failed to discover Wayland globals.");
+        }
+        (void)wl_display_dispatch_queue_pending(display, connection->event_queue);
+
+        const f32 opacity = std::clamp(effect.options.opacity, 0.0f, 1.0f);
+        if (!effect.enabled || opacity >= 1.0f) {
+            remove_alpha_modifier(*connection, surface, true);
+            (void)wl_display_flush(display);
+            return WindowEffectResult::success("Wayland surface opacity restored.");
+        }
+        if (connection->alpha_manager == nullptr) {
+            return WindowEffectResult::failed("The Wayland compositor does not advertise wp_alpha_modifier_v1.");
+        }
+        wp_alpha_modifier_surface_v1 *&modifier = connection->alpha_surfaces[surface];
+        if (modifier == nullptr) {
+            modifier = wp_alpha_modifier_v1_get_surface(connection->alpha_manager, surface);
+            if (modifier == nullptr) {
+                connection->alpha_surfaces.erase(surface);
+                return WindowEffectResult::failed("Failed to create a wp_alpha_modifier_surface_v1 object.");
+            }
+            assign_queue(modifier, connection->event_queue);
+        }
+        wp_alpha_modifier_surface_v1_set_multiplier(modifier, static_cast<u32>(static_cast<double>(opacity) * 4294967295.0));
+        wl_surface_commit(surface);
+        (void)wl_display_flush(display);
+        return WindowEffectResult::success("wp_alpha_modifier_v1 opacity applied.");
+    }
+
+    WindowEffectResult set_wayland_mouse_passthrough(NativeWindowHandle handle, bool enabled) noexcept {
+        ZoneScopedN("Windowing::set_wayland_mouse_passthrough");
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr || handle.window == nullptr) {
+            return WindowEffectResult::failed("Wayland click-through requires a wl_display and wl_surface.");
+        }
+        auto *display = static_cast<wl_display *>(handle.display);
+        auto *surface = static_cast<wl_surface *>(handle.window);
+        const std::lock_guard lock{connection_mutex()};
+        WaylandBackgroundEffectConnection *connection = ensure_connection(display);
+        if (connection == nullptr || connection->compositor == nullptr) {
+            return WindowEffectResult::failed("Failed to reach the Wayland compositor global.");
+        }
+        if (enabled) {
+            // An empty region means no part of the surface accepts input, so every pointer event falls through.
+            wl_region *empty = wl_compositor_create_region(connection->compositor);
+            if (empty == nullptr) {
+                return WindowEffectResult::failed("Could not create a wl_region.");
+            }
+            wl_surface_set_input_region(surface, empty);
+            wl_region_destroy(empty);
+        } else {
+            wl_surface_set_input_region(surface, nullptr); // null = the whole surface
+        }
+        wl_surface_commit(surface);
+        (void)wl_display_flush(display);
+        return WindowEffectResult::success("Wayland surface input region set.");
+    }
+
+    WindowEffectSupport query_wayland_opacity_support(NativeWindowHandle handle) noexcept {
+        WindowEffectSupport support;
+        if (handle.system != NativeWindowSystem::Wayland || handle.display == nullptr) {
+            support.add("wp_alpha_modifier_v1", EffectAvailability::Unavailable, "not a Wayland window");
+            return support;
+        }
+        auto *display = static_cast<wl_display *>(handle.display);
+        const std::lock_guard lock{connection_mutex()};
+        WaylandBackgroundEffectConnection *connection = ensure_connection(display);
+        if (connection == nullptr) {
+            support.add("wp_alpha_modifier_v1", EffectAvailability::Unknown, "could not read the compositor's globals");
+            return support;
+        }
+        (void)wl_display_dispatch_queue_pending(display, connection->event_queue);
+        if (connection->alpha_manager == nullptr) {
+            support.add("wp_alpha_modifier_v1", EffectAvailability::Unavailable,
+                        "the compositor does not advertise wp_alpha_modifier_v1");
+        } else {
+            support.add("wp_alpha_modifier_v1", EffectAvailability::Available);
+        }
+        return support;
+    }
+
     /// Releases wayland background effects using the supplied arguments and current state.
     ///
     /// @param handle Handle identifying the target object or resource.
@@ -497,6 +617,7 @@ namespace SFT::WindowManager::Detail {
             auto *surface = static_cast<wl_surface *>(handle.window);
             remove_ext_effect(*connection, surface, false);
             remove_kde_effect(*connection, surface);
+            remove_alpha_modifier(*connection, surface, false);
         }
         if (!release_display) {
             (void)wl_display_flush(display);

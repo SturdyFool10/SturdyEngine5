@@ -420,6 +420,35 @@ namespace SFT::WindowManager::SDL3 {
         /// @note This function does not throw exceptions.
         void set_live_resize_callback(std::function<void(WindowExtent)> callback) noexcept override;
 
+        // The union surface (WindowFeatures.hpp): SDL3 implements all of it that SDL offers; the click-through, focus and
+        // keyboard-grab toggles come from the shared native layer.
+        [[nodiscard]] FeatureSupport feature_support(WindowFeature feature) const noexcept override;
+        expected<void, WindowError> set_always_on_top(bool enabled) noexcept override;
+        expected<void, WindowError> set_aspect_ratio(f32 min_ratio, f32 max_ratio) noexcept override;
+        expected<void, WindowError> set_focusable(bool enabled) noexcept override;
+        expected<void, WindowError> set_auto_minimize_on_focus_loss(bool enabled) noexcept override;
+        expected<void, WindowError> set_parent(Window *parent, bool modal) noexcept override;
+        expected<void, WindowError> set_keyboard_grab(bool enabled) noexcept override;
+        expected<void, WindowError> set_mouse_confine_rect(std::optional<WindowRect> rect) noexcept override;
+        expected<void, WindowError> set_cursor_position(WindowPosition position) noexcept override;
+        expected<void, WindowError> set_custom_cursor(const CursorImage &image) noexcept override;
+        expected<void, WindowError> clear_custom_cursor() noexcept override;
+        [[nodiscard]] expected<FrameExtents, WindowError> frame_extents() const noexcept override;
+        [[nodiscard]] expected<WindowRect, WindowError> safe_area() const noexcept override;
+        expected<void, WindowError> start_text_input_with(const TextInputOptions &options) noexcept override;
+        [[nodiscard]] bool has_screen_keyboard() const noexcept override;
+        [[nodiscard]] bool screen_keyboard_shown() const noexcept override;
+        [[nodiscard]] std::vector<std::string> clipboard_mime_types() const noexcept override;
+        expected<void, WindowError> set_fullscreen_target(FullscreenTarget target) noexcept override;
+        expected<void, WindowError> set_shape(const WindowShapeMask &mask) noexcept override;
+        expected<void, WindowError> set_animated_cursor(std::span<const CursorFrame> frames) noexcept override;
+        expected<void, WindowError> set_global_cursor_position(WindowPosition position) noexcept override;
+        expected<void, WindowError> set_mouse_capture(bool enabled) noexcept override;
+        [[nodiscard]] std::string key_name(KeyboardKey key) const noexcept override;
+        [[nodiscard]] bool key_down(KeyboardKey key) const noexcept override;
+        [[nodiscard]] expected<std::vector<std::byte>, WindowError> icc_profile() const noexcept override;
+        [[nodiscard]] std::optional<u32> current_display_id() const noexcept override;
+
         [[nodiscard]] bool wait_for_native_events(std::chrono::microseconds timeout) noexcept override;
         [[nodiscard]] void (*native_event_waker() const noexcept)() noexcept override;
 
@@ -484,6 +513,7 @@ namespace SFT::WindowManager::SDL3 {
         void fill_effect_geometry_locked(WindowEffect &effect) const noexcept;
         /// Re-applies the active blur when its region is derived from the window size (rounded corners).
         void reapply_blur_region_locked() noexcept;
+        void reapply_corner_outline_locked() noexcept;
 
         SDL_Window *window_ = nullptr;
         deque<WindowEvent> events_;
@@ -504,12 +534,17 @@ namespace SFT::WindowManager::SDL3 {
 
 
         WindowMode fullscreen_mode_ = WindowMode::Windowed;
+        FullscreenTarget fullscreen_target_;
+        /// True while a `set_custom_cursor` image (rather than a `set_cursor_icon` shape) is showing.
+        bool custom_cursor_active_ = false;
         std::function<void(WindowExtent)> live_resize_callback_;
         SDL_Cursor *current_cursor_ = nullptr;
         optional<CursorIcon> current_cursor_icon_;
 
 
         optional<WindowEffect> active_blur_effect_;
+        /// The `CornerRadius` request in force; its outline is rebuilt from the window size on every resize.
+        optional<WindowEffect> active_corner_effect_;
         /// Custom title bar regions. Own lock: the OS calls the hit test while SDL pumps events, outside
         /// `sdl_window_mutex()`.
         Async::Mutex<HitTestRegions> hit_test_;

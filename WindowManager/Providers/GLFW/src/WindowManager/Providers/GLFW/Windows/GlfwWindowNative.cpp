@@ -1,5 +1,6 @@
 #include <Foundation/Foundation.hpp>
 
+#include <cstring>
 #include <expected>
 #include <vector>
 
@@ -14,6 +15,8 @@
 #include <commctrl.h>
 #include <dwmapi.h>
 #include <imm.h>
+#include <shobjidl.h>
+#include <windowsx.h>
 #endif
 
 #include <WindowManager/WindowLog.hpp>
@@ -402,7 +405,353 @@ namespace SFT::WindowManager::GLFW::Detail {
         }
     }
 
+    namespace {
+
+        constexpr UINT_PTR kHitTestSubclassId = 0xA17C07E5;
+        constexpr UINT kWmPopupSystemMenu = 0x0313; // WM_POPUPSYSTEMMENU: undocumented but stable since Windows XP
+
+        struct HitTestHookState {
+            const HitTestRegions *regions = nullptr;
+            /// An undecorated GLFW window is a plain WS_POPUP, which Windows will not size from the border. The hook
+            /// adds WS_THICKFRAME (and removes it again) and zeroes the non-client area so the client still fills it.
+            bool added_thick_frame = false;
+        };
+
+        LRESULT hit_test_code(HitTestResult result) noexcept {
+            switch (result) {
+                case HitTestResult::Normal: return HTCLIENT;
+                case HitTestResult::Draggable: return HTCAPTION;
+                case HitTestResult::ResizeTopLeft: return HTTOPLEFT;
+                case HitTestResult::ResizeTop: return HTTOP;
+                case HitTestResult::ResizeTopRight: return HTTOPRIGHT;
+                case HitTestResult::ResizeRight: return HTRIGHT;
+                case HitTestResult::ResizeBottomRight: return HTBOTTOMRIGHT;
+                case HitTestResult::ResizeBottom: return HTBOTTOM;
+                case HitTestResult::ResizeBottomLeft: return HTBOTTOMLEFT;
+                case HitTestResult::ResizeLeft: return HTLEFT;
+            }
+            return HTCLIENT;
+        }
+
+        LRESULT CALLBACK hit_test_subclass_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                UINT_PTR /*uIdSubclass*/, DWORD_PTR dwRefData) {
+            auto *state = reinterpret_cast<HitTestHookState *>(dwRefData);
+            if (state != nullptr && state->regions != nullptr && state->regions->enabled) {
+                if (msg == WM_NCCALCSIZE && wParam == TRUE && state->added_thick_frame && !IsZoomed(hwnd)) {
+                    return 0; // the client area is the whole window
+                }
+                if (msg == WM_NCHITTEST) {
+                    POINT point{static_cast<LONG>(static_cast<short>(LOWORD(lParam))),
+                                static_cast<LONG>(static_cast<short>(HIWORD(lParam)))};
+                    RECT client{};
+                    if (GetClientRect(hwnd, &client) && ScreenToClient(hwnd, &point)) {
+                        const WindowExtent size{static_cast<u32>(client.right - client.left), static_cast<u32>(client.bottom - client.top)};
+                        const HitTestResult result =
+                            classify_hit(*state->regions, size, WindowPosition{point.x, point.y}, !IsZoomed(hwnd));
+                        if (result != HitTestResult::Normal) {
+                            return hit_test_code(result);
+                        }
+                    }
+                }
+            }
+            if (msg == WM_NCDESTROY) {
+                RemoveWindowSubclass(hwnd, hit_test_subclass_proc, kHitTestSubclassId);
+                delete state;
+            }
+            return DefSubclassProc(hwnd, msg, wParam, lParam);
+        }
+
+        [[nodiscard]] HWND hwnd_of(void *window_handle) noexcept {
+            return window_handle != nullptr ? glfwGetWin32Window(static_cast<GLFWwindow *>(window_handle)) : nullptr;
+        }
+
+        // ITaskbarList3 / CLSID_TaskbarList, spelled out so no uuid header machinery is needed.
+        const GUID kClsidTaskbarList = {0x56FDF344, 0xFD6D, 0x11d0, {0x95, 0x8A, 0x00, 0x60, 0x97, 0xC9, 0xA0, 0x90}};
+        const GUID kIidTaskbarList3 = {0xEA1AFB91, 0x9E28, 0x4B86, {0x90, 0xE9, 0x9E, 0x9F, 0x8A, 0x5E, 0xEF, 0xAF}};
+
+    } // namespace
+
+    bool install_hit_test_hook(void *window_handle, const HitTestRegions *regions) noexcept {
+        const HWND hwnd = hwnd_of(window_handle);
+        if (hwnd == nullptr || regions == nullptr) {
+            return false;
+        }
+        DWORD_PTR existing = 0;
+        if (GetWindowSubclass(hwnd, hit_test_subclass_proc, kHitTestSubclassId, &existing)) {
+            return true; // the hook reads the same `HitTestRegions` object live
+        }
+        auto *state = new HitTestHookState{regions, false};
+        const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        if ((style & (WS_CAPTION | WS_THICKFRAME)) == 0) {
+            SetWindowLongPtrW(hwnd, GWL_STYLE, style | WS_THICKFRAME);
+            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            state->added_thick_frame = true;
+        }
+        if (!SetWindowSubclass(hwnd, hit_test_subclass_proc, kHitTestSubclassId, reinterpret_cast<DWORD_PTR>(state))) {
+            delete state;
+            return false;
+        }
+        return true;
+    }
+
+    void remove_hit_test_hook(void *window_handle) noexcept {
+        const HWND hwnd = hwnd_of(window_handle);
+        if (hwnd == nullptr) {
+            return;
+        }
+        DWORD_PTR existing = 0;
+        if (!GetWindowSubclass(hwnd, hit_test_subclass_proc, kHitTestSubclassId, &existing)) {
+            return;
+        }
+        auto *state = reinterpret_cast<HitTestHookState *>(existing);
+        RemoveWindowSubclass(hwnd, hit_test_subclass_proc, kHitTestSubclassId);
+        if (state != nullptr && state->added_thick_frame) {
+            const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+            SetWindowLongPtrW(hwnd, GWL_STYLE, style & ~static_cast<LONG_PTR>(WS_THICKFRAME));
+            SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        delete state;
+    }
+
+    bool hit_test_is_press_driven(void *window_handle) noexcept {
+        (void)window_handle;
+        return false;
+    }
+
+    bool begin_interactive_drag(void *window_handle, HitTestResult edge) noexcept {
+        (void)window_handle;
+        (void)edge;
+        return false;
+    }
+
+    bool show_native_system_menu(void *window_handle, int x, int y) noexcept {
+        const HWND hwnd = hwnd_of(window_handle);
+        if (hwnd == nullptr) {
+            return false;
+        }
+        POINT point{x, y};
+        ClientToScreen(hwnd, &point);
+        // Posted, not sent: the menu runs its own modal loop, which must not run inside the caller's window lock.
+        return PostMessageW(hwnd, kWmPopupSystemMenu, 0, MAKELPARAM(static_cast<WORD>(point.x), static_cast<WORD>(point.y))) != FALSE;
+    }
+
+    bool set_native_taskbar_progress(void *window_handle, TaskbarProgress state, float value) noexcept {
+        const HWND hwnd = hwnd_of(window_handle);
+        if (hwnd == nullptr) {
+            return false;
+        }
+        const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        // RPC_E_CHANGED_MODE means this thread already has a COM apartment of the other kind, which is fine to use.
+        const bool uninitialize = SUCCEEDED(initialized);
+        ITaskbarList3 *taskbar = nullptr;
+        bool ok = false;
+        if (SUCCEEDED(CoCreateInstance(kClsidTaskbarList, nullptr, CLSCTX_INPROC_SERVER, kIidTaskbarList3,
+                                       reinterpret_cast<void **>(&taskbar))) &&
+            taskbar != nullptr) {
+            if (SUCCEEDED(taskbar->HrInit())) {
+                TBPFLAG flag = TBPF_NOPROGRESS;
+                switch (state) {
+                    case TaskbarProgress::None: flag = TBPF_NOPROGRESS; break;
+                    case TaskbarProgress::Indeterminate: flag = TBPF_INDETERMINATE; break;
+                    case TaskbarProgress::Normal: flag = TBPF_NORMAL; break;
+                    case TaskbarProgress::Paused: flag = TBPF_PAUSED; break;
+                    case TaskbarProgress::Error: flag = TBPF_ERROR; break;
+                }
+                ok = SUCCEEDED(taskbar->SetProgressState(hwnd, flag));
+                if (ok && (flag == TBPF_NORMAL || flag == TBPF_PAUSED || flag == TBPF_ERROR)) {
+                    const float clamped = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+                    ok = SUCCEEDED(taskbar->SetProgressValue(hwnd, static_cast<ULONGLONG>(clamped * 1000.0f), 1000));
+                }
+            }
+            taskbar->Release();
+        }
+        if (uninitialize) {
+            CoUninitialize();
+        }
+        return ok;
+    }
+
+    namespace {
+
+        // Windows names clipboard formats by registered string, so a MIME type is simply registered as one.
+        [[nodiscard]] UINT clipboard_format_for(std::string_view mime_type) noexcept {
+            return RegisterClipboardFormatA(std::string(mime_type).c_str());
+        }
+
+        /// Opens the clipboard, retrying briefly: another process may hold it for a moment.
+        [[nodiscard]] bool open_clipboard_retrying(HWND owner) noexcept {
+            for (int attempt = 0; attempt < 10; ++attempt) {
+                if (OpenClipboard(owner)) {
+                    return true;
+                }
+                Sleep(5);
+            }
+            return false;
+        }
+
+    } // namespace
+
+    bool native_typed_clipboard_available() noexcept { return true; }
+
+    bool native_clipboard_has(std::string_view mime_type) noexcept {
+        const UINT format = clipboard_format_for(mime_type);
+        return format != 0 && IsClipboardFormatAvailable(format) != FALSE;
+    }
+
+    std::vector<std::byte> native_clipboard_get(std::string_view mime_type) noexcept {
+        std::vector<std::byte> out;
+        const UINT format = clipboard_format_for(mime_type);
+        if (format == 0 || !open_clipboard_retrying(nullptr)) {
+            return out;
+        }
+        if (HANDLE handle = GetClipboardData(format)) {
+            if (const void *data = GlobalLock(handle)) {
+                const SIZE_T size = GlobalSize(handle);
+                out.assign(static_cast<const std::byte *>(data), static_cast<const std::byte *>(data) + size);
+                GlobalUnlock(handle);
+            }
+        }
+        CloseClipboard();
+        return out;
+    }
+
+    bool native_clipboard_set(void *window_handle, std::string_view mime_type, std::span<const std::byte> bytes) noexcept {
+        const UINT format = clipboard_format_for(mime_type);
+        if (format == 0 || !open_clipboard_retrying(hwnd_of(window_handle))) {
+            return false;
+        }
+        bool ok = false;
+        if (EmptyClipboard()) {
+            // The clipboard owns the block once SetClipboardData succeeds, so it is only freed here on failure.
+            if (HGLOBAL block = GlobalAlloc(GMEM_MOVEABLE, bytes.size() == 0 ? 1 : bytes.size())) {
+                if (void *destination = GlobalLock(block)) {
+                    std::memcpy(destination, bytes.data(), bytes.size());
+                    GlobalUnlock(block);
+                    ok = SetClipboardData(format, block) != nullptr;
+                }
+                if (!ok) {
+                    GlobalFree(block);
+                }
+            }
+        }
+        CloseClipboard();
+        return ok;
+    }
+
+    std::vector<std::string> native_clipboard_types() noexcept {
+        std::vector<std::string> out;
+        if (!open_clipboard_retrying(nullptr)) {
+            return out;
+        }
+        for (UINT format = EnumClipboardFormats(0); format != 0; format = EnumClipboardFormats(format)) {
+            if (format == CF_UNICODETEXT || format == CF_TEXT) {
+                out.emplace_back("text/plain;charset=utf-8");
+                continue;
+            }
+            char name[256]{};
+            if (GetClipboardFormatNameA(format, name, static_cast<int>(sizeof(name))) > 0) {
+                out.emplace_back(name);
+            }
+        }
+        CloseClipboard();
+        return out;
+    }
+
+    bool set_native_mouse_capture(void *window_handle, bool enabled) noexcept {
+        const HWND hwnd = hwnd_of(window_handle);
+        if (hwnd == nullptr) {
+            return false;
+        }
+        if (enabled) {
+            SetCapture(hwnd);
+            return true;
+        }
+        return ReleaseCapture() != FALSE;
+    }
+
+    bool set_native_cursor_confine(void *window_handle, const WindowRect *rect) noexcept {
+        const HWND hwnd = hwnd_of(window_handle);
+        if (hwnd == nullptr) {
+            return false;
+        }
+        if (rect == nullptr) {
+            return ClipCursor(nullptr) != FALSE;
+        }
+        // Window (client) coordinates -> screen coordinates, which is what ClipCursor takes.
+        POINT top_left{rect->x, rect->y};
+        POINT bottom_right{rect->x + rect->width, rect->y + rect->height};
+        if (!ClientToScreen(hwnd, &top_left) || !ClientToScreen(hwnd, &bottom_right)) {
+            return false;
+        }
+        const RECT screen{top_left.x, top_left.y, bottom_right.x, bottom_right.y};
+        return ClipCursor(&screen) != FALSE;
+    }
+
+    SystemTheme native_system_theme() noexcept {
+        DWORD uses_light = 1;
+        DWORD size = sizeof(uses_light);
+        const LSTATUS status = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                                            L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &uses_light, &size);
+        if (status != ERROR_SUCCESS) {
+            return SystemTheme::Unknown;
+        }
+        return uses_light != 0 ? SystemTheme::Light : SystemTheme::Dark;
+    }
+
 #else
+
+    bool install_hit_test_hook(void *window_handle, const HitTestRegions *regions) noexcept {
+        (void)window_handle;
+        (void)regions;
+        return false;
+    }
+
+    void remove_hit_test_hook(void *window_handle) noexcept { (void)window_handle; }
+
+    bool hit_test_is_press_driven(void *window_handle) noexcept {
+        (void)window_handle;
+        return false;
+    }
+
+    bool begin_interactive_drag(void *window_handle, HitTestResult edge) noexcept {
+        (void)window_handle;
+        (void)edge;
+        return false;
+    }
+
+    bool show_native_system_menu(void *window_handle, int x, int y) noexcept {
+        (void)window_handle;
+        (void)x;
+        (void)y;
+        return false;
+    }
+
+    bool set_native_taskbar_progress(void *window_handle, TaskbarProgress state, float value) noexcept {
+        (void)window_handle;
+        (void)state;
+        (void)value;
+        return false;
+    }
+
+    bool set_native_mouse_capture(void *window_handle, bool enabled) noexcept {
+        (void)window_handle;
+        (void)enabled;
+        return false;
+    }
+
+    bool set_native_cursor_confine(void *window_handle, const WindowRect *rect) noexcept {
+        (void)window_handle;
+        (void)rect;
+        return false;
+    }
+
+    bool native_typed_clipboard_available() noexcept { return false; }
+    bool native_clipboard_has(std::string_view) noexcept { return false; }
+    std::vector<std::byte> native_clipboard_get(std::string_view) noexcept { return {}; }
+    bool native_clipboard_set(void *, std::string_view, std::span<const std::byte>) noexcept { return false; }
+    std::vector<std::string> native_clipboard_types() noexcept { return {}; }
+
+    SystemTheme native_system_theme() noexcept { return SystemTheme::Unknown; }
 
     /// Performs the install ime composition hook operation for `Detail` using the supplied arguments.
     ///

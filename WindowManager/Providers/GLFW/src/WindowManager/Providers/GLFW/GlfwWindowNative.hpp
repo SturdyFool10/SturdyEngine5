@@ -1,7 +1,12 @@
 #pragma once
 
 #include <expected>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
+#include <WindowManager/WindowChrome.hpp>
 #include <WindowManager/WindowConfig.hpp>
 #include <WindowManager/WindowError.hpp>
 
@@ -100,5 +105,52 @@ namespace SFT::WindowManager::GLFW::Detail {
     ///
     /// @note This function does not throw exceptions.
     void set_ime_enabled(void *window_handle, bool enabled) noexcept;
+
+    // -- Window chrome. GLFW has no API for these, so each platform file implements them on the native handle and
+    //    returns false where it cannot. --
+
+    /// Makes the window honour `*regions` for dragging and edge resizing, reading it live (the pointer must outlive the
+    /// hook). Windows answers `WM_NCHITTEST`; X11 and macOS are press-driven instead, through
+    /// `begin_interactive_drag` from the mouse-button callback, so there this only reports that the route exists.
+    /// False when the platform has no way to move/resize an undecorated GLFW window (Wayland).
+    [[nodiscard]] bool install_hit_test_hook(void *window_handle, const HitTestRegions *regions) noexcept;
+
+    void remove_hit_test_hook(void *window_handle) noexcept;
+
+    /// Whether hit-test regions are driven by `begin_interactive_drag` (true on X11 and macOS) rather than by a native
+    /// message hook (Windows).
+    [[nodiscard]] bool hit_test_is_press_driven(void *window_handle) noexcept;
+
+    /// Starts a window-manager move (`Draggable`) or edge resize at the current pointer position, as if the title bar
+    /// or border had been pressed. Call it while handling the left-button press. False when it cannot.
+    [[nodiscard]] bool begin_interactive_drag(void *window_handle, HitTestResult edge) noexcept;
+
+    /// Opens the OS window menu at window coordinates (x, y). False when the platform has none.
+    [[nodiscard]] bool show_native_system_menu(void *window_handle, int x, int y) noexcept;
+
+    /// Taskbar/dock progress. False when the platform has none.
+    [[nodiscard]] bool set_native_taskbar_progress(void *window_handle, TaskbarProgress state, float value) noexcept;
+
+    /// Keeps the window receiving mouse events while a button is held outside it (Windows `SetCapture`, X11 pointer
+    /// grab). False on Wayland and macOS, where the compositor or AppKit already does this implicitly or cannot be asked.
+    [[nodiscard]] bool set_native_mouse_capture(void *window_handle, bool enabled) noexcept;
+
+    /// Confines the cursor to a client-area rectangle (window coordinates), or releases it when `rect` is empty. False
+    /// when the platform offers no such confinement to a client (only Windows does: `ClipCursor`).
+    [[nodiscard]] bool set_native_cursor_confine(void *window_handle, const WindowRect *rect) noexcept;
+
+    // -- Typed clipboard. GLFW's clipboard is text only; the platforms whose clipboard holds arbitrary formats (Windows,
+    //    macOS) expose them here. X11 and Wayland selections cannot be served without owning the event loop GLFW owns. --
+
+    [[nodiscard]] bool native_typed_clipboard_available() noexcept;
+    [[nodiscard]] bool native_clipboard_has(std::string_view mime_type) noexcept;
+    [[nodiscard]] std::vector<std::byte> native_clipboard_get(std::string_view mime_type) noexcept;
+    /// Replaces the clipboard with `bytes` in format `mime_type`.
+    [[nodiscard]] bool native_clipboard_set(void *window_handle, std::string_view mime_type, std::span<const std::byte> bytes) noexcept;
+    /// The formats on the clipboard, by MIME type or native format name.
+    [[nodiscard]] std::vector<std::string> native_clipboard_types() noexcept;
+
+    /// The OS light/dark preference as far as it can be read without a desktop-bus connection (see each platform).
+    [[nodiscard]] SystemTheme native_system_theme() noexcept;
 
 } // namespace SFT::WindowManager::GLFW::Detail

@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 
 namespace Sturdy
 {
-    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 40; }
+    public static class AbiVersion { public const uint Major = 0; public const uint Minor = 42; }
 
     /// Matches `RHI::AccelerationStructureCopyMode`.
     public enum SturdyAccelerationStructureCopyMode : int
@@ -86,6 +86,13 @@ namespace Sturdy
         STURDY_ASYNC_FEATURE_PROCESS = 16,
         STURDY_ASYNC_FEATURE_GZIP = 32,
         STURDY_ASYNC_FEATURE_NATIVE_FILE_WATCH = 64,
+    }
+
+    public enum SturdyAttentionRequest : int
+    {
+        STURDY_ATTENTION_CANCEL = 0,
+        STURDY_ATTENTION_BRIEFLY = 1,
+        STURDY_ATTENTION_UNTIL_FOCUSED = 2,
     }
 
     /// How a sound attached to an entity is anchored.
@@ -238,6 +245,18 @@ namespace Sturdy
         STURDY_CURSOR_ICON_RESIZE_NWSE = 7,
         STURDY_CURSOR_ICON_RESIZE_NESW = 8,
         STURDY_CURSOR_ICON_NOT_ALLOWED = 9,
+        STURDY_CURSOR_ICON_CROSSHAIR = 10,
+        STURDY_CURSOR_ICON_MOVE = 11,
+        STURDY_CURSOR_ICON_WAIT = 12,
+        STURDY_CURSOR_ICON_PROGRESS = 13,
+        STURDY_CURSOR_ICON_RESIZE_N = 14,
+        STURDY_CURSOR_ICON_RESIZE_NE = 15,
+        STURDY_CURSOR_ICON_RESIZE_E = 16,
+        STURDY_CURSOR_ICON_RESIZE_SE = 17,
+        STURDY_CURSOR_ICON_RESIZE_S = 18,
+        STURDY_CURSOR_ICON_RESIZE_SW = 19,
+        STURDY_CURSOR_ICON_RESIZE_W = 20,
+        STURDY_CURSOR_ICON_RESIZE_NW = 21,
     }
 
     /// Broad class of a physical device — the engine's active one (`SturdyAdapterInfo::device_type`) or one reported by `sturdy_gpu_enumerate` before any engine exists.
@@ -248,6 +267,15 @@ namespace Sturdy
         STURDY_DEVICE_TYPE_DISCRETE_GPU = 2,
         STURDY_DEVICE_TYPE_VIRTUAL_GPU = 3,
         STURDY_DEVICE_TYPE_CPU = 4,
+    }
+
+    public enum SturdyDisplayOrientation : int
+    {
+        STURDY_DISPLAY_ORIENTATION_UNKNOWN = 0,
+        STURDY_DISPLAY_ORIENTATION_LANDSCAPE = 1,
+        STURDY_DISPLAY_ORIENTATION_LANDSCAPE_FLIPPED = 2,
+        STURDY_DISPLAY_ORIENTATION_PORTRAIT = 3,
+        STURDY_DISPLAY_ORIENTATION_PORTRAIT_FLIPPED = 4,
     }
 
     /// The scalar kinds a component field can have (since 0.35). These are what two languages must agree on to share a component's memory: a C `float`, a Rust `f32` and a C# `float` are all `STURDY_FIELD_F32`. Values never change.
@@ -264,6 +292,13 @@ namespace Sturdy
         STURDY_FIELD_U64 = 8,
         STURDY_FIELD_F32 = 9,
         STURDY_FIELD_F64 = 10,
+    }
+
+    public enum SturdyFileDialogKind : int
+    {
+        STURDY_FILE_DIALOG_OPEN_FILE = 0,
+        STURDY_FILE_DIALOG_SAVE_FILE = 1,
+        STURDY_FILE_DIALOG_OPEN_FOLDER = 2,
     }
 
     public enum SturdyFileMode : int
@@ -356,6 +391,84 @@ namespace Sturdy
     {
         STURDY_FRONT_FACE_COUNTER_CLOCKWISE = 0,
         STURDY_FRONT_FACE_CLOCKWISE = 1,
+    }
+
+    /// The standard layout's axes: the sticks run -1 to 1, the triggers 0 to 1.
+    public enum SturdyGamepadAxis : int
+    {
+        STURDY_GAMEPAD_AXIS_LEFT_X = 0,
+        STURDY_GAMEPAD_AXIS_LEFT_Y = 1,
+        STURDY_GAMEPAD_AXIS_RIGHT_X = 2,
+        STURDY_GAMEPAD_AXIS_RIGHT_Y = 3,
+        STURDY_GAMEPAD_AXIS_LEFT_TRIGGER = 4,
+        STURDY_GAMEPAD_AXIS_RIGHT_TRIGGER = 5,
+    }
+
+    /// The standard layout's buttons; bit `n` of `SturdyGamepadState::buttons` is the button with value `n`.
+    public enum SturdyGamepadButton : int
+    {
+        STURDY_GAMEPAD_BUTTON_SOUTH = 0,
+        STURDY_GAMEPAD_BUTTON_EAST = 1,
+        STURDY_GAMEPAD_BUTTON_WEST = 2,
+        STURDY_GAMEPAD_BUTTON_NORTH = 3,
+        STURDY_GAMEPAD_BUTTON_BACK = 4,
+        STURDY_GAMEPAD_BUTTON_GUIDE = 5,
+        STURDY_GAMEPAD_BUTTON_START = 6,
+        STURDY_GAMEPAD_BUTTON_LEFT_STICK = 7,
+        STURDY_GAMEPAD_BUTTON_RIGHT_STICK = 8,
+        STURDY_GAMEPAD_BUTTON_LEFT_SHOULDER = 9,
+        STURDY_GAMEPAD_BUTTON_RIGHT_SHOULDER = 10,
+        STURDY_GAMEPAD_BUTTON_DPAD_UP = 11,
+        STURDY_GAMEPAD_BUTTON_DPAD_DOWN = 12,
+        STURDY_GAMEPAD_BUTTON_DPAD_LEFT = 13,
+        STURDY_GAMEPAD_BUTTON_DPAD_RIGHT = 14,
+        STURDY_GAMEPAD_BUTTON_MISC1 = 15,
+        STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE1 = 16,
+        STURDY_GAMEPAD_BUTTON_LEFT_PADDLE1 = 17,
+        STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE2 = 18,
+        STURDY_GAMEPAD_BUTTON_LEFT_PADDLE2 = 19,
+        STURDY_GAMEPAD_BUTTON_TOUCHPAD = 20,
+        STURDY_GAMEPAD_BUTTON_MISC2 = 21,
+        STURDY_GAMEPAD_BUTTON_MISC3 = 22,
+        STURDY_GAMEPAD_BUTTON_MISC4 = 23,
+        STURDY_GAMEPAD_BUTTON_MISC5 = 24,
+        STURDY_GAMEPAD_BUTTON_MISC6 = 25,
+    }
+
+    public enum SturdyGamepadConnection : int
+    {
+        STURDY_GAMEPAD_CONNECTION_UNKNOWN = 0,
+        STURDY_GAMEPAD_CONNECTION_WIRED = 1,
+        STURDY_GAMEPAD_CONNECTION_WIRELESS = 2,
+    }
+
+    public enum SturdyGamepadEventKind : int
+    {
+        STURDY_GAMEPAD_EVENT_CONNECTED = 0,
+        STURDY_GAMEPAD_EVENT_DISCONNECTED = 1,
+    }
+
+    public enum SturdyGamepadKind : int
+    {
+        STURDY_GAMEPAD_KIND_UNKNOWN = 0,
+        STURDY_GAMEPAD_KIND_STANDARD = 1,
+        STURDY_GAMEPAD_KIND_XBOX360 = 2,
+        STURDY_GAMEPAD_KIND_XBOX_ONE = 3,
+        STURDY_GAMEPAD_KIND_PS3 = 4,
+        STURDY_GAMEPAD_KIND_PS4 = 5,
+        STURDY_GAMEPAD_KIND_PS5 = 6,
+        STURDY_GAMEPAD_KIND_SWITCH_PRO = 7,
+        STURDY_GAMEPAD_KIND_JOYCON_LEFT = 8,
+        STURDY_GAMEPAD_KIND_JOYCON_RIGHT = 9,
+        STURDY_GAMEPAD_KIND_JOYCON_PAIR = 10,
+        STURDY_GAMEPAD_KIND_GAMECUBE = 11,
+        STURDY_GAMEPAD_KIND_STEAM = 12,
+    }
+
+    public enum SturdyGamepadSensor : int
+    {
+        STURDY_GAMEPAD_SENSOR_ACCELEROMETER = 0,
+        STURDY_GAMEPAD_SENSOR_GYROSCOPE = 1,
     }
 
     /// What kind of light a glTF file declared.
@@ -458,6 +571,15 @@ namespace Sturdy
         STURDY_LATENCY_MODE_ULTRA = 2,
     }
 
+    /// Which Linux blur route a `STURDY_WINDOW_EFFECT_BLUR` request takes.
+    public enum SturdyLinuxBlurProtocol : int
+    {
+        STURDY_LINUX_BLUR_AUTOMATIC = 0,
+        STURDY_LINUX_BLUR_EXT_BACKGROUND_EFFECT = 1,
+        STURDY_LINUX_BLUR_KDE_BLUR = 2,
+        STURDY_LINUX_BLUR_KDE_X11 = 3,
+    }
+
     /// Load/store behavior for a render pass attachment.
     public enum SturdyLoadOp : int
     {
@@ -477,12 +599,70 @@ namespace Sturdy
         STURDY_LOG_LEVEL_CRITICAL = 5,
     }
 
+    /// `NSAppearanceName` override for the effect view.
+    public enum SturdyMacAppearance : int
+    {
+        STURDY_MAC_APPEARANCE_INHERIT = 0,
+        STURDY_MAC_APPEARANCE_AQUA = 1,
+        STURDY_MAC_APPEARANCE_DARK_AQUA = 2,
+        STURDY_MAC_APPEARANCE_VIBRANT_LIGHT = 3,
+        STURDY_MAC_APPEARANCE_VIBRANT_DARK = 4,
+    }
+
+    /// `NSVisualEffectBlendingMode`.
+    public enum SturdyMacBlendingMode : int
+    {
+        STURDY_MAC_BLENDING_BEHIND_WINDOW = 0,
+        STURDY_MAC_BLENDING_WITHIN_WINDOW = 1,
+    }
+
+    /// `NSVisualEffectState`.
+    public enum SturdyMacEffectState : int
+    {
+        STURDY_MAC_STATE_FOLLOWS_WINDOW_ACTIVE_STATE = 0,
+        STURDY_MAC_STATE_ACTIVE = 1,
+        STURDY_MAC_STATE_INACTIVE = 2,
+    }
+
+    /// `NSGlassEffectViewStyle` (macOS 26).
+    public enum SturdyMacGlassStyle : int
+    {
+        STURDY_MAC_GLASS_REGULAR = 0,
+        STURDY_MAC_GLASS_CLEAR = 1,
+    }
+
+    /// `NSVisualEffectMaterial` (macOS 10.14 semantic materials), in the engine's own order.
+    public enum SturdyMacMaterial : int
+    {
+        STURDY_MAC_MATERIAL_TITLEBAR = 0,
+        STURDY_MAC_MATERIAL_SELECTION = 1,
+        STURDY_MAC_MATERIAL_MENU = 2,
+        STURDY_MAC_MATERIAL_POPOVER = 3,
+        STURDY_MAC_MATERIAL_SIDEBAR = 4,
+        STURDY_MAC_MATERIAL_HEADER_VIEW = 5,
+        STURDY_MAC_MATERIAL_SHEET = 6,
+        STURDY_MAC_MATERIAL_WINDOW_BACKGROUND = 7,
+        STURDY_MAC_MATERIAL_HUD_WINDOW = 8,
+        STURDY_MAC_MATERIAL_FULL_SCREEN_UI = 9,
+        STURDY_MAC_MATERIAL_TOOL_TIP = 10,
+        STURDY_MAC_MATERIAL_CONTENT_BACKGROUND = 11,
+        STURDY_MAC_MATERIAL_UNDER_WINDOW_BACKGROUND = 12,
+        STURDY_MAC_MATERIAL_UNDER_PAGE_BACKGROUND = 13,
+    }
+
     /// Where a buffer's backing memory lives.
     public enum SturdyMemoryLocation : int
     {
         STURDY_MEMORY_LOCATION_DEVICE_LOCAL = 0,
         STURDY_MEMORY_LOCATION_HOST_UPLOAD = 1,
         STURDY_MEMORY_LOCATION_HOST_READBACK = 2,
+    }
+
+    public enum SturdyMessageBoxKind : int
+    {
+        STURDY_MESSAGE_BOX_INFORMATION = 0,
+        STURDY_MESSAGE_BOX_WARNING = 1,
+        STURDY_MESSAGE_BOX_ERROR = 2,
     }
 
     public enum SturdyMipmapMode : int
@@ -833,6 +1013,36 @@ namespace Sturdy
         STURDY_TASK_HEAVY = 1,
     }
 
+    public enum SturdyTaskbarProgress : int
+    {
+        STURDY_TASKBAR_PROGRESS_NONE = 0,
+        STURDY_TASKBAR_PROGRESS_INDETERMINATE = 1,
+        STURDY_TASKBAR_PROGRESS_NORMAL = 2,
+        STURDY_TASKBAR_PROGRESS_PAUSED = 3,
+        STURDY_TASKBAR_PROGRESS_ERROR = 4,
+    }
+
+    public enum SturdyTextCapitalization : int
+    {
+        STURDY_TEXT_CAPITALIZATION_NONE = 0,
+        STURDY_TEXT_CAPITALIZATION_SENTENCES = 1,
+        STURDY_TEXT_CAPITALIZATION_WORDS = 2,
+        STURDY_TEXT_CAPITALIZATION_LETTERS = 3,
+    }
+
+    public enum SturdyTextInputType : int
+    {
+        STURDY_TEXT_INPUT_TEXT = 0,
+        STURDY_TEXT_INPUT_NAME = 1,
+        STURDY_TEXT_INPUT_EMAIL = 2,
+        STURDY_TEXT_INPUT_USERNAME = 3,
+        STURDY_TEXT_INPUT_PASSWORD_HIDDEN = 4,
+        STURDY_TEXT_INPUT_PASSWORD_VISIBLE = 5,
+        STURDY_TEXT_INPUT_NUMBER = 6,
+        STURDY_TEXT_INPUT_NUMBER_PASSWORD_HIDDEN = 7,
+        STURDY_TEXT_INPUT_NUMBER_PASSWORD_VISIBLE = 8,
+    }
+
     /// Dimensionality of a texture.
     public enum SturdyTextureDimension : int
     {
@@ -992,6 +1202,15 @@ namespace Sturdy
         STURDY_VERTEX_STEP_MODE_INSTANCE = 1,
     }
 
+    /// Windows 11 `DWM_WINDOW_CORNER_PREFERENCE`.
+    public enum SturdyWindowCornerPreference : int
+    {
+        STURDY_WINDOW_CORNER_DEFAULT = 0,
+        STURDY_WINDOW_CORNER_DO_NOT_ROUND = 1,
+        STURDY_WINDOW_CORNER_ROUND = 2,
+        STURDY_WINDOW_CORNER_ROUND_SMALL = 3,
+    }
+
     /// Platform-composited visual effect a window can request. Support is OS-dependent — an effect this platform cannot render (e.g. Mica off Windows 11) is rejected with `STURDY_ERROR_NOT_AVAILABLE` rather than silently ignored.
     public enum SturdyWindowEffectKind : int
     {
@@ -1005,6 +1224,73 @@ namespace Sturdy
         STURDY_WINDOW_EFFECT_CAPTION_COLOR = 7,
         STURDY_WINDOW_EFFECT_TEXT_COLOR = 8,
         STURDY_WINDOW_EFFECT_TRANSPARENT = 9,
+        STURDY_WINDOW_EFFECT_BACKDROP_AUTO = 10,
+        STURDY_WINDOW_EFFECT_BACKDROP_NONE = 11,
+        STURDY_WINDOW_EFFECT_ACCENT_BLUR = 12,
+        STURDY_WINDOW_EFFECT_ACCENT_ACRYLIC = 13,
+        STURDY_WINDOW_EFFECT_CORNER_PREFERENCE = 14,
+        STURDY_WINDOW_EFFECT_VISUAL_EFFECT = 15,
+        STURDY_WINDOW_EFFECT_OPACITY = 16,
+        STURDY_WINDOW_EFFECT_TRANSITIONS_DISABLED = 17,
+        STURDY_WINDOW_EFFECT_TITLEBAR_TRANSPARENT = 18,
+        STURDY_WINDOW_EFFECT_WINDOW_SHADOW = 19,
+        STURDY_WINDOW_EFFECT_GLASS_EFFECT = 20,
+        STURDY_WINDOW_EFFECT_CORNER_RADIUS = 21,
+    }
+
+    public enum SturdyWindowErrorKind : int
+    {
+        STURDY_WINDOW_ERROR_NONE = 0,
+        STURDY_WINDOW_ERROR_UNSUPPORTED = 1,
+        STURDY_WINDOW_ERROR_INVALID_ARGUMENT = 2,
+        STURDY_WINDOW_ERROR_FAILED = 3,
+    }
+
+    /// A capability a window may or may not have on this provider, OS and session type.
+    public enum SturdyWindowFeature : int
+    {
+        STURDY_WINDOW_FEATURE_ALWAYS_ON_TOP = 0,
+        STURDY_WINDOW_FEATURE_ASPECT_RATIO = 1,
+        STURDY_WINDOW_FEATURE_MOUSE_PASSTHROUGH = 2,
+        STURDY_WINDOW_FEATURE_FOCUSABLE = 3,
+        STURDY_WINDOW_FEATURE_AUTO_MINIMIZE_ON_FOCUS_LOSS = 4,
+        STURDY_WINDOW_FEATURE_PARENT_WINDOW = 5,
+        STURDY_WINDOW_FEATURE_MODAL_WINDOW = 6,
+        STURDY_WINDOW_FEATURE_KEYBOARD_GRAB = 7,
+        STURDY_WINDOW_FEATURE_MOUSE_CONFINE_RECT = 8,
+        STURDY_WINDOW_FEATURE_WARP_CURSOR = 9,
+        STURDY_WINDOW_FEATURE_CUSTOM_CURSOR = 10,
+        STURDY_WINDOW_FEATURE_FRAME_EXTENTS = 11,
+        STURDY_WINDOW_FEATURE_SAFE_AREA = 12,
+        STURDY_WINDOW_FEATURE_FULLSCREEN_TARGET = 13,
+        STURDY_WINDOW_FEATURE_TEXT_INPUT_OPTIONS = 14,
+        STURDY_WINDOW_FEATURE_SCREEN_KEYBOARD = 15,
+        STURDY_WINDOW_FEATURE_CLIPBOARD_MIME_TYPES = 16,
+        STURDY_WINDOW_FEATURE_TYPED_CLIPBOARD = 17,
+        STURDY_WINDOW_FEATURE_HIT_TEST_REGIONS = 18,
+        STURDY_WINDOW_FEATURE_SYSTEM_MENU = 19,
+        STURDY_WINDOW_FEATURE_WINDOW_ICON = 20,
+        STURDY_WINDOW_FEATURE_REQUEST_ATTENTION = 21,
+        STURDY_WINDOW_FEATURE_TASKBAR_PROGRESS = 22,
+        STURDY_WINDOW_FEATURE_SYSTEM_THEME = 23,
+        STURDY_WINDOW_FEATURE_DISPLAY_LIST = 24,
+        STURDY_WINDOW_FEATURE_DISPLAY_MODES = 25,
+        STURDY_WINDOW_FEATURE_DISPLAY_EVENTS = 26,
+        STURDY_WINDOW_FEATURE_LIVE_RESIZE_CALLBACK = 27,
+        STURDY_WINDOW_FEATURE_WAIT_FOR_EVENTS = 28,
+        STURDY_WINDOW_FEATURE_FILE_DROP = 29,
+        STURDY_WINDOW_FEATURE_TEXT_DROP = 30,
+        STURDY_WINDOW_FEATURE_WINDOW_TYPE_HINT = 31,
+        STURDY_WINDOW_FEATURE_WINDOW_SHAPE = 32,
+        STURDY_WINDOW_FEATURE_ANIMATED_CURSOR = 33,
+        STURDY_WINDOW_FEATURE_KEYBOARD_QUERY = 34,
+        STURDY_WINDOW_FEATURE_WARP_CURSOR_GLOBAL = 35,
+        STURDY_WINDOW_FEATURE_MOUSE_CAPTURE = 36,
+        STURDY_WINDOW_FEATURE_ICC_PROFILE = 37,
+        STURDY_WINDOW_FEATURE_SYSTEM_TRAY = 38,
+        STURDY_WINDOW_FEATURE_TOUCH_INPUT = 39,
+        STURDY_WINDOW_FEATURE_PEN_INPUT = 40,
+        STURDY_WINDOW_FEATURE_COUNT = 41,
     }
 
     /// Presentation mode of a window.
@@ -1015,12 +1301,78 @@ namespace Sturdy
         STURDY_WINDOW_MODE_EXCLUSIVE_FULLSCREEN = 2,
     }
 
+    /// Each operation a window can be asked to run; the key to `sturdy_window_operation_status`.
+    public enum SturdyWindowOperation : int
+    {
+        STURDY_WINDOW_OP_TITLE = 0,
+        STURDY_WINDOW_OP_POSITION = 1,
+        STURDY_WINDOW_OP_SIZE = 2,
+        STURDY_WINDOW_OP_MINIMUM_SIZE = 3,
+        STURDY_WINDOW_OP_MAXIMUM_SIZE = 4,
+        STURDY_WINDOW_OP_RESIZABLE = 5,
+        STURDY_WINDOW_OP_OPACITY = 6,
+        STURDY_WINDOW_OP_MAXIMIZE = 7,
+        STURDY_WINDOW_OP_MINIMIZE = 8,
+        STURDY_WINDOW_OP_RESTORE = 9,
+        STURDY_WINDOW_OP_RAISE = 10,
+        STURDY_WINDOW_OP_FOCUS = 11,
+        STURDY_WINDOW_OP_SHOW = 12,
+        STURDY_WINDOW_OP_HIDE = 13,
+        STURDY_WINDOW_OP_ALWAYS_ON_TOP = 14,
+        STURDY_WINDOW_OP_ASPECT_RATIO = 15,
+        STURDY_WINDOW_OP_MOUSE_PASSTHROUGH = 16,
+        STURDY_WINDOW_OP_FOCUSABLE = 17,
+        STURDY_WINDOW_OP_AUTO_MINIMIZE = 18,
+        STURDY_WINDOW_OP_PARENT = 19,
+        STURDY_WINDOW_OP_KEYBOARD_GRAB = 20,
+        STURDY_WINDOW_OP_MOUSE_CONFINE_RECT = 21,
+        STURDY_WINDOW_OP_CURSOR_POSITION = 22,
+        STURDY_WINDOW_OP_GLOBAL_CURSOR_POSITION = 23,
+        STURDY_WINDOW_OP_MOUSE_CAPTURE = 24,
+        STURDY_WINDOW_OP_CUSTOM_CURSOR = 25,
+        STURDY_WINDOW_OP_ANIMATED_CURSOR = 26,
+        STURDY_WINDOW_OP_CLEAR_CUSTOM_CURSOR = 27,
+        STURDY_WINDOW_OP_TEXT_INPUT_OPTIONS = 28,
+        STURDY_WINDOW_OP_FULLSCREEN_TARGET = 29,
+        STURDY_WINDOW_OP_WINDOW_TYPE = 30,
+        STURDY_WINDOW_OP_SHAPE = 31,
+        STURDY_WINDOW_OP_DISPLAY_GAMMA = 32,
+        STURDY_WINDOW_OP_ICON = 33,
+        STURDY_WINDOW_OP_ATTENTION = 34,
+        STURDY_WINDOW_OP_TASKBAR_PROGRESS = 35,
+        STURDY_WINDOW_OP_HIT_TEST_REGIONS = 36,
+        STURDY_WINDOW_OP_SYSTEM_MENU = 37,
+        STURDY_WINDOW_OP_CLIPBOARD_TEXT = 38,
+        STURDY_WINDOW_OP_SET_CLIPBOARD_TEXT = 39,
+        STURDY_WINDOW_OP_CLIPBOARD_MIME_TYPES = 40,
+        STURDY_WINDOW_OP_CLIPBOARD_DATA = 41,
+        STURDY_WINDOW_OP_SET_CLIPBOARD_DATA = 42,
+        STURDY_WINDOW_OP_KEY_NAME = 43,
+        STURDY_WINDOW_OP_KEY_DOWN = 44,
+        STURDY_WINDOW_OP_ICC_PROFILE = 45,
+        STURDY_WINDOW_OP_FILE_DIALOG = 46,
+        STURDY_WINDOW_OP_MESSAGE_BOX = 47,
+        STURDY_WINDOW_OP_COUNT = 48,
+    }
+
     /// Which kind of window request a `SturdyWindowRequestCompletion` reports the outcome of.
     public enum SturdyWindowRequestKind : int
     {
         STURDY_WINDOW_REQUEST_SPAWN = 0,
         STURDY_WINDOW_REQUEST_RECREATE_PRIMARY = 1,
         STURDY_WINDOW_REQUEST_CLOSE = 2,
+    }
+
+    /// How the window manager should treat a window.
+    public enum SturdyWindowType : int
+    {
+        STURDY_WINDOW_TYPE_NORMAL = 0,
+        STURDY_WINDOW_TYPE_UTILITY = 1,
+        STURDY_WINDOW_TYPE_TOOLTIP = 2,
+        STURDY_WINDOW_TYPE_POPUP_MENU = 3,
+        STURDY_WINDOW_TYPE_DROPDOWN_MENU = 4,
+        STURDY_WINDOW_TYPE_DIALOG = 5,
+        STURDY_WINDOW_TYPE_SPLASH = 6,
     }
 
     /// Handle to an acceleration structure. See the "Ray tracing" section header for its lifetime rules.
@@ -1680,6 +2032,14 @@ namespace Sturdy
         public byte shutdown_writer;
     }
 
+    /// One frame of an animated cursor: tightly packed RGBA8 (`width * height * 4` bytes, the size given to the call).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyCursorFrame
+    {
+        public byte* rgba;
+        public uint duration_ms;
+    }
+
     /// The engine's raw D3D12 objects.
     ///
     /// Fields are `void *` for the same reason as `SturdyVulkanHandles`, and carry the same borrowing rules. These pointers are **not** `AddRef`'d on your behalf: call `AddRef` yourself if you intend to hold one past the call.
@@ -1783,6 +2143,45 @@ namespace Sturdy
         public fixed byte reserved[2];
     }
 
+    /// An integer rectangle in window or desktop coordinates (origin top-left).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyWindowRect
+    {
+        public int x;
+        public int y;
+        public int width;
+        public int height;
+    }
+
+    /// One video mode of a display.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDisplayMode
+    {
+        public uint width;
+        public uint height;
+        public float refresh_rate_hz;
+        public float pixel_density;
+    }
+
+    /// One connected monitor. Read with `sturdy_display_get`; the name and the modes come from their own calls.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyDisplayInfo
+    {
+        public uint struct_size;
+        public uint id;
+        public SturdyWindowRect bounds;
+        public SturdyWindowRect usable_bounds;
+        public float content_scale;
+        public float refresh_rate_hz;
+        public byte hdr_enabled;
+        public byte primary;
+        public SturdyDisplayMode current_mode;
+        public uint mode_count;
+        public uint physical_width_mm;
+        public uint physical_height_mm;
+        public SturdyDisplayOrientation orientation;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyDrawArgs
     {
@@ -1830,6 +2229,14 @@ namespace Sturdy
         public uint generation;
     }
 
+    /// Whether a feature is available, with the reason when it is not (or only partly). `note` is a static string owned by the engine: it stays valid for the life of the process; it is empty when the feature is fully supported.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyFeatureSupport
+    {
+        public byte supported;
+        public byte* note;
+    }
+
     /// Handle to a fence: a GPU-to-host synchronization primitive signaled when a submission completes. See the "RHI resources" section header for its lifetime rules.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyFence
@@ -1847,6 +2254,27 @@ namespace Sturdy
         public byte* label;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyFileDialogOptions
+    {
+        public uint struct_size;
+        public SturdyFileDialogKind kind;
+        public byte* title;
+        public byte* accept_label;
+        public byte* cancel_label;
+        public byte* default_location;
+        public SturdyFileFilter* filters;
+        public uint filter_count;
+        public byte allow_multiple;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyFileFilter
+    {
+        public byte* name;
+        public byte* pattern;
+    }
+
     /// Borrowed reference to the render-frame parameters being built for the current frame.
     ///
     /// Same scope and reuse rules as `SturdyEngine`. Valid only inside `request_render_frame`.
@@ -1854,6 +2282,16 @@ namespace Sturdy
     public unsafe struct SturdyFrame
     {
         public ulong token;
+    }
+
+    /// The decoration thickness around the client area, in window units.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyFrameExtents
+    {
+        public int left;
+        public int top;
+        public int right;
+        public int bottom;
     }
 
     /// Per-frame timing and surface geometry, supplied by the engine to `request_render_frame`.
@@ -1870,6 +2308,16 @@ namespace Sturdy
         public uint framebuffer_height;
         public byte live_resize;
         public fixed byte reserved_tail[7];
+    }
+
+    /// The display and mode a fullscreen window uses. Unset fields mean "the window's current display" / "the desktop mode".
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyFullscreenTarget
+    {
+        public byte has_display;
+        public uint display_id;
+        public byte has_mode;
+        public SturdyDisplayMode mode;
     }
 
     /// Callbacks implementing your application, mirroring the C++ `Engine::GameLogic` interface.
@@ -1898,6 +2346,54 @@ namespace Sturdy
         public byte contributes_scene;
         public fixed byte reserved[7];
         public SturdyGameLogic logic;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyGamepadEvent
+    {
+        public SturdyGamepadEventKind kind;
+        public uint id;
+    }
+
+    /// One mapped gamepad as it is this tick; the masks hold the buttons that changed since the last tick.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyGamepadFrame
+    {
+        public uint id;
+        public uint buttons;
+        public uint pressed_this_tick;
+        public uint released_this_tick;
+        public fixed float axes[6];
+    }
+
+    /// One connected device. Read with `sturdy_gamepad_get`; the name comes from `sturdy_gamepad_name`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyGamepadInfo
+    {
+        public uint struct_size;
+        public uint id;
+        public SturdyGamepadKind kind;
+        public ushort vendor;
+        public ushort product;
+        public SturdyGamepadConnection connection;
+        public int player_index;
+        public byte mapped;
+        public byte has_rumble;
+        public byte has_trigger_rumble;
+        public byte has_led;
+        public byte has_accelerometer;
+        public byte has_gyroscope;
+        public byte has_touchpad;
+        public int battery_percent;
+        public byte charging;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyGamepadState
+    {
+        public uint struct_size;
+        public uint buttons;
+        public fixed float axes[6];
     }
 
     /// A pipeline barrier with no specific resource — orders every matching access before/after it.
@@ -2008,6 +2504,19 @@ namespace Sturdy
         public SturdyHdrTransferFunction transfer;
         public SturdyHdrColorGamut gamut;
         public byte requires_os_hdr_mode;
+    }
+
+    /// Rectangles of a custom title bar; see `sturdy_window_set_hit_test_regions`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyHitTestRegions
+    {
+        public uint struct_size;
+        public byte enabled;
+        public uint resize_border;
+        public SturdyWindowRect* drag;
+        public uint drag_count;
+        public SturdyWindowRect* no_drag;
+        public uint no_drag_count;
     }
 
     /// How to verify a server (client side of TLS/QUIC/HTTPS/WSS). Chain and host name are always checked unless `pinned_sha256` names the exact certificate(s) accepted.
@@ -2162,6 +2671,19 @@ namespace Sturdy
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyMessageBoxOptions
+    {
+        public uint struct_size;
+        public SturdyMessageBoxKind kind;
+        public byte* title;
+        public byte* message;
+        public byte** buttons;
+        public uint button_count;
+        public int default_button;
+        public int escape_button;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyMotionBlurSettings
     {
         public uint struct_size;
@@ -2289,6 +2811,29 @@ namespace Sturdy
         public ushort discovery_port;
         public byte* discovery_group;
         public long discovery_interval_ms;
+    }
+
+    /// One pen. Listed while in range, and for the tick it left range in.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyPenPoint
+    {
+        public ulong window;
+        public uint pen;
+        public float x;
+        public float y;
+        public byte in_range;
+        public byte down;
+        public byte eraser;
+        public byte just_down;
+        public byte just_up;
+        public float pressure;
+        public float x_tilt;
+        public float y_tilt;
+        public float distance;
+        public float rotation;
+        public float slider;
+        public float tangential_pressure;
+        public uint buttons;
     }
 
     /// Describes a pipeline layout to create.
@@ -3160,6 +3705,17 @@ namespace Sturdy
         public float cursor_offset_x;
     }
 
+    /// What kind of text a field takes, for IMEs and on-screen keyboards. Populate with `sturdy_text_input_options_init`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTextInputOptions
+    {
+        public uint struct_size;
+        public SturdyTextInputType type;
+        public SturdyTextCapitalization capitalization;
+        public byte autocorrect;
+        public byte multiline;
+    }
+
     /// Handle to a GPU texture. See the "RHI resources" section header for its lifetime rules.
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyTexture
@@ -3274,6 +3830,24 @@ namespace Sturdy
         public fixed float psychov_background_gray_bt709[3];
     }
 
+    /// One finger on a touch screen or pad. A lifted finger is listed for the tick it lifted in, then disappears.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTouchPoint
+    {
+        public ulong window;
+        public ulong device;
+        public ulong finger;
+        public float x;
+        public float y;
+        public float dx;
+        public float dy;
+        public float pressure;
+        public byte down;
+        public byte just_pressed;
+        public byte just_released;
+        public byte cancelled;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct SturdyTraceFrame
     {
@@ -3298,6 +3872,26 @@ namespace Sturdy
         public uint width;
         public uint height;
         public uint depth;
+    }
+
+    /// A notification-area / menu-bar icon. Owned: lives until `sturdy_tray_destroy`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTray
+    {
+        public ulong token;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyTrayEntry
+    {
+        public uint id;
+        public byte* label;
+        public byte separator;
+        public byte checkable;
+        public byte @checked;
+        public byte enabled;
+        public SturdyTrayEntry* submenu;
+        public uint submenu_count;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -3601,6 +4195,74 @@ namespace Sturdy
         public byte high_dpi;
         public byte transparent;
         public SturdyWindowMode mode;
+    }
+
+    /// Creation-time window behaviour, for `sturdy_window_spawn_ex`. Populate with `sturdy_window_creation_options_init`.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyWindowCreationOptions
+    {
+        public uint struct_size;
+        public byte always_on_top;
+        public byte maximized;
+        public byte minimized;
+        public byte focusable;
+        public byte mouse_passthrough;
+        public byte has_auto_minimize;
+        public byte auto_minimize_on_focus_loss;
+        public SturdyWindowType window_type;
+        public byte has_parent;
+        public SturdySurface parent;
+        public byte modal;
+        public uint min_width;
+        public uint min_height;
+        public uint max_width;
+        public uint max_height;
+        public float aspect_min;
+        public float aspect_max;
+        public SturdyFullscreenTarget fullscreen_target;
+    }
+
+    /// Everything beyond kind and on/off for `sturdy_window_set_effect_ex`. Populate with `sturdy_window_effect_options_init` first: that sets `struct_size` and the defaults (full opacity, all accent borders, the platform's own look). Each field applies to specific effects and is ignored by the rest.
+    ///
+    /// Blur regions are not part of this struct: a blur covers the whole window (optionally with rounded corners).
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyWindowEffectOptions
+    {
+        public uint struct_size;
+        public SturdyLinuxBlurProtocol linux_blur_protocol;
+        public uint color_argb;
+        public float blur_corner_radius;
+        public uint tint_argb;
+        public byte accent_border_left;
+        public byte accent_border_top;
+        public byte accent_border_right;
+        public byte accent_border_bottom;
+        public byte hide_border;
+        public SturdyWindowCornerPreference corner_preference;
+        public SturdyMacMaterial mac_material;
+        public SturdyMacBlendingMode mac_blending;
+        public SturdyMacEffectState mac_state;
+        public byte mac_emphasized;
+        public SturdyMacAppearance mac_appearance;
+        public SturdyMacGlassStyle mac_glass_style;
+        public float mac_glass_corner_radius;
+        public float opacity;
+        public float window_corner_radius;
+    }
+
+    /// The outcome of the last run of one operation on one window.
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct SturdyWindowOperationStatus
+    {
+        public uint struct_size;
+        public byte completed;
+        public byte ok;
+        public SturdyWindowErrorKind error;
+        public byte flag;
+        public uint text_length;
+        public uint bytes_size;
+        public uint list_count;
+        public int number;
     }
 
     /// Outcome of one completed window request: `sturdy_window_spawn`, `sturdy_window_recreate_primary`, or `sturdy_window_request_close`.
@@ -4076,6 +4738,25 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_depth_of_field_settings_init(SturdyDepthOfFieldSettings* settings);
 
+        /// Delivers tray clicks for a program whose windows are not pumping SDL. Cheap when no tray exists.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_desktop_pump_events();
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_desktop_screensaver_enabled(byte* out_enabled);
+
+        /// Allows or inhibits the screen saver / display blanking (games turn it off).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_desktop_set_screensaver_enabled(byte enabled);
+
+        /// Opens a file or folder dialog and returns at once; `callback` reports the outcome.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_desktop_show_file_dialog(SturdyEngine engine, SturdyFileDialogOptions* options, delegate* unmanaged[Cdecl]<void*, byte**, uint, int, byte, byte*, void> callback, void* user);
+
+        /// Shows a message box and blocks until it is dismissed; writes the pressed button's index (or -1). Main thread only.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_desktop_show_message_box(SturdyEngine engine, SturdyMessageBoxOptions* options, int* out_button);
+
         /// Walks a directory entry by entry. Object "dir_iter".
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_dir_iter_create(byte* path, byte recursive, SturdyAsyncObject* out_iter);
@@ -4083,6 +4764,21 @@ namespace Sturdy
         /// Number: 1 and text: the next path, or number 0 at the end.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_dir_iter_next(SturdyAsyncObject iter, SturdyAsyncOp* out_op);
+
+        /// How many monitors are connected (refreshed when the window system reports a change).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_display_count(SturdyEngine engine, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_display_get(SturdyEngine engine, uint index, SturdyDisplayInfo* out_info);
+
+        /// Mode `mode_index` (below `SturdyDisplayInfo::mode_count`) of monitor `index`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_display_mode(SturdyEngine engine, uint index, uint mode_index, SturdyDisplayMode* out_mode);
+
+        /// The monitor's name. See the string-output convention above.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_display_name(SturdyEngine engine, uint index, byte* buffer, ulong capacity, ulong* out_length);
 
         /// Resolves a host name. Fields: one `address` per result (numeric text).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -4566,6 +5262,53 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_fs_write_file(byte* path, byte* data, ulong size, byte append, SturdyAsyncOp* out_op);
 
+        /// How many devices are connected (also starts the joystick subsystem on first use).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_count(uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_get(uint index, SturdyGamepadInfo* out_info);
+
+        /// The device's name. See the string-output convention above.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_name(uint index, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// How many axes, buttons and hats a device reports raw.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_raw_counts(uint id, uint* out_axes, uint* out_buttons, uint* out_hats);
+
+        /// A device as the hardware reports it. Each buffer may be null; axes are -1 to 1, buttons 0/1, hats a bit set (1 up, 2 right, 4 down, 8 left).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_raw_read(uint id, float* axes, uint axes_capacity, byte* buttons, uint buttons_capacity, byte* hats, uint hats_capacity);
+
+        /// Motor strengths are 0..1; the rumble stops after `duration_ms`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_rumble(uint id, float low_frequency, float high_frequency, uint duration_ms);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_rumble_triggers(uint id, float left, float right, uint duration_ms);
+
+        /// x, y, z of an enabled sensor (m/s^2 for the accelerometer, rad/s for the gyroscope).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_sensor(uint id, SturdyGamepadSensor sensor, float* out_xyz);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_set_led(uint id, byte red, byte green, byte blue);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_set_player_index(uint id, int player_index);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_set_sensor_enabled(uint id, SturdyGamepadSensor sensor, byte enabled);
+
+        /// The current state of a mapped gamepad (`STURDY_ERROR_NOT_AVAILABLE` for an unknown or unmapped device).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_state(uint id, SturdyGamepadState* out_state);
+
+        /// Devices connected or disconnected since the last call: writes up to `capacity` events and sets `*out_count`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_gamepad_take_events(SturdyGamepadEvent* events, uint capacity, uint* out_count);
+
         /// Imports a glTF or GLB file, creating a model asset for every mesh it contains.
         ///
         /// Importing does not put anything in the world — it produces assets and a description of how the file arranged them. Call `sturdy_gltf_spawn_all` to reproduce that arrangement, or walk the instances yourself if you want to filter or re-place them.
@@ -4726,6 +5469,35 @@ namespace Sturdy
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_http_server_stop(SturdyAsyncObject server);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_gamepad_count(SturdyEngine engine, uint* out_count);
+
+        /// Pads plugged or unplugged since the previous tick.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_gamepad_event_count(SturdyEngine engine, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_gamepad_event_get(SturdyEngine engine, uint index, SturdyGamepadEvent* out_event);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_gamepad_get(SturdyEngine engine, uint index, SturdyGamepadFrame* out_frame);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_pen_count(SturdyEngine engine, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_pen_get(SturdyEngine engine, uint index, SturdyPenPoint* out_point);
+
+        /// Starts (or stops) sampling gamepads every tick. Off by default.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_set_gamepads_enabled(SturdyEngine engine, byte enabled);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_touch_count(SturdyEngine engine, uint* out_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_input_touch_get(SturdyEngine engine, uint index, SturdyTouchPoint* out_point);
 
         /// A periodic timer that does not drift. Object "interval"; `sturdy_interval_tick` finishes at each period boundary.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -6724,6 +7496,9 @@ namespace Sturdy
         public static extern SturdyResult sturdy_tcp_start_tls_server(SturdyAsyncObject connection, SturdyTlsServerOptions* tls, SturdyAsyncOp* out_op);
 
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_text_input_options_init(SturdyTextInputOptions* options);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_thread_pin_current(uint core_index, byte* out_pinned);
 
         /// Reads the time step for the current tick, after the time scale is applied.
@@ -6797,6 +7572,23 @@ namespace Sturdy
         /// Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_trace_set_foreign_call_site(byte* language, uint language_length, byte* file, uint file_length, uint line, uint column, byte* function, uint function_length);
+
+        /// Creates a tray icon (RGBA8 `width * height * 4` bytes) with a menu. Fails with `STURDY_ERROR_NOT_AVAILABLE` when the system has no tray.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tray_create(SturdyEngine engine, uint width, uint height, byte* rgba, byte* tooltip, SturdyTrayEntry* entries, uint entry_count, delegate* unmanaged[Cdecl]<void*, uint, void> callback, void* user, SturdyTray* out_tray);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tray_destroy(SturdyTray tray);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tray_set_icon(SturdyTray tray, uint width, uint height, byte* rgba);
+
+        /// Replaces the whole menu.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tray_set_menu(SturdyTray tray, SturdyTrayEntry* entries, uint entry_count);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_tray_set_tooltip(SturdyTray tray, byte* tooltip);
 
         /// "host:port" the socket is bound to, following the string-output convention.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -7072,6 +7864,9 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_websocket_server_port(SturdyAsyncObject server, ushort* out_port);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_clear_custom_cursor(SturdyEngine engine, SturdySurface surface);
+
         /// Fills `config` with the engine's default window configuration (1280x720, windowed, decorated, visible, resizable, OS-placed).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_config_init(SturdyWindowConfig* config);
@@ -7084,13 +7879,85 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_count(SturdyEngine engine, uint* out_count);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_creation_options_init(SturdyWindowCreationOptions* options);
+
+        /// The display the window is mostly on; `*out_has_display` is false when the provider cannot say.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_display_id(SturdyEngine engine, SturdySurface surface, byte* out_has_display, uint* out_display_id);
+
+        /// Fills `options` with the defaults and the correct `struct_size`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_effect_options_init(SturdyWindowEffectOptions* options);
+
+        /// Whether, and how fully, a window supports a feature. Reads the snapshot, so it is current as of the last frame.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_feature(SturdyEngine engine, SturdySurface surface, SturdyWindowFeature feature, SturdyFeatureSupport* out_support);
+
         /// Reads the window a surface belongs to.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_find(SturdyEngine engine, SturdySurface surface, SturdyWindowSnapshot* out_snapshot);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_focus(SturdyEngine engine, SturdySurface surface);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_frame_extents(SturdyEngine engine, SturdySurface surface, SturdyFrameExtents* out_extents);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_hide(SturdyEngine engine, SturdySurface surface);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_maximize(SturdyEngine engine, SturdySurface surface);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_minimize(SturdyEngine engine, SturdySurface surface);
+
+        /// A query's byte output: writes up to `capacity` bytes and sets `*out_size` to the full size.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_operation_bytes(SturdyEngine engine, SturdySurface surface, SturdyWindowOperation operation, byte* buffer, ulong capacity, ulong* out_size);
+
+        /// Entry `index` of a query's list output. See the string-output convention above.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_operation_list_item(SturdyEngine engine, SturdySurface surface, SturdyWindowOperation operation, uint index, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// The platform's message for a failed operation. See the string-output convention above.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_operation_message(SturdyEngine engine, SturdySurface surface, SturdyWindowOperation operation, byte* buffer, ulong capacity, ulong* out_length);
+
+        /// The outcome of the last run of `operation` on a window. `completed` is false until it has run.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_operation_status(SturdyEngine engine, SturdySurface surface, SturdyWindowOperation operation, SturdyWindowOperationStatus* out_status);
+
+        /// A query's text output. See the string-output convention above.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_operation_text(SturdyEngine engine, SturdySurface surface, SturdyWindowOperation operation, byte* buffer, ulong capacity, ulong* out_length);
+
         /// Reads the primary window.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_primary(SturdyEngine engine, SturdyWindowSnapshot* out_snapshot);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_query_clipboard_data(SturdyEngine engine, SturdySurface surface, byte* mime_type);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_query_clipboard_mime_types(SturdyEngine engine, SturdySurface surface);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_query_clipboard_text(SturdyEngine engine, SturdySurface surface);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_query_icc_profile(SturdyEngine engine, SturdySurface surface);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_query_key_down(SturdyEngine engine, SturdySurface surface, int key);
+
+        /// Asks for a key's name on the current layout. `key` is the `key_code` value input events report.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_query_key_name(SturdyEngine engine, SturdySurface surface, int key);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_raise(SturdyEngine engine, SturdySurface surface);
 
         /// Requests that the primary window be destroyed and recreated with a new configuration — changing decorations or transparency after creation on a platform where the window must be recreated to do so, for instance.
         ///
@@ -7098,11 +7965,41 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_recreate_primary(SturdyEngine engine, SturdyWindowConfig* config, ulong* out_request_id);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_request_attention(SturdyEngine engine, SturdySurface surface, SturdyAttentionRequest request);
+
         /// Requests that a window close.
         ///
         /// Queued rather than immediate: the engine applies window changes at a defined point in the frame so a request made from a render callback cannot destroy the window being drawn. Every function in this section behaves that way.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_request_close(SturdyEngine engine, SturdySurface surface, ulong* out_request_id);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_restore(SturdyEngine engine, SturdySurface surface);
+
+        /// The part of the client area not under notches or system bars (the whole area on desktops).
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_safe_area(SturdyEngine engine, SturdySurface surface, SturdyWindowRect* out_area);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_always_on_top(SturdyEngine engine, SturdySurface surface, byte enabled);
+
+        /// A cursor cycling through `frame_count` same-sized frames; the hot spot is shared by every frame.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_animated_cursor(SturdyEngine engine, SturdySurface surface, uint width, uint height, SturdyCursorFrame* frames, uint frame_count, int hot_x, int hot_y);
+
+        /// Constrains resizing to width/height ratios in [min, max]; 0 and 0 remove the constraint. GLFW holds one exact ratio.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_aspect_ratio(SturdyEngine engine, SturdySurface surface, float min_ratio, float max_ratio);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_auto_minimize_on_focus_loss(SturdyEngine engine, SturdySurface surface, byte enabled);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_clipboard_data(SturdyEngine engine, SturdySurface surface, byte* mime_type, byte* bytes, ulong size);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_clipboard_text(SturdyEngine engine, SturdySurface surface, byte* text);
 
         /// Requests that a window grab (confine) or release the cursor at the OS level.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -7112,9 +8009,20 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_set_cursor_icon(SturdyEngine engine, SturdySurface surface, SturdyCursorIcon icon);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_cursor_position(SturdyEngine engine, SturdySurface surface, int x, int y);
+
+        /// A cursor drawn from an RGBA8 image (`width * height * 4` bytes) with its hot spot in image pixels.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_custom_cursor(SturdyEngine engine, SturdySurface surface, uint width, uint height, byte* rgba, int hot_x, int hot_y);
+
         /// Requests that a window show or hide its system decorations.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_set_decorated(SturdyEngine engine, SturdySurface surface, byte decorated);
+
+        /// Sets a display's gamma (1.0 = unchanged); `has_display` false uses the window's display.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_display_gamma(SturdyEngine engine, SturdySurface surface, byte has_display, uint display_id, float gamma);
 
         /// Requests a platform-composited visual effect for a window (Windows' Mica/Acrylic/blur, etc.).
         ///
@@ -7122,17 +8030,79 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_set_effect(SturdyEngine engine, SturdySurface surface, SturdyWindowEffectKind kind, byte enabled);
 
+        /// `sturdy_window_set_effect` with every per-effect setting: colours, tint, corner preference, opacity, the macOS material and glass options, and the Linux blur protocol. `options` may be null for the defaults. Queued the same way.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_effect_ex(SturdyEngine engine, SturdySurface surface, SturdyWindowEffectKind kind, byte enabled, SturdyWindowEffectOptions* options);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_focusable(SturdyEngine engine, SturdySurface surface, byte enabled);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_fullscreen_target(SturdyEngine engine, SturdySurface surface, SturdyFullscreenTarget* target);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_global_cursor_position(SturdyEngine engine, SturdySurface surface, int x, int y);
+
+        /// Installs (or, with `enabled` false, removes) the drag and resize regions of a custom title bar.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_hit_test_regions(SturdyEngine engine, SturdySurface surface, SturdyHitTestRegions* regions);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_icon(SturdyEngine engine, SturdySurface surface, uint width, uint height, byte* rgba);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_keyboard_grab(SturdyEngine engine, SturdySurface surface, byte enabled);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_maximum_size(SturdyEngine engine, SturdySurface surface, uint width, uint height);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_minimum_size(SturdyEngine engine, SturdySurface surface, uint width, uint height);
+
         /// Requests a windowed/fullscreen mode change.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_set_mode(SturdyEngine engine, SturdySurface surface, SturdyWindowMode mode);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_mouse_capture(SturdyEngine engine, SturdySurface surface, byte enabled);
+
+        /// Confines the cursor to a client-area rectangle; null releases it.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_mouse_confine_rect(SturdyEngine engine, SturdySurface surface, SturdyWindowRect* rect);
 
         /// Requests that a window confine the cursor to its bounds while keeping it visible at an absolute position — see `SturdyWindowSnapshot::mouse_locked` for the resulting state. Distinct from `sturdy_window_set_relative_mouse_mode`, which also hides the cursor and switches to unbounded motion deltas.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_set_mouse_locked(SturdyEngine engine, SturdySurface surface, byte locked);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_mouse_passthrough(SturdyEngine engine, SturdySurface surface, byte enabled);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_opacity(SturdyEngine engine, SturdySurface surface, float opacity);
+
+        /// Makes the window a child of `parent`; null detaches. A modal child blocks its parent where the system allows.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_parent(SturdyEngine engine, SturdySurface surface, SturdySurface* parent, byte modal);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_position(SturdyEngine engine, SturdySurface surface, int x, int y);
+
         /// Requests relative mouse mode (the OS cursor is hidden and confined, and mouse motion reports as unbounded deltas instead of absolute position) for a window — the mode a first-person camera or any other mouse-look control needs. See `SturdyWindowSnapshot::mouse_locked` and `sturdy_engine_mouse_delta` for reading the resulting state and motion.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_set_relative_mouse_mode(SturdyEngine engine, SturdySurface surface, byte enabled);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_resizable(SturdyEngine engine, SturdySurface surface, byte resizable);
+
+        /// A non-rectangular outline from `width * height` coverage bytes (above 127 = inside). Null `coverage` restores the rectangle.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_shape(SturdyEngine engine, SturdySurface surface, uint width, uint height, byte* coverage);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_size(SturdyEngine engine, SturdySurface surface, uint width, uint height);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_taskbar_progress(SturdyEngine engine, SturdySurface surface, SturdyTaskbarProgress state, float value);
 
         /// Requests that a window start or stop IME text composition (on-screen keyboards, CJK input methods, etc.). Most text fields need this active only while focused and editable.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -7142,9 +8112,29 @@ namespace Sturdy
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_set_text_input_area(SturdyEngine engine, SturdySurface surface, SturdyTextInputArea* area);
 
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_title(SturdyEngine engine, SturdySurface surface, byte* title);
+
         /// Requests that a window become transparent or opaque.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_set_transparent(SturdyEngine engine, SturdySurface surface, byte transparent);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_set_window_type(SturdyEngine engine, SturdySurface surface, SturdyWindowType type);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_show(SturdyEngine engine, SturdySurface surface);
+
+        /// `sturdy_desktop_show_file_dialog` as a child of a window: the dialog stays above it and is attached to it by the window system. Queued like every window request; `callback` is called once when the dialog closes.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_show_file_dialog(SturdyEngine engine, SturdySurface surface, SturdyFileDialogOptions* options, delegate* unmanaged[Cdecl]<void*, byte**, uint, int, byte, byte*, void> callback, void* user);
+
+        /// `sturdy_desktop_show_message_box` over a window. Queued: it blocks that window's thread until dismissed, and the pressed button arrives as `sturdy_window_operation_status(..., STURDY_WINDOW_OP_MESSAGE_BOX, ...).number`.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_show_message_box(SturdyEngine engine, SturdySurface surface, SturdyMessageBoxOptions* options);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_show_system_menu(SturdyEngine engine, SturdySurface surface, int x, int y);
 
         /// Reads the window at `index`.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
@@ -7155,6 +8145,13 @@ namespace Sturdy
         /// Queued like every other request in this section: this only reports a bad engine handle, argument, or struct-size mismatch. Whether the window was actually created is reported later through `sturdy_window_take_completions`, keyed by `*out_request_id`.
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
         public static extern SturdyResult sturdy_window_spawn(SturdyEngine engine, SturdyWindowConfig* config, ulong* out_request_id);
+
+        /// `sturdy_window_spawn` with creation-time behaviour. `options` may be null for the defaults.
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_spawn_ex(SturdyEngine engine, SturdyWindowConfig* config, SturdyWindowCreationOptions* options, ulong* out_request_id);
+
+        [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+        public static extern SturdyResult sturdy_window_start_text_input_ex(SturdyEngine engine, SturdySurface surface, SturdyTextInputOptions* options);
 
         /// Copies up to `capacity` completed window requests into `out_completions` and reports the true number available in `*out_count`, which may exceed `capacity` — completions beyond `capacity` are dropped, not held for a later call, since window lifecycle events are rare enough that a caller should simply pass a generously sized buffer (8 is enough for any realistic frame).
         [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]

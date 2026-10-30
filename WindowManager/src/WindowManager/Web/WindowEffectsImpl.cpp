@@ -65,6 +65,26 @@ namespace SFT::WindowManager {
         return support;
     }
 
+    WindowEffectResult set_native_window_type(NativeWindowHandle handle, WindowType type) noexcept {
+        (void)handle;
+        (void)type;
+        return WindowEffectResult::failed("A browser canvas has no window type.");
+    }
+
+    WindowEffectResult set_native_window_shape(NativeWindowHandle handle, const WindowShapeMask &mask, WindowExtent pixel_size) noexcept {
+        (void)handle;
+        (void)mask;
+        (void)pixel_size;
+        return WindowEffectResult::failed("A browser canvas has no window outline.");
+    }
+
+    WindowEffectResult set_native_window_parent(NativeWindowHandle child, std::optional<NativeWindowHandle> parent, bool modal) noexcept {
+        (void)child;
+        (void)parent;
+        (void)modal;
+        return WindowEffectResult::failed("A browser canvas has no parent window.");
+    }
+
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {
         (void)handle;
         if (!operating_system_may_support_window_effect(effect.kind)) [[likely]] {

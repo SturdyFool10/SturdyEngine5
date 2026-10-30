@@ -28,6 +28,14 @@ namespace SFT::Engine {
         return id;
     }
 
+    WindowRequestId WindowRequests::spawn_child(const WindowManager::WindowConfig &config, WindowManager::WindowId parent, bool modal,
+                                                WindowManager::WindowFactory factory) {
+        auto guard = state_.lock();
+        const WindowRequestId id{guard->next_id++};
+        guard->pending.emplace_back(SpawnWindowRequest{id, OwnedWindowConfig{config}, factory, parent, modal});
+        return id;
+    }
+
     /// Closes the supplied or associated value/state using the supplied arguments and current state.
     ///
     /// @param window Window used or affected by the operation.
@@ -206,6 +214,32 @@ namespace SFT::Engine {
         guard->pending.emplace_back(SetTextInputActiveRequest{window, active});
     }
 
+    void WindowRequests::run(WindowManager::WindowId window, WindowOperation operation, WindowOperationFn fn) {
+        auto guard = state_.lock();
+        guard->pending.emplace_back(RunWindowOperationRequest{window, operation, std::move(fn)});
+    }
+
+    void WindowRequests::record_operation_status(WindowOperationStatus status) {
+        auto guard = state_.lock();
+        for (WindowOperationStatus &existing : guard->operation_statuses) {
+            if (existing.window == status.window && existing.operation == status.operation) {
+                existing = std::move(status);
+                return;
+            }
+        }
+        guard->operation_statuses.push_back(std::move(status));
+    }
+
+    std::optional<WindowOperationStatus> WindowRequests::operation_status(WindowManager::WindowId window, WindowOperation operation) const {
+        auto guard = state_.lock();
+        for (const WindowOperationStatus &status : guard->operation_statuses) {
+            if (status.window == window && status.operation == operation) {
+                return status;
+            }
+        }
+        return std::nullopt;
+    }
+
     /// Drains the supplied or associated value/state using the supplied arguments and current state.
     ///
     /// @return Returns the current drain value.
@@ -272,6 +306,7 @@ namespace SFT::Engine {
     OwnedWindowConfig::OwnedWindowConfig(const WindowManager::WindowConfig &source)
         : title(source.title != nullptr ? source.title : ""), config(source) {
         config.title = nullptr;
+        config.parent = nullptr; // a raw pointer must not outlive the call that made it
     }
 
 } // namespace SFT::Engine

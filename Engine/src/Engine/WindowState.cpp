@@ -21,6 +21,10 @@ namespace SFT::Engine {
     /// @note This function does not throw exceptions.
     std::span<const WindowSnapshot> WindowState::windows() const noexcept { return windows_; }
 
+    void WindowState::set_displays(std::vector<WindowManager::DisplayInfo> displays) noexcept { displays_ = std::move(displays); }
+
+    std::span<const WindowManager::DisplayInfo> WindowState::displays() const noexcept { return displays_; }
+
     /// Finds the requested entry in the available state.
     ///
     /// @param id Identifier of the target object or resource.

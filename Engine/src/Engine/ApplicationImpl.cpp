@@ -32,6 +32,26 @@ using std::chrono::high_resolution_clock;
 
 namespace SFT::Engine {
 
+    namespace {
+
+        /// Fills the parts of a window snapshot that describe what the window can do and how its frame sits: the
+        /// provider's feature answers, the decoration thickness, the safe area and the display it is on. Run on the window
+        /// thread when the window is created and again whenever one of those can have changed.
+        void refresh_window_details(WindowSnapshot &snapshot, WindowManager::Window &window) noexcept {
+            for (usize i = 0; i < snapshot.features.size(); ++i) {
+                snapshot.features[i] = window.feature_support(static_cast<WindowManager::WindowFeature>(i));
+            }
+            if (const auto extents = window.frame_extents()) {
+                snapshot.frame_extents = *extents;
+            }
+            if (const auto area = window.safe_area()) {
+                snapshot.safe_area = *area;
+            }
+            snapshot.display_id = window.current_display_id();
+        }
+
+    } // namespace
+
     /// Performs the application operation for `Engine` using the supplied arguments.
     ///
     /// @param client `client` value used by the operation.
@@ -235,7 +255,7 @@ namespace SFT::Engine {
             .framebuffer_size = config.extent,
             .position = config.position,
         };
-        window_manager_.with_window(*id, [&managed](Window &window) -> bool {
+        window_manager_.with_window(*id, [this, &managed](Window &window) -> bool {
             if (auto native = window.native_window_handle()) {
                 managed->window_snapshot.native_handle = *native;
             }
@@ -250,6 +270,8 @@ namespace SFT::Engine {
             managed->window_snapshot.maximized = window.maximized();
             managed->window_snapshot.minimized = window.minimized();
             managed->window_snapshot.system_theme = window.system_theme();
+            refresh_window_details(managed->window_snapshot, window);
+            engine_->window_state().set_displays(window.displays());
             return true;
         });
         managed->live_resize = make_shared<LiveResizeState>();
@@ -404,6 +426,21 @@ namespace SFT::Engine {
             if (auto *spawn = std::get_if<SpawnWindowRequest>(&request)) {
                 const WindowManager::WindowConfig config = spawn->window.view();
                 const optional<Core::RenderSurfaceHandle> surface = spawn_secondary_window(config, spawn->factory);
+                if (surface && spawn->parent.has_value()) {
+                    // Relate the new window to its parent through the native handles, which are safe to use across
+                    // providers and threads.
+                    const ManagedWindow *parent_window = find_managed_window(*spawn->parent);
+                    if (parent_window != nullptr && parent_window->window_snapshot.native_handle.has_value()) {
+                        const WindowManager::NativeWindowHandle parent_handle = *parent_window->window_snapshot.native_handle;
+                        window_manager_.post_to_window(surface->window_id, [parent_handle, modal = spawn->parent_modal](WindowManager::Window &w) {
+                            const auto child = w.native_window_handle();
+                            if (!child) {
+                                return std::expected<void, WindowManager::WindowError>{std::unexpected(child.error())};
+                            }
+                            return WindowManager::window_result_from_effect_result(WindowManager::set_native_window_parent(*child, parent_handle, modal));
+                        });
+                    }
+                }
                 engine_->window_requests().complete(WindowRequestCompletion{
                     .id = spawn->id,
                     .kind = WindowRequestKind::Spawn,
@@ -508,6 +545,28 @@ namespace SFT::Engine {
                             .details = std::string{result.details},
                         });
                         return WindowManager::window_result_from_effect_result(result);
+                    });
+                continue;
+            }
+
+            if (auto *operation = std::get_if<RunWindowOperationRequest>(&request)) {
+                // The generic route for the whole `Window` surface: run on the window thread, keep the outcome (and any
+                // query result) where the application can read it back.
+                window_manager_.post_to_window(
+                    operation->window,
+                    [fn = std::move(operation->run), op = operation->operation, window = operation->window,
+                     requests = &engine_->window_requests()](WindowManager::Window &w) {
+                        WindowOperationStatus status;
+                        status.window = window;
+                        status.operation = op;
+                        auto result = fn ? fn(w, status.output) : std::expected<void, WindowManager::WindowError>{};
+                        status.ok = result.has_value();
+                        if (!result.has_value()) {
+                            status.code = result.error().code;
+                            status.message = std::string{result.error().message};
+                        }
+                        requests->record_operation_status(std::move(status));
+                        return result;
                     });
                 continue;
             }
@@ -791,6 +850,24 @@ namespace SFT::Engine {
                     case WindowEventKind::SystemThemeChanged:
                         window_manager_.with_window(events.window_id, [&snapshot](Window &window) -> bool {
                             snapshot.system_theme = window.system_theme();
+                            return true;
+                        });
+                        break;
+                    case WindowEventKind::Shown:
+                    case WindowEventKind::EnteredFullscreen:
+                    case WindowEventKind::LeftFullscreen:
+                        // The frame, safe area and display all change with visibility and fullscreen.
+                        window_manager_.with_window(events.window_id, [&snapshot](Window &window) -> bool {
+                            refresh_window_details(snapshot, window);
+                            return true;
+                        });
+                        break;
+                    case WindowEventKind::DisplayAdded:
+                    case WindowEventKind::DisplayRemoved:
+                    case WindowEventKind::DisplayChanged:
+                        window_manager_.with_window(events.window_id, [this, &snapshot](Window &window) -> bool {
+                            refresh_window_details(snapshot, window);
+                            engine_->window_state().set_displays(window.displays());
                             return true;
                         });
                         break;

@@ -7,7 +7,10 @@
 #include <Ecs/Resource.hpp>
 #include <WindowManager/WindowManager.hpp>
 
+#include <expected>
+#include <functional>
 #include <optional>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -59,6 +62,9 @@ namespace SFT::Engine {
         OwnedWindowConfig window{};
 
         WindowManager::WindowFactory factory = nullptr;
+        /// Set by `spawn_child`: made the child of this window as soon as it exists.
+        std::optional<WindowManager::WindowId> parent;
+        bool parent_modal = false;
     };
 
 
@@ -151,11 +157,100 @@ namespace SFT::Engine {
         bool active = true;
     };
 
+    /// Every window operation the generic request can run. Each is one `WindowManager::Window` method; its outcome is
+    /// read back with `WindowRequests::operation_status`.
+    enum class WindowOperation : u8 {
+        // Basics
+        Title,
+        Position,
+        Size,
+        MinimumSize,
+        MaximumSize,
+        Resizable,
+        Opacity,
+        Maximize,
+        Minimize,
+        Restore,
+        Raise,
+        Focus,
+        Show,
+        Hide,
+        // The union surface
+        AlwaysOnTop,
+        AspectRatio,
+        MousePassthrough,
+        Focusable,
+        AutoMinimize,
+        Parent,
+        KeyboardGrab,
+        MouseConfineRect,
+        CursorPosition,
+        GlobalCursorPosition,
+        MouseCapture,
+        CustomCursor,
+        AnimatedCursor,
+        ClearCustomCursor,
+        TextInputOptions,
+        FullscreenTarget,
+        WindowType,
+        Shape,
+        DisplayGamma,
+        Icon,
+        Attention,
+        TaskbarProgress,
+        HitTestRegions,
+        SystemMenu,
+        // Queries and clipboard (their results come back in `WindowOperationStatus::output`)
+        ClipboardText,
+        SetClipboardText,
+        ClipboardMimeTypes,
+        ClipboardData,
+        SetClipboardData,
+        KeyName,
+        KeyDown,
+        IccProfile,
+        // Process-wide desktop services parented to a window. The answer to a file dialog arrives through the callback it
+        // was started with; a message box's pressed button is `WindowOperationOutput::number`.
+        FileDialog,
+        MessageBox,
+        Count,
+    };
+
+    /// What an operation produced besides success: the text, bytes, list or flag a query returns.
+    struct WindowOperationOutput {
+        std::string text;
+        std::vector<std::byte> bytes;
+        std::vector<std::string> list;
+        bool flag = false;
+        /// A numeric answer (the button a message box returned).
+        std::int64_t number = 0;
+    };
+
+    using WindowOperationFn = std::function<std::expected<void, WindowManager::WindowError>(WindowManager::Window &, WindowOperationOutput &)>;
+
+    /// Runs `run` on the window's own thread, which is where every `Window` method must be called.
+    struct RunWindowOperationRequest {
+        WindowManager::WindowId window{};
+        WindowOperation operation = WindowOperation::Title;
+        WindowOperationFn run;
+    };
+
+    /// The outcome of the last run of one operation on one window.
+    struct WindowOperationStatus {
+        WindowManager::WindowId window{};
+        WindowOperation operation = WindowOperation::Title;
+        bool ok = false;
+        /// `WindowErrorCode::Unsupported` means the provider or platform cannot do it, which is not a bug.
+        WindowManager::WindowErrorCode code = WindowManager::WindowErrorCode::OperationFailed;
+        std::string message;
+        WindowOperationOutput output;
+    };
+
     using WindowRequest = variant<SpawnWindowRequest, CloseWindowRequest, RecreatePrimaryWindowRequest,
                                   SetCursorIconRequest, SetFullscreenRequest, SetDecoratedRequest,
                                   SetTransparentRequest, SetBlurRequest, SetTextInputAreaRequest,
                                   SetTextInputActiveRequest, SetRelativeMouseModeRequest,
-                                  SetMouseLockedRequest, SetCursorGrabbedRequest>;
+                                  SetMouseLockedRequest, SetCursorGrabbedRequest, RunWindowOperationRequest>;
 
     enum class WindowRequestKind : u8 { Spawn, Close, RecreatePrimary };
 
@@ -180,6 +275,12 @@ namespace SFT::Engine {
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         [[nodiscard]] WindowRequestId spawn(const WindowManager::WindowConfig &config,
                                             WindowManager::WindowFactory factory = nullptr);
+
+        /// `spawn` for a window that is a child of an existing window (`parent`), optionally modal. `config.parent` is
+        /// ignored: a raw window pointer cannot cross threads, so the relationship is made by window id once the child
+        /// exists.
+        [[nodiscard]] WindowRequestId spawn_child(const WindowManager::WindowConfig &config, WindowManager::WindowId parent, bool modal,
+                                                  WindowManager::WindowFactory factory = nullptr);
 
         /// Closes the supplied or associated value/state using the supplied arguments and current state.
         ///
@@ -299,6 +400,15 @@ namespace SFT::Engine {
         ///
         /// @return Returns the current drain value.
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
+        /// Queues `run` to execute on the window's thread; the outcome is read back with `operation_status`.
+        void run(WindowManager::WindowId window, WindowOperation operation, WindowOperationFn fn);
+
+        /// Written by `Application` on the window thread after an operation ran.
+        void record_operation_status(WindowOperationStatus status);
+
+        /// The last outcome of `operation` on `window`; empty until it has run.
+        [[nodiscard]] std::optional<WindowOperationStatus> operation_status(WindowManager::WindowId window, WindowOperation operation) const;
+
         [[nodiscard]] vector<WindowRequest> drain();
 
         /// Performs the complete operation for `WindowRequests` using the supplied arguments.
@@ -326,6 +436,7 @@ namespace SFT::Engine {
             vector<WindowRequest> pending;
             vector<WindowRequestCompletion> completions;
             vector<WindowEffectStatus> effect_statuses;
+            vector<WindowOperationStatus> operation_statuses;
         };
         mutable Async::Mutex<State> state_;
     };

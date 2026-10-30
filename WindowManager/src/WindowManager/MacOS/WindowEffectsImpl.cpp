@@ -1,6 +1,7 @@
 #include <Foundation/Foundation.hpp>
 
 #pragma region Imports
+#include <algorithm>
 #include <expected>
 #if defined(__APPLE__)
 #include <SDL3/SDL.h>
@@ -81,15 +82,130 @@ namespace SFT::WindowManager::Detail {
             send<void>(window, "setBackgroundColor:", clear);
         }
 
+        // Associated-object key under which the window keeps its glass view alive.
+        const char glass_view_key = 0;
+
+        id srgb_color(u32 argb) noexcept {
+            const auto channel = [argb](unsigned shift) { return static_cast<double>((argb >> shift) & 0xFFU) / 255.0; };
+            return send<id, double, double, double, double>(reinterpret_cast<id>(objc_getClass("NSColor")),
+                                                            "colorWithSRGBRed:green:blue:alpha:", channel(16), channel(8),
+                                                            channel(0), channel(24));
+        }
+
+        /// The view of `class_name` kept behind the window's content, created on first use. Null with `error` set when
+        /// the class (or the content view) is missing.
+        id ensure_backing_view(id window, const char *class_name, const char *key, const char *&error) noexcept {
+            const id existing = reinterpret_cast<id>(objc_getAssociatedObject(window, key));
+            if (existing != nullptr) {
+                return existing;
+            }
+            const Class view_class = objc_getClass(class_name);
+            if (view_class == nullptr) {
+                error = "The AppKit view class is not available on this macOS.";
+                return nullptr;
+            }
+            const id content = send<id>(window, "contentView");
+            if (content == nullptr) {
+                error = "The NSWindow has no content view.";
+                return nullptr;
+            }
+            const id view = send<id>(send<id>(reinterpret_cast<id>(view_class), "alloc"), "init");
+            if (view == nullptr) {
+                error = "Could not create the AppKit effect view.";
+                return nullptr;
+            }
+            send<void>(view, "setFrame:", view_bounds(content));
+            // NSViewWidthSizable (2) | NSViewHeightSizable (16): follow the window as it resizes.
+            send<void>(view, "setAutoresizingMask:", static_cast<unsigned long>(2 | 16));
+            // NSWindowBelow (-1): behind the existing content (the swapchain view).
+            send<void>(content, "addSubview:positioned:relativeTo:", view, static_cast<long>(-1), static_cast<id>(nullptr));
+            objc_setAssociatedObject(window, key, view, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            send<void>(view, "release"); // the associated object now owns it
+            return view;
+        }
+
+        void remove_backing_view(id window, const char *key) noexcept {
+            const id existing = reinterpret_cast<id>(objc_getAssociatedObject(window, key));
+            if (existing != nullptr) {
+                send<void>(existing, "removeFromSuperview");
+                objc_setAssociatedObject(window, key, nullptr, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            }
+        }
+
         /// Runs on the main thread (AppKit requires it).
         WindowEffectResult run_cocoa_effect(id window, const WindowEffect &effect) noexcept {
-            const id existing = reinterpret_cast<id>(objc_getAssociatedObject(window, &effect_view_key));
+            const WindowEffectOptions &options = effect.options;
+            const signed char flag = effect.enabled ? 1 : 0;
+
+            switch (effect.kind) {
+                case WindowEffectKind::Opacity: {
+                    const double alpha = effect.enabled ? std::clamp<double>(options.opacity, 0.0, 1.0) : 1.0;
+                    send<void>(window, "setAlphaValue:", alpha);
+                    return WindowEffectResult::success("macOS window opacity applied.");
+                }
+                case WindowEffectKind::DarkMode:
+                    send<void>(window, "setAppearance:", effect.enabled ? appearance_for(MacAppearance::DarkAqua) : nullptr);
+                    return WindowEffectResult::success("macOS window appearance set.");
+                case WindowEffectKind::TitlebarTransparent:
+                    send<void>(window, "setTitlebarAppearsTransparent:", flag);
+                    return WindowEffectResult::success("macOS titlebar transparency set.");
+                case WindowEffectKind::WindowShadow:
+                    send<void>(window, "setHasShadow:", flag);
+                    return WindowEffectResult::success("macOS window shadow set.");
+                case WindowEffectKind::MousePassthrough:
+                    send<void>(window, "setIgnoresMouseEvents:", flag);
+                    return WindowEffectResult::success("macOS window ignores mouse events.");
+                case WindowEffectKind::CornerRadius: {
+                    const id content = send<id>(window, "contentView");
+                    if (content == nullptr) {
+                        return WindowEffectResult::failed("The NSWindow has no content view.");
+                    }
+                    const double radius = effect.enabled ? std::max<double>(options.window_corner_radius, 0.0) : 0.0;
+                    send<void>(content, "setWantsLayer:", static_cast<signed char>(1));
+                    const id layer = send<id>(content, "layer");
+                    if (layer == nullptr) {
+                        return WindowEffectResult::failed("The content view has no backing layer.");
+                    }
+                    send<void>(layer, "setCornerRadius:", radius);
+                    send<void>(layer, "setMasksToBounds:", static_cast<signed char>(radius > 0.0 ? 1 : 0));
+                    if (radius > 0.0) {
+                        // The clipped-away corners must show the desktop, not the window's background colour.
+                        make_window_see_through(window);
+                    }
+                    // The shadow is computed from the window's opaque shape, so it has to follow the new outline.
+                    send<void>(window, "invalidateShadow");
+                    // NSWindowStyleMaskTitled (1): AppKit draws a titled window's own outline at a fixed radius.
+                    if ((send<unsigned long>(window, "styleMask") & 1UL) != 0 && radius > 0.0) {
+                        return WindowEffectResult::degraded(
+                            "The content is rounded, but a titled window keeps the system's own corner radius; use an undecorated window for a custom one.");
+                    }
+                    return WindowEffectResult::success("macOS content layer corner radius applied.");
+                }
+                case WindowEffectKind::GlassEffect: {
+                    if (!effect.enabled) {
+                        remove_backing_view(window, &glass_view_key);
+                        return WindowEffectResult::success("macOS glass effect removed.");
+                    }
+                    if (objc_getClass("NSGlassEffectView") == nullptr) {
+                        return WindowEffectResult::failed("NSGlassEffectView needs macOS 26 or later.");
+                    }
+                    make_window_see_through(window);
+                    const char *error = nullptr;
+                    const id view = ensure_backing_view(window, "NSGlassEffectView", &glass_view_key, error);
+                    if (view == nullptr) {
+                        return WindowEffectResult::failed(error);
+                    }
+                    send<void>(view, "setStyle:", static_cast<long>(options.mac_glass_style));
+                    send<void>(view, "setCornerRadius:", static_cast<double>(options.mac_glass_corner_radius));
+                    send<void>(view, "setTintColor:", (options.tint_argb >> 24U) != 0 ? srgb_color(options.tint_argb) : nullptr);
+                    return WindowEffectResult::success("macOS NSGlassEffectView applied.");
+                }
+                default:
+                    break;
+            }
 
             if (!effect.enabled) {
-                if (existing != nullptr) {
-                    send<void>(existing, "removeFromSuperview");
-                    objc_setAssociatedObject(window, &effect_view_key, nullptr, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                }
+                remove_backing_view(window, &effect_view_key);
                 return WindowEffectResult::success("macOS visual effect removed.");
             }
 
@@ -98,30 +214,11 @@ namespace SFT::WindowManager::Detail {
                 return WindowEffectResult::success("macOS window made transparent.");
             }
 
-            id view = existing;
+            const char *error = nullptr;
+            const id view = ensure_backing_view(window, "NSVisualEffectView", &effect_view_key, error);
             if (view == nullptr) {
-                const Class view_class = objc_getClass("NSVisualEffectView");
-                if (view_class == nullptr) {
-                    return WindowEffectResult::failed("NSVisualEffectView is not available.");
-                }
-                const id content = send<id>(window, "contentView");
-                if (content == nullptr) {
-                    return WindowEffectResult::failed("The NSWindow has no content view.");
-                }
-                view = send<id>(send<id>(reinterpret_cast<id>(view_class), "alloc"), "init");
-                if (view == nullptr) {
-                    return WindowEffectResult::failed("Could not create an NSVisualEffectView.");
-                }
-                send<void>(view, "setFrame:", view_bounds(content));
-                // NSViewWidthSizable (2) | NSViewHeightSizable (16): follow the window as it resizes.
-                send<void>(view, "setAutoresizingMask:", static_cast<unsigned long>(2 | 16));
-                // NSWindowBelow (-1): behind the existing content (the swapchain view).
-                send<void>(content, "addSubview:positioned:relativeTo:", view, static_cast<long>(-1), static_cast<id>(nullptr));
-                objc_setAssociatedObject(window, &effect_view_key, view, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-                send<void>(view, "release"); // the associated object now owns it
+                return WindowEffectResult::failed(error);
             }
-
-            const WindowEffectOptions &options = effect.options;
             send<void>(view, "setMaterial:", material_values[static_cast<usize>(options.mac_material)]);
             send<void>(view, "setBlendingMode:", static_cast<long>(options.mac_blending));
             send<void>(view, "setState:", static_cast<long>(options.mac_state));
@@ -182,8 +279,7 @@ namespace SFT::WindowManager {
 #if defined(__APPLE__)
         // `Blur` is the generic request and maps to the default NSVisualEffectView; `Transparent` clears the window
         // background so the (non-opaque) swapchain shows through.
-        return effect == WindowEffectKind::VisualEffect || effect == WindowEffectKind::Blur ||
-               effect == WindowEffectKind::Transparent;
+        return window_effect_supported_on_platform(effect);
 #else
         (void)effect;
         return false;
@@ -214,11 +310,22 @@ namespace SFT::WindowManager {
         WindowEffectSupport support;
 #if defined(__APPLE__)
         if (!operating_system_may_support_window_effect(kind)) {
-            support.add("none", EffectAvailability::Unavailable, "macOS offers NSVisualEffectView and window transparency only");
+            support.add("none", EffectAvailability::Unavailable, "this effect is not offered on macOS");
             return support;
         }
         if (kind == WindowEffectKind::Transparent) {
             support.add("NSWindow opaque = NO", EffectAvailability::Available);
+        } else if (kind == WindowEffectKind::GlassEffect) {
+            if (objc_getClass("NSGlassEffectView") != nullptr) {
+                support.add("NSGlassEffectView", EffectAvailability::Available);
+            } else {
+                support.add("NSGlassEffectView", EffectAvailability::Unavailable, "needs macOS 26 or later");
+            }
+        } else if (kind == WindowEffectKind::CornerRadius) {
+            support.add("CALayer cornerRadius", EffectAvailability::Available);
+        } else if (kind == WindowEffectKind::MousePassthrough || kind == WindowEffectKind::Opacity || kind == WindowEffectKind::DarkMode ||
+                   kind == WindowEffectKind::TitlebarTransparent || kind == WindowEffectKind::WindowShadow) {
+            support.add("NSWindow property", EffectAvailability::Available);
         } else if (objc_getClass("NSVisualEffectView") != nullptr) {
             support.add("NSVisualEffectView", EffectAvailability::Available);
         } else {
@@ -229,6 +336,69 @@ namespace SFT::WindowManager {
         support.add("none", EffectAvailability::Unavailable, "not an Apple build");
 #endif
         return support;
+    }
+
+    WindowEffectResult set_native_window_type(NativeWindowHandle handle, WindowType type) noexcept {
+#if defined(__APPLE__)
+        if (handle.system != NativeWindowSystem::Cocoa || handle.window == nullptr) {
+            return WindowEffectResult::failed("macOS window types require an NSWindow.");
+        }
+        // AppKit has no window "type"; the level is what separates a palette or popup from a document window.
+        // NSNormalWindowLevel 0, NSFloatingWindowLevel 3, NSStatusWindowLevel 25, NSPopUpMenuWindowLevel 101.
+        long level = 0;
+        switch (type) {
+            case WindowType::Normal: level = 0; break;
+            case WindowType::Utility:
+            case WindowType::Dialog: level = 3; break;
+            case WindowType::Splash: level = 25; break;
+            case WindowType::Tooltip:
+            case WindowType::PopupMenu:
+            case WindowType::DropdownMenu: level = 101; break;
+        }
+        send<void>(static_cast<id>(handle.window), "setLevel:", level);
+        return WindowEffectResult::success("macOS window level set.");
+#else
+        (void)handle;
+        (void)type;
+        return WindowEffectResult::failed("macOS window types are only available on Apple builds.");
+#endif
+    }
+
+    WindowEffectResult set_native_window_shape(NativeWindowHandle handle, const WindowShapeMask &mask, WindowExtent pixel_size) noexcept {
+        (void)handle;
+        (void)mask;
+        (void)pixel_size;
+        return WindowEffectResult::failed("AppKit has no hard window outline; round a borderless window with the CornerRadius effect.");
+    }
+
+    WindowEffectResult set_native_window_parent(NativeWindowHandle child, std::optional<NativeWindowHandle> parent, bool modal) noexcept {
+#if defined(__APPLE__)
+        if (child.system != NativeWindowSystem::Cocoa || child.window == nullptr) {
+            return WindowEffectResult::failed("macOS window parenting requires an NSWindow.");
+        }
+        const id child_window = static_cast<id>(child.window);
+        // AppKit window ordering must run on the main thread; this call is made from there by the window thread, which
+        // is the main thread on macOS.
+        const id current_parent = send<id>(child_window, "parentWindow");
+        if (current_parent != nullptr) {
+            send<void>(current_parent, "removeChildWindow:", child_window);
+        }
+        if (!parent) {
+            return WindowEffectResult::success("macOS child window detached.");
+        }
+        if (parent->system != NativeWindowSystem::Cocoa || parent->window == nullptr) {
+            return WindowEffectResult::failed("The parent window is not an NSWindow.");
+        }
+        // NSWindowAbove (1): the child stays in front of its parent and moves with it.
+        send<void>(static_cast<id>(parent->window), "addChildWindow:ordered:", child_window, static_cast<long>(1));
+        return modal ? WindowEffectResult::degraded("The window is a child of its parent; modality is not enforced on a plain NSWindow.")
+                     : WindowEffectResult::success("macOS child window attached.");
+#else
+        (void)child;
+        (void)parent;
+        (void)modal;
+        return WindowEffectResult::failed("macOS window parenting is only available on Apple builds.");
+#endif
     }
 
     WindowEffectResult enable_native_window_effect(NativeWindowHandle handle, WindowEffect effect) noexcept {

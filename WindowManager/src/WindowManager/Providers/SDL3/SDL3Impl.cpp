@@ -286,6 +286,18 @@ namespace SFT::WindowManager::SDL3 {
                 case CursorIcon::ResizeNwse: return SDL_SYSTEM_CURSOR_NWSE_RESIZE;
                 case CursorIcon::ResizeNesw: return SDL_SYSTEM_CURSOR_NESW_RESIZE;
                 case CursorIcon::NotAllowed: return SDL_SYSTEM_CURSOR_NOT_ALLOWED;
+                case CursorIcon::Crosshair: return SDL_SYSTEM_CURSOR_CROSSHAIR;
+                case CursorIcon::Move: return SDL_SYSTEM_CURSOR_MOVE;
+                case CursorIcon::Wait: return SDL_SYSTEM_CURSOR_WAIT;
+                case CursorIcon::Progress: return SDL_SYSTEM_CURSOR_PROGRESS;
+                case CursorIcon::ResizeN: return SDL_SYSTEM_CURSOR_N_RESIZE;
+                case CursorIcon::ResizeNe: return SDL_SYSTEM_CURSOR_NE_RESIZE;
+                case CursorIcon::ResizeE: return SDL_SYSTEM_CURSOR_E_RESIZE;
+                case CursorIcon::ResizeSe: return SDL_SYSTEM_CURSOR_SE_RESIZE;
+                case CursorIcon::ResizeS: return SDL_SYSTEM_CURSOR_S_RESIZE;
+                case CursorIcon::ResizeSw: return SDL_SYSTEM_CURSOR_SW_RESIZE;
+                case CursorIcon::ResizeW: return SDL_SYSTEM_CURSOR_W_RESIZE;
+                case CursorIcon::ResizeNw: return SDL_SYSTEM_CURSOR_NW_RESIZE;
             }
             return SDL_SYSTEM_CURSOR_DEFAULT;
         }
@@ -602,6 +614,7 @@ namespace SFT::WindowManager::SDL3 {
                 release_native_window_effects(*native_effect_handle_, sdl_window_count() == 1);
             }
             active_blur_effect_.reset();
+            active_corner_effect_.reset();
             native_effect_handle_.reset();
             Foundation::log_info("Closing window via SDL3");
             SDL_DestroyWindow(window_);
@@ -1170,6 +1183,7 @@ namespace SFT::WindowManager::SDL3 {
                     if (event.type == SDL_EVENT_WINDOW_RESIZED) {
                         // A rounded-corner blur region is built from the window size, so it follows every resize.
                         target->reapply_blur_region_locked();
+                        target->reapply_corner_outline_locked();
                     }
                 }
             } else if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED) {
@@ -1215,6 +1229,37 @@ namespace SFT::WindowManager::SDL3 {
                     found->second->events_.push_back(state_event);
                     ++queued_event_count;
                 }
+            } else if (event.type == SDL_EVENT_WINDOW_SHOWN || event.type == SDL_EVENT_WINDOW_HIDDEN ||
+                       event.type == SDL_EVENT_WINDOW_EXPOSED || event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ||
+                       event.type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN) {
+                if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
+                    WindowEvent state_event{event.type == SDL_EVENT_WINDOW_SHOWN              ? WindowEventKind::Shown
+                                            : event.type == SDL_EVENT_WINDOW_HIDDEN           ? WindowEventKind::Hidden
+                                            : event.type == SDL_EVENT_WINDOW_EXPOSED          ? WindowEventKind::Exposed
+                                            : event.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN ? WindowEventKind::EnteredFullscreen
+                                                                                              : WindowEventKind::LeftFullscreen};
+                    state_event.timestamp_ns = event_timestamp_ns;
+                    found->second->events_.push_back(state_event);
+                    ++queued_event_count;
+                }
+            } else if (event.type == SDL_EVENT_DISPLAY_ADDED || event.type == SDL_EVENT_DISPLAY_REMOVED ||
+                       event.type == SDL_EVENT_DISPLAY_MOVED || event.type == SDL_EVENT_DISPLAY_DESKTOP_MODE_CHANGED ||
+                       event.type == SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED || event.type == SDL_EVENT_DISPLAY_CONTENT_SCALE_CHANGED ||
+                       event.type == SDL_EVENT_DISPLAY_ORIENTATION || event.type == SDL_EVENT_CLIPBOARD_UPDATE) {
+                // Not tied to one window: every window hears about a monitor change or a clipboard update.
+                const WindowEventKind kind = event.type == SDL_EVENT_DISPLAY_ADDED      ? WindowEventKind::DisplayAdded
+                                             : event.type == SDL_EVENT_DISPLAY_REMOVED  ? WindowEventKind::DisplayRemoved
+                                             : event.type == SDL_EVENT_CLIPBOARD_UPDATE ? WindowEventKind::ClipboardUpdated
+                                                                                        : WindowEventKind::DisplayChanged;
+                for (auto &[id, target] : sdl_window_registry()) {
+                    (void)id;
+                    if (target != nullptr) {
+                        WindowEvent display_event{kind};
+                        display_event.timestamp_ns = event_timestamp_ns;
+                        target->events_.push_back(display_event);
+                        ++queued_event_count;
+                    }
+                }
             } else if (event.type == SDL_EVENT_WINDOW_MAXIMIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED ||
                        event.type == SDL_EVENT_WINDOW_RESTORED) {
                 if (auto found = sdl_window_registry().find(event.window.windowID); found != sdl_window_registry().end() && found->second) [[likely]] {
@@ -1223,6 +1268,69 @@ namespace SFT::WindowManager::SDL3 {
                                                                                        : WindowEventKind::Restored};
                     state_event.timestamp_ns = event_timestamp_ns;
                     found->second->events_.push_back(state_event);
+                    ++queued_event_count;
+                }
+            } else if (event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_MOTION ||
+                       event.type == SDL_EVENT_FINGER_CANCELED) {
+                // SDL reports fingers normalised to the window they are over; the engine works in window coordinates.
+                if (auto found = sdl_window_registry().find(event.tfinger.windowID); found != sdl_window_registry().end() && found->second) {
+                    int width = 0;
+                    int height = 0;
+                    SDL_GetWindowSize(found->second->window_, &width, &height);
+                    WindowEvent touch_event{event.type == SDL_EVENT_FINGER_DOWN     ? WindowEventKind::TouchDown
+                                            : event.type == SDL_EVENT_FINGER_UP     ? WindowEventKind::TouchUp
+                                            : event.type == SDL_EVENT_FINGER_MOTION ? WindowEventKind::TouchMotion
+                                                                                    : WindowEventKind::TouchCanceled};
+                    touch_event.timestamp_ns = event_timestamp_ns;
+                    touch_event.touch = WindowTouchEvent{static_cast<u64>(event.tfinger.touchID),
+                                                         static_cast<u64>(event.tfinger.fingerID),
+                                                         event.tfinger.x * static_cast<f32>(width),
+                                                         event.tfinger.y * static_cast<f32>(height),
+                                                         event.tfinger.dx * static_cast<f32>(width),
+                                                         event.tfinger.dy * static_cast<f32>(height),
+                                                         event.tfinger.pressure};
+                    found->second->events_.push_back(touch_event);
+                    ++queued_event_count;
+                }
+            } else if (event.type == SDL_EVENT_PEN_PROXIMITY_IN || event.type == SDL_EVENT_PEN_PROXIMITY_OUT || event.type == SDL_EVENT_PEN_DOWN ||
+                       event.type == SDL_EVENT_PEN_UP || event.type == SDL_EVENT_PEN_MOTION || event.type == SDL_EVENT_PEN_BUTTON_DOWN ||
+                       event.type == SDL_EVENT_PEN_BUTTON_UP || event.type == SDL_EVENT_PEN_AXIS) {
+                // All the pen event structs share their leading fields; the type says which one this is.
+                if (auto found = sdl_window_registry().find(event.pmotion.windowID); found != sdl_window_registry().end() && found->second) {
+                    WindowEvent pen_event{WindowEventKind::PenMotion};
+                    pen_event.timestamp_ns = event_timestamp_ns;
+                    pen_event.pen.pen = static_cast<u32>(event.pmotion.which);
+                    switch (event.type) {
+                        case SDL_EVENT_PEN_PROXIMITY_IN: pen_event.kind = WindowEventKind::PenProximityIn; break;
+                        case SDL_EVENT_PEN_PROXIMITY_OUT: pen_event.kind = WindowEventKind::PenProximityOut; break;
+                        case SDL_EVENT_PEN_DOWN:
+                        case SDL_EVENT_PEN_UP:
+                            pen_event.kind = event.ptouch.down ? WindowEventKind::PenDown : WindowEventKind::PenUp;
+                            pen_event.pen.x = event.ptouch.x;
+                            pen_event.pen.y = event.ptouch.y;
+                            pen_event.pen.eraser = event.ptouch.eraser;
+                            break;
+                        case SDL_EVENT_PEN_MOTION:
+                            pen_event.pen.x = event.pmotion.x;
+                            pen_event.pen.y = event.pmotion.y;
+                            break;
+                        case SDL_EVENT_PEN_BUTTON_DOWN:
+                        case SDL_EVENT_PEN_BUTTON_UP:
+                            pen_event.kind = event.pbutton.down ? WindowEventKind::PenButtonDown : WindowEventKind::PenButtonUp;
+                            pen_event.pen.x = event.pbutton.x;
+                            pen_event.pen.y = event.pbutton.y;
+                            pen_event.pen.button = event.pbutton.button;
+                            break;
+                        case SDL_EVENT_PEN_AXIS:
+                            pen_event.kind = WindowEventKind::PenAxis;
+                            pen_event.pen.x = event.paxis.x;
+                            pen_event.pen.y = event.paxis.y;
+                            pen_event.pen.axis = static_cast<PenAxis>(event.paxis.axis);
+                            pen_event.pen.value = event.paxis.value;
+                            break;
+                        default: break;
+                    }
+                    found->second->events_.push_back(pen_event);
                     ++queued_event_count;
                 }
             } else if (event.type == SDL_EVENT_DROP_BEGIN || event.type == SDL_EVENT_DROP_FILE || event.type == SDL_EVENT_DROP_TEXT ||
@@ -1863,6 +1971,41 @@ namespace SFT::WindowManager::SDL3 {
     /// @note Normal failures are returned through the type-specific error/status state; invalid input/state and underlying backend or resource failures are reported there when detected.
     /// @note Error/status alternatives explicitly produced by this implementation include `WindowErrorCode::OperationFailed`.
     /// @note This function does not throw exceptions.
+    namespace {
+
+        /// Enters or leaves fullscreen on the target display in the target mode. Borderless fullscreen uses the
+        /// desktop mode (no mode switch); exclusive fullscreen uses the requested mode, or the desktop mode when none
+        /// was asked for. SDL goes fullscreen on the display the window is on, so the window is moved there first.
+        bool apply_sdl_fullscreen(SDL_Window *window, WindowMode mode, const FullscreenTarget &target) noexcept {
+            if (mode == WindowMode::Windowed) {
+                return SDL_SetWindowFullscreen(window, false);
+            }
+            SDL_DisplayID display = target.display_id.has_value() ? static_cast<SDL_DisplayID>(*target.display_id) : SDL_GetDisplayForWindow(window);
+            if (target.display_id.has_value()) {
+                SDL_Rect bounds{};
+                if (SDL_GetDisplayBounds(display, &bounds)) {
+                    // Leave fullscreen first: a fullscreen window cannot be moved to another display.
+                    SDL_SetWindowFullscreen(window, false);
+                    SDL_SyncWindow(window);
+                    SDL_SetWindowPosition(window, bounds.x, bounds.y);
+                }
+            }
+            SDL_DisplayMode chosen{};
+            const SDL_DisplayMode *mode_pointer = nullptr; // null = borderless at the desktop mode
+            // Only an explicit mode makes the fullscreen exclusive; without one both kinds stay at the desktop mode, as
+            // they always have here.
+            if (mode == WindowMode::ExclusiveFullscreen && target.mode.has_value()) {
+                if (SDL_GetClosestFullscreenDisplayMode(display, static_cast<int>(target.mode->width), static_cast<int>(target.mode->height),
+                                                        target.mode->refresh_rate_hz, true, &chosen)) {
+                    mode_pointer = &chosen;
+                }
+            }
+            SDL_SetWindowFullscreenMode(window, mode_pointer);
+            return SDL_SetWindowFullscreen(window, true);
+        }
+
+    } // namespace
+
     expected<void, WindowError> SDL3Window::set_fullscreen(WindowMode mode) noexcept {
         ZoneScopedN("SDL3Window::set_fullscreen");
         auto lock = sdl_window_mutex().lock();
@@ -1872,7 +2015,7 @@ namespace SFT::WindowManager::SDL3 {
         Foundation::log_info("SDL3 set fullscreen: wrapper={} native_ptr={} id={} mode={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), static_cast<i32>(mode));
 
 
-        auto result = sdl_bool_result(SDL_SetWindowFullscreen(window_, mode != WindowMode::Windowed),
+        auto result = sdl_bool_result(apply_sdl_fullscreen(window_, mode, fullscreen_target_),
                                       WindowErrorCode::OperationFailed, "SDL3 set fullscreen failed.");
         if (result) {
             fullscreen_mode_ = mode;
@@ -1987,6 +2130,7 @@ namespace SFT::WindowManager::SDL3 {
         }
         current_cursor_ = cursor;
         current_cursor_icon_ = icon;
+        custom_cursor_active_ = false;
         Foundation::log_trace("SDL3 set cursor icon: wrapper={} native_ptr={} id={} icon={}", static_cast<void *>(this), static_cast<void *>(window_), SDL_GetWindowID(window_), static_cast<i32>(icon));
         return {};
     }
@@ -2100,6 +2244,18 @@ namespace SFT::WindowManager::SDL3 {
         (void)enable_native_window_effect(*handle, *active_blur_effect_);
     }
 
+    void SDL3Window::reapply_corner_outline_locked() noexcept {
+        if (!active_corner_effect_ || !active_corner_effect_->options.outline_follows_window_size()) {
+            return;
+        }
+        const auto handle = native_window_handle_locked();
+        if (!handle) {
+            return;
+        }
+        fill_effect_geometry_locked(*active_corner_effect_);
+        (void)enable_native_window_effect(*handle, *active_corner_effect_);
+    }
+
     WindowEffectResult SDL3Window::enable_window_effect(WindowEffect effect) noexcept {
         ZoneScopedN("SDL3Window::enable_window_effect");
         auto lock = sdl_window_mutex().lock();
@@ -2147,6 +2303,13 @@ namespace SFT::WindowManager::SDL3 {
                 active_blur_effect_ = effect;
             } else {
                 active_blur_effect_.reset();
+            }
+        }
+        if (result.succeeded() && effect.kind == WindowEffectKind::CornerRadius) {
+            if (effect.enabled && effect.options.outline_follows_window_size()) {
+                active_corner_effect_ = effect;
+            } else {
+                active_corner_effect_.reset();
             }
         }
         return result;
@@ -2359,6 +2522,24 @@ namespace SFT::WindowManager::SDL3 {
             if (const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(ids[i])) {
                 info.refresh_rate_hz = mode->refresh_rate;
             }
+            switch (SDL_GetCurrentDisplayOrientation(ids[i])) {
+                case SDL_ORIENTATION_LANDSCAPE: info.orientation = DisplayOrientation::Landscape; break;
+                case SDL_ORIENTATION_LANDSCAPE_FLIPPED: info.orientation = DisplayOrientation::LandscapeFlipped; break;
+                case SDL_ORIENTATION_PORTRAIT: info.orientation = DisplayOrientation::Portrait; break;
+                case SDL_ORIENTATION_PORTRAIT_FLIPPED: info.orientation = DisplayOrientation::PortraitFlipped; break;
+                default: info.orientation = DisplayOrientation::Unknown; break;
+            }
+            if (const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(ids[i])) {
+                info.current_mode =DisplayMode{static_cast<u32>(mode->w), static_cast<u32>(mode->h), mode->refresh_rate, mode->pixel_density};
+            }
+            int mode_count = 0;
+            if (SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(ids[i], &mode_count)) {
+                for (int m = 0; m < mode_count; ++m) {
+                    info.modes.push_back(DisplayMode{static_cast<u32>(modes[m]->w), static_cast<u32>(modes[m]->h), modes[m]->refresh_rate,
+                                                     modes[m]->pixel_density});
+                }
+                SDL_free(modes);
+            }
             info.hdr_enabled = SDL_GetBooleanProperty(SDL_GetDisplayProperties(ids[i]), SDL_PROP_DISPLAY_HDR_ENABLED_BOOLEAN, false);
             info.primary = ids[i] == primary;
             out.push_back(std::move(info));
@@ -2421,6 +2602,447 @@ namespace SFT::WindowManager::SDL3 {
                                         "SDL_Vulkan_CreateSurface failed."));
         }
         return {};
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The union surface (WindowFeatures.hpp)
+    // ---------------------------------------------------------------------------------------------------------------
+
+    FeatureSupport SDL3Window::feature_support(WindowFeature feature) const noexcept {
+        switch (feature) {
+            case WindowFeature::AlwaysOnTop:
+            case WindowFeature::AspectRatio:
+            case WindowFeature::Focusable:
+            case WindowFeature::ParentWindow:
+            case WindowFeature::ModalWindow:
+            case WindowFeature::KeyboardGrab:
+            case WindowFeature::MouseConfineRect:
+            case WindowFeature::WarpCursor:
+            case WindowFeature::CustomCursor:
+            case WindowFeature::FrameExtents:
+            case WindowFeature::SafeArea:
+            case WindowFeature::FullscreenTarget:
+            case WindowFeature::TextInputOptions:
+            case WindowFeature::ScreenKeyboard:
+            case WindowFeature::ClipboardMimeTypes:
+            case WindowFeature::TypedClipboard:
+            case WindowFeature::HitTestRegions:
+            case WindowFeature::SystemMenu:
+            case WindowFeature::WindowIcon:
+            case WindowFeature::RequestAttention:
+            case WindowFeature::TaskbarProgress:
+            case WindowFeature::SystemTheme:
+            case WindowFeature::DisplayList:
+            case WindowFeature::DisplayModes:
+            case WindowFeature::DisplayEvents:
+            case WindowFeature::WaitForEvents:
+            case WindowFeature::FileDrop:
+            case WindowFeature::TextDrop:
+                return FeatureSupport::yes();
+            case WindowFeature::TouchInput:
+            case WindowFeature::PenInput:
+            case WindowFeature::WindowShape:
+            case WindowFeature::AnimatedCursor:
+            case WindowFeature::KeyboardQuery:
+            case WindowFeature::WarpCursorGlobal:
+            case WindowFeature::MouseCapture:
+            case WindowFeature::IccProfile:
+                return FeatureSupport::yes();
+            case WindowFeature::AutoMinimizeOnFocusLoss:
+                return FeatureSupport::yes("an SDL hint shared by every window");
+            case WindowFeature::LiveResizeCallback:
+                return FeatureSupport::yes("Windows only: it is the one platform whose resize loop blocks polling");
+            default:
+                // Click-through is the shared native layer's.
+                return Window::feature_support(feature);
+        }
+    }
+
+    expected<void, WindowError> SDL3Window::set_always_on_top(bool enabled) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_always_on_top"); !live) [[unlikely]] {
+            return live;
+        }
+        return sdl_bool_result(SDL_SetWindowAlwaysOnTop(window_, enabled), WindowErrorCode::Unsupported, "The window system cannot keep a window on top.");
+    }
+
+    expected<void, WindowError> SDL3Window::set_aspect_ratio(f32 min_ratio, f32 max_ratio) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_aspect_ratio"); !live) [[unlikely]] {
+            return live;
+        }
+        if (min_ratio < 0.0f || max_ratio < 0.0f || (max_ratio != 0.0f && min_ratio > max_ratio)) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Aspect ratios must satisfy 0 <= min <= max."});
+        }
+        return sdl_bool_result(SDL_SetWindowAspectRatio(window_, min_ratio, max_ratio), WindowErrorCode::Unsupported, "SDL3 set aspect ratio failed.");
+    }
+
+    expected<void, WindowError> SDL3Window::set_focusable(bool enabled) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_focusable"); !live) [[unlikely]] {
+            return live;
+        }
+        return sdl_bool_result(SDL_SetWindowFocusable(window_, enabled), WindowErrorCode::Unsupported, "The window system cannot make a window unfocusable.");
+    }
+
+    expected<void, WindowError> SDL3Window::set_auto_minimize_on_focus_loss(bool enabled) noexcept {
+        return sdl_bool_result(SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, enabled ? "1" : "0"), WindowErrorCode::OperationFailed,
+                               "SDL3 could not set the minimise-on-focus-loss hint.");
+    }
+
+    expected<void, WindowError> SDL3Window::set_parent(Window *parent, bool modal) noexcept {
+        // The parent's handle is read before this window's lock is taken: SDL3 windows share one lock.
+        SDL_Window *parent_window = nullptr;
+        if (parent != nullptr) {
+            if (parent->backend_kind() != WindowBackendKind::SDL3) {
+                return Window::set_parent(parent, modal); // another provider's window: the native handles still relate them
+            }
+            const auto handle = parent->native_backend_handle();
+            if (!handle) {
+                return unexpected(handle.error());
+            }
+            parent_window = static_cast<SDL_Window *>(*handle);
+        }
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_parent"); !live) [[unlikely]] {
+            return live;
+        }
+        if (parent_window == nullptr) {
+            (void)SDL_SetWindowModal(window_, false);
+        }
+        if (auto parented = sdl_bool_result(SDL_SetWindowParent(window_, parent_window), WindowErrorCode::Unsupported,
+                                            "The window system cannot parent this window.");
+            !parented) {
+            return parented;
+        }
+        if (parent_window != nullptr) {
+            return sdl_bool_result(SDL_SetWindowModal(window_, modal), WindowErrorCode::Unsupported, "The window system cannot make this window modal.");
+        }
+        return {};
+    }
+
+    expected<void, WindowError> SDL3Window::set_keyboard_grab(bool enabled) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_keyboard_grab"); !live) [[unlikely]] {
+            return live;
+        }
+        return sdl_bool_result(SDL_SetWindowKeyboardGrab(window_, enabled), WindowErrorCode::Unsupported, "The window system cannot grab the keyboard.");
+    }
+
+    expected<void, WindowError> SDL3Window::set_mouse_confine_rect(std::optional<WindowRect> rect) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_mouse_confine_rect"); !live) [[unlikely]] {
+            return live;
+        }
+        if (!rect.has_value()) {
+            return sdl_bool_result(SDL_SetWindowMouseRect(window_, nullptr), WindowErrorCode::Unsupported, "SDL3 could not clear the mouse rectangle.");
+        }
+        const SDL_Rect sdl_rect{rect->x, rect->y, rect->width, rect->height};
+        return sdl_bool_result(SDL_SetWindowMouseRect(window_, &sdl_rect), WindowErrorCode::Unsupported, "The window system cannot confine the cursor to a rectangle.");
+    }
+
+    expected<void, WindowError> SDL3Window::set_cursor_position(WindowPosition position) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_cursor_position"); !live) [[unlikely]] {
+            return live;
+        }
+        SDL_WarpMouseInWindow(window_, static_cast<float>(position.x), static_cast<float>(position.y));
+        return {};
+    }
+
+    expected<void, WindowError> SDL3Window::set_custom_cursor(const CursorImage &image) noexcept {
+        if (image.width == 0 || image.height == 0 || image.rgba.size() < static_cast<usize>(image.width) * image.height * 4) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "A cursor image needs width * height * 4 bytes of RGBA8."});
+        }
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_custom_cursor"); !live) [[unlikely]] {
+            return live;
+        }
+        SDL_Surface *surface = SDL_CreateSurfaceFrom(static_cast<int>(image.width), static_cast<int>(image.height), SDL_PIXELFORMAT_RGBA32,
+                                                     const_cast<std::byte *>(image.rgba.data()), static_cast<int>(image.width * 4));
+        if (surface == nullptr) {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL3 could not wrap the cursor pixels."));
+        }
+        SDL_Cursor *cursor = SDL_CreateColorCursor(surface, image.hot_x, image.hot_y); // SDL copies the pixels
+        SDL_DestroySurface(surface);
+        if (cursor == nullptr) {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL3 could not create the cursor."));
+        }
+        if (!SDL_SetCursor(cursor)) {
+            const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 set cursor failed.");
+            SDL_DestroyCursor(cursor);
+            return unexpected(error);
+        }
+        if (current_cursor_ != nullptr) {
+            SDL_DestroyCursor(current_cursor_);
+        }
+        current_cursor_ = cursor;
+        current_cursor_icon_.reset(); // the next set_cursor_icon must really change the cursor
+        custom_cursor_active_ = true;
+        return {};
+    }
+
+    expected<void, WindowError> SDL3Window::clear_custom_cursor() noexcept {
+        {
+            auto lock = sdl_window_mutex().lock();
+            if (!custom_cursor_active_) {
+                return {};
+            }
+            current_cursor_icon_.reset();
+            custom_cursor_active_ = false;
+        }
+        return set_cursor_icon(CursorIcon::Default);
+    }
+
+    expected<FrameExtents, WindowError> SDL3Window::frame_extents() const noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "frame_extents"); !live) [[unlikely]] {
+            return unexpected(live.error());
+        }
+        int top = 0;
+        int left = 0;
+        int bottom = 0;
+        int right = 0;
+        if (!SDL_GetWindowBordersSize(window_, &top, &left, &bottom, &right)) {
+            return unexpected(sdl_error(WindowErrorCode::Unsupported, "The window system cannot report the decoration size."));
+        }
+        return FrameExtents{left, top, right, bottom};
+    }
+
+    expected<WindowRect, WindowError> SDL3Window::safe_area() const noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "safe_area"); !live) [[unlikely]] {
+            return unexpected(live.error());
+        }
+        SDL_Rect rect{};
+        if (!SDL_GetWindowSafeArea(window_, &rect)) {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL3 could not read the safe area."));
+        }
+        return rect_from_sdl(rect);
+    }
+
+    expected<void, WindowError> SDL3Window::start_text_input_with(const TextInputOptions &options) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "start_text_input_with"); !live) [[unlikely]] {
+            return live;
+        }
+        const SDL_PropertiesID properties = SDL_CreateProperties();
+        if (properties == 0) {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL3 could not create text input properties."));
+        }
+        // The engine's enumerations are in SDL's order.
+        SDL_SetNumberProperty(properties, SDL_PROP_TEXTINPUT_TYPE_NUMBER, static_cast<Sint64>(options.type));
+        SDL_SetNumberProperty(properties, SDL_PROP_TEXTINPUT_CAPITALIZATION_NUMBER, static_cast<Sint64>(options.capitalization));
+        SDL_SetBooleanProperty(properties, SDL_PROP_TEXTINPUT_AUTOCORRECT_BOOLEAN, options.autocorrect);
+        SDL_SetBooleanProperty(properties, SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN, options.multiline);
+        const bool started = SDL_StartTextInputWithProperties(window_, properties);
+        SDL_DestroyProperties(properties);
+        return sdl_bool_result(started, WindowErrorCode::OperationFailed, "SDL_StartTextInputWithProperties failed.");
+    }
+
+    bool SDL3Window::has_screen_keyboard() const noexcept { return SDL_HasScreenKeyboardSupport(); }
+
+    bool SDL3Window::screen_keyboard_shown() const noexcept {
+        auto lock = sdl_window_mutex().lock();
+        return window_ != nullptr && SDL_ScreenKeyboardShown(window_);
+    }
+
+    std::vector<std::string> SDL3Window::clipboard_mime_types() const noexcept {
+        std::vector<std::string> out;
+        std::size_t count = 0;
+        char **types = SDL_GetClipboardMimeTypes(&count);
+        if (types == nullptr) {
+            return out;
+        }
+        for (std::size_t i = 0; i < count; ++i) {
+            if (types[i] != nullptr) {
+                out.emplace_back(types[i]);
+            }
+        }
+        SDL_free(types);
+        return out;
+    }
+
+    expected<void, WindowError> SDL3Window::set_shape(const WindowShapeMask &mask) noexcept {
+        bool transparent = false;
+        {
+            auto lock = sdl_window_mutex().lock();
+            if (auto live = require_live_window(window_, "set_shape"); !live) [[unlikely]] {
+                return live;
+            }
+            transparent = (SDL_GetWindowFlags(window_) & SDL_WINDOW_TRANSPARENT) != 0;
+        }
+        if (!transparent) {
+            // SDL shapes only windows created transparent (it uses the alpha channel); any other window gets the
+            // platform's own hard-edged outline, which the shared native layer provides.
+            return Window::set_shape(mask);
+        }
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_shape"); !live) [[unlikely]] {
+            return live;
+        }
+        if (mask.coverage.empty()) {
+            return sdl_bool_result(SDL_SetWindowShape(window_, nullptr), WindowErrorCode::Unsupported, "SDL3 could not clear the window shape.");
+        }
+        if (mask.width == 0 || mask.height == 0 || mask.coverage.size() < static_cast<usize>(mask.width) * mask.height) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "A shape mask needs width * height coverage bytes."});
+        }
+        // SDL takes a surface the size of the window, with the alpha channel as the outline.
+        int width = 0;
+        int height = 0;
+        SDL_GetWindowSizeInPixels(window_, &width, &height);
+        if (width <= 0 || height <= 0) {
+            return unexpected(WindowError{WindowErrorCode::OperationFailed, "The window has no size to shape."});
+        }
+        SDL_Surface *surface = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
+        if (surface == nullptr) {
+            return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL3 could not create the shape surface."));
+        }
+        auto *pixels = static_cast<std::uint8_t *>(surface->pixels);
+        for (int y = 0; y < height; ++y) {
+            const usize source_row = static_cast<usize>(static_cast<u64>(y) * mask.height / static_cast<u64>(height));
+            for (int x = 0; x < width; ++x) {
+                const usize source_column = static_cast<usize>(static_cast<u64>(x) * mask.width / static_cast<u64>(width));
+                const auto coverage = std::to_integer<std::uint8_t>(mask.coverage[source_row * mask.width + source_column]);
+                std::uint8_t *pixel = pixels + static_cast<usize>(y) * surface->pitch + static_cast<usize>(x) * 4;
+                pixel[0] = pixel[1] = pixel[2] = 0xFF;
+                pixel[3] = coverage;
+            }
+        }
+        const bool ok = SDL_SetWindowShape(window_, surface);
+        SDL_DestroySurface(surface);
+        return sdl_bool_result(ok, WindowErrorCode::Unsupported, "The window system cannot shape a window.");
+    }
+
+    expected<void, WindowError> SDL3Window::set_animated_cursor(std::span<const CursorFrame> frames) noexcept {
+        if (frames.empty()) {
+            return unexpected(WindowError{WindowErrorCode::InvalidArgument, "An animated cursor needs at least one frame."});
+        }
+        const CursorImage &first = frames.front().image;
+        std::vector<SDL_Surface *> surfaces;
+        std::vector<SDL_CursorFrameInfo> infos;
+        const auto release = [&] {
+            for (SDL_Surface *surface : surfaces) {
+                SDL_DestroySurface(surface);
+            }
+        };
+        for (const CursorFrame &frame : frames) {
+            const CursorImage &image = frame.image;
+            if (image.width != first.width || image.height != first.height ||
+                image.rgba.size() < static_cast<usize>(image.width) * image.height * 4 || image.width == 0 || image.height == 0) {
+                release();
+                return unexpected(WindowError{WindowErrorCode::InvalidArgument, "Every cursor frame needs the same size and width * height * 4 bytes of RGBA8."});
+            }
+            SDL_Surface *surface = SDL_CreateSurfaceFrom(static_cast<int>(image.width), static_cast<int>(image.height), SDL_PIXELFORMAT_RGBA32,
+                                                         const_cast<std::byte *>(image.rgba.data()), static_cast<int>(image.width * 4));
+            if (surface == nullptr) {
+                release();
+                return unexpected(sdl_error(WindowErrorCode::OperationFailed, "SDL3 could not wrap the cursor pixels."));
+            }
+            surfaces.push_back(surface);
+            infos.push_back(SDL_CursorFrameInfo{surface, frame.duration_ms});
+        }
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_animated_cursor"); !live) [[unlikely]] {
+            release();
+            return live;
+        }
+        SDL_Cursor *cursor = SDL_CreateAnimatedCursor(infos.data(), static_cast<int>(infos.size()), first.hot_x, first.hot_y);
+        release();
+        if (cursor == nullptr) {
+            return unexpected(sdl_error(WindowErrorCode::Unsupported, "SDL3 could not create the animated cursor."));
+        }
+        if (!SDL_SetCursor(cursor)) {
+            const WindowError error = sdl_error(WindowErrorCode::OperationFailed, "SDL3 set cursor failed.");
+            SDL_DestroyCursor(cursor);
+            return unexpected(error);
+        }
+        if (current_cursor_ != nullptr) {
+            SDL_DestroyCursor(current_cursor_);
+        }
+        current_cursor_ = cursor;
+        current_cursor_icon_.reset();
+        custom_cursor_active_ = true;
+        return {};
+    }
+
+    expected<void, WindowError> SDL3Window::set_global_cursor_position(WindowPosition position) noexcept {
+        return sdl_bool_result(SDL_WarpMouseGlobal(static_cast<float>(position.x), static_cast<float>(position.y)), WindowErrorCode::Unsupported,
+                               "The window system cannot move the cursor on the desktop.");
+    }
+
+    expected<void, WindowError> SDL3Window::set_mouse_capture(bool enabled) noexcept {
+        return sdl_bool_result(SDL_CaptureMouse(enabled), WindowErrorCode::Unsupported, "The window system cannot capture the mouse.");
+    }
+
+    namespace {
+        /// The scancode whose key is `key` on the current layout, or `SDL_SCANCODE_UNKNOWN`. The engine's key enumeration
+        /// is keyed by layout key, so this walks the scancodes through the same mapping the event path uses.
+        [[nodiscard]] SDL_Scancode scancode_for(KeyboardKey key) noexcept {
+            for (int scancode = SDL_SCANCODE_A; scancode < SDL_SCANCODE_COUNT; ++scancode) {
+                const SDL_Keycode keycode = SDL_GetKeyFromScancode(static_cast<SDL_Scancode>(scancode), SDL_KMOD_NONE, false);
+                if (keycode != SDLK_UNKNOWN && keyboard_key(keycode) == key) {
+                    return static_cast<SDL_Scancode>(scancode);
+                }
+            }
+            return SDL_SCANCODE_UNKNOWN;
+        }
+    } // namespace
+
+    std::string SDL3Window::key_name(KeyboardKey key) const noexcept {
+        const SDL_Scancode scancode = scancode_for(key);
+        if (scancode == SDL_SCANCODE_UNKNOWN) {
+            return {};
+        }
+        const char *name = SDL_GetKeyName(SDL_GetKeyFromScancode(scancode, SDL_KMOD_NONE, false));
+        return name != nullptr ? name : "";
+    }
+
+    bool SDL3Window::key_down(KeyboardKey key) const noexcept {
+        const SDL_Scancode scancode = scancode_for(key);
+        if (scancode == SDL_SCANCODE_UNKNOWN) {
+            return false;
+        }
+        int count = 0;
+        const bool *state = SDL_GetKeyboardState(&count);
+        return state != nullptr && static_cast<int>(scancode) < count && state[scancode];
+    }
+
+    expected<std::vector<std::byte>, WindowError> SDL3Window::icc_profile() const noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "icc_profile"); !live) [[unlikely]] {
+            return unexpected(live.error());
+        }
+        std::size_t size = 0;
+        void *profile = SDL_GetWindowICCProfile(window_, &size);
+        if (profile == nullptr) {
+            return unexpected(sdl_error(WindowErrorCode::Unsupported, "The display has no ICC profile."));
+        }
+        std::vector<std::byte> bytes(static_cast<const std::byte *>(profile), static_cast<const std::byte *>(profile) + size);
+        SDL_free(profile);
+        return bytes;
+    }
+
+    std::optional<u32> SDL3Window::current_display_id() const noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (window_ == nullptr) {
+            return std::nullopt;
+        }
+        const SDL_DisplayID display = SDL_GetDisplayForWindow(window_);
+        return display != 0 ? std::optional<u32>{display} : std::nullopt;
+    }
+
+    expected<void, WindowError> SDL3Window::set_fullscreen_target(FullscreenTarget target) noexcept {
+        auto lock = sdl_window_mutex().lock();
+        if (auto live = require_live_window(window_, "set_fullscreen_target"); !live) [[unlikely]] {
+            return live;
+        }
+        fullscreen_target_ = target;
+        if (fullscreen_mode_ == WindowMode::Windowed) {
+            return {};
+        }
+        return sdl_bool_result(apply_sdl_fullscreen(window_, fullscreen_mode_, fullscreen_target_), WindowErrorCode::OperationFailed,
+                               "SDL3 could not move the fullscreen window to the new target.");
     }
 
 } // namespace SFT::WindowManager::SDL3

@@ -8,8 +8,10 @@
 #include <atomic>
 #include <deque>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <vector>
 #pragma endregion
 
@@ -139,6 +141,11 @@ namespace SFT::WindowManager::GLFW {
     ///
     /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
     void glfw_scroll_callback(GLFWwindow *window, f64 x, f64 y);
+    void glfw_window_maximize_callback(GLFWwindow *window, int maximized);
+    void glfw_window_iconify_callback(GLFWwindow *window, int iconified);
+    void glfw_drop_callback(GLFWwindow *window, int count, const char **paths);
+    void glfw_window_refresh_callback(GLFWwindow *window);
+    void glfw_monitor_callback(GLFWmonitor *monitor, int event);
 
     class GLFWWindow final : public Window {
       public:
@@ -453,6 +460,47 @@ namespace SFT::WindowManager::GLFW {
         /// @note This function does not throw exceptions.
         expected<void, WindowError> set_transparent(bool enabled) noexcept override;
 
+        // Window chrome and desktop integration. GLFW has no API for hit-testing, the system menu, taskbar progress, the
+        // system theme or typed clipboard data; those are implemented on the native handle where the platform allows it
+        // and otherwise report `Unsupported` (see each definition).
+        expected<void, WindowError> set_hit_test_regions(HitTestRegions regions) noexcept override;
+        expected<void, WindowError> show_system_menu(WindowPosition position) noexcept override;
+        [[nodiscard]] bool maximized() const noexcept override;
+        [[nodiscard]] bool minimized() const noexcept override;
+        expected<void, WindowError> set_icon(u32 width, u32 height, std::span<const std::byte> rgba) noexcept override;
+        expected<void, WindowError> request_attention(AttentionRequest request) noexcept override;
+        expected<void, WindowError> set_taskbar_progress(TaskbarProgress state, f32 value) noexcept override;
+        [[nodiscard]] SystemTheme system_theme() const noexcept override;
+        [[nodiscard]] std::vector<DisplayInfo> displays() const noexcept override;
+        [[nodiscard]] optional<WindowHdrProperties> hdr_properties() const noexcept override;
+        void set_live_resize_callback(std::function<void(WindowExtent)> callback) noexcept override;
+
+        // The union surface (WindowFeatures.hpp). Click-through, focus, keyboard grab and parenting come from the shared
+        // native layer (Window's defaults); the rest is GLFW's own API.
+        [[nodiscard]] FeatureSupport feature_support(WindowFeature feature) const noexcept override;
+        expected<void, WindowError> set_always_on_top(bool enabled) noexcept override;
+        expected<void, WindowError> set_aspect_ratio(f32 min_ratio, f32 max_ratio) noexcept override;
+        expected<void, WindowError> set_auto_minimize_on_focus_loss(bool enabled) noexcept override;
+        expected<void, WindowError> set_mouse_confine_rect(std::optional<WindowRect> rect) noexcept override;
+        expected<void, WindowError> set_cursor_position(WindowPosition position) noexcept override;
+        expected<void, WindowError> set_custom_cursor(const CursorImage &image) noexcept override;
+        expected<void, WindowError> clear_custom_cursor() noexcept override;
+        [[nodiscard]] expected<FrameExtents, WindowError> frame_extents() const noexcept override;
+        expected<void, WindowError> set_fullscreen_target(FullscreenTarget target) noexcept override;
+        // Typed clipboard data: GLFW's own clipboard is text only, so text goes through it and every other format
+        // through the platform clipboard where the platform has one (Windows, macOS).
+        [[nodiscard]] bool clipboard_has_mime(std::string_view mime_type) const noexcept override;
+        [[nodiscard]] std::vector<std::byte> clipboard_data(std::string_view mime_type) const noexcept override;
+        expected<void, WindowError> set_clipboard_data(std::string_view mime_type, std::span<const std::byte> bytes) noexcept override;
+        [[nodiscard]] std::vector<std::string> clipboard_mime_types() const noexcept override;
+        expected<void, WindowError> set_animated_cursor(std::span<const CursorFrame> frames) noexcept override;
+        expected<void, WindowError> set_global_cursor_position(WindowPosition position) noexcept override;
+        expected<void, WindowError> set_mouse_capture(bool enabled) noexcept override;
+        [[nodiscard]] std::string key_name(KeyboardKey key) const noexcept override;
+        [[nodiscard]] bool key_down(KeyboardKey key) const noexcept override;
+        expected<void, WindowError> set_display_gamma(std::optional<u32> display_id, f32 gamma) noexcept override;
+        [[nodiscard]] std::optional<u32> current_display_id() const noexcept override;
+
         /// Returns the current or globally available required vulkan instance extensions value.
         ///
         /// @return Returns the value alternative on success; the error alternative describes why the operation failed.
@@ -606,6 +654,11 @@ namespace SFT::WindowManager::GLFW {
         ///
         /// @note This function has no separate failure status; exceptions raised by operations it invokes propagate to the caller.
         friend void glfw_scroll_callback(GLFWwindow *window, f64 x, f64 y);
+        friend void glfw_window_maximize_callback(GLFWwindow *window, int maximized);
+        friend void glfw_window_iconify_callback(GLFWwindow *window, int iconified);
+        friend void glfw_drop_callback(GLFWwindow *window, int count, const char **paths);
+        friend void glfw_window_refresh_callback(GLFWwindow *window);
+        friend void glfw_monitor_callback(GLFWmonitor *monitor, int event);
 
         /// Constructs a `GLFWWindow` from the supplied initialization values.
         ///
@@ -614,6 +667,12 @@ namespace SFT::WindowManager::GLFW {
         ///
         /// @note This function does not throw exceptions.
         GLFWWindow(ConstructorKey key, GLFWwindow *window) noexcept;
+
+        /// Re-applies the blur / corner-outline effects whose shape depends on the window size (or that a recreated
+        /// native surface forgot). Needs `glfw_window_mutex()` held, like the other `_locked` helpers.
+        void reapply_size_dependent_effects_locked() noexcept;
+        void fill_effect_geometry_locked(WindowEffect &effect) const noexcept;
+        void poll_system_theme_locked() noexcept;
 
 
         /// Closes requested locked using the supplied arguments and current state.
@@ -649,6 +708,25 @@ namespace SFT::WindowManager::GLFW {
 
 
         WindowMode fullscreen_mode_ = WindowMode::Windowed;
+
+        /// The blur / `CornerRadius` requests in force, so they follow resizes and a recreated native surface.
+        optional<WindowEffect> active_blur_effect_;
+        optional<WindowEffect> active_corner_effect_;
+        std::function<void(WindowExtent)> live_resize_callback_;
+        WindowExtent last_live_resize_extent_ = {};
+        /// Read by the native hit-test hook (Windows subclass / X11 press handler) on the event thread.
+        HitTestRegions hit_test_;
+        FullscreenTarget fullscreen_target_;
+        bool custom_cursor_active_ = false;
+        /// An animated cursor: GLFW has none, so every frame is a cursor and `pump_events` swaps them on the clock.
+        std::vector<GLFWcursor *> animated_cursors_;
+        std::vector<u32> animated_durations_ms_;
+        usize animated_frame_ = 0;
+        u64 animated_next_swap_ns_ = 0;
+        void clear_animated_cursor_locked() noexcept;
+        void advance_animated_cursor_locked() noexcept;
+        SystemTheme last_system_theme_ = SystemTheme::Unknown;
+        u64 last_theme_poll_ns_ = 0;
     };
 
 } // namespace SFT::WindowManager::GLFW

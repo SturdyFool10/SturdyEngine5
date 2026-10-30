@@ -13,6 +13,19 @@ namespace SFT::Engine {
         std::fill(mouse_just_pressed_.begin(), mouse_just_pressed_.end(), false);
         std::fill(mouse_just_released_.begin(), mouse_just_released_.end(), false);
         text_this_tick_.clear();
+        // A finger that lifted last tick has been seen by now; the rest only lose their "just" flags and motion.
+        std::erase_if(touches_, [](const TouchPoint &touch) { return !touch.down && touch.just_released; });
+        for (TouchPoint &touch : touches_) {
+            touch.just_pressed = false;
+            touch.just_released = false;
+            touch.dx = 0.0f;
+            touch.dy = 0.0f;
+        }
+        std::erase_if(pens_, [](const PenPoint &pen) { return !pen.in_range; });
+        for (PenPoint &pen : pens_) {
+            pen.just_down = false;
+            pen.just_up = false;
+        }
         mouse_delta_x_ = 0.0f;
         mouse_delta_y_ = 0.0f;
         wheel_delta_x_ = 0.0f;
@@ -284,6 +297,165 @@ namespace SFT::Engine {
     bool InputState::get(const std::vector<bool> &bits, WindowManager::MouseButton button) noexcept {
         const usize index = static_cast<usize>(button);
         return index < bits.size() && bits[index];
+    }
+
+    void InputState::apply(const TouchEvent &event) noexcept {
+        using Kind = WindowManager::WindowEventKind;
+        const auto found = std::find_if(touches_.begin(), touches_.end(), [&](const TouchPoint &point) {
+            return point.device == event.touch.device && point.finger == event.touch.finger && !(point.just_released && !point.down);
+        });
+        TouchPoint *point = found != touches_.end() ? &*found : nullptr;
+        if (point == nullptr) {
+            if (event.kind != Kind::TouchDown && event.kind != Kind::TouchMotion) {
+                return; // a lift or cancel for a finger we never saw go down
+            }
+            // A motion with no earlier down (the window opened under a finger) still starts a touch.
+            touches_.push_back(TouchPoint{.window = event.window, .device = event.touch.device, .finger = event.touch.finger});
+            point = &touches_.back();
+            point->down = true;
+            point->just_pressed = true;
+        }
+        point->window = event.window;
+        point->dx += event.touch.dx;
+        point->dy += event.touch.dy;
+        point->x = event.touch.x;
+        point->y = event.touch.y;
+        point->pressure = event.touch.pressure;
+        if (event.kind == Kind::TouchUp || event.kind == Kind::TouchCanceled) {
+            point->down = false;
+            point->just_released = true;
+            point->cancelled = event.kind == Kind::TouchCanceled;
+        }
+    }
+
+    void InputState::apply(const PenEvent &event) noexcept {
+        using Kind = WindowManager::WindowEventKind;
+        auto found = std::find_if(pens_.begin(), pens_.end(), [&](const PenPoint &point) { return point.pen == event.pen.pen; });
+        if (found == pens_.end()) {
+            pens_.push_back(PenPoint{.window = event.window, .pen = event.pen.pen});
+            found = pens_.end() - 1;
+            found->in_range = true; // any pen event means it is in range
+        }
+        PenPoint &pen = *found;
+        pen.window = event.window;
+        switch (event.kind) {
+            case Kind::PenProximityIn: pen.in_range = true; break;
+            case Kind::PenProximityOut:
+                pen.in_range = false;
+                if (pen.down) {
+                    pen.down = false;
+                    pen.just_up = true;
+                }
+                break;
+            case Kind::PenDown:
+                pen.x = event.pen.x;
+                pen.y = event.pen.y;
+                pen.eraser = event.pen.eraser;
+                if (!pen.down) {
+                    pen.just_down = true;
+                }
+                pen.down = true;
+                break;
+            case Kind::PenUp:
+                pen.x = event.pen.x;
+                pen.y = event.pen.y;
+                pen.eraser = event.pen.eraser;
+                if (pen.down) {
+                    pen.just_up = true;
+                }
+                pen.down = false;
+                break;
+            case Kind::PenMotion:
+                pen.x = event.pen.x;
+                pen.y = event.pen.y;
+                break;
+            case Kind::PenButtonDown:
+            case Kind::PenButtonUp:
+                if (event.pen.button >= 1 && event.pen.button <= 32) {
+                    const u32 bit = 1u << (event.pen.button - 1);
+                    pen.buttons = event.kind == Kind::PenButtonDown ? (pen.buttons | bit) : (pen.buttons & ~bit);
+                }
+                break;
+            case Kind::PenAxis:
+                pen.x = event.pen.x;
+                pen.y = event.pen.y;
+                switch (event.pen.axis) {
+                    case WindowManager::PenAxis::Pressure: pen.pressure = event.pen.value; break;
+                    case WindowManager::PenAxis::XTilt: pen.x_tilt = event.pen.value; break;
+                    case WindowManager::PenAxis::YTilt: pen.y_tilt = event.pen.value; break;
+                    case WindowManager::PenAxis::Distance: pen.distance = event.pen.value; break;
+                    case WindowManager::PenAxis::Rotation: pen.rotation = event.pen.value; break;
+                    case WindowManager::PenAxis::Slider: pen.slider = event.pen.value; break;
+                    case WindowManager::PenAxis::TangentialPressure: pen.tangential_pressure = event.pen.value; break;
+                }
+                break;
+            default: break;
+        }
+    }
+
+    void InputState::poll_gamepads() noexcept {
+        gamepad_events_.clear();
+        if (!gamepads_enabled_) {
+            gamepad_frames_.clear();
+            return;
+        }
+        gamepad_events_ = Gamepads::take_events();
+        for (const Gamepads::Event &event : gamepad_events_) {
+            if (event.kind == Gamepads::EventKind::Disconnected) {
+                std::erase_if(gamepad_frames_, [&](const GamepadFrame &frame) { return frame.id == event.id; });
+            }
+        }
+        // Every connected id is sampled; an id that is not a mapped gamepad has no state and is skipped.
+        std::vector<u32> ids;
+        for (const GamepadFrame &frame : gamepad_frames_) {
+            ids.push_back(frame.id);
+        }
+        for (const Gamepads::Event &event : gamepad_events_) {
+            if (event.kind == Gamepads::EventKind::Connected && std::find(ids.begin(), ids.end(), event.id) == ids.end()) {
+                ids.push_back(event.id);
+            }
+        }
+        std::vector<GamepadFrame> next;
+        next.reserve(ids.size());
+        for (const u32 id : ids) {
+            const auto state = Gamepads::state(id);
+            if (!state) {
+                continue;
+            }
+            const GamepadFrame *previous = gamepad(id);
+            const u32 before = previous != nullptr ? previous->state.buttons : 0u;
+            next.push_back(GamepadFrame{id, *state, state->buttons & ~before, before & ~state->buttons});
+        }
+        gamepad_frames_ = std::move(next);
+    }
+
+    const InputState::GamepadFrame *InputState::gamepad(u32 id) const noexcept {
+        for (const GamepadFrame &frame : gamepad_frames_) {
+            if (frame.id == id) {
+                return &frame;
+            }
+        }
+        return nullptr;
+    }
+
+    bool InputState::gamepad_button_down(u32 id, Gamepads::Button button) const noexcept {
+        const GamepadFrame *frame = gamepad(id);
+        return frame != nullptr && frame->state.down(button);
+    }
+
+    bool InputState::gamepad_button_just_pressed(u32 id, Gamepads::Button button) const noexcept {
+        const GamepadFrame *frame = gamepad(id);
+        return frame != nullptr && ((frame->pressed_this_tick >> static_cast<u32>(button)) & 1u) != 0;
+    }
+
+    bool InputState::gamepad_button_just_released(u32 id, Gamepads::Button button) const noexcept {
+        const GamepadFrame *frame = gamepad(id);
+        return frame != nullptr && ((frame->released_this_tick >> static_cast<u32>(button)) & 1u) != 0;
+    }
+
+    f32 InputState::gamepad_axis(u32 id, Gamepads::Axis axis) const noexcept {
+        const GamepadFrame *frame = gamepad(id);
+        return frame != nullptr ? frame->state.axis(axis) : 0.0f;
     }
 
 } // namespace SFT::Engine

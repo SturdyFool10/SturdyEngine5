@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class Sturdy {
     public static final int ABI_MAJOR = 0;
-    public static final int ABI_MINOR = 40;
+    public static final int ABI_MINOR = 42;
 
     private Sturdy() {}
 
@@ -101,6 +101,14 @@ public final class Sturdy {
         public static final int STURDY_ASYNC_FEATURE_PROCESS = 16;
         public static final int STURDY_ASYNC_FEATURE_GZIP = 32;
         public static final int STURDY_ASYNC_FEATURE_NATIVE_FILE_WATCH = 64;
+    }
+
+    /** SturdyAttentionRequest */
+    public static final class SturdyAttentionRequest {
+        private SturdyAttentionRequest() {}
+        public static final int STURDY_ATTENTION_CANCEL = 0;
+        public static final int STURDY_ATTENTION_BRIEFLY = 1;
+        public static final int STURDY_ATTENTION_UNTIL_FOCUSED = 2;
     }
 
     /** How a sound attached to an entity is anchored. */
@@ -256,6 +264,18 @@ public final class Sturdy {
         public static final int STURDY_CURSOR_ICON_RESIZE_NWSE = 7;
         public static final int STURDY_CURSOR_ICON_RESIZE_NESW = 8;
         public static final int STURDY_CURSOR_ICON_NOT_ALLOWED = 9;
+        public static final int STURDY_CURSOR_ICON_CROSSHAIR = 10;
+        public static final int STURDY_CURSOR_ICON_MOVE = 11;
+        public static final int STURDY_CURSOR_ICON_WAIT = 12;
+        public static final int STURDY_CURSOR_ICON_PROGRESS = 13;
+        public static final int STURDY_CURSOR_ICON_RESIZE_N = 14;
+        public static final int STURDY_CURSOR_ICON_RESIZE_NE = 15;
+        public static final int STURDY_CURSOR_ICON_RESIZE_E = 16;
+        public static final int STURDY_CURSOR_ICON_RESIZE_SE = 17;
+        public static final int STURDY_CURSOR_ICON_RESIZE_S = 18;
+        public static final int STURDY_CURSOR_ICON_RESIZE_SW = 19;
+        public static final int STURDY_CURSOR_ICON_RESIZE_W = 20;
+        public static final int STURDY_CURSOR_ICON_RESIZE_NW = 21;
     }
 
     /** Broad class of a physical device — the engine's active one (`SturdyAdapterInfo::device_type`) or one reported by `sturdy_gpu_enumerate` before any engine exists. */
@@ -266,6 +286,16 @@ public final class Sturdy {
         public static final int STURDY_DEVICE_TYPE_DISCRETE_GPU = 2;
         public static final int STURDY_DEVICE_TYPE_VIRTUAL_GPU = 3;
         public static final int STURDY_DEVICE_TYPE_CPU = 4;
+    }
+
+    /** SturdyDisplayOrientation */
+    public static final class SturdyDisplayOrientation {
+        private SturdyDisplayOrientation() {}
+        public static final int STURDY_DISPLAY_ORIENTATION_UNKNOWN = 0;
+        public static final int STURDY_DISPLAY_ORIENTATION_LANDSCAPE = 1;
+        public static final int STURDY_DISPLAY_ORIENTATION_LANDSCAPE_FLIPPED = 2;
+        public static final int STURDY_DISPLAY_ORIENTATION_PORTRAIT = 3;
+        public static final int STURDY_DISPLAY_ORIENTATION_PORTRAIT_FLIPPED = 4;
     }
 
     /** The scalar kinds a component field can have (since 0.35). These are what two languages must agree on to share a component's memory: a C `float`, a Rust `f32` and a C# `float` are all `STURDY_FIELD_F32`. Values never change. */
@@ -282,6 +312,14 @@ public final class Sturdy {
         public static final int STURDY_FIELD_U64 = 8;
         public static final int STURDY_FIELD_F32 = 9;
         public static final int STURDY_FIELD_F64 = 10;
+    }
+
+    /** SturdyFileDialogKind */
+    public static final class SturdyFileDialogKind {
+        private SturdyFileDialogKind() {}
+        public static final int STURDY_FILE_DIALOG_OPEN_FILE = 0;
+        public static final int STURDY_FILE_DIALOG_SAVE_FILE = 1;
+        public static final int STURDY_FILE_DIALOG_OPEN_FOLDER = 2;
     }
 
     /** SturdyFileMode */
@@ -375,6 +413,88 @@ public final class Sturdy {
         private SturdyFrontFace() {}
         public static final int STURDY_FRONT_FACE_COUNTER_CLOCKWISE = 0;
         public static final int STURDY_FRONT_FACE_CLOCKWISE = 1;
+    }
+
+    /** The standard layout's axes: the sticks run -1 to 1, the triggers 0 to 1. */
+    public static final class SturdyGamepadAxis {
+        private SturdyGamepadAxis() {}
+        public static final int STURDY_GAMEPAD_AXIS_LEFT_X = 0;
+        public static final int STURDY_GAMEPAD_AXIS_LEFT_Y = 1;
+        public static final int STURDY_GAMEPAD_AXIS_RIGHT_X = 2;
+        public static final int STURDY_GAMEPAD_AXIS_RIGHT_Y = 3;
+        public static final int STURDY_GAMEPAD_AXIS_LEFT_TRIGGER = 4;
+        public static final int STURDY_GAMEPAD_AXIS_RIGHT_TRIGGER = 5;
+    }
+
+    /** The standard layout's buttons; bit `n` of `SturdyGamepadState::buttons` is the button with value `n`. */
+    public static final class SturdyGamepadButton {
+        private SturdyGamepadButton() {}
+        public static final int STURDY_GAMEPAD_BUTTON_SOUTH = 0;
+        public static final int STURDY_GAMEPAD_BUTTON_EAST = 1;
+        public static final int STURDY_GAMEPAD_BUTTON_WEST = 2;
+        public static final int STURDY_GAMEPAD_BUTTON_NORTH = 3;
+        public static final int STURDY_GAMEPAD_BUTTON_BACK = 4;
+        public static final int STURDY_GAMEPAD_BUTTON_GUIDE = 5;
+        public static final int STURDY_GAMEPAD_BUTTON_START = 6;
+        public static final int STURDY_GAMEPAD_BUTTON_LEFT_STICK = 7;
+        public static final int STURDY_GAMEPAD_BUTTON_RIGHT_STICK = 8;
+        public static final int STURDY_GAMEPAD_BUTTON_LEFT_SHOULDER = 9;
+        public static final int STURDY_GAMEPAD_BUTTON_RIGHT_SHOULDER = 10;
+        public static final int STURDY_GAMEPAD_BUTTON_DPAD_UP = 11;
+        public static final int STURDY_GAMEPAD_BUTTON_DPAD_DOWN = 12;
+        public static final int STURDY_GAMEPAD_BUTTON_DPAD_LEFT = 13;
+        public static final int STURDY_GAMEPAD_BUTTON_DPAD_RIGHT = 14;
+        public static final int STURDY_GAMEPAD_BUTTON_MISC1 = 15;
+        public static final int STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE1 = 16;
+        public static final int STURDY_GAMEPAD_BUTTON_LEFT_PADDLE1 = 17;
+        public static final int STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE2 = 18;
+        public static final int STURDY_GAMEPAD_BUTTON_LEFT_PADDLE2 = 19;
+        public static final int STURDY_GAMEPAD_BUTTON_TOUCHPAD = 20;
+        public static final int STURDY_GAMEPAD_BUTTON_MISC2 = 21;
+        public static final int STURDY_GAMEPAD_BUTTON_MISC3 = 22;
+        public static final int STURDY_GAMEPAD_BUTTON_MISC4 = 23;
+        public static final int STURDY_GAMEPAD_BUTTON_MISC5 = 24;
+        public static final int STURDY_GAMEPAD_BUTTON_MISC6 = 25;
+    }
+
+    /** SturdyGamepadConnection */
+    public static final class SturdyGamepadConnection {
+        private SturdyGamepadConnection() {}
+        public static final int STURDY_GAMEPAD_CONNECTION_UNKNOWN = 0;
+        public static final int STURDY_GAMEPAD_CONNECTION_WIRED = 1;
+        public static final int STURDY_GAMEPAD_CONNECTION_WIRELESS = 2;
+    }
+
+    /** SturdyGamepadEventKind */
+    public static final class SturdyGamepadEventKind {
+        private SturdyGamepadEventKind() {}
+        public static final int STURDY_GAMEPAD_EVENT_CONNECTED = 0;
+        public static final int STURDY_GAMEPAD_EVENT_DISCONNECTED = 1;
+    }
+
+    /** SturdyGamepadKind */
+    public static final class SturdyGamepadKind {
+        private SturdyGamepadKind() {}
+        public static final int STURDY_GAMEPAD_KIND_UNKNOWN = 0;
+        public static final int STURDY_GAMEPAD_KIND_STANDARD = 1;
+        public static final int STURDY_GAMEPAD_KIND_XBOX360 = 2;
+        public static final int STURDY_GAMEPAD_KIND_XBOX_ONE = 3;
+        public static final int STURDY_GAMEPAD_KIND_PS3 = 4;
+        public static final int STURDY_GAMEPAD_KIND_PS4 = 5;
+        public static final int STURDY_GAMEPAD_KIND_PS5 = 6;
+        public static final int STURDY_GAMEPAD_KIND_SWITCH_PRO = 7;
+        public static final int STURDY_GAMEPAD_KIND_JOYCON_LEFT = 8;
+        public static final int STURDY_GAMEPAD_KIND_JOYCON_RIGHT = 9;
+        public static final int STURDY_GAMEPAD_KIND_JOYCON_PAIR = 10;
+        public static final int STURDY_GAMEPAD_KIND_GAMECUBE = 11;
+        public static final int STURDY_GAMEPAD_KIND_STEAM = 12;
+    }
+
+    /** SturdyGamepadSensor */
+    public static final class SturdyGamepadSensor {
+        private SturdyGamepadSensor() {}
+        public static final int STURDY_GAMEPAD_SENSOR_ACCELEROMETER = 0;
+        public static final int STURDY_GAMEPAD_SENSOR_GYROSCOPE = 1;
     }
 
     /** What kind of light a glTF file declared. */
@@ -479,6 +599,15 @@ public final class Sturdy {
         public static final int STURDY_LATENCY_MODE_ULTRA = 2;
     }
 
+    /** Which Linux blur route a `STURDY_WINDOW_EFFECT_BLUR` request takes. */
+    public static final class SturdyLinuxBlurProtocol {
+        private SturdyLinuxBlurProtocol() {}
+        public static final int STURDY_LINUX_BLUR_AUTOMATIC = 0;
+        public static final int STURDY_LINUX_BLUR_EXT_BACKGROUND_EFFECT = 1;
+        public static final int STURDY_LINUX_BLUR_KDE_BLUR = 2;
+        public static final int STURDY_LINUX_BLUR_KDE_X11 = 3;
+    }
+
     /** Load/store behavior for a render pass attachment. */
     public static final class SturdyLoadOp {
         private SturdyLoadOp() {}
@@ -498,12 +627,71 @@ public final class Sturdy {
         public static final int STURDY_LOG_LEVEL_CRITICAL = 5;
     }
 
+    /** `NSAppearanceName` override for the effect view. */
+    public static final class SturdyMacAppearance {
+        private SturdyMacAppearance() {}
+        public static final int STURDY_MAC_APPEARANCE_INHERIT = 0;
+        public static final int STURDY_MAC_APPEARANCE_AQUA = 1;
+        public static final int STURDY_MAC_APPEARANCE_DARK_AQUA = 2;
+        public static final int STURDY_MAC_APPEARANCE_VIBRANT_LIGHT = 3;
+        public static final int STURDY_MAC_APPEARANCE_VIBRANT_DARK = 4;
+    }
+
+    /** `NSVisualEffectBlendingMode`. */
+    public static final class SturdyMacBlendingMode {
+        private SturdyMacBlendingMode() {}
+        public static final int STURDY_MAC_BLENDING_BEHIND_WINDOW = 0;
+        public static final int STURDY_MAC_BLENDING_WITHIN_WINDOW = 1;
+    }
+
+    /** `NSVisualEffectState`. */
+    public static final class SturdyMacEffectState {
+        private SturdyMacEffectState() {}
+        public static final int STURDY_MAC_STATE_FOLLOWS_WINDOW_ACTIVE_STATE = 0;
+        public static final int STURDY_MAC_STATE_ACTIVE = 1;
+        public static final int STURDY_MAC_STATE_INACTIVE = 2;
+    }
+
+    /** `NSGlassEffectViewStyle` (macOS 26). */
+    public static final class SturdyMacGlassStyle {
+        private SturdyMacGlassStyle() {}
+        public static final int STURDY_MAC_GLASS_REGULAR = 0;
+        public static final int STURDY_MAC_GLASS_CLEAR = 1;
+    }
+
+    /** `NSVisualEffectMaterial` (macOS 10.14 semantic materials), in the engine's own order. */
+    public static final class SturdyMacMaterial {
+        private SturdyMacMaterial() {}
+        public static final int STURDY_MAC_MATERIAL_TITLEBAR = 0;
+        public static final int STURDY_MAC_MATERIAL_SELECTION = 1;
+        public static final int STURDY_MAC_MATERIAL_MENU = 2;
+        public static final int STURDY_MAC_MATERIAL_POPOVER = 3;
+        public static final int STURDY_MAC_MATERIAL_SIDEBAR = 4;
+        public static final int STURDY_MAC_MATERIAL_HEADER_VIEW = 5;
+        public static final int STURDY_MAC_MATERIAL_SHEET = 6;
+        public static final int STURDY_MAC_MATERIAL_WINDOW_BACKGROUND = 7;
+        public static final int STURDY_MAC_MATERIAL_HUD_WINDOW = 8;
+        public static final int STURDY_MAC_MATERIAL_FULL_SCREEN_UI = 9;
+        public static final int STURDY_MAC_MATERIAL_TOOL_TIP = 10;
+        public static final int STURDY_MAC_MATERIAL_CONTENT_BACKGROUND = 11;
+        public static final int STURDY_MAC_MATERIAL_UNDER_WINDOW_BACKGROUND = 12;
+        public static final int STURDY_MAC_MATERIAL_UNDER_PAGE_BACKGROUND = 13;
+    }
+
     /** Where a buffer's backing memory lives. */
     public static final class SturdyMemoryLocation {
         private SturdyMemoryLocation() {}
         public static final int STURDY_MEMORY_LOCATION_DEVICE_LOCAL = 0;
         public static final int STURDY_MEMORY_LOCATION_HOST_UPLOAD = 1;
         public static final int STURDY_MEMORY_LOCATION_HOST_READBACK = 2;
+    }
+
+    /** SturdyMessageBoxKind */
+    public static final class SturdyMessageBoxKind {
+        private SturdyMessageBoxKind() {}
+        public static final int STURDY_MESSAGE_BOX_INFORMATION = 0;
+        public static final int STURDY_MESSAGE_BOX_WARNING = 1;
+        public static final int STURDY_MESSAGE_BOX_ERROR = 2;
     }
 
     /** SturdyMipmapMode */
@@ -862,6 +1050,39 @@ public final class Sturdy {
         public static final int STURDY_TASK_HEAVY = 1;
     }
 
+    /** SturdyTaskbarProgress */
+    public static final class SturdyTaskbarProgress {
+        private SturdyTaskbarProgress() {}
+        public static final int STURDY_TASKBAR_PROGRESS_NONE = 0;
+        public static final int STURDY_TASKBAR_PROGRESS_INDETERMINATE = 1;
+        public static final int STURDY_TASKBAR_PROGRESS_NORMAL = 2;
+        public static final int STURDY_TASKBAR_PROGRESS_PAUSED = 3;
+        public static final int STURDY_TASKBAR_PROGRESS_ERROR = 4;
+    }
+
+    /** SturdyTextCapitalization */
+    public static final class SturdyTextCapitalization {
+        private SturdyTextCapitalization() {}
+        public static final int STURDY_TEXT_CAPITALIZATION_NONE = 0;
+        public static final int STURDY_TEXT_CAPITALIZATION_SENTENCES = 1;
+        public static final int STURDY_TEXT_CAPITALIZATION_WORDS = 2;
+        public static final int STURDY_TEXT_CAPITALIZATION_LETTERS = 3;
+    }
+
+    /** SturdyTextInputType */
+    public static final class SturdyTextInputType {
+        private SturdyTextInputType() {}
+        public static final int STURDY_TEXT_INPUT_TEXT = 0;
+        public static final int STURDY_TEXT_INPUT_NAME = 1;
+        public static final int STURDY_TEXT_INPUT_EMAIL = 2;
+        public static final int STURDY_TEXT_INPUT_USERNAME = 3;
+        public static final int STURDY_TEXT_INPUT_PASSWORD_HIDDEN = 4;
+        public static final int STURDY_TEXT_INPUT_PASSWORD_VISIBLE = 5;
+        public static final int STURDY_TEXT_INPUT_NUMBER = 6;
+        public static final int STURDY_TEXT_INPUT_NUMBER_PASSWORD_HIDDEN = 7;
+        public static final int STURDY_TEXT_INPUT_NUMBER_PASSWORD_VISIBLE = 8;
+    }
+
     /** Dimensionality of a texture. */
     public static final class SturdyTextureDimension {
         private SturdyTextureDimension() {}
@@ -1025,6 +1246,15 @@ public final class Sturdy {
         public static final int STURDY_VERTEX_STEP_MODE_INSTANCE = 1;
     }
 
+    /** Windows 11 `DWM_WINDOW_CORNER_PREFERENCE`. */
+    public static final class SturdyWindowCornerPreference {
+        private SturdyWindowCornerPreference() {}
+        public static final int STURDY_WINDOW_CORNER_DEFAULT = 0;
+        public static final int STURDY_WINDOW_CORNER_DO_NOT_ROUND = 1;
+        public static final int STURDY_WINDOW_CORNER_ROUND = 2;
+        public static final int STURDY_WINDOW_CORNER_ROUND_SMALL = 3;
+    }
+
     /** Platform-composited visual effect a window can request. Support is OS-dependent — an effect this platform cannot render (e.g. Mica off Windows 11) is rejected with `STURDY_ERROR_NOT_AVAILABLE` rather than silently ignored. */
     public static final class SturdyWindowEffectKind {
         private SturdyWindowEffectKind() {}
@@ -1038,6 +1268,74 @@ public final class Sturdy {
         public static final int STURDY_WINDOW_EFFECT_CAPTION_COLOR = 7;
         public static final int STURDY_WINDOW_EFFECT_TEXT_COLOR = 8;
         public static final int STURDY_WINDOW_EFFECT_TRANSPARENT = 9;
+        public static final int STURDY_WINDOW_EFFECT_BACKDROP_AUTO = 10;
+        public static final int STURDY_WINDOW_EFFECT_BACKDROP_NONE = 11;
+        public static final int STURDY_WINDOW_EFFECT_ACCENT_BLUR = 12;
+        public static final int STURDY_WINDOW_EFFECT_ACCENT_ACRYLIC = 13;
+        public static final int STURDY_WINDOW_EFFECT_CORNER_PREFERENCE = 14;
+        public static final int STURDY_WINDOW_EFFECT_VISUAL_EFFECT = 15;
+        public static final int STURDY_WINDOW_EFFECT_OPACITY = 16;
+        public static final int STURDY_WINDOW_EFFECT_TRANSITIONS_DISABLED = 17;
+        public static final int STURDY_WINDOW_EFFECT_TITLEBAR_TRANSPARENT = 18;
+        public static final int STURDY_WINDOW_EFFECT_WINDOW_SHADOW = 19;
+        public static final int STURDY_WINDOW_EFFECT_GLASS_EFFECT = 20;
+        public static final int STURDY_WINDOW_EFFECT_CORNER_RADIUS = 21;
+    }
+
+    /** SturdyWindowErrorKind */
+    public static final class SturdyWindowErrorKind {
+        private SturdyWindowErrorKind() {}
+        public static final int STURDY_WINDOW_ERROR_NONE = 0;
+        public static final int STURDY_WINDOW_ERROR_UNSUPPORTED = 1;
+        public static final int STURDY_WINDOW_ERROR_INVALID_ARGUMENT = 2;
+        public static final int STURDY_WINDOW_ERROR_FAILED = 3;
+    }
+
+    /** A capability a window may or may not have on this provider, OS and session type. */
+    public static final class SturdyWindowFeature {
+        private SturdyWindowFeature() {}
+        public static final int STURDY_WINDOW_FEATURE_ALWAYS_ON_TOP = 0;
+        public static final int STURDY_WINDOW_FEATURE_ASPECT_RATIO = 1;
+        public static final int STURDY_WINDOW_FEATURE_MOUSE_PASSTHROUGH = 2;
+        public static final int STURDY_WINDOW_FEATURE_FOCUSABLE = 3;
+        public static final int STURDY_WINDOW_FEATURE_AUTO_MINIMIZE_ON_FOCUS_LOSS = 4;
+        public static final int STURDY_WINDOW_FEATURE_PARENT_WINDOW = 5;
+        public static final int STURDY_WINDOW_FEATURE_MODAL_WINDOW = 6;
+        public static final int STURDY_WINDOW_FEATURE_KEYBOARD_GRAB = 7;
+        public static final int STURDY_WINDOW_FEATURE_MOUSE_CONFINE_RECT = 8;
+        public static final int STURDY_WINDOW_FEATURE_WARP_CURSOR = 9;
+        public static final int STURDY_WINDOW_FEATURE_CUSTOM_CURSOR = 10;
+        public static final int STURDY_WINDOW_FEATURE_FRAME_EXTENTS = 11;
+        public static final int STURDY_WINDOW_FEATURE_SAFE_AREA = 12;
+        public static final int STURDY_WINDOW_FEATURE_FULLSCREEN_TARGET = 13;
+        public static final int STURDY_WINDOW_FEATURE_TEXT_INPUT_OPTIONS = 14;
+        public static final int STURDY_WINDOW_FEATURE_SCREEN_KEYBOARD = 15;
+        public static final int STURDY_WINDOW_FEATURE_CLIPBOARD_MIME_TYPES = 16;
+        public static final int STURDY_WINDOW_FEATURE_TYPED_CLIPBOARD = 17;
+        public static final int STURDY_WINDOW_FEATURE_HIT_TEST_REGIONS = 18;
+        public static final int STURDY_WINDOW_FEATURE_SYSTEM_MENU = 19;
+        public static final int STURDY_WINDOW_FEATURE_WINDOW_ICON = 20;
+        public static final int STURDY_WINDOW_FEATURE_REQUEST_ATTENTION = 21;
+        public static final int STURDY_WINDOW_FEATURE_TASKBAR_PROGRESS = 22;
+        public static final int STURDY_WINDOW_FEATURE_SYSTEM_THEME = 23;
+        public static final int STURDY_WINDOW_FEATURE_DISPLAY_LIST = 24;
+        public static final int STURDY_WINDOW_FEATURE_DISPLAY_MODES = 25;
+        public static final int STURDY_WINDOW_FEATURE_DISPLAY_EVENTS = 26;
+        public static final int STURDY_WINDOW_FEATURE_LIVE_RESIZE_CALLBACK = 27;
+        public static final int STURDY_WINDOW_FEATURE_WAIT_FOR_EVENTS = 28;
+        public static final int STURDY_WINDOW_FEATURE_FILE_DROP = 29;
+        public static final int STURDY_WINDOW_FEATURE_TEXT_DROP = 30;
+        public static final int STURDY_WINDOW_FEATURE_WINDOW_TYPE_HINT = 31;
+        public static final int STURDY_WINDOW_FEATURE_WINDOW_SHAPE = 32;
+        public static final int STURDY_WINDOW_FEATURE_ANIMATED_CURSOR = 33;
+        public static final int STURDY_WINDOW_FEATURE_KEYBOARD_QUERY = 34;
+        public static final int STURDY_WINDOW_FEATURE_WARP_CURSOR_GLOBAL = 35;
+        public static final int STURDY_WINDOW_FEATURE_MOUSE_CAPTURE = 36;
+        public static final int STURDY_WINDOW_FEATURE_ICC_PROFILE = 37;
+        public static final int STURDY_WINDOW_FEATURE_SYSTEM_TRAY = 38;
+        public static final int STURDY_WINDOW_FEATURE_TOUCH_INPUT = 39;
+        public static final int STURDY_WINDOW_FEATURE_PEN_INPUT = 40;
+        public static final int STURDY_WINDOW_FEATURE_COUNT = 41;
     }
 
     /** Presentation mode of a window. */
@@ -1048,12 +1346,78 @@ public final class Sturdy {
         public static final int STURDY_WINDOW_MODE_EXCLUSIVE_FULLSCREEN = 2;
     }
 
+    /** Each operation a window can be asked to run; the key to `sturdy_window_operation_status`. */
+    public static final class SturdyWindowOperation {
+        private SturdyWindowOperation() {}
+        public static final int STURDY_WINDOW_OP_TITLE = 0;
+        public static final int STURDY_WINDOW_OP_POSITION = 1;
+        public static final int STURDY_WINDOW_OP_SIZE = 2;
+        public static final int STURDY_WINDOW_OP_MINIMUM_SIZE = 3;
+        public static final int STURDY_WINDOW_OP_MAXIMUM_SIZE = 4;
+        public static final int STURDY_WINDOW_OP_RESIZABLE = 5;
+        public static final int STURDY_WINDOW_OP_OPACITY = 6;
+        public static final int STURDY_WINDOW_OP_MAXIMIZE = 7;
+        public static final int STURDY_WINDOW_OP_MINIMIZE = 8;
+        public static final int STURDY_WINDOW_OP_RESTORE = 9;
+        public static final int STURDY_WINDOW_OP_RAISE = 10;
+        public static final int STURDY_WINDOW_OP_FOCUS = 11;
+        public static final int STURDY_WINDOW_OP_SHOW = 12;
+        public static final int STURDY_WINDOW_OP_HIDE = 13;
+        public static final int STURDY_WINDOW_OP_ALWAYS_ON_TOP = 14;
+        public static final int STURDY_WINDOW_OP_ASPECT_RATIO = 15;
+        public static final int STURDY_WINDOW_OP_MOUSE_PASSTHROUGH = 16;
+        public static final int STURDY_WINDOW_OP_FOCUSABLE = 17;
+        public static final int STURDY_WINDOW_OP_AUTO_MINIMIZE = 18;
+        public static final int STURDY_WINDOW_OP_PARENT = 19;
+        public static final int STURDY_WINDOW_OP_KEYBOARD_GRAB = 20;
+        public static final int STURDY_WINDOW_OP_MOUSE_CONFINE_RECT = 21;
+        public static final int STURDY_WINDOW_OP_CURSOR_POSITION = 22;
+        public static final int STURDY_WINDOW_OP_GLOBAL_CURSOR_POSITION = 23;
+        public static final int STURDY_WINDOW_OP_MOUSE_CAPTURE = 24;
+        public static final int STURDY_WINDOW_OP_CUSTOM_CURSOR = 25;
+        public static final int STURDY_WINDOW_OP_ANIMATED_CURSOR = 26;
+        public static final int STURDY_WINDOW_OP_CLEAR_CUSTOM_CURSOR = 27;
+        public static final int STURDY_WINDOW_OP_TEXT_INPUT_OPTIONS = 28;
+        public static final int STURDY_WINDOW_OP_FULLSCREEN_TARGET = 29;
+        public static final int STURDY_WINDOW_OP_WINDOW_TYPE = 30;
+        public static final int STURDY_WINDOW_OP_SHAPE = 31;
+        public static final int STURDY_WINDOW_OP_DISPLAY_GAMMA = 32;
+        public static final int STURDY_WINDOW_OP_ICON = 33;
+        public static final int STURDY_WINDOW_OP_ATTENTION = 34;
+        public static final int STURDY_WINDOW_OP_TASKBAR_PROGRESS = 35;
+        public static final int STURDY_WINDOW_OP_HIT_TEST_REGIONS = 36;
+        public static final int STURDY_WINDOW_OP_SYSTEM_MENU = 37;
+        public static final int STURDY_WINDOW_OP_CLIPBOARD_TEXT = 38;
+        public static final int STURDY_WINDOW_OP_SET_CLIPBOARD_TEXT = 39;
+        public static final int STURDY_WINDOW_OP_CLIPBOARD_MIME_TYPES = 40;
+        public static final int STURDY_WINDOW_OP_CLIPBOARD_DATA = 41;
+        public static final int STURDY_WINDOW_OP_SET_CLIPBOARD_DATA = 42;
+        public static final int STURDY_WINDOW_OP_KEY_NAME = 43;
+        public static final int STURDY_WINDOW_OP_KEY_DOWN = 44;
+        public static final int STURDY_WINDOW_OP_ICC_PROFILE = 45;
+        public static final int STURDY_WINDOW_OP_FILE_DIALOG = 46;
+        public static final int STURDY_WINDOW_OP_MESSAGE_BOX = 47;
+        public static final int STURDY_WINDOW_OP_COUNT = 48;
+    }
+
     /** Which kind of window request a `SturdyWindowRequestCompletion` reports the outcome of. */
     public static final class SturdyWindowRequestKind {
         private SturdyWindowRequestKind() {}
         public static final int STURDY_WINDOW_REQUEST_SPAWN = 0;
         public static final int STURDY_WINDOW_REQUEST_RECREATE_PRIMARY = 1;
         public static final int STURDY_WINDOW_REQUEST_CLOSE = 2;
+    }
+
+    /** How the window manager should treat a window. */
+    public static final class SturdyWindowType {
+        private SturdyWindowType() {}
+        public static final int STURDY_WINDOW_TYPE_NORMAL = 0;
+        public static final int STURDY_WINDOW_TYPE_UTILITY = 1;
+        public static final int STURDY_WINDOW_TYPE_TOOLTIP = 2;
+        public static final int STURDY_WINDOW_TYPE_POPUP_MENU = 3;
+        public static final int STURDY_WINDOW_TYPE_DROPDOWN_MENU = 4;
+        public static final int STURDY_WINDOW_TYPE_DIALOG = 5;
+        public static final int STURDY_WINDOW_TYPE_SPLASH = 6;
     }
 
     // ---- struct layouts: size, alignment, field offsets (padding is explicit, as Panama requires) ----
@@ -1904,6 +2268,15 @@ public final class Sturdy {
     public static final long OFFSET_SturdyCopyOptions_shutdown_writer = 16L;
     public static final long SIZE_SturdyCopyOptions = 24L;
 
+    /** One frame of an animated cursor: tightly packed RGBA8 (`width * height * 4` bytes, the size given to the call). (size 16, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyCursorFrame = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("rgba"),
+            ValueLayout.JAVA_INT.withName("duration_ms"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyCursorFrame");
+    public static final long OFFSET_SturdyCursorFrame_rgba = 0L;
+    public static final long OFFSET_SturdyCursorFrame_duration_ms = 8L;
+    public static final long SIZE_SturdyCursorFrame = 16L;
+
     /** The engine's raw D3D12 objects. (size 40, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyD3D12Handles = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
@@ -2059,6 +2432,61 @@ public final class Sturdy {
     public static final long OFFSET_SturdyDeviceLimits_reserved = 78L;
     public static final long SIZE_SturdyDeviceLimits = 80L;
 
+    /** An integer rectangle in window or desktop coordinates (origin top-left). (size 16, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyWindowRect = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("x"),
+            ValueLayout.JAVA_INT.withName("y"),
+            ValueLayout.JAVA_INT.withName("width"),
+            ValueLayout.JAVA_INT.withName("height")).withName("SturdyWindowRect");
+    public static final long OFFSET_SturdyWindowRect_x = 0L;
+    public static final long OFFSET_SturdyWindowRect_y = 4L;
+    public static final long OFFSET_SturdyWindowRect_width = 8L;
+    public static final long OFFSET_SturdyWindowRect_height = 12L;
+    public static final long SIZE_SturdyWindowRect = 16L;
+
+    /** One video mode of a display. (size 16, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyDisplayMode = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("width"),
+            ValueLayout.JAVA_INT.withName("height"),
+            ValueLayout.JAVA_FLOAT.withName("refresh_rate_hz"),
+            ValueLayout.JAVA_FLOAT.withName("pixel_density")).withName("SturdyDisplayMode");
+    public static final long OFFSET_SturdyDisplayMode_width = 0L;
+    public static final long OFFSET_SturdyDisplayMode_height = 4L;
+    public static final long OFFSET_SturdyDisplayMode_refresh_rate_hz = 8L;
+    public static final long OFFSET_SturdyDisplayMode_pixel_density = 12L;
+    public static final long SIZE_SturdyDisplayMode = 16L;
+
+    /** One connected monitor. Read with `sturdy_display_get`; the name and the modes come from their own calls. (size 84, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyDisplayInfo = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("id"),
+            LAYOUT_SturdyWindowRect.withName("bounds"),
+            LAYOUT_SturdyWindowRect.withName("usable_bounds"),
+            ValueLayout.JAVA_FLOAT.withName("content_scale"),
+            ValueLayout.JAVA_FLOAT.withName("refresh_rate_hz"),
+            ValueLayout.JAVA_BYTE.withName("hdr_enabled"),
+            ValueLayout.JAVA_BYTE.withName("primary"),
+            MemoryLayout.paddingLayout(2),
+            LAYOUT_SturdyDisplayMode.withName("current_mode"),
+            ValueLayout.JAVA_INT.withName("mode_count"),
+            ValueLayout.JAVA_INT.withName("physical_width_mm"),
+            ValueLayout.JAVA_INT.withName("physical_height_mm"),
+            ValueLayout.JAVA_INT.withName("orientation")).withName("SturdyDisplayInfo");
+    public static final long OFFSET_SturdyDisplayInfo_struct_size = 0L;
+    public static final long OFFSET_SturdyDisplayInfo_id = 4L;
+    public static final long OFFSET_SturdyDisplayInfo_bounds = 8L;
+    public static final long OFFSET_SturdyDisplayInfo_usable_bounds = 24L;
+    public static final long OFFSET_SturdyDisplayInfo_content_scale = 40L;
+    public static final long OFFSET_SturdyDisplayInfo_refresh_rate_hz = 44L;
+    public static final long OFFSET_SturdyDisplayInfo_hdr_enabled = 48L;
+    public static final long OFFSET_SturdyDisplayInfo_primary = 49L;
+    public static final long OFFSET_SturdyDisplayInfo_current_mode = 52L;
+    public static final long OFFSET_SturdyDisplayInfo_mode_count = 68L;
+    public static final long OFFSET_SturdyDisplayInfo_physical_width_mm = 72L;
+    public static final long OFFSET_SturdyDisplayInfo_physical_height_mm = 76L;
+    public static final long OFFSET_SturdyDisplayInfo_orientation = 80L;
+    public static final long SIZE_SturdyDisplayInfo = 84L;
+
     /** SturdyDrawArgs (size 16, alignment 4) */
     public static final MemoryLayout LAYOUT_SturdyDrawArgs = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("vertex_count"),
@@ -2109,6 +2537,15 @@ public final class Sturdy {
     public static final long OFFSET_SturdyEntity_generation = 4L;
     public static final long SIZE_SturdyEntity = 8L;
 
+    /** Whether a feature is available, with the reason when it is not (or only partly). `note` is a static string owned by the engine: it stays valid for the life of the process; it is empty when the feature is fully supported. (size 16, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyFeatureSupport = MemoryLayout.structLayout(
+            ValueLayout.JAVA_BYTE.withName("supported"),
+            MemoryLayout.paddingLayout(7),
+            ValueLayout.ADDRESS.withName("note")).withName("SturdyFeatureSupport");
+    public static final long OFFSET_SturdyFeatureSupport_supported = 0L;
+    public static final long OFFSET_SturdyFeatureSupport_note = 8L;
+    public static final long SIZE_SturdyFeatureSupport = 16L;
+
     /** Handle to a fence: a GPU-to-host synchronization primitive signaled when a submission completes. See the "RHI resources" section header for its lifetime rules. (size 8, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyFence = MemoryLayout.structLayout(
             ValueLayout.JAVA_LONG.withName("id")).withName("SturdyFence");
@@ -2127,11 +2564,54 @@ public final class Sturdy {
     public static final long OFFSET_SturdyFenceDesc_label = 8L;
     public static final long SIZE_SturdyFenceDesc = 16L;
 
+    /** SturdyFileDialogOptions (size 56, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyFileDialogOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("kind"),
+            ValueLayout.ADDRESS.withName("title"),
+            ValueLayout.ADDRESS.withName("accept_label"),
+            ValueLayout.ADDRESS.withName("cancel_label"),
+            ValueLayout.ADDRESS.withName("default_location"),
+            ValueLayout.ADDRESS.withName("filters"),
+            ValueLayout.JAVA_INT.withName("filter_count"),
+            ValueLayout.JAVA_BYTE.withName("allow_multiple"),
+            MemoryLayout.paddingLayout(3)).withName("SturdyFileDialogOptions");
+    public static final long OFFSET_SturdyFileDialogOptions_struct_size = 0L;
+    public static final long OFFSET_SturdyFileDialogOptions_kind = 4L;
+    public static final long OFFSET_SturdyFileDialogOptions_title = 8L;
+    public static final long OFFSET_SturdyFileDialogOptions_accept_label = 16L;
+    public static final long OFFSET_SturdyFileDialogOptions_cancel_label = 24L;
+    public static final long OFFSET_SturdyFileDialogOptions_default_location = 32L;
+    public static final long OFFSET_SturdyFileDialogOptions_filters = 40L;
+    public static final long OFFSET_SturdyFileDialogOptions_filter_count = 48L;
+    public static final long OFFSET_SturdyFileDialogOptions_allow_multiple = 52L;
+    public static final long SIZE_SturdyFileDialogOptions = 56L;
+
+    /** SturdyFileFilter (size 16, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyFileFilter = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("name"),
+            ValueLayout.ADDRESS.withName("pattern")).withName("SturdyFileFilter");
+    public static final long OFFSET_SturdyFileFilter_name = 0L;
+    public static final long OFFSET_SturdyFileFilter_pattern = 8L;
+    public static final long SIZE_SturdyFileFilter = 16L;
+
     /** Borrowed reference to the render-frame parameters being built for the current frame. (size 8, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyFrame = MemoryLayout.structLayout(
             ValueLayout.JAVA_LONG.withName("token")).withName("SturdyFrame");
     public static final long OFFSET_SturdyFrame_token = 0L;
     public static final long SIZE_SturdyFrame = 8L;
+
+    /** The decoration thickness around the client area, in window units. (size 16, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyFrameExtents = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("left"),
+            ValueLayout.JAVA_INT.withName("top"),
+            ValueLayout.JAVA_INT.withName("right"),
+            ValueLayout.JAVA_INT.withName("bottom")).withName("SturdyFrameExtents");
+    public static final long OFFSET_SturdyFrameExtents_left = 0L;
+    public static final long OFFSET_SturdyFrameExtents_top = 4L;
+    public static final long OFFSET_SturdyFrameExtents_right = 8L;
+    public static final long OFFSET_SturdyFrameExtents_bottom = 12L;
+    public static final long SIZE_SturdyFrameExtents = 16L;
 
     /** Per-frame timing and surface geometry, supplied by the engine to `request_render_frame`. (size 40, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyFrameInput = MemoryLayout.structLayout(
@@ -2152,6 +2632,20 @@ public final class Sturdy {
     public static final long OFFSET_SturdyFrameInput_live_resize = 32L;
     public static final long OFFSET_SturdyFrameInput_reserved_tail = 33L;
     public static final long SIZE_SturdyFrameInput = 40L;
+
+    /** The display and mode a fullscreen window uses. Unset fields mean "the window's current display" / "the desktop mode". (size 28, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyFullscreenTarget = MemoryLayout.structLayout(
+            ValueLayout.JAVA_BYTE.withName("has_display"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_INT.withName("display_id"),
+            ValueLayout.JAVA_BYTE.withName("has_mode"),
+            MemoryLayout.paddingLayout(3),
+            LAYOUT_SturdyDisplayMode.withName("mode")).withName("SturdyFullscreenTarget");
+    public static final long OFFSET_SturdyFullscreenTarget_has_display = 0L;
+    public static final long OFFSET_SturdyFullscreenTarget_display_id = 4L;
+    public static final long OFFSET_SturdyFullscreenTarget_has_mode = 8L;
+    public static final long OFFSET_SturdyFullscreenTarget_mode = 12L;
+    public static final long SIZE_SturdyFullscreenTarget = 28L;
 
     /** Callbacks implementing your application, mirroring the C++ `Engine::GameLogic` interface. (size 48, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyGameLogic = MemoryLayout.structLayout(
@@ -2188,6 +2682,76 @@ public final class Sturdy {
     public static final long OFFSET_SturdyGameModule_reserved = 25L;
     public static final long OFFSET_SturdyGameModule_logic = 32L;
     public static final long SIZE_SturdyGameModule = 80L;
+
+    /** SturdyGamepadEvent (size 8, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyGamepadEvent = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("kind"),
+            ValueLayout.JAVA_INT.withName("id")).withName("SturdyGamepadEvent");
+    public static final long OFFSET_SturdyGamepadEvent_kind = 0L;
+    public static final long OFFSET_SturdyGamepadEvent_id = 4L;
+    public static final long SIZE_SturdyGamepadEvent = 8L;
+
+    /** One mapped gamepad as it is this tick; the masks hold the buttons that changed since the last tick. (size 40, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyGamepadFrame = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("id"),
+            ValueLayout.JAVA_INT.withName("buttons"),
+            ValueLayout.JAVA_INT.withName("pressed_this_tick"),
+            ValueLayout.JAVA_INT.withName("released_this_tick"),
+            MemoryLayout.sequenceLayout(6, ValueLayout.JAVA_FLOAT).withName("axes")).withName("SturdyGamepadFrame");
+    public static final long OFFSET_SturdyGamepadFrame_id = 0L;
+    public static final long OFFSET_SturdyGamepadFrame_buttons = 4L;
+    public static final long OFFSET_SturdyGamepadFrame_pressed_this_tick = 8L;
+    public static final long OFFSET_SturdyGamepadFrame_released_this_tick = 12L;
+    public static final long OFFSET_SturdyGamepadFrame_axes = 16L;
+    public static final long SIZE_SturdyGamepadFrame = 40L;
+
+    /** One connected device. Read with `sturdy_gamepad_get`; the name comes from `sturdy_gamepad_name`. (size 40, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyGamepadInfo = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("id"),
+            ValueLayout.JAVA_INT.withName("kind"),
+            ValueLayout.JAVA_SHORT.withName("vendor"),
+            ValueLayout.JAVA_SHORT.withName("product"),
+            ValueLayout.JAVA_INT.withName("connection"),
+            ValueLayout.JAVA_INT.withName("player_index"),
+            ValueLayout.JAVA_BYTE.withName("mapped"),
+            ValueLayout.JAVA_BYTE.withName("has_rumble"),
+            ValueLayout.JAVA_BYTE.withName("has_trigger_rumble"),
+            ValueLayout.JAVA_BYTE.withName("has_led"),
+            ValueLayout.JAVA_BYTE.withName("has_accelerometer"),
+            ValueLayout.JAVA_BYTE.withName("has_gyroscope"),
+            ValueLayout.JAVA_BYTE.withName("has_touchpad"),
+            MemoryLayout.paddingLayout(1),
+            ValueLayout.JAVA_INT.withName("battery_percent"),
+            ValueLayout.JAVA_BYTE.withName("charging"),
+            MemoryLayout.paddingLayout(3)).withName("SturdyGamepadInfo");
+    public static final long OFFSET_SturdyGamepadInfo_struct_size = 0L;
+    public static final long OFFSET_SturdyGamepadInfo_id = 4L;
+    public static final long OFFSET_SturdyGamepadInfo_kind = 8L;
+    public static final long OFFSET_SturdyGamepadInfo_vendor = 12L;
+    public static final long OFFSET_SturdyGamepadInfo_product = 14L;
+    public static final long OFFSET_SturdyGamepadInfo_connection = 16L;
+    public static final long OFFSET_SturdyGamepadInfo_player_index = 20L;
+    public static final long OFFSET_SturdyGamepadInfo_mapped = 24L;
+    public static final long OFFSET_SturdyGamepadInfo_has_rumble = 25L;
+    public static final long OFFSET_SturdyGamepadInfo_has_trigger_rumble = 26L;
+    public static final long OFFSET_SturdyGamepadInfo_has_led = 27L;
+    public static final long OFFSET_SturdyGamepadInfo_has_accelerometer = 28L;
+    public static final long OFFSET_SturdyGamepadInfo_has_gyroscope = 29L;
+    public static final long OFFSET_SturdyGamepadInfo_has_touchpad = 30L;
+    public static final long OFFSET_SturdyGamepadInfo_battery_percent = 32L;
+    public static final long OFFSET_SturdyGamepadInfo_charging = 36L;
+    public static final long SIZE_SturdyGamepadInfo = 40L;
+
+    /** SturdyGamepadState (size 32, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyGamepadState = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("buttons"),
+            MemoryLayout.sequenceLayout(6, ValueLayout.JAVA_FLOAT).withName("axes")).withName("SturdyGamepadState");
+    public static final long OFFSET_SturdyGamepadState_struct_size = 0L;
+    public static final long OFFSET_SturdyGamepadState_buttons = 4L;
+    public static final long OFFSET_SturdyGamepadState_axes = 8L;
+    public static final long SIZE_SturdyGamepadState = 32L;
 
     /** A pipeline barrier with no specific resource — orders every matching access before/after it. (size 32, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyGlobalBarrier = MemoryLayout.structLayout(
@@ -2327,6 +2891,28 @@ public final class Sturdy {
     public static final long OFFSET_SturdyHdrPresentationMode_gamut = 4L;
     public static final long OFFSET_SturdyHdrPresentationMode_requires_os_hdr_mode = 8L;
     public static final long SIZE_SturdyHdrPresentationMode = 12L;
+
+    /** Rectangles of a custom title bar; see `sturdy_window_set_hit_test_regions`. (size 48, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyHitTestRegions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_BYTE.withName("enabled"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_INT.withName("resize_border"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("drag"),
+            ValueLayout.JAVA_INT.withName("drag_count"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("no_drag"),
+            ValueLayout.JAVA_INT.withName("no_drag_count"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyHitTestRegions");
+    public static final long OFFSET_SturdyHitTestRegions_struct_size = 0L;
+    public static final long OFFSET_SturdyHitTestRegions_enabled = 4L;
+    public static final long OFFSET_SturdyHitTestRegions_resize_border = 8L;
+    public static final long OFFSET_SturdyHitTestRegions_drag = 16L;
+    public static final long OFFSET_SturdyHitTestRegions_drag_count = 24L;
+    public static final long OFFSET_SturdyHitTestRegions_no_drag = 32L;
+    public static final long OFFSET_SturdyHitTestRegions_no_drag_count = 40L;
+    public static final long SIZE_SturdyHitTestRegions = 48L;
 
     /** How to verify a server (client side of TLS/QUIC/HTTPS/WSS). Chain and host name are always checked unless `pinned_sha256` names the exact certificate(s) accepted. (size 72, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyTlsClientOptions = MemoryLayout.structLayout(
@@ -2581,6 +3167,27 @@ public final class Sturdy {
     public static final long OFFSET_SturdyLogSink_id = 0L;
     public static final long SIZE_SturdyLogSink = 8L;
 
+    /** SturdyMessageBoxOptions (size 48, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyMessageBoxOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("kind"),
+            ValueLayout.ADDRESS.withName("title"),
+            ValueLayout.ADDRESS.withName("message"),
+            ValueLayout.ADDRESS.withName("buttons"),
+            ValueLayout.JAVA_INT.withName("button_count"),
+            ValueLayout.JAVA_INT.withName("default_button"),
+            ValueLayout.JAVA_INT.withName("escape_button"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyMessageBoxOptions");
+    public static final long OFFSET_SturdyMessageBoxOptions_struct_size = 0L;
+    public static final long OFFSET_SturdyMessageBoxOptions_kind = 4L;
+    public static final long OFFSET_SturdyMessageBoxOptions_title = 8L;
+    public static final long OFFSET_SturdyMessageBoxOptions_message = 16L;
+    public static final long OFFSET_SturdyMessageBoxOptions_buttons = 24L;
+    public static final long OFFSET_SturdyMessageBoxOptions_button_count = 32L;
+    public static final long OFFSET_SturdyMessageBoxOptions_default_button = 36L;
+    public static final long OFFSET_SturdyMessageBoxOptions_escape_button = 40L;
+    public static final long SIZE_SturdyMessageBoxOptions = 48L;
+
     /** SturdyMotionBlurSettings (size 36, alignment 4) */
     public static final MemoryLayout LAYOUT_SturdyMotionBlurSettings = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
@@ -2776,6 +3383,46 @@ public final class Sturdy {
     public static final long OFFSET_SturdyPeerOptions_discovery_group = 136L;
     public static final long OFFSET_SturdyPeerOptions_discovery_interval_ms = 144L;
     public static final long SIZE_SturdyPeerOptions = 152L;
+
+    /** One pen. Listed while in range, and for the tick it left range in. (size 64, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyPenPoint = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("window"),
+            ValueLayout.JAVA_INT.withName("pen"),
+            ValueLayout.JAVA_FLOAT.withName("x"),
+            ValueLayout.JAVA_FLOAT.withName("y"),
+            ValueLayout.JAVA_BYTE.withName("in_range"),
+            ValueLayout.JAVA_BYTE.withName("down"),
+            ValueLayout.JAVA_BYTE.withName("eraser"),
+            ValueLayout.JAVA_BYTE.withName("just_down"),
+            ValueLayout.JAVA_BYTE.withName("just_up"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_FLOAT.withName("pressure"),
+            ValueLayout.JAVA_FLOAT.withName("x_tilt"),
+            ValueLayout.JAVA_FLOAT.withName("y_tilt"),
+            ValueLayout.JAVA_FLOAT.withName("distance"),
+            ValueLayout.JAVA_FLOAT.withName("rotation"),
+            ValueLayout.JAVA_FLOAT.withName("slider"),
+            ValueLayout.JAVA_FLOAT.withName("tangential_pressure"),
+            ValueLayout.JAVA_INT.withName("buttons"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyPenPoint");
+    public static final long OFFSET_SturdyPenPoint_window = 0L;
+    public static final long OFFSET_SturdyPenPoint_pen = 8L;
+    public static final long OFFSET_SturdyPenPoint_x = 12L;
+    public static final long OFFSET_SturdyPenPoint_y = 16L;
+    public static final long OFFSET_SturdyPenPoint_in_range = 20L;
+    public static final long OFFSET_SturdyPenPoint_down = 21L;
+    public static final long OFFSET_SturdyPenPoint_eraser = 22L;
+    public static final long OFFSET_SturdyPenPoint_just_down = 23L;
+    public static final long OFFSET_SturdyPenPoint_just_up = 24L;
+    public static final long OFFSET_SturdyPenPoint_pressure = 28L;
+    public static final long OFFSET_SturdyPenPoint_x_tilt = 32L;
+    public static final long OFFSET_SturdyPenPoint_y_tilt = 36L;
+    public static final long OFFSET_SturdyPenPoint_distance = 40L;
+    public static final long OFFSET_SturdyPenPoint_rotation = 44L;
+    public static final long OFFSET_SturdyPenPoint_slider = 48L;
+    public static final long OFFSET_SturdyPenPoint_tangential_pressure = 52L;
+    public static final long OFFSET_SturdyPenPoint_buttons = 56L;
+    public static final long SIZE_SturdyPenPoint = 64L;
 
     /** Describes a pipeline layout to create. (size 40, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyPipelineLayoutDesc = MemoryLayout.structLayout(
@@ -3998,6 +4645,21 @@ public final class Sturdy {
     public static final long OFFSET_SturdyTextInputArea_cursor_offset_x = 16L;
     public static final long SIZE_SturdyTextInputArea = 20L;
 
+    /** What kind of text a field takes, for IMEs and on-screen keyboards. Populate with `sturdy_text_input_options_init`. (size 16, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyTextInputOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("type"),
+            ValueLayout.JAVA_INT.withName("capitalization"),
+            ValueLayout.JAVA_BYTE.withName("autocorrect"),
+            ValueLayout.JAVA_BYTE.withName("multiline"),
+            MemoryLayout.paddingLayout(2)).withName("SturdyTextInputOptions");
+    public static final long OFFSET_SturdyTextInputOptions_struct_size = 0L;
+    public static final long OFFSET_SturdyTextInputOptions_type = 4L;
+    public static final long OFFSET_SturdyTextInputOptions_capitalization = 8L;
+    public static final long OFFSET_SturdyTextInputOptions_autocorrect = 12L;
+    public static final long OFFSET_SturdyTextInputOptions_multiline = 13L;
+    public static final long SIZE_SturdyTextInputOptions = 16L;
+
     /** Handle to a GPU texture. See the "RHI resources" section header for its lifetime rules. (size 8, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyTexture = MemoryLayout.structLayout(
             ValueLayout.JAVA_LONG.withName("id")).withName("SturdyTexture");
@@ -4172,6 +4834,34 @@ public final class Sturdy {
     public static final long OFFSET_SturdyToneMappingSettings_psychov_background_gray_bt709 = 96L;
     public static final long SIZE_SturdyToneMappingSettings = 108L;
 
+    /** One finger on a touch screen or pad. A lifted finger is listed for the tick it lifted in, then disappears. (size 48, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyTouchPoint = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("window"),
+            ValueLayout.JAVA_LONG.withName("device"),
+            ValueLayout.JAVA_LONG.withName("finger"),
+            ValueLayout.JAVA_FLOAT.withName("x"),
+            ValueLayout.JAVA_FLOAT.withName("y"),
+            ValueLayout.JAVA_FLOAT.withName("dx"),
+            ValueLayout.JAVA_FLOAT.withName("dy"),
+            ValueLayout.JAVA_FLOAT.withName("pressure"),
+            ValueLayout.JAVA_BYTE.withName("down"),
+            ValueLayout.JAVA_BYTE.withName("just_pressed"),
+            ValueLayout.JAVA_BYTE.withName("just_released"),
+            ValueLayout.JAVA_BYTE.withName("cancelled")).withName("SturdyTouchPoint");
+    public static final long OFFSET_SturdyTouchPoint_window = 0L;
+    public static final long OFFSET_SturdyTouchPoint_device = 8L;
+    public static final long OFFSET_SturdyTouchPoint_finger = 16L;
+    public static final long OFFSET_SturdyTouchPoint_x = 24L;
+    public static final long OFFSET_SturdyTouchPoint_y = 28L;
+    public static final long OFFSET_SturdyTouchPoint_dx = 32L;
+    public static final long OFFSET_SturdyTouchPoint_dy = 36L;
+    public static final long OFFSET_SturdyTouchPoint_pressure = 40L;
+    public static final long OFFSET_SturdyTouchPoint_down = 44L;
+    public static final long OFFSET_SturdyTouchPoint_just_pressed = 45L;
+    public static final long OFFSET_SturdyTouchPoint_just_released = 46L;
+    public static final long OFFSET_SturdyTouchPoint_cancelled = 47L;
+    public static final long SIZE_SturdyTouchPoint = 48L;
+
     /** SturdyTraceFrame (size 56, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyTraceFrame = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("struct_size"),
@@ -4212,6 +4902,35 @@ public final class Sturdy {
     public static final long OFFSET_SturdyTraceRaysDesc_height = 132L;
     public static final long OFFSET_SturdyTraceRaysDesc_depth = 136L;
     public static final long SIZE_SturdyTraceRaysDesc = 144L;
+
+    /** A notification-area / menu-bar icon. Owned: lives until `sturdy_tray_destroy`. (size 8, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyTray = MemoryLayout.structLayout(
+            ValueLayout.JAVA_LONG.withName("token")).withName("SturdyTray");
+    public static final long OFFSET_SturdyTray_token = 0L;
+    public static final long SIZE_SturdyTray = 8L;
+
+    /** SturdyTrayEntry (size 40, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyTrayEntry = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("id"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("label"),
+            ValueLayout.JAVA_BYTE.withName("separator"),
+            ValueLayout.JAVA_BYTE.withName("checkable"),
+            ValueLayout.JAVA_BYTE.withName("checked"),
+            ValueLayout.JAVA_BYTE.withName("enabled"),
+            MemoryLayout.paddingLayout(4),
+            ValueLayout.ADDRESS.withName("submenu"),
+            ValueLayout.JAVA_INT.withName("submenu_count"),
+            MemoryLayout.paddingLayout(4)).withName("SturdyTrayEntry");
+    public static final long OFFSET_SturdyTrayEntry_id = 0L;
+    public static final long OFFSET_SturdyTrayEntry_label = 8L;
+    public static final long OFFSET_SturdyTrayEntry_separator = 16L;
+    public static final long OFFSET_SturdyTrayEntry_checkable = 17L;
+    public static final long OFFSET_SturdyTrayEntry_checked = 18L;
+    public static final long OFFSET_SturdyTrayEntry_enabled = 19L;
+    public static final long OFFSET_SturdyTrayEntry_submenu = 24L;
+    public static final long OFFSET_SturdyTrayEntry_submenu_count = 32L;
+    public static final long SIZE_SturdyTrayEntry = 40L;
 
     /** SturdyUdpOptions (size 24, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyUdpOptions = MemoryLayout.structLayout(
@@ -4681,6 +5400,121 @@ public final class Sturdy {
     public static final long OFFSET_SturdyWindowConfig_mode = 40L;
     public static final long SIZE_SturdyWindowConfig = 48L;
 
+    /** Creation-time window behaviour, for `sturdy_window_spawn_ex`. Populate with `sturdy_window_creation_options_init`. (size 88, alignment 8) */
+    public static final MemoryLayout LAYOUT_SturdyWindowCreationOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_BYTE.withName("always_on_top"),
+            ValueLayout.JAVA_BYTE.withName("maximized"),
+            ValueLayout.JAVA_BYTE.withName("minimized"),
+            ValueLayout.JAVA_BYTE.withName("focusable"),
+            ValueLayout.JAVA_BYTE.withName("mouse_passthrough"),
+            ValueLayout.JAVA_BYTE.withName("has_auto_minimize"),
+            ValueLayout.JAVA_BYTE.withName("auto_minimize_on_focus_loss"),
+            MemoryLayout.paddingLayout(1),
+            ValueLayout.JAVA_INT.withName("window_type"),
+            ValueLayout.JAVA_BYTE.withName("has_parent"),
+            MemoryLayout.paddingLayout(7),
+            LAYOUT_SturdySurface.withName("parent"),
+            ValueLayout.JAVA_BYTE.withName("modal"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_INT.withName("min_width"),
+            ValueLayout.JAVA_INT.withName("min_height"),
+            ValueLayout.JAVA_INT.withName("max_width"),
+            ValueLayout.JAVA_INT.withName("max_height"),
+            ValueLayout.JAVA_FLOAT.withName("aspect_min"),
+            ValueLayout.JAVA_FLOAT.withName("aspect_max"),
+            LAYOUT_SturdyFullscreenTarget.withName("fullscreen_target")).withName("SturdyWindowCreationOptions");
+    public static final long OFFSET_SturdyWindowCreationOptions_struct_size = 0L;
+    public static final long OFFSET_SturdyWindowCreationOptions_always_on_top = 4L;
+    public static final long OFFSET_SturdyWindowCreationOptions_maximized = 5L;
+    public static final long OFFSET_SturdyWindowCreationOptions_minimized = 6L;
+    public static final long OFFSET_SturdyWindowCreationOptions_focusable = 7L;
+    public static final long OFFSET_SturdyWindowCreationOptions_mouse_passthrough = 8L;
+    public static final long OFFSET_SturdyWindowCreationOptions_has_auto_minimize = 9L;
+    public static final long OFFSET_SturdyWindowCreationOptions_auto_minimize_on_focus_loss = 10L;
+    public static final long OFFSET_SturdyWindowCreationOptions_window_type = 12L;
+    public static final long OFFSET_SturdyWindowCreationOptions_has_parent = 16L;
+    public static final long OFFSET_SturdyWindowCreationOptions_parent = 24L;
+    public static final long OFFSET_SturdyWindowCreationOptions_modal = 32L;
+    public static final long OFFSET_SturdyWindowCreationOptions_min_width = 36L;
+    public static final long OFFSET_SturdyWindowCreationOptions_min_height = 40L;
+    public static final long OFFSET_SturdyWindowCreationOptions_max_width = 44L;
+    public static final long OFFSET_SturdyWindowCreationOptions_max_height = 48L;
+    public static final long OFFSET_SturdyWindowCreationOptions_aspect_min = 52L;
+    public static final long OFFSET_SturdyWindowCreationOptions_aspect_max = 56L;
+    public static final long OFFSET_SturdyWindowCreationOptions_fullscreen_target = 60L;
+    public static final long SIZE_SturdyWindowCreationOptions = 88L;
+
+    /** Everything beyond kind and on/off for `sturdy_window_set_effect_ex`. Populate with `sturdy_window_effect_options_init` first: that sets `struct_size` and the defaults (full opacity, all accent borders, the platform's own look). Each field applies to specific effects and is ignored by the rest. (size 68, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyWindowEffectOptions = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_INT.withName("linux_blur_protocol"),
+            ValueLayout.JAVA_INT.withName("color_argb"),
+            ValueLayout.JAVA_FLOAT.withName("blur_corner_radius"),
+            ValueLayout.JAVA_INT.withName("tint_argb"),
+            ValueLayout.JAVA_BYTE.withName("accent_border_left"),
+            ValueLayout.JAVA_BYTE.withName("accent_border_top"),
+            ValueLayout.JAVA_BYTE.withName("accent_border_right"),
+            ValueLayout.JAVA_BYTE.withName("accent_border_bottom"),
+            ValueLayout.JAVA_BYTE.withName("hide_border"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_INT.withName("corner_preference"),
+            ValueLayout.JAVA_INT.withName("mac_material"),
+            ValueLayout.JAVA_INT.withName("mac_blending"),
+            ValueLayout.JAVA_INT.withName("mac_state"),
+            ValueLayout.JAVA_BYTE.withName("mac_emphasized"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_INT.withName("mac_appearance"),
+            ValueLayout.JAVA_INT.withName("mac_glass_style"),
+            ValueLayout.JAVA_FLOAT.withName("mac_glass_corner_radius"),
+            ValueLayout.JAVA_FLOAT.withName("opacity"),
+            ValueLayout.JAVA_FLOAT.withName("window_corner_radius")).withName("SturdyWindowEffectOptions");
+    public static final long OFFSET_SturdyWindowEffectOptions_struct_size = 0L;
+    public static final long OFFSET_SturdyWindowEffectOptions_linux_blur_protocol = 4L;
+    public static final long OFFSET_SturdyWindowEffectOptions_color_argb = 8L;
+    public static final long OFFSET_SturdyWindowEffectOptions_blur_corner_radius = 12L;
+    public static final long OFFSET_SturdyWindowEffectOptions_tint_argb = 16L;
+    public static final long OFFSET_SturdyWindowEffectOptions_accent_border_left = 20L;
+    public static final long OFFSET_SturdyWindowEffectOptions_accent_border_top = 21L;
+    public static final long OFFSET_SturdyWindowEffectOptions_accent_border_right = 22L;
+    public static final long OFFSET_SturdyWindowEffectOptions_accent_border_bottom = 23L;
+    public static final long OFFSET_SturdyWindowEffectOptions_hide_border = 24L;
+    public static final long OFFSET_SturdyWindowEffectOptions_corner_preference = 28L;
+    public static final long OFFSET_SturdyWindowEffectOptions_mac_material = 32L;
+    public static final long OFFSET_SturdyWindowEffectOptions_mac_blending = 36L;
+    public static final long OFFSET_SturdyWindowEffectOptions_mac_state = 40L;
+    public static final long OFFSET_SturdyWindowEffectOptions_mac_emphasized = 44L;
+    public static final long OFFSET_SturdyWindowEffectOptions_mac_appearance = 48L;
+    public static final long OFFSET_SturdyWindowEffectOptions_mac_glass_style = 52L;
+    public static final long OFFSET_SturdyWindowEffectOptions_mac_glass_corner_radius = 56L;
+    public static final long OFFSET_SturdyWindowEffectOptions_opacity = 60L;
+    public static final long OFFSET_SturdyWindowEffectOptions_window_corner_radius = 64L;
+    public static final long SIZE_SturdyWindowEffectOptions = 68L;
+
+    /** The outcome of the last run of one operation on one window. (size 32, alignment 4) */
+    public static final MemoryLayout LAYOUT_SturdyWindowOperationStatus = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("struct_size"),
+            ValueLayout.JAVA_BYTE.withName("completed"),
+            ValueLayout.JAVA_BYTE.withName("ok"),
+            MemoryLayout.paddingLayout(2),
+            ValueLayout.JAVA_INT.withName("error"),
+            ValueLayout.JAVA_BYTE.withName("flag"),
+            MemoryLayout.paddingLayout(3),
+            ValueLayout.JAVA_INT.withName("text_length"),
+            ValueLayout.JAVA_INT.withName("bytes_size"),
+            ValueLayout.JAVA_INT.withName("list_count"),
+            ValueLayout.JAVA_INT.withName("number")).withName("SturdyWindowOperationStatus");
+    public static final long OFFSET_SturdyWindowOperationStatus_struct_size = 0L;
+    public static final long OFFSET_SturdyWindowOperationStatus_completed = 4L;
+    public static final long OFFSET_SturdyWindowOperationStatus_ok = 5L;
+    public static final long OFFSET_SturdyWindowOperationStatus_error = 8L;
+    public static final long OFFSET_SturdyWindowOperationStatus_flag = 12L;
+    public static final long OFFSET_SturdyWindowOperationStatus_text_length = 16L;
+    public static final long OFFSET_SturdyWindowOperationStatus_bytes_size = 20L;
+    public static final long OFFSET_SturdyWindowOperationStatus_list_count = 24L;
+    public static final long OFFSET_SturdyWindowOperationStatus_number = 28L;
+    public static final long SIZE_SturdyWindowOperationStatus = 32L;
+
     /** Outcome of one completed window request: `sturdy_window_spawn`, `sturdy_window_recreate_primary`, or `sturdy_window_request_close`. (size 24, alignment 8) */
     public static final MemoryLayout LAYOUT_SturdyWindowRequestCompletion = MemoryLayout.structLayout(
             ValueLayout.JAVA_LONG.withName("request_id"),
@@ -4731,6 +5565,7 @@ public final class Sturdy {
     public static final FunctionDescriptor DESCRIPTOR_SturdyAudioSinkCallback = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT);
     public static final FunctionDescriptor DESCRIPTOR_SturdyChunkSystemFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, LAYOUT_SturdyCommands, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyEcsVisitFn = FunctionDescriptor.ofVoid(LAYOUT_SturdyEntity, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyFileDialogCallback = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyHttpHandlerFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.ADDRESS, LAYOUT_SturdyHttpResponder);
     public static final FunctionDescriptor DESCRIPTOR_SturdyLogCallback = FunctionDescriptor.ofVoid(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyParChunkFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG);
@@ -4763,6 +5598,7 @@ public final class Sturdy {
     public static final FunctionDescriptor DESCRIPTOR_SturdyTaskFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyTaskThenFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS, ValueLayout.ADDRESS);
     public static final FunctionDescriptor DESCRIPTOR_SturdyTaskWorkFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS);
+    public static final FunctionDescriptor DESCRIPTOR_SturdyTrayCallback = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, ValueLayout.JAVA_INT);
     public static final FunctionDescriptor DESCRIPTOR_SturdyWebSocketFn = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS);
 
     // ---- the library ----
@@ -5454,6 +6290,35 @@ public final class Sturdy {
         return (int) h.invokeExact(settings);
     }
 
+    // Delivers tray clicks for a program whose windows are not pumping SDL. Cheap when no tray exists.
+    public static int sturdy_desktop_pump_events() throws Throwable {
+        MethodHandle h = handle("sturdy_desktop_pump_events", FunctionDescriptor.of(ValueLayout.JAVA_INT));
+        return (int) h.invokeExact();
+    }
+
+    public static int sturdy_desktop_screensaver_enabled(MemorySegment out_enabled) throws Throwable {
+        MethodHandle h = handle("sturdy_desktop_screensaver_enabled", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_enabled);
+    }
+
+    // Allows or inhibits the screen saver / display blanking (games turn it off).
+    public static int sturdy_desktop_set_screensaver_enabled(byte enabled) throws Throwable {
+        MethodHandle h = handle("sturdy_desktop_set_screensaver_enabled", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(enabled);
+    }
+
+    // Opens a file or folder dialog and returns at once; `callback` reports the outcome.
+    public static int sturdy_desktop_show_file_dialog(MemorySegment engine, MemorySegment options, MemorySegment callback, MemorySegment user) throws Throwable {
+        MethodHandle h = handle("sturdy_desktop_show_file_dialog", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, options, callback, user);
+    }
+
+    // Shows a message box and blocks until it is dismissed; writes the pressed button's index (or -1). Main thread only.
+    public static int sturdy_desktop_show_message_box(MemorySegment engine, MemorySegment options, MemorySegment out_button) throws Throwable {
+        MethodHandle h = handle("sturdy_desktop_show_message_box", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, options, out_button);
+    }
+
     // Walks a directory entry by entry. Object "dir_iter".
     public static int sturdy_dir_iter_create(MemorySegment path, byte recursive, MemorySegment out_iter) throws Throwable {
         MethodHandle h = handle("sturdy_dir_iter_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
@@ -5464,6 +6329,29 @@ public final class Sturdy {
     public static int sturdy_dir_iter_next(MemorySegment iter, MemorySegment out_op) throws Throwable {
         MethodHandle h = handle("sturdy_dir_iter_next", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject, ValueLayout.ADDRESS));
         return (int) h.invokeExact(iter, out_op);
+    }
+
+    // How many monitors are connected (refreshed when the window system reports a change).
+    public static int sturdy_display_count(MemorySegment engine, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_display_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, out_count);
+    }
+
+    public static int sturdy_display_get(MemorySegment engine, int index, MemorySegment out_info) throws Throwable {
+        MethodHandle h = handle("sturdy_display_get", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, index, out_info);
+    }
+
+    // Mode `mode_index` (below `SturdyDisplayInfo::mode_count`) of monitor `index`.
+    public static int sturdy_display_mode(MemorySegment engine, int index, int mode_index, MemorySegment out_mode) throws Throwable {
+        MethodHandle h = handle("sturdy_display_mode", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, index, mode_index, out_mode);
+    }
+
+    // The monitor's name. See the string-output convention above.
+    public static int sturdy_display_name(MemorySegment engine, int index, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_display_name", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, index, buffer, capacity, out_length);
     }
 
     // Resolves a host name. Fields: one `address` per result (numeric text).
@@ -6172,6 +7060,79 @@ public final class Sturdy {
         return (int) h.invokeExact(path, data, size, append, out_op);
     }
 
+    // How many devices are connected (also starts the joystick subsystem on first use).
+    public static int sturdy_gamepad_count(MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(out_count);
+    }
+
+    public static int sturdy_gamepad_get(int index, MemorySegment out_info) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_get", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(index, out_info);
+    }
+
+    // The device's name. See the string-output convention above.
+    public static int sturdy_gamepad_name(int index, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_name", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(index, buffer, capacity, out_length);
+    }
+
+    // How many axes, buttons and hats a device reports raw.
+    public static int sturdy_gamepad_raw_counts(int id, MemorySegment out_axes, MemorySegment out_buttons, MemorySegment out_hats) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_raw_counts", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(id, out_axes, out_buttons, out_hats);
+    }
+
+    // A device as the hardware reports it. Each buffer may be null; axes are -1 to 1, buttons 0/1, hats a bit set (1 up, 2 right, 4 down, 8 left).
+    public static int sturdy_gamepad_raw_read(int id, MemorySegment axes, int axes_capacity, MemorySegment buttons, int buttons_capacity, MemorySegment hats, int hats_capacity) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_raw_read", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(id, axes, axes_capacity, buttons, buttons_capacity, hats, hats_capacity);
+    }
+
+    // Motor strengths are 0..1; the rumble stops after `duration_ms`.
+    public static int sturdy_gamepad_rumble(int id, float low_frequency, float high_frequency, int duration_ms) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_rumble", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(id, low_frequency, high_frequency, duration_ms);
+    }
+
+    public static int sturdy_gamepad_rumble_triggers(int id, float left, float right, int duration_ms) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_rumble_triggers", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(id, left, right, duration_ms);
+    }
+
+    // x, y, z of an enabled sensor (m/s^2 for the accelerometer, rad/s for the gyroscope).
+    public static int sturdy_gamepad_sensor(int id, int sensor, MemorySegment out_xyz) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_sensor", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(id, sensor, out_xyz);
+    }
+
+    public static int sturdy_gamepad_set_led(int id, byte red, byte green, byte blue) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_set_led", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_BYTE, ValueLayout.JAVA_BYTE, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(id, red, green, blue);
+    }
+
+    public static int sturdy_gamepad_set_player_index(int id, int player_index) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_set_player_index", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(id, player_index);
+    }
+
+    public static int sturdy_gamepad_set_sensor_enabled(int id, int sensor, byte enabled) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_set_sensor_enabled", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(id, sensor, enabled);
+    }
+
+    // The current state of a mapped gamepad (`STURDY_ERROR_NOT_AVAILABLE` for an unknown or unmapped device).
+    public static int sturdy_gamepad_state(int id, MemorySegment out_state) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_state", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(id, out_state);
+    }
+
+    // Devices connected or disconnected since the last call: writes up to `capacity` events and sets `*out_count`.
+    public static int sturdy_gamepad_take_events(MemorySegment events, int capacity, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_gamepad_take_events", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(events, capacity, out_count);
+    }
+
     // Imports a glTF or GLB file, creating a model asset for every mesh it contains.
     //
     // Importing does not put anything in the world — it produces assets and a description of how the file arranged them. Call `sturdy_gltf_spawn_all` to reproduce that arrangement, or walk the instances yourself if you want to filter or re-place them.
@@ -6409,6 +7370,53 @@ public final class Sturdy {
     public static int sturdy_http_server_stop(MemorySegment server) throws Throwable {
         MethodHandle h = handle("sturdy_http_server_stop", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyAsyncObject));
         return (int) h.invokeExact(server);
+    }
+
+    public static int sturdy_input_gamepad_count(MemorySegment engine, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_input_gamepad_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, out_count);
+    }
+
+    // Pads plugged or unplugged since the previous tick.
+    public static int sturdy_input_gamepad_event_count(MemorySegment engine, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_input_gamepad_event_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, out_count);
+    }
+
+    public static int sturdy_input_gamepad_event_get(MemorySegment engine, int index, MemorySegment out_event) throws Throwable {
+        MethodHandle h = handle("sturdy_input_gamepad_event_get", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, index, out_event);
+    }
+
+    public static int sturdy_input_gamepad_get(MemorySegment engine, int index, MemorySegment out_frame) throws Throwable {
+        MethodHandle h = handle("sturdy_input_gamepad_get", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, index, out_frame);
+    }
+
+    public static int sturdy_input_pen_count(MemorySegment engine, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_input_pen_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, out_count);
+    }
+
+    public static int sturdy_input_pen_get(MemorySegment engine, int index, MemorySegment out_point) throws Throwable {
+        MethodHandle h = handle("sturdy_input_pen_get", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, index, out_point);
+    }
+
+    // Starts (or stops) sampling gamepads every tick. Off by default.
+    public static int sturdy_input_set_gamepads_enabled(MemorySegment engine, byte enabled) throws Throwable {
+        MethodHandle h = handle("sturdy_input_set_gamepads_enabled", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(engine, enabled);
+    }
+
+    public static int sturdy_input_touch_count(MemorySegment engine, MemorySegment out_count) throws Throwable {
+        MethodHandle h = handle("sturdy_input_touch_count", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, out_count);
+    }
+
+    public static int sturdy_input_touch_get(MemorySegment engine, int index, MemorySegment out_point) throws Throwable {
+        MethodHandle h = handle("sturdy_input_touch_get", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, index, out_point);
     }
 
     // A periodic timer that does not drift. Object "interval"; `sturdy_interval_tick` finishes at each period boundary.
@@ -9445,6 +10453,11 @@ public final class Sturdy {
         return (int) h.invokeExact(connection, tls, out_op);
     }
 
+    public static int sturdy_text_input_options_init(MemorySegment options) throws Throwable {
+        MethodHandle h = handle("sturdy_text_input_options_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options);
+    }
+
     public static int sturdy_thread_pin_current(int core_index, MemorySegment out_pinned) throws Throwable {
         MethodHandle h = handle("sturdy_thread_pin_current", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
         return (int) h.invokeExact(core_index, out_pinned);
@@ -9554,6 +10567,33 @@ public final class Sturdy {
     public static int sturdy_trace_set_foreign_call_site(MemorySegment language, int language_length, MemorySegment file, int file_length, int line, int column, MemorySegment function, int function_length) throws Throwable {
         MethodHandle h = handle("sturdy_trace_set_foreign_call_site", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
         return (int) h.invokeExact(language, language_length, file, file_length, line, column, function, function_length);
+    }
+
+    // Creates a tray icon (RGBA8 `width * height * 4` bytes) with a menu. Fails with `STURDY_ERROR_NOT_AVAILABLE` when the system has no tray.
+    public static int sturdy_tray_create(MemorySegment engine, int width, int height, MemorySegment rgba, MemorySegment tooltip, MemorySegment entries, int entry_count, MemorySegment callback, MemorySegment user, MemorySegment out_tray) throws Throwable {
+        MethodHandle h = handle("sturdy_tray_create", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, width, height, rgba, tooltip, entries, entry_count, callback, user, out_tray);
+    }
+
+    public static int sturdy_tray_destroy(MemorySegment tray) throws Throwable {
+        MethodHandle h = handle("sturdy_tray_destroy", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyTray));
+        return (int) h.invokeExact(tray);
+    }
+
+    public static int sturdy_tray_set_icon(MemorySegment tray, int width, int height, MemorySegment rgba) throws Throwable {
+        MethodHandle h = handle("sturdy_tray_set_icon", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyTray, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(tray, width, height, rgba);
+    }
+
+    // Replaces the whole menu.
+    public static int sturdy_tray_set_menu(MemorySegment tray, MemorySegment entries, int entry_count) throws Throwable {
+        MethodHandle h = handle("sturdy_tray_set_menu", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyTray, ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(tray, entries, entry_count);
+    }
+
+    public static int sturdy_tray_set_tooltip(MemorySegment tray, MemorySegment tooltip) throws Throwable {
+        MethodHandle h = handle("sturdy_tray_set_tooltip", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyTray, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(tray, tooltip);
     }
 
     // "host:port" the socket is bound to, following the string-output convention.
@@ -9974,6 +11014,11 @@ public final class Sturdy {
         return (int) h.invokeExact(server, out_port);
     }
 
+    public static int sturdy_window_clear_custom_cursor(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_clear_custom_cursor", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
+    }
+
     // Fills `config` with the engine's default window configuration (1280x720, windowed, decorated, visible, resizable, OS-placed).
     public static int sturdy_window_config_init(MemorySegment config) throws Throwable {
         MethodHandle h = handle("sturdy_window_config_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
@@ -9992,16 +11037,130 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, out_count);
     }
 
+    public static int sturdy_window_creation_options_init(MemorySegment options) throws Throwable {
+        MethodHandle h = handle("sturdy_window_creation_options_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options);
+    }
+
+    // The display the window is mostly on; `*out_has_display` is false when the provider cannot say.
+    public static int sturdy_window_display_id(MemorySegment engine, MemorySegment surface, MemorySegment out_has_display, MemorySegment out_display_id) throws Throwable {
+        MethodHandle h = handle("sturdy_window_display_id", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, out_has_display, out_display_id);
+    }
+
+    // Fills `options` with the defaults and the correct `struct_size`.
+    public static int sturdy_window_effect_options_init(MemorySegment options) throws Throwable {
+        MethodHandle h = handle("sturdy_window_effect_options_init", FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(options);
+    }
+
+    // Whether, and how fully, a window supports a feature. Reads the snapshot, so it is current as of the last frame.
+    public static int sturdy_window_feature(MemorySegment engine, MemorySegment surface, int feature, MemorySegment out_support) throws Throwable {
+        MethodHandle h = handle("sturdy_window_feature", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, feature, out_support);
+    }
+
     // Reads the window a surface belongs to.
     public static int sturdy_window_find(MemorySegment engine, MemorySegment surface, MemorySegment out_snapshot) throws Throwable {
         MethodHandle h = handle("sturdy_window_find", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
         return (int) h.invokeExact(engine, surface, out_snapshot);
     }
 
+    public static int sturdy_window_focus(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_focus", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
+    }
+
+    public static int sturdy_window_frame_extents(MemorySegment engine, MemorySegment surface, MemorySegment out_extents) throws Throwable {
+        MethodHandle h = handle("sturdy_window_frame_extents", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, out_extents);
+    }
+
+    public static int sturdy_window_hide(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_hide", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
+    }
+
+    public static int sturdy_window_maximize(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_maximize", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
+    }
+
+    public static int sturdy_window_minimize(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_minimize", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
+    }
+
+    // A query's byte output: writes up to `capacity` bytes and sets `*out_size` to the full size.
+    public static int sturdy_window_operation_bytes(MemorySegment engine, MemorySegment surface, int operation, MemorySegment buffer, long capacity, MemorySegment out_size) throws Throwable {
+        MethodHandle h = handle("sturdy_window_operation_bytes", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, operation, buffer, capacity, out_size);
+    }
+
+    // Entry `index` of a query's list output. See the string-output convention above.
+    public static int sturdy_window_operation_list_item(MemorySegment engine, MemorySegment surface, int operation, int index, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_window_operation_list_item", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, operation, index, buffer, capacity, out_length);
+    }
+
+    // The platform's message for a failed operation. See the string-output convention above.
+    public static int sturdy_window_operation_message(MemorySegment engine, MemorySegment surface, int operation, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_window_operation_message", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, operation, buffer, capacity, out_length);
+    }
+
+    // The outcome of the last run of `operation` on a window. `completed` is false until it has run.
+    public static int sturdy_window_operation_status(MemorySegment engine, MemorySegment surface, int operation, MemorySegment out_status) throws Throwable {
+        MethodHandle h = handle("sturdy_window_operation_status", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, operation, out_status);
+    }
+
+    // A query's text output. See the string-output convention above.
+    public static int sturdy_window_operation_text(MemorySegment engine, MemorySegment surface, int operation, MemorySegment buffer, long capacity, MemorySegment out_length) throws Throwable {
+        MethodHandle h = handle("sturdy_window_operation_text", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, operation, buffer, capacity, out_length);
+    }
+
     // Reads the primary window.
     public static int sturdy_window_primary(MemorySegment engine, MemorySegment out_snapshot) throws Throwable {
         MethodHandle h = handle("sturdy_window_primary", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS));
         return (int) h.invokeExact(engine, out_snapshot);
+    }
+
+    public static int sturdy_window_query_clipboard_data(MemorySegment engine, MemorySegment surface, MemorySegment mime_type) throws Throwable {
+        MethodHandle h = handle("sturdy_window_query_clipboard_data", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, mime_type);
+    }
+
+    public static int sturdy_window_query_clipboard_mime_types(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_query_clipboard_mime_types", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
+    }
+
+    public static int sturdy_window_query_clipboard_text(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_query_clipboard_text", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
+    }
+
+    public static int sturdy_window_query_icc_profile(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_query_icc_profile", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
+    }
+
+    public static int sturdy_window_query_key_down(MemorySegment engine, MemorySegment surface, int key) throws Throwable {
+        MethodHandle h = handle("sturdy_window_query_key_down", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, key);
+    }
+
+    // Asks for a key's name on the current layout. `key` is the `key_code` value input events report.
+    public static int sturdy_window_query_key_name(MemorySegment engine, MemorySegment surface, int key) throws Throwable {
+        MethodHandle h = handle("sturdy_window_query_key_name", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, key);
+    }
+
+    public static int sturdy_window_raise(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_raise", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
     }
 
     // Requests that the primary window be destroyed and recreated with a new configuration — changing decorations or transparency after creation on a platform where the window must be recreated to do so, for instance.
@@ -10012,12 +11171,60 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, config, out_request_id);
     }
 
+    public static int sturdy_window_request_attention(MemorySegment engine, MemorySegment surface, int request) throws Throwable {
+        MethodHandle h = handle("sturdy_window_request_attention", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, request);
+    }
+
     // Requests that a window close.
     //
     // Queued rather than immediate: the engine applies window changes at a defined point in the frame so a request made from a render callback cannot destroy the window being drawn. Every function in this section behaves that way.
     public static int sturdy_window_request_close(MemorySegment engine, MemorySegment surface, MemorySegment out_request_id) throws Throwable {
         MethodHandle h = handle("sturdy_window_request_close", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
         return (int) h.invokeExact(engine, surface, out_request_id);
+    }
+
+    public static int sturdy_window_restore(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_restore", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
+    }
+
+    // The part of the client area not under notches or system bars (the whole area on desktops).
+    public static int sturdy_window_safe_area(MemorySegment engine, MemorySegment surface, MemorySegment out_area) throws Throwable {
+        MethodHandle h = handle("sturdy_window_safe_area", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, out_area);
+    }
+
+    public static int sturdy_window_set_always_on_top(MemorySegment engine, MemorySegment surface, byte enabled) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_always_on_top", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(engine, surface, enabled);
+    }
+
+    // A cursor cycling through `frame_count` same-sized frames; the hot spot is shared by every frame.
+    public static int sturdy_window_set_animated_cursor(MemorySegment engine, MemorySegment surface, int width, int height, MemorySegment frames, int frame_count, int hot_x, int hot_y) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_animated_cursor", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, width, height, frames, frame_count, hot_x, hot_y);
+    }
+
+    // Constrains resizing to width/height ratios in [min, max]; 0 and 0 remove the constraint. GLFW holds one exact ratio.
+    public static int sturdy_window_set_aspect_ratio(MemorySegment engine, MemorySegment surface, float min_ratio, float max_ratio) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_aspect_ratio", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_FLOAT, ValueLayout.JAVA_FLOAT));
+        return (int) h.invokeExact(engine, surface, min_ratio, max_ratio);
+    }
+
+    public static int sturdy_window_set_auto_minimize_on_focus_loss(MemorySegment engine, MemorySegment surface, byte enabled) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_auto_minimize_on_focus_loss", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(engine, surface, enabled);
+    }
+
+    public static int sturdy_window_set_clipboard_data(MemorySegment engine, MemorySegment surface, MemorySegment mime_type, MemorySegment bytes, long size) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_clipboard_data", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG));
+        return (int) h.invokeExact(engine, surface, mime_type, bytes, size);
+    }
+
+    public static int sturdy_window_set_clipboard_text(MemorySegment engine, MemorySegment surface, MemorySegment text) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_clipboard_text", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, text);
     }
 
     // Requests that a window grab (confine) or release the cursor at the OS level.
@@ -10032,10 +11239,27 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, surface, icon);
     }
 
+    public static int sturdy_window_set_cursor_position(MemorySegment engine, MemorySegment surface, int x, int y) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_cursor_position", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, x, y);
+    }
+
+    // A cursor drawn from an RGBA8 image (`width * height * 4` bytes) with its hot spot in image pixels.
+    public static int sturdy_window_set_custom_cursor(MemorySegment engine, MemorySegment surface, int width, int height, MemorySegment rgba, int hot_x, int hot_y) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_custom_cursor", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, width, height, rgba, hot_x, hot_y);
+    }
+
     // Requests that a window show or hide its system decorations.
     public static int sturdy_window_set_decorated(MemorySegment engine, MemorySegment surface, byte decorated) throws Throwable {
         MethodHandle h = handle("sturdy_window_set_decorated", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE));
         return (int) h.invokeExact(engine, surface, decorated);
+    }
+
+    // Sets a display's gamma (1.0 = unchanged); `has_display` false uses the window's display.
+    public static int sturdy_window_set_display_gamma(MemorySegment engine, MemorySegment surface, byte has_display, int display_id, float gamma) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_display_gamma", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE, ValueLayout.JAVA_INT, ValueLayout.JAVA_FLOAT));
+        return (int) h.invokeExact(engine, surface, has_display, display_id, gamma);
     }
 
     // Requests a platform-composited visual effect for a window (Windows' Mica/Acrylic/blur, etc.).
@@ -10046,10 +11270,68 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, surface, kind, enabled);
     }
 
+    // `sturdy_window_set_effect` with every per-effect setting: colours, tint, corner preference, opacity, the macOS material and glass options, and the Linux blur protocol. `options` may be null for the defaults. Queued the same way.
+    public static int sturdy_window_set_effect_ex(MemorySegment engine, MemorySegment surface, int kind, byte enabled, MemorySegment options) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_effect_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_BYTE, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, kind, enabled, options);
+    }
+
+    public static int sturdy_window_set_focusable(MemorySegment engine, MemorySegment surface, byte enabled) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_focusable", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(engine, surface, enabled);
+    }
+
+    public static int sturdy_window_set_fullscreen_target(MemorySegment engine, MemorySegment surface, MemorySegment target) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_fullscreen_target", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, target);
+    }
+
+    public static int sturdy_window_set_global_cursor_position(MemorySegment engine, MemorySegment surface, int x, int y) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_global_cursor_position", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, x, y);
+    }
+
+    // Installs (or, with `enabled` false, removes) the drag and resize regions of a custom title bar.
+    public static int sturdy_window_set_hit_test_regions(MemorySegment engine, MemorySegment surface, MemorySegment regions) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_hit_test_regions", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, regions);
+    }
+
+    public static int sturdy_window_set_icon(MemorySegment engine, MemorySegment surface, int width, int height, MemorySegment rgba) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_icon", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, width, height, rgba);
+    }
+
+    public static int sturdy_window_set_keyboard_grab(MemorySegment engine, MemorySegment surface, byte enabled) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_keyboard_grab", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(engine, surface, enabled);
+    }
+
+    public static int sturdy_window_set_maximum_size(MemorySegment engine, MemorySegment surface, int width, int height) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_maximum_size", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, width, height);
+    }
+
+    public static int sturdy_window_set_minimum_size(MemorySegment engine, MemorySegment surface, int width, int height) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_minimum_size", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, width, height);
+    }
+
     // Requests a windowed/fullscreen mode change.
     public static int sturdy_window_set_mode(MemorySegment engine, MemorySegment surface, int mode) throws Throwable {
         MethodHandle h = handle("sturdy_window_set_mode", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT));
         return (int) h.invokeExact(engine, surface, mode);
+    }
+
+    public static int sturdy_window_set_mouse_capture(MemorySegment engine, MemorySegment surface, byte enabled) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_mouse_capture", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(engine, surface, enabled);
+    }
+
+    // Confines the cursor to a client-area rectangle; null releases it.
+    public static int sturdy_window_set_mouse_confine_rect(MemorySegment engine, MemorySegment surface, MemorySegment rect) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_mouse_confine_rect", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, rect);
     }
 
     // Requests that a window confine the cursor to its bounds while keeping it visible at an absolute position — see `SturdyWindowSnapshot::mouse_locked` for the resulting state. Distinct from `sturdy_window_set_relative_mouse_mode`, which also hides the cursor and switches to unbounded motion deltas.
@@ -10058,10 +11340,52 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, surface, locked);
     }
 
+    public static int sturdy_window_set_mouse_passthrough(MemorySegment engine, MemorySegment surface, byte enabled) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_mouse_passthrough", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(engine, surface, enabled);
+    }
+
+    public static int sturdy_window_set_opacity(MemorySegment engine, MemorySegment surface, float opacity) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_opacity", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_FLOAT));
+        return (int) h.invokeExact(engine, surface, opacity);
+    }
+
+    // Makes the window a child of `parent`; null detaches. A modal child blocks its parent where the system allows.
+    public static int sturdy_window_set_parent(MemorySegment engine, MemorySegment surface, MemorySegment parent, byte modal) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_parent", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(engine, surface, parent, modal);
+    }
+
+    public static int sturdy_window_set_position(MemorySegment engine, MemorySegment surface, int x, int y) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_position", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, x, y);
+    }
+
     // Requests relative mouse mode (the OS cursor is hidden and confined, and mouse motion reports as unbounded deltas instead of absolute position) for a window — the mode a first-person camera or any other mouse-look control needs. See `SturdyWindowSnapshot::mouse_locked` and `sturdy_engine_mouse_delta` for reading the resulting state and motion.
     public static int sturdy_window_set_relative_mouse_mode(MemorySegment engine, MemorySegment surface, byte enabled) throws Throwable {
         MethodHandle h = handle("sturdy_window_set_relative_mouse_mode", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE));
         return (int) h.invokeExact(engine, surface, enabled);
+    }
+
+    public static int sturdy_window_set_resizable(MemorySegment engine, MemorySegment surface, byte resizable) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_resizable", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE));
+        return (int) h.invokeExact(engine, surface, resizable);
+    }
+
+    // A non-rectangular outline from `width * height` coverage bytes (above 127 = inside). Null `coverage` restores the rectangle.
+    public static int sturdy_window_set_shape(MemorySegment engine, MemorySegment surface, int width, int height, MemorySegment coverage) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_shape", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, width, height, coverage);
+    }
+
+    public static int sturdy_window_set_size(MemorySegment engine, MemorySegment surface, int width, int height) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_size", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, width, height);
+    }
+
+    public static int sturdy_window_set_taskbar_progress(MemorySegment engine, MemorySegment surface, int state, float value) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_taskbar_progress", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_FLOAT));
+        return (int) h.invokeExact(engine, surface, state, value);
     }
 
     // Requests that a window start or stop IME text composition (on-screen keyboards, CJK input methods, etc.). Most text fields need this active only while focused and editable.
@@ -10076,10 +11400,42 @@ public final class Sturdy {
         return (int) h.invokeExact(engine, surface, area);
     }
 
+    public static int sturdy_window_set_title(MemorySegment engine, MemorySegment surface, MemorySegment title) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_title", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, title);
+    }
+
     // Requests that a window become transparent or opaque.
     public static int sturdy_window_set_transparent(MemorySegment engine, MemorySegment surface, byte transparent) throws Throwable {
         MethodHandle h = handle("sturdy_window_set_transparent", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_BYTE));
         return (int) h.invokeExact(engine, surface, transparent);
+    }
+
+    public static int sturdy_window_set_window_type(MemorySegment engine, MemorySegment surface, int type) throws Throwable {
+        MethodHandle h = handle("sturdy_window_set_window_type", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, type);
+    }
+
+    public static int sturdy_window_show(MemorySegment engine, MemorySegment surface) throws Throwable {
+        MethodHandle h = handle("sturdy_window_show", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface));
+        return (int) h.invokeExact(engine, surface);
+    }
+
+    // `sturdy_desktop_show_file_dialog` as a child of a window: the dialog stays above it and is attached to it by the window system. Queued like every window request; `callback` is called once when the dialog closes.
+    public static int sturdy_window_show_file_dialog(MemorySegment engine, MemorySegment surface, MemorySegment options, MemorySegment callback, MemorySegment user) throws Throwable {
+        MethodHandle h = handle("sturdy_window_show_file_dialog", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, options, callback, user);
+    }
+
+    // `sturdy_desktop_show_message_box` over a window. Queued: it blocks that window's thread until dismissed, and the pressed button arrives as `sturdy_window_operation_status(..., STURDY_WINDOW_OP_MESSAGE_BOX, ...).number`.
+    public static int sturdy_window_show_message_box(MemorySegment engine, MemorySegment surface, MemorySegment options) throws Throwable {
+        MethodHandle h = handle("sturdy_window_show_message_box", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, options);
+    }
+
+    public static int sturdy_window_show_system_menu(MemorySegment engine, MemorySegment surface, int x, int y) throws Throwable {
+        MethodHandle h = handle("sturdy_window_show_system_menu", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.JAVA_INT, ValueLayout.JAVA_INT));
+        return (int) h.invokeExact(engine, surface, x, y);
     }
 
     // Reads the window at `index`.
@@ -10094,6 +11450,17 @@ public final class Sturdy {
     public static int sturdy_window_spawn(MemorySegment engine, MemorySegment config, MemorySegment out_request_id) throws Throwable {
         MethodHandle h = handle("sturdy_window_spawn", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
         return (int) h.invokeExact(engine, config, out_request_id);
+    }
+
+    // `sturdy_window_spawn` with creation-time behaviour. `options` may be null for the defaults.
+    public static int sturdy_window_spawn_ex(MemorySegment engine, MemorySegment config, MemorySegment options, MemorySegment out_request_id) throws Throwable {
+        MethodHandle h = handle("sturdy_window_spawn_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, config, options, out_request_id);
+    }
+
+    public static int sturdy_window_start_text_input_ex(MemorySegment engine, MemorySegment surface, MemorySegment options) throws Throwable {
+        MethodHandle h = handle("sturdy_window_start_text_input_ex", FunctionDescriptor.of(ValueLayout.JAVA_INT, LAYOUT_SturdyEngine, LAYOUT_SturdySurface, ValueLayout.ADDRESS));
+        return (int) h.invokeExact(engine, surface, options);
     }
 
     // Copies up to `capacity` completed window requests into `out_completions` and reports the true number available in `*out_count`, which may exceed `capacity` — completions beyond `capacity` are dropped, not held for a later call, since window lifecycle events are rare enough that a caller should simply pass a generously sized buffer (8 is enough for any realistic frame).

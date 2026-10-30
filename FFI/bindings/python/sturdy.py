@@ -12,7 +12,7 @@ import enum
 import os
 import sys
 
-ABI_VERSION = (0, 40)
+ABI_VERSION = (0, 42)
 """The ABI version this binding was generated from; `load()` refuses a library that cannot satisfy it."""
 
 
@@ -75,6 +75,11 @@ class SturdyAsyncFeature(enum.IntEnum):
     STURDY_ASYNC_FEATURE_PROCESS = 16
     STURDY_ASYNC_FEATURE_GZIP = 32
     STURDY_ASYNC_FEATURE_NATIVE_FILE_WATCH = 64
+
+class SturdyAttentionRequest(enum.IntEnum):
+    STURDY_ATTENTION_CANCEL = 0
+    STURDY_ATTENTION_BRIEFLY = 1
+    STURDY_ATTENTION_UNTIL_FOCUSED = 2
 
 class SturdyAudioAttachment(enum.IntEnum):
     """How a sound attached to an entity is anchored."""
@@ -199,6 +204,18 @@ class SturdyCursorIcon(enum.IntEnum):
     STURDY_CURSOR_ICON_RESIZE_NWSE = 7
     STURDY_CURSOR_ICON_RESIZE_NESW = 8
     STURDY_CURSOR_ICON_NOT_ALLOWED = 9
+    STURDY_CURSOR_ICON_CROSSHAIR = 10
+    STURDY_CURSOR_ICON_MOVE = 11
+    STURDY_CURSOR_ICON_WAIT = 12
+    STURDY_CURSOR_ICON_PROGRESS = 13
+    STURDY_CURSOR_ICON_RESIZE_N = 14
+    STURDY_CURSOR_ICON_RESIZE_NE = 15
+    STURDY_CURSOR_ICON_RESIZE_E = 16
+    STURDY_CURSOR_ICON_RESIZE_SE = 17
+    STURDY_CURSOR_ICON_RESIZE_S = 18
+    STURDY_CURSOR_ICON_RESIZE_SW = 19
+    STURDY_CURSOR_ICON_RESIZE_W = 20
+    STURDY_CURSOR_ICON_RESIZE_NW = 21
 
 class SturdyDeviceType(enum.IntEnum):
     """Broad class of a physical device — the engine's active one (`SturdyAdapterInfo::device_type`) or one reported by `sturdy_gpu_enumerate` before any engine exists."""
@@ -207,6 +224,13 @@ class SturdyDeviceType(enum.IntEnum):
     STURDY_DEVICE_TYPE_DISCRETE_GPU = 2
     STURDY_DEVICE_TYPE_VIRTUAL_GPU = 3
     STURDY_DEVICE_TYPE_CPU = 4
+
+class SturdyDisplayOrientation(enum.IntEnum):
+    STURDY_DISPLAY_ORIENTATION_UNKNOWN = 0
+    STURDY_DISPLAY_ORIENTATION_LANDSCAPE = 1
+    STURDY_DISPLAY_ORIENTATION_LANDSCAPE_FLIPPED = 2
+    STURDY_DISPLAY_ORIENTATION_PORTRAIT = 3
+    STURDY_DISPLAY_ORIENTATION_PORTRAIT_FLIPPED = 4
 
 class SturdyFieldKind(enum.IntEnum):
     """The scalar kinds a component field can have (since 0.35). These are what two languages must agree on to share a component's memory: a C `float`, a Rust `f32` and a C# `float` are all `STURDY_FIELD_F32`. Values never change."""
@@ -221,6 +245,11 @@ class SturdyFieldKind(enum.IntEnum):
     STURDY_FIELD_U64 = 8
     STURDY_FIELD_F32 = 9
     STURDY_FIELD_F64 = 10
+
+class SturdyFileDialogKind(enum.IntEnum):
+    STURDY_FILE_DIALOG_OPEN_FILE = 0
+    STURDY_FILE_DIALOG_SAVE_FILE = 1
+    STURDY_FILE_DIALOG_OPEN_FOLDER = 2
 
 class SturdyFileMode(enum.IntEnum):
     STURDY_FILE_READ = 1
@@ -299,6 +328,72 @@ class SturdyFrontFace(enum.IntEnum):
     """Winding considered front-facing by the rasterizer."""
     STURDY_FRONT_FACE_COUNTER_CLOCKWISE = 0
     STURDY_FRONT_FACE_CLOCKWISE = 1
+
+class SturdyGamepadAxis(enum.IntEnum):
+    """The standard layout's axes: the sticks run -1 to 1, the triggers 0 to 1."""
+    STURDY_GAMEPAD_AXIS_LEFT_X = 0
+    STURDY_GAMEPAD_AXIS_LEFT_Y = 1
+    STURDY_GAMEPAD_AXIS_RIGHT_X = 2
+    STURDY_GAMEPAD_AXIS_RIGHT_Y = 3
+    STURDY_GAMEPAD_AXIS_LEFT_TRIGGER = 4
+    STURDY_GAMEPAD_AXIS_RIGHT_TRIGGER = 5
+
+class SturdyGamepadButton(enum.IntEnum):
+    """The standard layout's buttons; bit `n` of `SturdyGamepadState::buttons` is the button with value `n`."""
+    STURDY_GAMEPAD_BUTTON_SOUTH = 0
+    STURDY_GAMEPAD_BUTTON_EAST = 1
+    STURDY_GAMEPAD_BUTTON_WEST = 2
+    STURDY_GAMEPAD_BUTTON_NORTH = 3
+    STURDY_GAMEPAD_BUTTON_BACK = 4
+    STURDY_GAMEPAD_BUTTON_GUIDE = 5
+    STURDY_GAMEPAD_BUTTON_START = 6
+    STURDY_GAMEPAD_BUTTON_LEFT_STICK = 7
+    STURDY_GAMEPAD_BUTTON_RIGHT_STICK = 8
+    STURDY_GAMEPAD_BUTTON_LEFT_SHOULDER = 9
+    STURDY_GAMEPAD_BUTTON_RIGHT_SHOULDER = 10
+    STURDY_GAMEPAD_BUTTON_DPAD_UP = 11
+    STURDY_GAMEPAD_BUTTON_DPAD_DOWN = 12
+    STURDY_GAMEPAD_BUTTON_DPAD_LEFT = 13
+    STURDY_GAMEPAD_BUTTON_DPAD_RIGHT = 14
+    STURDY_GAMEPAD_BUTTON_MISC1 = 15
+    STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE1 = 16
+    STURDY_GAMEPAD_BUTTON_LEFT_PADDLE1 = 17
+    STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE2 = 18
+    STURDY_GAMEPAD_BUTTON_LEFT_PADDLE2 = 19
+    STURDY_GAMEPAD_BUTTON_TOUCHPAD = 20
+    STURDY_GAMEPAD_BUTTON_MISC2 = 21
+    STURDY_GAMEPAD_BUTTON_MISC3 = 22
+    STURDY_GAMEPAD_BUTTON_MISC4 = 23
+    STURDY_GAMEPAD_BUTTON_MISC5 = 24
+    STURDY_GAMEPAD_BUTTON_MISC6 = 25
+
+class SturdyGamepadConnection(enum.IntEnum):
+    STURDY_GAMEPAD_CONNECTION_UNKNOWN = 0
+    STURDY_GAMEPAD_CONNECTION_WIRED = 1
+    STURDY_GAMEPAD_CONNECTION_WIRELESS = 2
+
+class SturdyGamepadEventKind(enum.IntEnum):
+    STURDY_GAMEPAD_EVENT_CONNECTED = 0
+    STURDY_GAMEPAD_EVENT_DISCONNECTED = 1
+
+class SturdyGamepadKind(enum.IntEnum):
+    STURDY_GAMEPAD_KIND_UNKNOWN = 0
+    STURDY_GAMEPAD_KIND_STANDARD = 1
+    STURDY_GAMEPAD_KIND_XBOX360 = 2
+    STURDY_GAMEPAD_KIND_XBOX_ONE = 3
+    STURDY_GAMEPAD_KIND_PS3 = 4
+    STURDY_GAMEPAD_KIND_PS4 = 5
+    STURDY_GAMEPAD_KIND_PS5 = 6
+    STURDY_GAMEPAD_KIND_SWITCH_PRO = 7
+    STURDY_GAMEPAD_KIND_JOYCON_LEFT = 8
+    STURDY_GAMEPAD_KIND_JOYCON_RIGHT = 9
+    STURDY_GAMEPAD_KIND_JOYCON_PAIR = 10
+    STURDY_GAMEPAD_KIND_GAMECUBE = 11
+    STURDY_GAMEPAD_KIND_STEAM = 12
+
+class SturdyGamepadSensor(enum.IntEnum):
+    STURDY_GAMEPAD_SENSOR_ACCELEROMETER = 0
+    STURDY_GAMEPAD_SENSOR_GYROSCOPE = 1
 
 class SturdyGltfLightKind(enum.IntEnum):
     """What kind of light a glTF file declared."""
@@ -380,6 +475,13 @@ class SturdyLatencyMode(enum.IntEnum):
     STURDY_LATENCY_MODE_LOW = 1
     STURDY_LATENCY_MODE_ULTRA = 2
 
+class SturdyLinuxBlurProtocol(enum.IntEnum):
+    """Which Linux blur route a `STURDY_WINDOW_EFFECT_BLUR` request takes."""
+    STURDY_LINUX_BLUR_AUTOMATIC = 0
+    STURDY_LINUX_BLUR_EXT_BACKGROUND_EFFECT = 1
+    STURDY_LINUX_BLUR_KDE_BLUR = 2
+    STURDY_LINUX_BLUR_KDE_X11 = 3
+
 class SturdyLoadOp(enum.IntEnum):
     """Load/store behavior for a render pass attachment."""
     STURDY_LOAD_OP_LOAD = 0
@@ -395,11 +497,57 @@ class SturdyLogLevel(enum.IntEnum):
     STURDY_LOG_LEVEL_ERROR = 4
     STURDY_LOG_LEVEL_CRITICAL = 5
 
+class SturdyMacAppearance(enum.IntEnum):
+    """`NSAppearanceName` override for the effect view."""
+    STURDY_MAC_APPEARANCE_INHERIT = 0
+    STURDY_MAC_APPEARANCE_AQUA = 1
+    STURDY_MAC_APPEARANCE_DARK_AQUA = 2
+    STURDY_MAC_APPEARANCE_VIBRANT_LIGHT = 3
+    STURDY_MAC_APPEARANCE_VIBRANT_DARK = 4
+
+class SturdyMacBlendingMode(enum.IntEnum):
+    """`NSVisualEffectBlendingMode`."""
+    STURDY_MAC_BLENDING_BEHIND_WINDOW = 0
+    STURDY_MAC_BLENDING_WITHIN_WINDOW = 1
+
+class SturdyMacEffectState(enum.IntEnum):
+    """`NSVisualEffectState`."""
+    STURDY_MAC_STATE_FOLLOWS_WINDOW_ACTIVE_STATE = 0
+    STURDY_MAC_STATE_ACTIVE = 1
+    STURDY_MAC_STATE_INACTIVE = 2
+
+class SturdyMacGlassStyle(enum.IntEnum):
+    """`NSGlassEffectViewStyle` (macOS 26)."""
+    STURDY_MAC_GLASS_REGULAR = 0
+    STURDY_MAC_GLASS_CLEAR = 1
+
+class SturdyMacMaterial(enum.IntEnum):
+    """`NSVisualEffectMaterial` (macOS 10.14 semantic materials), in the engine's own order."""
+    STURDY_MAC_MATERIAL_TITLEBAR = 0
+    STURDY_MAC_MATERIAL_SELECTION = 1
+    STURDY_MAC_MATERIAL_MENU = 2
+    STURDY_MAC_MATERIAL_POPOVER = 3
+    STURDY_MAC_MATERIAL_SIDEBAR = 4
+    STURDY_MAC_MATERIAL_HEADER_VIEW = 5
+    STURDY_MAC_MATERIAL_SHEET = 6
+    STURDY_MAC_MATERIAL_WINDOW_BACKGROUND = 7
+    STURDY_MAC_MATERIAL_HUD_WINDOW = 8
+    STURDY_MAC_MATERIAL_FULL_SCREEN_UI = 9
+    STURDY_MAC_MATERIAL_TOOL_TIP = 10
+    STURDY_MAC_MATERIAL_CONTENT_BACKGROUND = 11
+    STURDY_MAC_MATERIAL_UNDER_WINDOW_BACKGROUND = 12
+    STURDY_MAC_MATERIAL_UNDER_PAGE_BACKGROUND = 13
+
 class SturdyMemoryLocation(enum.IntEnum):
     """Where a buffer's backing memory lives."""
     STURDY_MEMORY_LOCATION_DEVICE_LOCAL = 0
     STURDY_MEMORY_LOCATION_HOST_UPLOAD = 1
     STURDY_MEMORY_LOCATION_HOST_READBACK = 2
+
+class SturdyMessageBoxKind(enum.IntEnum):
+    STURDY_MESSAGE_BOX_INFORMATION = 0
+    STURDY_MESSAGE_BOX_WARNING = 1
+    STURDY_MESSAGE_BOX_ERROR = 2
 
 class SturdyMipmapMode(enum.IntEnum):
     STURDY_MIPMAP_MODE_NEAREST = 0
@@ -677,6 +825,30 @@ class SturdyTaskWeight(enum.IntEnum):
     STURDY_TASK_LIGHT = 0
     STURDY_TASK_HEAVY = 1
 
+class SturdyTaskbarProgress(enum.IntEnum):
+    STURDY_TASKBAR_PROGRESS_NONE = 0
+    STURDY_TASKBAR_PROGRESS_INDETERMINATE = 1
+    STURDY_TASKBAR_PROGRESS_NORMAL = 2
+    STURDY_TASKBAR_PROGRESS_PAUSED = 3
+    STURDY_TASKBAR_PROGRESS_ERROR = 4
+
+class SturdyTextCapitalization(enum.IntEnum):
+    STURDY_TEXT_CAPITALIZATION_NONE = 0
+    STURDY_TEXT_CAPITALIZATION_SENTENCES = 1
+    STURDY_TEXT_CAPITALIZATION_WORDS = 2
+    STURDY_TEXT_CAPITALIZATION_LETTERS = 3
+
+class SturdyTextInputType(enum.IntEnum):
+    STURDY_TEXT_INPUT_TEXT = 0
+    STURDY_TEXT_INPUT_NAME = 1
+    STURDY_TEXT_INPUT_EMAIL = 2
+    STURDY_TEXT_INPUT_USERNAME = 3
+    STURDY_TEXT_INPUT_PASSWORD_HIDDEN = 4
+    STURDY_TEXT_INPUT_PASSWORD_VISIBLE = 5
+    STURDY_TEXT_INPUT_NUMBER = 6
+    STURDY_TEXT_INPUT_NUMBER_PASSWORD_HIDDEN = 7
+    STURDY_TEXT_INPUT_NUMBER_PASSWORD_VISIBLE = 8
+
 class SturdyTextureDimension(enum.IntEnum):
     """Dimensionality of a texture."""
     STURDY_TEXTURE_DIMENSION_1D = 0
@@ -802,6 +974,13 @@ class SturdyVertexStepMode(enum.IntEnum):
     STURDY_VERTEX_STEP_MODE_VERTEX = 0
     STURDY_VERTEX_STEP_MODE_INSTANCE = 1
 
+class SturdyWindowCornerPreference(enum.IntEnum):
+    """Windows 11 `DWM_WINDOW_CORNER_PREFERENCE`."""
+    STURDY_WINDOW_CORNER_DEFAULT = 0
+    STURDY_WINDOW_CORNER_DO_NOT_ROUND = 1
+    STURDY_WINDOW_CORNER_ROUND = 2
+    STURDY_WINDOW_CORNER_ROUND_SMALL = 3
+
 class SturdyWindowEffectKind(enum.IntEnum):
     """Platform-composited visual effect a window can request. Support is OS-dependent — an effect this platform cannot render (e.g. Mica off Windows 11) is rejected with `STURDY_ERROR_NOT_AVAILABLE` rather than silently ignored."""
     STURDY_WINDOW_EFFECT_BLUR = 0
@@ -814,6 +993,69 @@ class SturdyWindowEffectKind(enum.IntEnum):
     STURDY_WINDOW_EFFECT_CAPTION_COLOR = 7
     STURDY_WINDOW_EFFECT_TEXT_COLOR = 8
     STURDY_WINDOW_EFFECT_TRANSPARENT = 9
+    STURDY_WINDOW_EFFECT_BACKDROP_AUTO = 10
+    STURDY_WINDOW_EFFECT_BACKDROP_NONE = 11
+    STURDY_WINDOW_EFFECT_ACCENT_BLUR = 12
+    STURDY_WINDOW_EFFECT_ACCENT_ACRYLIC = 13
+    STURDY_WINDOW_EFFECT_CORNER_PREFERENCE = 14
+    STURDY_WINDOW_EFFECT_VISUAL_EFFECT = 15
+    STURDY_WINDOW_EFFECT_OPACITY = 16
+    STURDY_WINDOW_EFFECT_TRANSITIONS_DISABLED = 17
+    STURDY_WINDOW_EFFECT_TITLEBAR_TRANSPARENT = 18
+    STURDY_WINDOW_EFFECT_WINDOW_SHADOW = 19
+    STURDY_WINDOW_EFFECT_GLASS_EFFECT = 20
+    STURDY_WINDOW_EFFECT_CORNER_RADIUS = 21
+
+class SturdyWindowErrorKind(enum.IntEnum):
+    STURDY_WINDOW_ERROR_NONE = 0
+    STURDY_WINDOW_ERROR_UNSUPPORTED = 1
+    STURDY_WINDOW_ERROR_INVALID_ARGUMENT = 2
+    STURDY_WINDOW_ERROR_FAILED = 3
+
+class SturdyWindowFeature(enum.IntEnum):
+    """A capability a window may or may not have on this provider, OS and session type."""
+    STURDY_WINDOW_FEATURE_ALWAYS_ON_TOP = 0
+    STURDY_WINDOW_FEATURE_ASPECT_RATIO = 1
+    STURDY_WINDOW_FEATURE_MOUSE_PASSTHROUGH = 2
+    STURDY_WINDOW_FEATURE_FOCUSABLE = 3
+    STURDY_WINDOW_FEATURE_AUTO_MINIMIZE_ON_FOCUS_LOSS = 4
+    STURDY_WINDOW_FEATURE_PARENT_WINDOW = 5
+    STURDY_WINDOW_FEATURE_MODAL_WINDOW = 6
+    STURDY_WINDOW_FEATURE_KEYBOARD_GRAB = 7
+    STURDY_WINDOW_FEATURE_MOUSE_CONFINE_RECT = 8
+    STURDY_WINDOW_FEATURE_WARP_CURSOR = 9
+    STURDY_WINDOW_FEATURE_CUSTOM_CURSOR = 10
+    STURDY_WINDOW_FEATURE_FRAME_EXTENTS = 11
+    STURDY_WINDOW_FEATURE_SAFE_AREA = 12
+    STURDY_WINDOW_FEATURE_FULLSCREEN_TARGET = 13
+    STURDY_WINDOW_FEATURE_TEXT_INPUT_OPTIONS = 14
+    STURDY_WINDOW_FEATURE_SCREEN_KEYBOARD = 15
+    STURDY_WINDOW_FEATURE_CLIPBOARD_MIME_TYPES = 16
+    STURDY_WINDOW_FEATURE_TYPED_CLIPBOARD = 17
+    STURDY_WINDOW_FEATURE_HIT_TEST_REGIONS = 18
+    STURDY_WINDOW_FEATURE_SYSTEM_MENU = 19
+    STURDY_WINDOW_FEATURE_WINDOW_ICON = 20
+    STURDY_WINDOW_FEATURE_REQUEST_ATTENTION = 21
+    STURDY_WINDOW_FEATURE_TASKBAR_PROGRESS = 22
+    STURDY_WINDOW_FEATURE_SYSTEM_THEME = 23
+    STURDY_WINDOW_FEATURE_DISPLAY_LIST = 24
+    STURDY_WINDOW_FEATURE_DISPLAY_MODES = 25
+    STURDY_WINDOW_FEATURE_DISPLAY_EVENTS = 26
+    STURDY_WINDOW_FEATURE_LIVE_RESIZE_CALLBACK = 27
+    STURDY_WINDOW_FEATURE_WAIT_FOR_EVENTS = 28
+    STURDY_WINDOW_FEATURE_FILE_DROP = 29
+    STURDY_WINDOW_FEATURE_TEXT_DROP = 30
+    STURDY_WINDOW_FEATURE_WINDOW_TYPE_HINT = 31
+    STURDY_WINDOW_FEATURE_WINDOW_SHAPE = 32
+    STURDY_WINDOW_FEATURE_ANIMATED_CURSOR = 33
+    STURDY_WINDOW_FEATURE_KEYBOARD_QUERY = 34
+    STURDY_WINDOW_FEATURE_WARP_CURSOR_GLOBAL = 35
+    STURDY_WINDOW_FEATURE_MOUSE_CAPTURE = 36
+    STURDY_WINDOW_FEATURE_ICC_PROFILE = 37
+    STURDY_WINDOW_FEATURE_SYSTEM_TRAY = 38
+    STURDY_WINDOW_FEATURE_TOUCH_INPUT = 39
+    STURDY_WINDOW_FEATURE_PEN_INPUT = 40
+    STURDY_WINDOW_FEATURE_COUNT = 41
 
 class SturdyWindowMode(enum.IntEnum):
     """Presentation mode of a window."""
@@ -821,11 +1063,73 @@ class SturdyWindowMode(enum.IntEnum):
     STURDY_WINDOW_MODE_BORDERLESS_FULLSCREEN = 1
     STURDY_WINDOW_MODE_EXCLUSIVE_FULLSCREEN = 2
 
+class SturdyWindowOperation(enum.IntEnum):
+    """Each operation a window can be asked to run; the key to `sturdy_window_operation_status`."""
+    STURDY_WINDOW_OP_TITLE = 0
+    STURDY_WINDOW_OP_POSITION = 1
+    STURDY_WINDOW_OP_SIZE = 2
+    STURDY_WINDOW_OP_MINIMUM_SIZE = 3
+    STURDY_WINDOW_OP_MAXIMUM_SIZE = 4
+    STURDY_WINDOW_OP_RESIZABLE = 5
+    STURDY_WINDOW_OP_OPACITY = 6
+    STURDY_WINDOW_OP_MAXIMIZE = 7
+    STURDY_WINDOW_OP_MINIMIZE = 8
+    STURDY_WINDOW_OP_RESTORE = 9
+    STURDY_WINDOW_OP_RAISE = 10
+    STURDY_WINDOW_OP_FOCUS = 11
+    STURDY_WINDOW_OP_SHOW = 12
+    STURDY_WINDOW_OP_HIDE = 13
+    STURDY_WINDOW_OP_ALWAYS_ON_TOP = 14
+    STURDY_WINDOW_OP_ASPECT_RATIO = 15
+    STURDY_WINDOW_OP_MOUSE_PASSTHROUGH = 16
+    STURDY_WINDOW_OP_FOCUSABLE = 17
+    STURDY_WINDOW_OP_AUTO_MINIMIZE = 18
+    STURDY_WINDOW_OP_PARENT = 19
+    STURDY_WINDOW_OP_KEYBOARD_GRAB = 20
+    STURDY_WINDOW_OP_MOUSE_CONFINE_RECT = 21
+    STURDY_WINDOW_OP_CURSOR_POSITION = 22
+    STURDY_WINDOW_OP_GLOBAL_CURSOR_POSITION = 23
+    STURDY_WINDOW_OP_MOUSE_CAPTURE = 24
+    STURDY_WINDOW_OP_CUSTOM_CURSOR = 25
+    STURDY_WINDOW_OP_ANIMATED_CURSOR = 26
+    STURDY_WINDOW_OP_CLEAR_CUSTOM_CURSOR = 27
+    STURDY_WINDOW_OP_TEXT_INPUT_OPTIONS = 28
+    STURDY_WINDOW_OP_FULLSCREEN_TARGET = 29
+    STURDY_WINDOW_OP_WINDOW_TYPE = 30
+    STURDY_WINDOW_OP_SHAPE = 31
+    STURDY_WINDOW_OP_DISPLAY_GAMMA = 32
+    STURDY_WINDOW_OP_ICON = 33
+    STURDY_WINDOW_OP_ATTENTION = 34
+    STURDY_WINDOW_OP_TASKBAR_PROGRESS = 35
+    STURDY_WINDOW_OP_HIT_TEST_REGIONS = 36
+    STURDY_WINDOW_OP_SYSTEM_MENU = 37
+    STURDY_WINDOW_OP_CLIPBOARD_TEXT = 38
+    STURDY_WINDOW_OP_SET_CLIPBOARD_TEXT = 39
+    STURDY_WINDOW_OP_CLIPBOARD_MIME_TYPES = 40
+    STURDY_WINDOW_OP_CLIPBOARD_DATA = 41
+    STURDY_WINDOW_OP_SET_CLIPBOARD_DATA = 42
+    STURDY_WINDOW_OP_KEY_NAME = 43
+    STURDY_WINDOW_OP_KEY_DOWN = 44
+    STURDY_WINDOW_OP_ICC_PROFILE = 45
+    STURDY_WINDOW_OP_FILE_DIALOG = 46
+    STURDY_WINDOW_OP_MESSAGE_BOX = 47
+    STURDY_WINDOW_OP_COUNT = 48
+
 class SturdyWindowRequestKind(enum.IntEnum):
     """Which kind of window request a `SturdyWindowRequestCompletion` reports the outcome of."""
     STURDY_WINDOW_REQUEST_SPAWN = 0
     STURDY_WINDOW_REQUEST_RECREATE_PRIMARY = 1
     STURDY_WINDOW_REQUEST_CLOSE = 2
+
+class SturdyWindowType(enum.IntEnum):
+    """How the window manager should treat a window."""
+    STURDY_WINDOW_TYPE_NORMAL = 0
+    STURDY_WINDOW_TYPE_UTILITY = 1
+    STURDY_WINDOW_TYPE_TOOLTIP = 2
+    STURDY_WINDOW_TYPE_POPUP_MENU = 3
+    STURDY_WINDOW_TYPE_DROPDOWN_MENU = 4
+    STURDY_WINDOW_TYPE_DIALOG = 5
+    STURDY_WINDOW_TYPE_SPLASH = 6
 
 
 # ---- structs (declared first so they can refer to each other; fields are filled in dependency order) ----
@@ -943,6 +1247,8 @@ class SturdyCookie(ctypes.Structure):
     """One cookie (RFC 6265)."""
 class SturdyCopyOptions(ctypes.Structure):
     pass
+class SturdyCursorFrame(ctypes.Structure):
+    """One frame of an animated cursor: tightly packed RGBA8 (`width * height * 4` bytes, the size given to the call)."""
 class SturdyD3D12Handles(ctypes.Structure):
     """The engine's raw D3D12 objects."""
 class SturdyDepthOfFieldSettings(ctypes.Structure):
@@ -953,6 +1259,10 @@ class SturdyDepthStencilState(ctypes.Structure):
     """Depth/stencil fixed-function state. `format` names the attachment this pipeline targets; `STURDY_FORMAT_UNDEFINED` means the pipeline has no depth/stencil attachment."""
 class SturdyDeviceLimits(ctypes.Structure):
     """Hardware limits of the active device."""
+class SturdyDisplayInfo(ctypes.Structure):
+    """One connected monitor. Read with `sturdy_display_get`; the name and the modes come from their own calls."""
+class SturdyDisplayMode(ctypes.Structure):
+    """One video mode of a display."""
 class SturdyDrawArgs(ctypes.Structure):
     pass
 class SturdyDrawIndexedArgs(ctypes.Structure):
@@ -963,18 +1273,36 @@ class SturdyEngine(ctypes.Structure):
     """Borrowed reference to the live engine, valid only inside the callback that received it."""
 class SturdyEntity(ctypes.Structure):
     """Identifies an entity."""
+class SturdyFeatureSupport(ctypes.Structure):
+    """Whether a feature is available, with the reason when it is not (or only partly). `note` is a static string owned by the engine: it stays valid for the life of the process; it is empty when the feature is fully supported."""
 class SturdyFence(ctypes.Structure):
     """Handle to a fence: a GPU-to-host synchronization primitive signaled when a submission completes. See the "RHI resources" section header for its lifetime rules."""
 class SturdyFenceDesc(ctypes.Structure):
     """Describes a fence to create."""
+class SturdyFileDialogOptions(ctypes.Structure):
+    pass
+class SturdyFileFilter(ctypes.Structure):
+    pass
 class SturdyFrame(ctypes.Structure):
     """Borrowed reference to the render-frame parameters being built for the current frame."""
+class SturdyFrameExtents(ctypes.Structure):
+    """The decoration thickness around the client area, in window units."""
 class SturdyFrameInput(ctypes.Structure):
     """Per-frame timing and surface geometry, supplied by the engine to `request_render_frame`."""
+class SturdyFullscreenTarget(ctypes.Structure):
+    """The display and mode a fullscreen window uses. Unset fields mean "the window's current display" / "the desktop mode"."""
 class SturdyGameLogic(ctypes.Structure):
     """Callbacks implementing your application, mirroring the C++ `Engine::GameLogic` interface."""
 class SturdyGameModule(ctypes.Structure):
     """One game-logic module of a game written in several languages (since 0.35): your callbacks plus where it sits in the start order. A Rust module, a C# module and a C++ module can each pass their own `SturdyGameLogic` here."""
+class SturdyGamepadEvent(ctypes.Structure):
+    pass
+class SturdyGamepadFrame(ctypes.Structure):
+    """One mapped gamepad as it is this tick; the masks hold the buttons that changed since the last tick."""
+class SturdyGamepadInfo(ctypes.Structure):
+    """One connected device. Read with `sturdy_gamepad_get`; the name comes from `sturdy_gamepad_name`."""
+class SturdyGamepadState(ctypes.Structure):
+    pass
 class SturdyGlobalBarrier(ctypes.Structure):
     """A pipeline barrier with no specific resource — orders every matching access before/after it."""
 class SturdyGltfInstance(ctypes.Structure):
@@ -993,6 +1321,8 @@ class SturdyHdrDisplayMetadata(ctypes.Structure):
     """Real HDR display metadata (EDID-reported primaries/white point/luminance range, or a platform fallback), as opposed to `SturdyToneMappingSettings`'s software tone-curve parameters."""
 class SturdyHdrPresentationMode(ctypes.Structure):
     """One transfer-function/gamut combination a display can present in."""
+class SturdyHitTestRegions(ctypes.Structure):
+    """Rectangles of a custom title bar; see `sturdy_window_set_hit_test_regions`."""
 class SturdyHttpClientOptions(ctypes.Structure):
     pass
 class SturdyHttpRequest(ctypes.Structure):
@@ -1009,6 +1339,8 @@ class SturdyLightingSettings(ctypes.Structure):
     """Clustered local lighting (since 0.32). Every spot and point light (nearest/brightest first, up to `max_lights`) is binned into screen tiles x depth slices so each pixel evaluates only the lights that reach it; with `clustered` off the deferred pass falls back to the first 8 spot + 8 point lights."""
 class SturdyLogSink(ctypes.Structure):
     """Handle to a registered log sink, returned by `sturdy_log_add_sink`."""
+class SturdyMessageBoxOptions(ctypes.Structure):
+    pass
 class SturdyMotionBlurSettings(ctypes.Structure):
     pass
 class SturdyMultisampleState(ctypes.Structure):
@@ -1029,6 +1361,8 @@ class SturdyOpacityMicromapUsageCount(ctypes.Structure):
     """One usage count entry within an opacity micromap build. Not supported on D3D12."""
 class SturdyPeerOptions(ctypes.Structure):
     pass
+class SturdyPenPoint(ctypes.Structure):
+    """One pen. Listed while in range, and for the tick it left range in."""
 class SturdyPipelineLayout(ctypes.Structure):
     """Handle to a pipeline layout. See the "RHI resources" section header for its lifetime rules."""
 class SturdyPipelineLayoutDesc(ctypes.Structure):
@@ -1177,6 +1511,8 @@ class SturdyTaskOutput(ctypes.Structure):
     """Where a task's result is written from inside its callback (copied immediately)."""
 class SturdyTextInputArea(ctypes.Structure):
     """Screen-space hint for where an IME should draw its candidate/composition window, in window coordinates (the same units as `SturdyWindowSnapshot::width`/`height` and mouse positions). `cursor_offset_x` is the caret's offset from `x` within that area, for IMEs that anchor the popup to caret position rather than the area's top-left corner."""
+class SturdyTextInputOptions(ctypes.Structure):
+    """What kind of text a field takes, for IMEs and on-screen keyboards. Populate with `sturdy_text_input_options_init`."""
 class SturdyTexture(ctypes.Structure):
     """Handle to a GPU texture. See the "RHI resources" section header for its lifetime rules."""
 class SturdyTextureBarrier(ctypes.Structure):
@@ -1197,9 +1533,15 @@ class SturdyTlsServerOptions(ctypes.Structure):
     """How to present and check identities on the accepting side."""
 class SturdyToneMappingSettings(ctypes.Structure):
     """Fine-grained tone-mapping settings. `sturdy_frame_set_tone_mapping` remains the quick path for just operator/exposure/white-point/saturation; use this instead to also reach HDR display mapping and the AGX/Hermite-spline/PsychoV curve-tuning knobs, which only apply when `operation` selects the matching operator."""
+class SturdyTouchPoint(ctypes.Structure):
+    """One finger on a touch screen or pad. A lifted finger is listed for the tick it lifted in, then disappears."""
 class SturdyTraceFrame(ctypes.Structure):
     pass
 class SturdyTraceRaysDesc(ctypes.Structure):
+    pass
+class SturdyTray(ctypes.Structure):
+    """A notification-area / menu-bar icon. Owned: lives until `sturdy_tray_destroy`."""
+class SturdyTrayEntry(ctypes.Structure):
     pass
 class SturdyUdpOptions(ctypes.Structure):
     pass
@@ -1241,6 +1583,14 @@ class SturdyWebSocketServerOptions(ctypes.Structure):
     pass
 class SturdyWindowConfig(ctypes.Structure):
     """Configuration for a new window, as handed to `sturdy_window_spawn` / `sturdy_window_recreate_primary`. The window's graphics API always matches the engine's active backend — there is no field for it here, since a second window using a different backend is not something this engine supports."""
+class SturdyWindowCreationOptions(ctypes.Structure):
+    """Creation-time window behaviour, for `sturdy_window_spawn_ex`. Populate with `sturdy_window_creation_options_init`."""
+class SturdyWindowEffectOptions(ctypes.Structure):
+    """Everything beyond kind and on/off for `sturdy_window_set_effect_ex`. Populate with `sturdy_window_effect_options_init` first: that sets `struct_size` and the defaults (full opacity, all accent borders, the platform's own look). Each field applies to specific effects and is ignored by the rest."""
+class SturdyWindowOperationStatus(ctypes.Structure):
+    """The outcome of the last run of one operation on one window."""
+class SturdyWindowRect(ctypes.Structure):
+    """An integer rectangle in window or desktop coordinates (origin top-left)."""
 class SturdyWindowRequestCompletion(ctypes.Structure):
     """Outcome of one completed window request: `sturdy_window_spawn`, `sturdy_window_recreate_primary`, or `sturdy_window_request_close`."""
 class SturdyWindowSnapshot(ctypes.Structure):
@@ -1252,6 +1602,7 @@ SturdyAsyncOpFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncOp)
 SturdyAudioSinkCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32)
 SturdyChunkSystemFn = ctypes.CFUNCTYPE(None, ctypes.POINTER(SturdyEntity), ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p), SturdyCommands, ctypes.c_void_p)
 SturdyEcsVisitFn = ctypes.CFUNCTYPE(None, SturdyEntity, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p)
+SturdyFileDialogCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_char_p), ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint8, ctypes.c_char_p)
 SturdyHttpHandlerFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(SturdyHttpRequest), SturdyHttpResponder)
 SturdyLogCallback = ctypes.CFUNCTYPE(None, ctypes.c_int32, ctypes.c_char_p, ctypes.c_uint64, ctypes.c_void_p)
 SturdyParChunkFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint64, ctypes.c_uint64)
@@ -1284,6 +1635,7 @@ SturdySystemFn = ctypes.CFUNCTYPE(None, SturdyEntity, ctypes.POINTER(ctypes.c_vo
 SturdyTaskFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
 SturdyTaskThenFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyTaskInput), ctypes.POINTER(SturdyTaskOutput))
 SturdyTaskWorkFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyTaskOutput))
+SturdyTrayCallback = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint32)
 SturdyWebSocketFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, SturdyAsyncObject, ctypes.POINTER(SturdyHttpRequest))
 
 # The callback slots inside structs get a type named after the slot (`SturdyGameLogic_on_shutdown_fn`), so you can wrap a Python
@@ -1737,6 +2089,10 @@ SturdyCopyOptions._fields_ = [
     ('limit', ctypes.c_uint64),
     ('shutdown_writer', ctypes.c_uint8),
 ]
+SturdyCursorFrame._fields_ = [
+    ('rgba', ctypes.POINTER(ctypes.c_uint8)),
+    ('duration_ms', ctypes.c_uint32),
+]
 SturdyD3D12Handles._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('reserved', ctypes.c_uint32),
@@ -1814,6 +2170,33 @@ SturdyDeviceLimits._fields_ = [
     ('supports_bc_texture_compression', ctypes.c_uint8),
     ('reserved', (ctypes.c_uint8 * 2)),
 ]
+SturdyWindowRect._fields_ = [
+    ('x', ctypes.c_int32),
+    ('y', ctypes.c_int32),
+    ('width', ctypes.c_int32),
+    ('height', ctypes.c_int32),
+]
+SturdyDisplayMode._fields_ = [
+    ('width', ctypes.c_uint32),
+    ('height', ctypes.c_uint32),
+    ('refresh_rate_hz', ctypes.c_float),
+    ('pixel_density', ctypes.c_float),
+]
+SturdyDisplayInfo._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('id', ctypes.c_uint32),
+    ('bounds', SturdyWindowRect),
+    ('usable_bounds', SturdyWindowRect),
+    ('content_scale', ctypes.c_float),
+    ('refresh_rate_hz', ctypes.c_float),
+    ('hdr_enabled', ctypes.c_uint8),
+    ('primary', ctypes.c_uint8),
+    ('current_mode', SturdyDisplayMode),
+    ('mode_count', ctypes.c_uint32),
+    ('physical_width_mm', ctypes.c_uint32),
+    ('physical_height_mm', ctypes.c_uint32),
+    ('orientation', ctypes.c_int32),
+]
 SturdyDrawArgs._fields_ = [
     ('vertex_count', ctypes.c_uint32),
     ('instance_count', ctypes.c_uint32),
@@ -1839,6 +2222,10 @@ SturdyEntity._fields_ = [
     ('index', ctypes.c_uint32),
     ('generation', ctypes.c_uint32),
 ]
+SturdyFeatureSupport._fields_ = [
+    ('supported', ctypes.c_uint8),
+    ('note', ctypes.c_char_p),
+]
 SturdyFence._fields_ = [
     ('id', ctypes.c_uint64),
 ]
@@ -1848,8 +2235,29 @@ SturdyFenceDesc._fields_ = [
     ('reserved', (ctypes.c_uint8 * 3)),
     ('label', ctypes.c_char_p),
 ]
+SturdyFileDialogOptions._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('kind', ctypes.c_int32),
+    ('title', ctypes.c_char_p),
+    ('accept_label', ctypes.c_char_p),
+    ('cancel_label', ctypes.c_char_p),
+    ('default_location', ctypes.c_char_p),
+    ('filters', ctypes.POINTER(SturdyFileFilter)),
+    ('filter_count', ctypes.c_uint32),
+    ('allow_multiple', ctypes.c_uint8),
+]
+SturdyFileFilter._fields_ = [
+    ('name', ctypes.c_char_p),
+    ('pattern', ctypes.c_char_p),
+]
 SturdyFrame._fields_ = [
     ('token', ctypes.c_uint64),
+]
+SturdyFrameExtents._fields_ = [
+    ('left', ctypes.c_int32),
+    ('top', ctypes.c_int32),
+    ('right', ctypes.c_int32),
+    ('bottom', ctypes.c_int32),
 ]
 SturdyFrameInput._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -1860,6 +2268,12 @@ SturdyFrameInput._fields_ = [
     ('framebuffer_height', ctypes.c_uint32),
     ('live_resize', ctypes.c_uint8),
     ('reserved_tail', (ctypes.c_uint8 * 7)),
+]
+SturdyFullscreenTarget._fields_ = [
+    ('has_display', ctypes.c_uint8),
+    ('display_id', ctypes.c_uint32),
+    ('has_mode', ctypes.c_uint8),
+    ('mode', SturdyDisplayMode),
 ]
 SturdyGameLogic._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -1878,6 +2292,40 @@ SturdyGameModule._fields_ = [
     ('contributes_scene', ctypes.c_uint8),
     ('reserved', (ctypes.c_uint8 * 7)),
     ('logic', SturdyGameLogic),
+]
+SturdyGamepadEvent._fields_ = [
+    ('kind', ctypes.c_int32),
+    ('id', ctypes.c_uint32),
+]
+SturdyGamepadFrame._fields_ = [
+    ('id', ctypes.c_uint32),
+    ('buttons', ctypes.c_uint32),
+    ('pressed_this_tick', ctypes.c_uint32),
+    ('released_this_tick', ctypes.c_uint32),
+    ('axes', (ctypes.c_float * 6)),
+]
+SturdyGamepadInfo._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('id', ctypes.c_uint32),
+    ('kind', ctypes.c_int32),
+    ('vendor', ctypes.c_uint16),
+    ('product', ctypes.c_uint16),
+    ('connection', ctypes.c_int32),
+    ('player_index', ctypes.c_int32),
+    ('mapped', ctypes.c_uint8),
+    ('has_rumble', ctypes.c_uint8),
+    ('has_trigger_rumble', ctypes.c_uint8),
+    ('has_led', ctypes.c_uint8),
+    ('has_accelerometer', ctypes.c_uint8),
+    ('has_gyroscope', ctypes.c_uint8),
+    ('has_touchpad', ctypes.c_uint8),
+    ('battery_percent', ctypes.c_int32),
+    ('charging', ctypes.c_uint8),
+]
+SturdyGamepadState._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('buttons', ctypes.c_uint32),
+    ('axes', (ctypes.c_float * 6)),
 ]
 SturdyGlobalBarrier._fields_ = [
     ('src_stage', ctypes.c_uint64),
@@ -1946,6 +2394,15 @@ SturdyHdrPresentationMode._fields_ = [
     ('transfer', ctypes.c_int32),
     ('gamut', ctypes.c_int32),
     ('requires_os_hdr_mode', ctypes.c_uint8),
+]
+SturdyHitTestRegions._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('enabled', ctypes.c_uint8),
+    ('resize_border', ctypes.c_uint32),
+    ('drag', ctypes.POINTER(SturdyWindowRect)),
+    ('drag_count', ctypes.c_uint32),
+    ('no_drag', ctypes.POINTER(SturdyWindowRect)),
+    ('no_drag_count', ctypes.c_uint32),
 ]
 SturdyTlsClientOptions._fields_ = [
     ('server_name', ctypes.c_char_p),
@@ -2064,6 +2521,16 @@ SturdyLightingSettings._fields_ = [
 SturdyLogSink._fields_ = [
     ('id', ctypes.c_uint64),
 ]
+SturdyMessageBoxOptions._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('kind', ctypes.c_int32),
+    ('title', ctypes.c_char_p),
+    ('message', ctypes.c_char_p),
+    ('buttons', ctypes.POINTER(ctypes.c_char_p)),
+    ('button_count', ctypes.c_uint32),
+    ('default_button', ctypes.c_int32),
+    ('escape_button', ctypes.c_int32),
+]
 SturdyMotionBlurSettings._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('enabled', ctypes.c_uint8),
@@ -2158,6 +2625,25 @@ SturdyPeerOptions._fields_ = [
     ('discovery_port', ctypes.c_uint16),
     ('discovery_group', ctypes.c_char_p),
     ('discovery_interval_ms', ctypes.c_int64),
+]
+SturdyPenPoint._fields_ = [
+    ('window', ctypes.c_uint64),
+    ('pen', ctypes.c_uint32),
+    ('x', ctypes.c_float),
+    ('y', ctypes.c_float),
+    ('in_range', ctypes.c_uint8),
+    ('down', ctypes.c_uint8),
+    ('eraser', ctypes.c_uint8),
+    ('just_down', ctypes.c_uint8),
+    ('just_up', ctypes.c_uint8),
+    ('pressure', ctypes.c_float),
+    ('x_tilt', ctypes.c_float),
+    ('y_tilt', ctypes.c_float),
+    ('distance', ctypes.c_float),
+    ('rotation', ctypes.c_float),
+    ('slider', ctypes.c_float),
+    ('tangential_pressure', ctypes.c_float),
+    ('buttons', ctypes.c_uint32),
 ]
 SturdyPipelineLayoutDesc._fields_ = [
     ('struct_size', ctypes.c_uint32),
@@ -2751,6 +3237,13 @@ SturdyTextInputArea._fields_ = [
     ('height', ctypes.c_float),
     ('cursor_offset_x', ctypes.c_float),
 ]
+SturdyTextInputOptions._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('type', ctypes.c_int32),
+    ('capitalization', ctypes.c_int32),
+    ('autocorrect', ctypes.c_uint8),
+    ('multiline', ctypes.c_uint8),
+]
 SturdyTexture._fields_ = [
     ('id', ctypes.c_uint64),
 ]
@@ -2837,6 +3330,20 @@ SturdyToneMappingSettings._fields_ = [
     ('psychov_adapted_gray_bt709', (ctypes.c_float * 3)),
     ('psychov_background_gray_bt709', (ctypes.c_float * 3)),
 ]
+SturdyTouchPoint._fields_ = [
+    ('window', ctypes.c_uint64),
+    ('device', ctypes.c_uint64),
+    ('finger', ctypes.c_uint64),
+    ('x', ctypes.c_float),
+    ('y', ctypes.c_float),
+    ('dx', ctypes.c_float),
+    ('dy', ctypes.c_float),
+    ('pressure', ctypes.c_float),
+    ('down', ctypes.c_uint8),
+    ('just_pressed', ctypes.c_uint8),
+    ('just_released', ctypes.c_uint8),
+    ('cancelled', ctypes.c_uint8),
+]
 SturdyTraceFrame._fields_ = [
     ('struct_size', ctypes.c_uint32),
     ('kind', ctypes.c_int32),
@@ -2856,6 +3363,19 @@ SturdyTraceRaysDesc._fields_ = [
     ('width', ctypes.c_uint32),
     ('height', ctypes.c_uint32),
     ('depth', ctypes.c_uint32),
+]
+SturdyTray._fields_ = [
+    ('token', ctypes.c_uint64),
+]
+SturdyTrayEntry._fields_ = [
+    ('id', ctypes.c_uint32),
+    ('label', ctypes.c_char_p),
+    ('separator', ctypes.c_uint8),
+    ('checkable', ctypes.c_uint8),
+    ('checked', ctypes.c_uint8),
+    ('enabled', ctypes.c_uint8),
+    ('submenu', ctypes.POINTER(SturdyTrayEntry)),
+    ('submenu_count', ctypes.c_uint32),
 ]
 SturdyUdpOptions._fields_ = [
     ('reuse_address', ctypes.c_uint8),
@@ -3077,6 +3597,60 @@ SturdyWindowConfig._fields_ = [
     ('transparent', ctypes.c_uint8),
     ('mode', ctypes.c_int32),
 ]
+SturdyWindowCreationOptions._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('always_on_top', ctypes.c_uint8),
+    ('maximized', ctypes.c_uint8),
+    ('minimized', ctypes.c_uint8),
+    ('focusable', ctypes.c_uint8),
+    ('mouse_passthrough', ctypes.c_uint8),
+    ('has_auto_minimize', ctypes.c_uint8),
+    ('auto_minimize_on_focus_loss', ctypes.c_uint8),
+    ('window_type', ctypes.c_int32),
+    ('has_parent', ctypes.c_uint8),
+    ('parent', SturdySurface),
+    ('modal', ctypes.c_uint8),
+    ('min_width', ctypes.c_uint32),
+    ('min_height', ctypes.c_uint32),
+    ('max_width', ctypes.c_uint32),
+    ('max_height', ctypes.c_uint32),
+    ('aspect_min', ctypes.c_float),
+    ('aspect_max', ctypes.c_float),
+    ('fullscreen_target', SturdyFullscreenTarget),
+]
+SturdyWindowEffectOptions._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('linux_blur_protocol', ctypes.c_int32),
+    ('color_argb', ctypes.c_uint32),
+    ('blur_corner_radius', ctypes.c_float),
+    ('tint_argb', ctypes.c_uint32),
+    ('accent_border_left', ctypes.c_uint8),
+    ('accent_border_top', ctypes.c_uint8),
+    ('accent_border_right', ctypes.c_uint8),
+    ('accent_border_bottom', ctypes.c_uint8),
+    ('hide_border', ctypes.c_uint8),
+    ('corner_preference', ctypes.c_int32),
+    ('mac_material', ctypes.c_int32),
+    ('mac_blending', ctypes.c_int32),
+    ('mac_state', ctypes.c_int32),
+    ('mac_emphasized', ctypes.c_uint8),
+    ('mac_appearance', ctypes.c_int32),
+    ('mac_glass_style', ctypes.c_int32),
+    ('mac_glass_corner_radius', ctypes.c_float),
+    ('opacity', ctypes.c_float),
+    ('window_corner_radius', ctypes.c_float),
+]
+SturdyWindowOperationStatus._fields_ = [
+    ('struct_size', ctypes.c_uint32),
+    ('completed', ctypes.c_uint8),
+    ('ok', ctypes.c_uint8),
+    ('error', ctypes.c_int32),
+    ('flag', ctypes.c_uint8),
+    ('text_length', ctypes.c_uint32),
+    ('bytes_size', ctypes.c_uint32),
+    ('list_count', ctypes.c_uint32),
+    ('number', ctypes.c_int32),
+]
 SturdyWindowRequestCompletion._fields_ = [
     ('request_id', ctypes.c_uint64),
     ('kind', ctypes.c_int32),
@@ -3216,8 +3790,17 @@ _FUNCTIONS = {
     'sturdy_dedicated_thread_pin_to_fastest_core': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_dedicated_thread_run': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_depth_of_field_settings_init': (ctypes.c_int32, (ctypes.POINTER(SturdyDepthOfFieldSettings),)),
+    'sturdy_desktop_pump_events': (ctypes.c_int32, ()),
+    'sturdy_desktop_screensaver_enabled': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint8),)),
+    'sturdy_desktop_set_screensaver_enabled': (ctypes.c_int32, (ctypes.c_uint8,)),
+    'sturdy_desktop_show_file_dialog': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyFileDialogOptions), ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_desktop_show_message_box': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyMessageBoxOptions), ctypes.POINTER(ctypes.c_int32))),
     'sturdy_dir_iter_create': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncObject))),
     'sturdy_dir_iter_next': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_display_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_display_get': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(SturdyDisplayInfo))),
+    'sturdy_display_mode': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(SturdyDisplayMode))),
+    'sturdy_display_name': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_dns_resolve': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_ecs_add_chunk_system_ex': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdySystemAccess), ctypes.c_uint32, ctypes.POINTER(SturdySystemResourceAccess), ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdySystem))),
     'sturdy_ecs_add_component': (ctypes.c_int32, (SturdyEngine, SturdyEntity, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32)),
@@ -3330,6 +3913,19 @@ _FUNCTIONS = {
     'sturdy_fs_rename': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_fs_size': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_fs_write_file': (ctypes.c_int32, (ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.c_uint8, ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_gamepad_count': (ctypes.c_int32, (ctypes.POINTER(ctypes.c_uint32),)),
+    'sturdy_gamepad_get': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(SturdyGamepadInfo))),
+    'sturdy_gamepad_name': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_gamepad_raw_counts': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_gamepad_raw_read': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(ctypes.c_float), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint32)),
+    'sturdy_gamepad_rumble': (ctypes.c_int32, (ctypes.c_uint32, ctypes.c_float, ctypes.c_float, ctypes.c_uint32)),
+    'sturdy_gamepad_rumble_triggers': (ctypes.c_int32, (ctypes.c_uint32, ctypes.c_float, ctypes.c_float, ctypes.c_uint32)),
+    'sturdy_gamepad_sensor': (ctypes.c_int32, (ctypes.c_uint32, ctypes.c_int32, ctypes.POINTER(ctypes.c_float))),
+    'sturdy_gamepad_set_led': (ctypes.c_int32, (ctypes.c_uint32, ctypes.c_uint8, ctypes.c_uint8, ctypes.c_uint8)),
+    'sturdy_gamepad_set_player_index': (ctypes.c_int32, (ctypes.c_uint32, ctypes.c_int32)),
+    'sturdy_gamepad_set_sensor_enabled': (ctypes.c_int32, (ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint8)),
+    'sturdy_gamepad_state': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(SturdyGamepadState))),
+    'sturdy_gamepad_take_events': (ctypes.c_int32, (ctypes.POINTER(SturdyGamepadEvent), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
     'sturdy_gltf_import': (ctypes.c_int32, (SturdyEngine, ctypes.c_char_p, SturdyAsset, ctypes.POINTER(SturdyGltfScene))),
     'sturdy_gltf_instance_at': (ctypes.c_int32, (SturdyGltfScene, ctypes.c_uint32, ctypes.POINTER(SturdyGltfInstance))),
     'sturdy_gltf_instance_count': (ctypes.c_int32, (SturdyGltfScene, ctypes.POINTER(ctypes.c_uint32))),
@@ -3369,6 +3965,15 @@ _FUNCTIONS = {
     'sturdy_http_server_start': (ctypes.c_int32, (ctypes.POINTER(SturdyHttpServerOptions), ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyAsyncObject))),
     'sturdy_http_server_start_router': (ctypes.c_int32, (ctypes.POINTER(SturdyHttpServerOptions), SturdyAsyncObject, ctypes.POINTER(SturdyAsyncObject))),
     'sturdy_http_server_stop': (ctypes.c_int32, (SturdyAsyncObject,)),
+    'sturdy_input_gamepad_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_input_gamepad_event_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_input_gamepad_event_get': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(SturdyGamepadEvent))),
+    'sturdy_input_gamepad_get': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(SturdyGamepadFrame))),
+    'sturdy_input_pen_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_input_pen_get': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(SturdyPenPoint))),
+    'sturdy_input_set_gamepads_enabled': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint8)),
+    'sturdy_input_touch_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_input_touch_get': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(SturdyTouchPoint))),
     'sturdy_interval_create': (ctypes.c_int32, (ctypes.c_int64, ctypes.POINTER(SturdyAsyncObject))),
     'sturdy_interval_tick': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_io_copy': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_int32, SturdyAsyncObject, ctypes.c_int32, ctypes.POINTER(SturdyCopyOptions), ctypes.POINTER(SturdyAsyncOp))),
@@ -3888,6 +4493,7 @@ _FUNCTIONS = {
     'sturdy_tcp_shutdown_write': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_tcp_start_tls_client': (ctypes.c_int32, (SturdyAsyncObject, ctypes.c_char_p, ctypes.POINTER(SturdyTlsClientOptions), ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_tcp_start_tls_server': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(SturdyTlsServerOptions), ctypes.POINTER(SturdyAsyncOp))),
+    'sturdy_text_input_options_init': (ctypes.c_int32, (ctypes.POINTER(SturdyTextInputOptions),)),
     'sturdy_thread_pin_current': (ctypes.c_int32, (ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
     'sturdy_time_delta_seconds': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_double))),
     'sturdy_time_scale': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_double))),
@@ -3906,6 +4512,11 @@ _FUNCTIONS = {
     'sturdy_trace_install_crash_handler': (ctypes.c_int32, (ctypes.c_char_p,)),
     'sturdy_trace_set_detail': (ctypes.c_int32, (ctypes.c_int32,)),
     'sturdy_trace_set_foreign_call_site': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32)),
+    'sturdy_tray_create': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_char_p, ctypes.POINTER(SturdyTrayEntry), ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(SturdyTray))),
+    'sturdy_tray_destroy': (ctypes.c_int32, (SturdyTray,)),
+    'sturdy_tray_set_icon': (ctypes.c_int32, (SturdyTray, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_tray_set_menu': (ctypes.c_int32, (SturdyTray, ctypes.POINTER(SturdyTrayEntry), ctypes.c_uint32)),
+    'sturdy_tray_set_tooltip': (ctypes.c_int32, (SturdyTray, ctypes.c_char_p)),
     'sturdy_udp_address': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_udp_bind': (ctypes.c_int32, (ctypes.c_char_p, ctypes.c_uint16, ctypes.POINTER(SturdyUdpOptions), ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_udp_close': (ctypes.c_int32, (SturdyAsyncObject,)),
@@ -3978,25 +4589,86 @@ _FUNCTIONS = {
     'sturdy_websocket_server_close': (ctypes.c_int32, (SturdyAsyncObject,)),
     'sturdy_websocket_server_listen': (ctypes.c_int32, (ctypes.POINTER(SturdyWebSocketServerOptions), ctypes.POINTER(SturdyAsyncOp))),
     'sturdy_websocket_server_port': (ctypes.c_int32, (SturdyAsyncObject, ctypes.POINTER(ctypes.c_uint16))),
+    'sturdy_window_clear_custom_cursor': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
     'sturdy_window_config_init': (ctypes.c_int32, (ctypes.POINTER(SturdyWindowConfig),)),
     'sturdy_window_content_scale': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(ctypes.c_float))),
     'sturdy_window_count': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_window_creation_options_init': (ctypes.c_int32, (ctypes.POINTER(SturdyWindowCreationOptions),)),
+    'sturdy_window_display_id': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_uint32))),
+    'sturdy_window_effect_options_init': (ctypes.c_int32, (ctypes.POINTER(SturdyWindowEffectOptions),)),
+    'sturdy_window_feature': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.POINTER(SturdyFeatureSupport))),
     'sturdy_window_find': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyWindowSnapshot))),
+    'sturdy_window_focus': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
+    'sturdy_window_frame_extents': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyFrameExtents))),
+    'sturdy_window_hide': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
+    'sturdy_window_maximize': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
+    'sturdy_window_minimize': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
+    'sturdy_window_operation_bytes': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_window_operation_list_item': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_window_operation_message': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_window_operation_status': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.POINTER(SturdyWindowOperationStatus))),
+    'sturdy_window_operation_text': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.POINTER(ctypes.c_char), ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64))),
     'sturdy_window_primary': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyWindowSnapshot))),
+    'sturdy_window_query_clipboard_data': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_char_p)),
+    'sturdy_window_query_clipboard_mime_types': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
+    'sturdy_window_query_clipboard_text': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
+    'sturdy_window_query_icc_profile': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
+    'sturdy_window_query_key_down': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32)),
+    'sturdy_window_query_key_name': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32)),
+    'sturdy_window_raise': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
     'sturdy_window_recreate_primary': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyWindowConfig), ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_window_request_attention': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32)),
     'sturdy_window_request_close': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_window_restore': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
+    'sturdy_window_safe_area': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyWindowRect))),
+    'sturdy_window_set_always_on_top': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_animated_cursor': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(SturdyCursorFrame), ctypes.c_uint32, ctypes.c_int32, ctypes.c_int32)),
+    'sturdy_window_set_aspect_ratio': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_float, ctypes.c_float)),
+    'sturdy_window_set_auto_minimize_on_focus_loss': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_clipboard_data': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint64)),
+    'sturdy_window_set_clipboard_text': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_char_p)),
     'sturdy_window_set_cursor_grabbed': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
     'sturdy_window_set_cursor_icon': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32)),
+    'sturdy_window_set_cursor_position': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.c_int32)),
+    'sturdy_window_set_custom_cursor': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8), ctypes.c_int32, ctypes.c_int32)),
     'sturdy_window_set_decorated': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_display_gamma': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8, ctypes.c_uint32, ctypes.c_float)),
     'sturdy_window_set_effect': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.c_uint8)),
+    'sturdy_window_set_effect_ex': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.c_uint8, ctypes.POINTER(SturdyWindowEffectOptions))),
+    'sturdy_window_set_focusable': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_fullscreen_target': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyFullscreenTarget))),
+    'sturdy_window_set_global_cursor_position': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.c_int32)),
+    'sturdy_window_set_hit_test_regions': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyHitTestRegions))),
+    'sturdy_window_set_icon': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_window_set_keyboard_grab': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_maximum_size': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint32, ctypes.c_uint32)),
+    'sturdy_window_set_minimum_size': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint32, ctypes.c_uint32)),
     'sturdy_window_set_mode': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32)),
+    'sturdy_window_set_mouse_capture': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_mouse_confine_rect': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyWindowRect))),
     'sturdy_window_set_mouse_locked': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_mouse_passthrough': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_opacity': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_float)),
+    'sturdy_window_set_parent': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdySurface), ctypes.c_uint8)),
+    'sturdy_window_set_position': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.c_int32)),
     'sturdy_window_set_relative_mouse_mode': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_resizable': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_shape': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint8))),
+    'sturdy_window_set_size': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint32, ctypes.c_uint32)),
+    'sturdy_window_set_taskbar_progress': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.c_float)),
     'sturdy_window_set_text_input_active': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
     'sturdy_window_set_text_input_area': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyTextInputArea))),
+    'sturdy_window_set_title': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_char_p)),
     'sturdy_window_set_transparent': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_uint8)),
+    'sturdy_window_set_window_type': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32)),
+    'sturdy_window_show': (ctypes.c_int32, (SturdyEngine, SturdySurface)),
+    'sturdy_window_show_file_dialog': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyFileDialogOptions), ctypes.c_void_p, ctypes.c_void_p)),
+    'sturdy_window_show_message_box': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyMessageBoxOptions))),
+    'sturdy_window_show_system_menu': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.c_int32, ctypes.c_int32)),
     'sturdy_window_snapshot': (ctypes.c_int32, (SturdyEngine, ctypes.c_uint32, ctypes.POINTER(SturdyWindowSnapshot))),
     'sturdy_window_spawn': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyWindowConfig), ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_window_spawn_ex': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyWindowConfig), ctypes.POINTER(SturdyWindowCreationOptions), ctypes.POINTER(ctypes.c_uint64))),
+    'sturdy_window_start_text_input_ex': (ctypes.c_int32, (SturdyEngine, SturdySurface, ctypes.POINTER(SturdyTextInputOptions))),
     'sturdy_window_take_completions': (ctypes.c_int32, (SturdyEngine, ctypes.POINTER(SturdyWindowRequestCompletion), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))),
 }
 
@@ -4082,8 +4754,15 @@ _DOCS = {
     'sturdy_cookie_jar_header_for': '"a=1; b=2" for the cookies that apply to a request (string-output convention; empty if none).',
     'sturdy_dedicated_thread_create': 'A named thread that runs submitted work one at a time, in order. Object "dedicated_thread".',
     'sturdy_depth_of_field_settings_init': 'Fills `settings` with `struct_size` and engine defaults (disabled).',
+    'sturdy_desktop_pump_events': 'Delivers tray clicks for a program whose windows are not pumping SDL. Cheap when no tray exists.',
+    'sturdy_desktop_set_screensaver_enabled': 'Allows or inhibits the screen saver / display blanking (games turn it off).',
+    'sturdy_desktop_show_file_dialog': 'Opens a file or folder dialog and returns at once; `callback` reports the outcome.',
+    'sturdy_desktop_show_message_box': "Shows a message box and blocks until it is dismissed; writes the pressed button's index (or -1). Main thread only.",
     'sturdy_dir_iter_create': 'Walks a directory entry by entry. Object "dir_iter".',
     'sturdy_dir_iter_next': 'Number: 1 and text: the next path, or number 0 at the end.',
+    'sturdy_display_count': 'How many monitors are connected (refreshed when the window system reports a change).',
+    'sturdy_display_mode': 'Mode `mode_index` (below `SturdyDisplayInfo::mode_count`) of monitor `index`.',
+    'sturdy_display_name': "The monitor's name. See the string-output convention above.",
     'sturdy_dns_resolve': 'Resolves a host name. Fields: one `address` per result (numeric text).',
     'sturdy_ecs_add_chunk_system_ex': 'Registers a chunk system (since 0.35) with a removable handle. Declaration, ordering, conflict detection, `commands` and removal behave exactly as for `sturdy_ecs_add_system_ex`; only the body differs.',
     'sturdy_ecs_add_component': 'Attaches a component to an existing entity.',
@@ -4188,6 +4867,14 @@ _DOCS = {
     'sturdy_fs_remove_file': 'Number: 1 if something was removed.',
     'sturdy_fs_size': 'Number: the size in bytes.',
     'sturdy_fs_write_file': 'Creates or replaces the file with `data`, or appends to it.',
+    'sturdy_gamepad_count': 'How many devices are connected (also starts the joystick subsystem on first use).',
+    'sturdy_gamepad_name': "The device's name. See the string-output convention above.",
+    'sturdy_gamepad_raw_counts': 'How many axes, buttons and hats a device reports raw.',
+    'sturdy_gamepad_raw_read': 'A device as the hardware reports it. Each buffer may be null; axes are -1 to 1, buttons 0/1, hats a bit set (1 up, 2 right, 4 down, 8 left).',
+    'sturdy_gamepad_rumble': 'Motor strengths are 0..1; the rumble stops after `duration_ms`.',
+    'sturdy_gamepad_sensor': 'x, y, z of an enabled sensor (m/s^2 for the accelerometer, rad/s for the gyroscope).',
+    'sturdy_gamepad_state': 'The current state of a mapped gamepad (`STURDY_ERROR_NOT_AVAILABLE` for an unknown or unmapped device).',
+    'sturdy_gamepad_take_events': 'Devices connected or disconnected since the last call: writes up to `capacity` events and sets `*out_count`.',
     'sturdy_gltf_import': 'Imports a glTF or GLB file, creating a model asset for every mesh it contains.\n\nImporting does not put anything in the world — it produces assets and a description of how the file arranged them. Call `sturdy_gltf_spawn_all` to reproduce that arrangement, or walk the instances yourself if you want to filter or re-place them.',
     'sturdy_gltf_instance_at': 'Reads the node instance at `index`.',
     'sturdy_gltf_instance_count': 'Returns how many node instances the scene places.',
@@ -4224,6 +4911,8 @@ _DOCS = {
     'sturdy_http_server_on_websocket': 'Upgrades requests whose path (without query) equals `path` to WebSockets, on the same port and over TLS when the server uses it. Call before `sturdy_http_server_begin`. `user_data` must stay valid until the server object is released.',
     'sturdy_http_server_start': 'Starts an HTTP(S) server. Object "http_server". Stops (and drains) when the object is released.',
     'sturdy_http_server_start_router': '`sturdy_http_server_create_router` and `sturdy_http_server_begin` in one step.',
+    'sturdy_input_gamepad_event_count': 'Pads plugged or unplugged since the previous tick.',
+    'sturdy_input_set_gamepads_enabled': 'Starts (or stops) sampling gamepads every tick. Off by default.',
     'sturdy_interval_create': 'A periodic timer that does not drift. Object "interval"; `sturdy_interval_tick` finishes at each period boundary.',
     'sturdy_io_copy': 'Copies until the reader ends, overlapping each read with the previous write. Number: bytes copied.',
     'sturdy_io_lane_configure': 'Tunes the blocking-IO lane (0 workers: automatic; 0 `max_pending`: 1024). `out_applied` says whether it took effect (false once it started).',
@@ -4646,6 +5335,8 @@ _DOCS = {
     'sturdy_trace_install_crash_handler': "Installs process-wide crash handlers (fatal signals on POSIX, the unhandled-exception filter on Windows) that print the crashing thread's engine scopes and native stack before the process dies. Does nothing useful on WebAssembly (returns `STURDY_ERROR_NOT_AVAILABLE`). Safe to call repeatedly.",
     'sturdy_trace_set_detail': 'Chooses how much future failures capture, for the whole process.',
     'sturdy_trace_set_foreign_call_site': "Announces where the calling thread's foreign code is, so a failure inside the engine can be traced back to a line of it. The site stays in force until replaced or cleared, so announcing once per frame or per widget is as valid as before every call. The engine copies the strings (they need not be null-terminated or outlive the call), and re-announcing an identical site allocates nothing.",
+    'sturdy_tray_create': 'Creates a tray icon (RGBA8 `width * height * 4` bytes) with a menu. Fails with `STURDY_ERROR_NOT_AVAILABLE` when the system has no tray.',
+    'sturdy_tray_set_menu': 'Replaces the whole menu.',
     'sturdy_udp_address': '"host:port" the socket is bound to, following the string-output convention.',
     'sturdy_udp_bind': 'Binds a UDP socket. Object "udp". `host` null/empty: all interfaces. `port` 0: any. `options` may be null.',
     'sturdy_udp_connect': "Fixes the peer: `sturdy_udp_send` then needs no address and only that peer's datagrams are received.",
@@ -4695,22 +5386,44 @@ _DOCS = {
     'sturdy_window_config_init': "Fills `config` with the engine's default window configuration (1280x720, windowed, decorated, visible, resizable, OS-placed).",
     'sturdy_window_content_scale': 'Reads the UI scale the OS asks for on the display the window is on (1.0 at 100%, 2.0 at 200%). Updated when the window moves to a display with a different scale.',
     'sturdy_window_count': 'Returns how many windows the engine currently manages.',
+    'sturdy_window_display_id': 'The display the window is mostly on; `*out_has_display` is false when the provider cannot say.',
+    'sturdy_window_effect_options_init': 'Fills `options` with the defaults and the correct `struct_size`.',
+    'sturdy_window_feature': 'Whether, and how fully, a window supports a feature. Reads the snapshot, so it is current as of the last frame.',
     'sturdy_window_find': 'Reads the window a surface belongs to.',
+    'sturdy_window_operation_bytes': "A query's byte output: writes up to `capacity` bytes and sets `*out_size` to the full size.",
+    'sturdy_window_operation_list_item': "Entry `index` of a query's list output. See the string-output convention above.",
+    'sturdy_window_operation_message': "The platform's message for a failed operation. See the string-output convention above.",
+    'sturdy_window_operation_status': 'The outcome of the last run of `operation` on a window. `completed` is false until it has run.',
+    'sturdy_window_operation_text': "A query's text output. See the string-output convention above.",
     'sturdy_window_primary': 'Reads the primary window.',
+    'sturdy_window_query_key_name': "Asks for a key's name on the current layout. `key` is the `key_code` value input events report.",
     'sturdy_window_recreate_primary': 'Requests that the primary window be destroyed and recreated with a new configuration — changing decorations or transparency after creation on a platform where the window must be recreated to do so, for instance.\n\nQueued and completion-reported the same way as `sturdy_window_spawn`.',
     'sturdy_window_request_close': 'Requests that a window close.\n\nQueued rather than immediate: the engine applies window changes at a defined point in the frame so a request made from a render callback cannot destroy the window being drawn. Every function in this section behaves that way.',
+    'sturdy_window_safe_area': 'The part of the client area not under notches or system bars (the whole area on desktops).',
+    'sturdy_window_set_animated_cursor': 'A cursor cycling through `frame_count` same-sized frames; the hot spot is shared by every frame.',
+    'sturdy_window_set_aspect_ratio': 'Constrains resizing to width/height ratios in [min, max]; 0 and 0 remove the constraint. GLFW holds one exact ratio.',
     'sturdy_window_set_cursor_grabbed': 'Requests that a window grab (confine) or release the cursor at the OS level.',
     'sturdy_window_set_cursor_icon': 'Requests a cursor shape for a window.',
+    'sturdy_window_set_custom_cursor': 'A cursor drawn from an RGBA8 image (`width * height * 4` bytes) with its hot spot in image pixels.',
     'sturdy_window_set_decorated': 'Requests that a window show or hide its system decorations.',
+    'sturdy_window_set_display_gamma': "Sets a display's gamma (1.0 = unchanged); `has_display` false uses the window's display.",
     'sturdy_window_set_effect': "Requests a platform-composited visual effect for a window (Windows' Mica/Acrylic/blur, etc.).\n\nQueued like every other request in this section: this call only reports a bad engine handle or argument. Whether the platform actually supports `kind` is decided when the request is applied, and (like every other queued window request) that outcome is not currently reported back.",
+    'sturdy_window_set_effect_ex': '`sturdy_window_set_effect` with every per-effect setting: colours, tint, corner preference, opacity, the macOS material and glass options, and the Linux blur protocol. `options` may be null for the defaults. Queued the same way.',
+    'sturdy_window_set_hit_test_regions': 'Installs (or, with `enabled` false, removes) the drag and resize regions of a custom title bar.',
     'sturdy_window_set_mode': 'Requests a windowed/fullscreen mode change.',
+    'sturdy_window_set_mouse_confine_rect': 'Confines the cursor to a client-area rectangle; null releases it.',
     'sturdy_window_set_mouse_locked': 'Requests that a window confine the cursor to its bounds while keeping it visible at an absolute position — see `SturdyWindowSnapshot::mouse_locked` for the resulting state. Distinct from `sturdy_window_set_relative_mouse_mode`, which also hides the cursor and switches to unbounded motion deltas.',
+    'sturdy_window_set_parent': 'Makes the window a child of `parent`; null detaches. A modal child blocks its parent where the system allows.',
     'sturdy_window_set_relative_mouse_mode': 'Requests relative mouse mode (the OS cursor is hidden and confined, and mouse motion reports as unbounded deltas instead of absolute position) for a window — the mode a first-person camera or any other mouse-look control needs. See `SturdyWindowSnapshot::mouse_locked` and `sturdy_engine_mouse_delta` for reading the resulting state and motion.',
+    'sturdy_window_set_shape': 'A non-rectangular outline from `width * height` coverage bytes (above 127 = inside). Null `coverage` restores the rectangle.',
     'sturdy_window_set_text_input_active': 'Requests that a window start or stop IME text composition (on-screen keyboards, CJK input methods, etc.). Most text fields need this active only while focused and editable.',
     'sturdy_window_set_text_input_area': 'Hints the IME where to draw its candidate/composition window, in window coordinates. Only meaningful while text input is active (see `sturdy_window_set_text_input_active`).',
     'sturdy_window_set_transparent': 'Requests that a window become transparent or opaque.',
+    'sturdy_window_show_file_dialog': '`sturdy_desktop_show_file_dialog` as a child of a window: the dialog stays above it and is attached to it by the window system. Queued like every window request; `callback` is called once when the dialog closes.',
+    'sturdy_window_show_message_box': "`sturdy_desktop_show_message_box` over a window. Queued: it blocks that window's thread until dismissed, and the pressed button arrives as `sturdy_window_operation_status(..., STURDY_WINDOW_OP_MESSAGE_BOX, ...).number`.",
     'sturdy_window_snapshot': 'Reads the window at `index`.',
     'sturdy_window_spawn': 'Requests a new, additional window.\n\nQueued like every other request in this section: this only reports a bad engine handle, argument, or struct-size mismatch. Whether the window was actually created is reported later through `sturdy_window_take_completions`, keyed by `*out_request_id`.',
+    'sturdy_window_spawn_ex': '`sturdy_window_spawn` with creation-time behaviour. `options` may be null for the defaults.',
     'sturdy_window_take_completions': 'Copies up to `capacity` completed window requests into `out_completions` and reports the true number available in `*out_count`, which may exceed `capacity` — completions beyond `capacity` are dropped, not held for a later call, since window lifecycle events are rare enough that a caller should simply pass a generously sized buffer (8 is enough for any realistic frame).',
 }
 

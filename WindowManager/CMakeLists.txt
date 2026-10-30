@@ -59,6 +59,7 @@ if(STURDY_OS STREQUAL "Linux")
     # <name> is the protocol's file stem: wayland-<name>-client-protocol.{h,c} come out of <xml>.
     foreach(_protocol IN ITEMS
         "ext-background-effect-v1|${_sturdy_wayland_protocols_dir}/ext-background-effect/ext-background-effect-v1.xml"
+        "alpha-modifier-v1|${_sturdy_wayland_protocols_dir}/alpha-modifier/alpha-modifier-v1.xml"
         "org-kde-kwin-blur|${CMAKE_CURRENT_SOURCE_DIR}/protocols/org-kde-kwin-blur.xml"
         "color-management-v1|${_sturdy_wayland_protocols_dir}/color-management/color-management-v1.xml")
         string(REPLACE "|" ";" _protocol "${_protocol}")

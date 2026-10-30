@@ -68,6 +68,13 @@ namespace {
             return true;
         case STURDY_CURSOR_ICON_FORCE_U32:
         default:
+            // Crosshair through the edge/corner resize arrows were appended in the engine's own order.
+            static_assert(static_cast<int>(STURDY_CURSOR_ICON_CROSSHAIR) == static_cast<int>(SFT::WindowManager::CursorIcon::Crosshair));
+            static_assert(static_cast<int>(STURDY_CURSOR_ICON_RESIZE_NW) == static_cast<int>(SFT::WindowManager::CursorIcon::ResizeNw));
+            if (icon >= STURDY_CURSOR_ICON_CROSSHAIR && icon <= STURDY_CURSOR_ICON_RESIZE_NW) {
+                *out_icon = static_cast<SFT::WindowManager::CursorIcon>(icon);
+                return true;
+            }
             return false;
         }
     }
@@ -114,8 +121,26 @@ namespace {
             return true;
         case STURDY_WINDOW_EFFECT_FORCE_U32:
         default:
+            // Everything past Transparent was appended in the same order as the engine's enumeration.
+            static_assert(static_cast<int>(STURDY_WINDOW_EFFECT_BACKDROP_AUTO) ==
+                          static_cast<int>(SFT::WindowManager::WindowEffectKind::BackdropAuto));
+            static_assert(static_cast<int>(STURDY_WINDOW_EFFECT_VISUAL_EFFECT) ==
+                          static_cast<int>(SFT::WindowManager::WindowEffectKind::VisualEffect));
+            static_assert(static_cast<int>(STURDY_WINDOW_EFFECT_CORNER_RADIUS) ==
+                          static_cast<int>(SFT::WindowManager::WindowEffectKind::CornerRadius));
+            if (kind >= STURDY_WINDOW_EFFECT_BACKDROP_AUTO && kind <= STURDY_WINDOW_EFFECT_CORNER_RADIUS) {
+                *out_kind = static_cast<SFT::WindowManager::WindowEffectKind>(kind);
+                return true;
+            }
             return false;
         }
+    }
+
+    /// Clamps an ABI enumeration value into `[0, last]` before it is stored in a narrower engine enumeration.
+    template <typename Engine, typename Abi>
+    [[nodiscard]] Engine clamp_effect_enum(Abi value, Engine last) noexcept {
+        const auto raw = static_cast<int64_t>(value);
+        return static_cast<Engine>(std::clamp<int64_t>(raw, 0, static_cast<int64_t>(last)));
     }
 
     /// Translates an ABI window mode to the engine's own enumeration.
@@ -556,6 +581,90 @@ SturdyResult STURDY_ABI_CALL sturdy_window_spawn(SturdyEngine engine,
     });
 }
 
+SturdyResult STURDY_ABI_CALL sturdy_window_creation_options_init(SturdyWindowCreationOptions *options) {
+    return guarded([&]() -> SturdyResult {
+        if (options == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        *options = SturdyWindowCreationOptions{};
+        options->struct_size = static_cast<uint32_t>(sizeof(SturdyWindowCreationOptions));
+        options->focusable = STURDY_TRUE;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_window_spawn_ex(SturdyEngine engine,
+                                                    const SturdyWindowConfig *config,
+                                                    const SturdyWindowCreationOptions *options,
+                                                    uint64_t *out_request_id) {
+    return guarded([&]() -> SturdyResult {
+        namespace W = SFT::WindowManager;
+        W::WindowConfig engine_config{};
+        const SturdyResult built = build_window_config(config, W::WindowGraphicsApi::None, &engine_config);
+        if (built != STURDY_OK) {
+            return built;
+        }
+        std::optional<W::WindowId> parent;
+        if (options != nullptr) {
+            if (options->struct_size != sizeof(SturdyWindowCreationOptions)) {
+                return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE, "SturdyWindowCreationOptions size does not match this engine build");
+            }
+            engine_config.always_on_top = options->always_on_top != STURDY_FALSE;
+            engine_config.maximized = options->maximized != STURDY_FALSE;
+            engine_config.minimized = options->minimized != STURDY_FALSE;
+            engine_config.focusable = options->focusable != STURDY_FALSE;
+            engine_config.mouse_passthrough = options->mouse_passthrough != STURDY_FALSE;
+            if (options->has_auto_minimize != STURDY_FALSE) {
+                engine_config.auto_minimize_on_focus_loss = options->auto_minimize_on_focus_loss != STURDY_FALSE;
+            }
+            if (static_cast<uint32_t>(options->window_type) > static_cast<uint32_t>(STURDY_WINDOW_TYPE_SPLASH)) {
+                return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized window type");
+            }
+            engine_config.window_type = static_cast<W::WindowType>(options->window_type);
+            engine_config.modal = options->modal != STURDY_FALSE;
+            engine_config.min_size = W::WindowExtent{options->min_width, options->min_height};
+            engine_config.max_size = W::WindowExtent{options->max_width, options->max_height};
+            engine_config.aspect_min = options->aspect_min;
+            engine_config.aspect_max = options->aspect_max;
+            if (options->fullscreen_target.has_display != STURDY_FALSE) {
+                engine_config.fullscreen_target.display_id = options->fullscreen_target.display_id;
+            }
+            if (options->fullscreen_target.has_mode != STURDY_FALSE) {
+                engine_config.fullscreen_target.mode =
+                    W::DisplayMode{options->fullscreen_target.mode.width, options->fullscreen_target.mode.height,
+                                   options->fullscreen_target.mode.refresh_rate_hz, options->fullscreen_target.mode.pixel_density};
+            }
+            if (options->has_parent != STURDY_FALSE) {
+                parent = static_cast<W::WindowId>(options->parent.id);
+            }
+        }
+
+        SFT::RHI::RhiDevice *device = nullptr;
+        const SturdyResult device_resolved = resolve_device(engine, &device);
+        if (device_resolved != STURDY_OK) {
+            return device_resolved;
+        }
+        W::WindowGraphicsApi graphics_api{};
+        if (!translate_graphics_api(device->backend_type(), &graphics_api)) {
+            return set_error(STURDY_ERROR_NOT_AVAILABLE, "the active graphics backend has no window-creation counterpart");
+        }
+        engine_config.graphics_api = graphics_api;
+
+        SFT::Engine::Engine *resolved_engine = nullptr;
+        const SturdyResult resolved = resolve_engine(engine, &resolved_engine);
+        if (resolved != STURDY_OK) {
+            return resolved;
+        }
+        const SFT::Engine::WindowRequestId id = parent.has_value()
+                                                    ? resolved_engine->window_requests().spawn_child(engine_config, *parent, engine_config.modal)
+                                                    : resolved_engine->window_requests().spawn(engine_config);
+        if (out_request_id != nullptr) {
+            *out_request_id = id.value;
+        }
+        return STURDY_OK;
+    });
+}
+
 SturdyResult STURDY_ABI_CALL sturdy_window_recreate_primary(SturdyEngine engine,
                                                              const SturdyWindowConfig *config,
                                                              uint64_t *out_request_id) {
@@ -752,6 +861,70 @@ SturdyResult STURDY_ABI_CALL sturdy_window_set_effect(SturdyEngine engine,
                                     [&](SFT::Engine::WindowRequests &requests,
                                         SFT::WindowManager::WindowId window_id) {
                                         requests.set_blur(window_id, engine_kind, enabled != STURDY_FALSE);
+                                    });
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_window_effect_options_init(SturdyWindowEffectOptions *options) {
+    return guarded([&]() -> SturdyResult {
+        if (options == nullptr) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "output pointer must not be null");
+        }
+        const SFT::WindowManager::WindowEffectOptions defaults{};
+        *options = SturdyWindowEffectOptions{};
+        options->struct_size = static_cast<uint32_t>(sizeof(SturdyWindowEffectOptions));
+        options->linux_blur_protocol = STURDY_LINUX_BLUR_AUTOMATIC;
+        options->accent_border_left = defaults.accent_border_left ? STURDY_TRUE : STURDY_FALSE;
+        options->accent_border_top = defaults.accent_border_top ? STURDY_TRUE : STURDY_FALSE;
+        options->accent_border_right = defaults.accent_border_right ? STURDY_TRUE : STURDY_FALSE;
+        options->accent_border_bottom = defaults.accent_border_bottom ? STURDY_TRUE : STURDY_FALSE;
+        options->mac_material = static_cast<SturdyMacMaterial>(defaults.mac_material);
+        options->opacity = defaults.opacity;
+        return STURDY_OK;
+    });
+}
+
+SturdyResult STURDY_ABI_CALL sturdy_window_set_effect_ex(SturdyEngine engine,
+                                                         SturdySurface surface,
+                                                         SturdyWindowEffectKind kind,
+                                                         SturdyBool enabled,
+                                                         const SturdyWindowEffectOptions *options) {
+    return guarded([&]() -> SturdyResult {
+        namespace W = SFT::WindowManager;
+        W::WindowEffect effect{};
+        if (!translate_window_effect_kind(kind, &effect.kind)) {
+            return set_error(STURDY_ERROR_INVALID_ARGUMENT, "unrecognized window effect kind");
+        }
+        effect.enabled = enabled != STURDY_FALSE;
+        if (options != nullptr) {
+            if (options->struct_size != sizeof(SturdyWindowEffectOptions)) {
+                return set_error(STURDY_ERROR_UNSUPPORTED_STRUCT_SIZE,
+                                 "SturdyWindowEffectOptions size does not match this engine build");
+            }
+            effect.linux_blur_protocol = clamp_effect_enum(options->linux_blur_protocol, W::LinuxBlurProtocol::KdeX11);
+            effect.color_argb = options->color_argb;
+            W::WindowEffectOptions &out = effect.options;
+            out.corner_radius = std::max(options->blur_corner_radius, 0.0f);
+            out.tint_argb = options->tint_argb;
+            out.accent_border_left = options->accent_border_left != STURDY_FALSE;
+            out.accent_border_top = options->accent_border_top != STURDY_FALSE;
+            out.accent_border_right = options->accent_border_right != STURDY_FALSE;
+            out.accent_border_bottom = options->accent_border_bottom != STURDY_FALSE;
+            out.hide_border = options->hide_border != STURDY_FALSE;
+            out.corner_preference = clamp_effect_enum(options->corner_preference, W::WindowCornerPreference::RoundSmall);
+            out.mac_material = clamp_effect_enum(options->mac_material, W::MacVisualEffectMaterial::UnderPageBackground);
+            out.mac_blending = clamp_effect_enum(options->mac_blending, W::MacBlendingMode::WithinWindow);
+            out.mac_state = clamp_effect_enum(options->mac_state, W::MacVisualEffectState::Inactive);
+            out.mac_emphasized = options->mac_emphasized != STURDY_FALSE;
+            out.mac_appearance = clamp_effect_enum(options->mac_appearance, W::MacAppearance::VibrantDark);
+            out.mac_glass_style = clamp_effect_enum(options->mac_glass_style, W::MacGlassStyle::Clear);
+            out.mac_glass_corner_radius = std::max(options->mac_glass_corner_radius, 0.0f);
+            out.opacity = std::clamp(options->opacity, 0.0f, 1.0f);
+            out.window_corner_radius = std::max(options->window_corner_radius, 0.0f);
+        }
+        return queue_window_request(engine, surface,
+                                    [&](SFT::Engine::WindowRequests &requests, W::WindowId window_id) {
+                                        requests.set_effect(window_id, effect);
                                     });
     });
 }

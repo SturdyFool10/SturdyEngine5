@@ -14,6 +14,7 @@
 #include <string>
 #include <span>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 #pragma endregion
@@ -67,6 +68,22 @@ namespace SFT::WindowManager {
         ResizeNwse,
         ResizeNesw,
         NotAllowed,
+        Crosshair,
+        /// Four-way move / resize-all.
+        Move,
+        /// Busy (the program cannot take input); not available on every provider.
+        Wait,
+        /// Busy but still interactive (arrow with a spinner).
+        Progress,
+        /// Edge and corner resize arrows. A provider with only the axis cursors shows the matching axis one.
+        ResizeN,
+        ResizeNe,
+        ResizeE,
+        ResizeSe,
+        ResizeS,
+        ResizeSw,
+        ResizeW,
+        ResizeNw,
     };
 
     namespace Detail {
@@ -149,7 +166,14 @@ namespace SFT::WindowManager {
         [[nodiscard]]
         static expected<unique_ptr<Backend>, WindowError> create(Args &&...args) noexcept {
             try {
-                return Backend::construct(ConstructorKey{}, std::forward<Args>(args)...);
+                // The creation-time behaviour in the config is applied once the window exists.
+                const WindowConfig *config = nullptr;
+                ((config = config != nullptr ? config : config_of(args)), ...);
+                auto created = Backend::construct(ConstructorKey{}, std::forward<Args>(args)...);
+                if (created.has_value() && config != nullptr) {
+                    (*created)->apply_creation_config(*config);
+                }
+                return created;
             } catch (const bad_alloc &) {
                 return unexpected(WindowError{WindowErrorCode::OutOfMemory, "Out of memory while creating window."});
             } catch (...) {
@@ -716,7 +740,84 @@ namespace SFT::WindowManager {
         /// @note This function does not throw exceptions.
         virtual expected<void, WindowError> set_text_input_area(TextInputArea         ) noexcept;
 
+        // -- The union surface. Everything any provider can do is a method here (see WindowFeatures.hpp). Defaults
+        //    report `Unsupported`, or build on the native handle where that works for every provider; a provider
+        //    overrides what its host library does better. `feature_support` says which is which. --
+
+        /// Whether, and how fully, this window supports `feature` on this provider, OS and session type.
+        [[nodiscard]] virtual FeatureSupport feature_support(WindowFeature feature) const noexcept;
+
+        virtual expected<void, WindowError> set_always_on_top(bool enabled) noexcept;
+        /// Constrains resizing to width/height ratios in [`min_ratio`, `max_ratio`]; 0 and 0 remove the constraint. A
+        /// provider that only supports one exact ratio rejects `min_ratio != max_ratio` as `Unsupported`.
+        virtual expected<void, WindowError> set_aspect_ratio(f32 min_ratio, f32 max_ratio) noexcept;
+        /// Mouse clicks fall through to what is behind the window. Built on the native handle for every provider.
+        virtual expected<void, WindowError> set_mouse_passthrough(bool enabled) noexcept;
+        /// A non-focusable window never takes keyboard focus (palettes, overlays).
+        virtual expected<void, WindowError> set_focusable(bool enabled) noexcept;
+        /// Fullscreen windows minimise when they lose focus (the default for exclusive fullscreen on most systems).
+        virtual expected<void, WindowError> set_auto_minimize_on_focus_loss(bool enabled) noexcept;
+        /// Makes this window a child of `parent` (null removes the relationship). A modal child blocks its parent.
+        virtual expected<void, WindowError> set_parent(Window *parent, bool modal) noexcept;
+        /// Routes all keyboard input to this window, including window-manager shortcuts. Built on the native handle.
+        virtual expected<void, WindowError> set_keyboard_grab(bool enabled) noexcept;
+        /// Confines the cursor to a rectangle of the client area (window coordinates); empty releases it.
+        virtual expected<void, WindowError> set_mouse_confine_rect(std::optional<WindowRect> rect) noexcept;
+        /// Moves the cursor to `position` (window coordinates).
+        virtual expected<void, WindowError> set_cursor_position(WindowPosition position) noexcept;
+        /// Shows a cursor drawn from an image in place of the `set_cursor_icon` shape until `clear_custom_cursor`.
+        virtual expected<void, WindowError> set_custom_cursor(const CursorImage &image) noexcept;
+        virtual expected<void, WindowError> clear_custom_cursor() noexcept;
+        /// The decoration thickness around the client area.
+        [[nodiscard]] virtual expected<FrameExtents, WindowError> frame_extents() const noexcept;
+        /// The part of the client area not covered by notches, rounded corners or system bars. The whole client area on
+        /// desktops.
+        [[nodiscard]] virtual expected<WindowRect, WindowError> safe_area() const noexcept;
+        /// `start_text_input` telling the IME / on-screen keyboard what kind of text is being entered.
+        virtual expected<void, WindowError> start_text_input_with(const TextInputOptions &options) noexcept;
+        [[nodiscard]] virtual bool has_screen_keyboard() const noexcept;
+        [[nodiscard]] virtual bool screen_keyboard_shown() const noexcept;
+        /// The clipboard formats currently available (always includes a text type when text is present).
+        [[nodiscard]] virtual std::vector<std::string> clipboard_mime_types() const noexcept;
+        /// The display and mode `set_fullscreen` uses from now on; applies immediately when already fullscreen.
+        virtual expected<void, WindowError> set_fullscreen_target(FullscreenTarget target) noexcept;
+        /// Tells the window manager what the window is for (palette, tooltip, popup menu, dialog, splash screen). Built
+        /// on the native handle for every provider; best set before the window is first shown.
+        virtual expected<void, WindowError> set_window_type(WindowType type) noexcept;
+        /// Gives the window a non-rectangular outline from an alpha mask. Empty coverage restores the rectangle. Built on
+        /// the native handle (X11 Shape, `SetWindowRgn`); hard-edged, since the outline is a 1-bit region.
+        virtual expected<void, WindowError> set_shape(const WindowShapeMask &mask) noexcept;
+        /// A cursor that cycles through `frames`. A provider without animated cursors advances the frames itself.
+        virtual expected<void, WindowError> set_animated_cursor(std::span<const CursorFrame> frames) noexcept;
+        /// Moves the cursor to desktop coordinates.
+        virtual expected<void, WindowError> set_global_cursor_position(WindowPosition position) noexcept;
+        /// Keeps delivering mouse events while a button is held after the cursor leaves the window.
+        virtual expected<void, WindowError> set_mouse_capture(bool enabled) noexcept;
+        /// The layout's name for a key ("A", "Enter", ...); empty when the key has no name here.
+        [[nodiscard]] virtual std::string key_name(KeyboardKey key) const noexcept;
+        /// Whether a key is held right now.
+        [[nodiscard]] virtual bool key_down(KeyboardKey key) const noexcept;
+        /// The colour profile of the display the window is on (ICC bytes).
+        [[nodiscard]] virtual expected<std::vector<std::byte>, WindowError> icc_profile() const noexcept;
+        /// Sets the display's gamma (1.0 = unchanged) for one display, or the window's display when unset.
+        virtual expected<void, WindowError> set_display_gamma(std::optional<u32> display_id, f32 gamma) noexcept;
+        /// The id (`DisplayInfo::id`) of the display the window is mostly on.
+        [[nodiscard]] virtual std::optional<u32> current_display_id() const noexcept;
+
+        /// Applies the creation-time `WindowConfig` fields (always-on-top, maximized, parent, size limits, ...) through
+        /// the setters above. A field a provider cannot honour is logged and skipped. Called by `create`.
+        void apply_creation_config(const WindowConfig &config) noexcept;
+
       private:
+        template <typename T>
+        [[nodiscard]] static const WindowConfig *config_of(const T &value) noexcept {
+            if constexpr (std::is_same_v<std::remove_cvref_t<T>, WindowConfig>) {
+                return &value;
+            } else {
+                return nullptr;
+            }
+        }
+
         WindowId id_;
     };
 

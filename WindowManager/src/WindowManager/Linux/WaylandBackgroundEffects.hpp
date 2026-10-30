@@ -16,15 +16,19 @@ namespace SFT::WindowManager::Detail {
     [[nodiscard]] WindowEffectResult set_wayland_background_blur(
         NativeWindowHandle handle, WindowEffect effect) noexcept;
 
-    /// Releases wayland background effects using the supplied arguments and current state.
-    ///
-    /// @param handle Handle identifying the target object or resource.
-    /// @param release_display `release_display` value used by the operation.
-    ///
-    /// @note This function does not throw exceptions.
+    /// Sets or clears whole-surface opacity through `wp_alpha_modifier_v1` (`effect.options.opacity`).
+    [[nodiscard]] WindowEffectResult set_wayland_window_opacity(NativeWindowHandle handle, WindowEffect effect) noexcept;
+
+    /// Click-through: an empty `wl_surface` input region (core protocol, so every compositor), or the whole surface again.
+    [[nodiscard]] WindowEffectResult set_wayland_mouse_passthrough(NativeWindowHandle handle, bool enabled) noexcept;
+
+    /// Whether the compositor advertises `wp_alpha_modifier_v1`.
+    [[nodiscard]] WindowEffectSupport query_wayland_opacity_support(NativeWindowHandle handle) noexcept;
+
     /// Which Wayland blur protocols the compositor behind `handle` advertises right now.
     [[nodiscard]] WindowEffectSupport query_wayland_background_support(NativeWindowHandle handle) noexcept;
 
+    /// Releases the per-surface effect objects; with `release_display` also the connection's own queue and globals.
     void release_wayland_background_effects(
         NativeWindowHandle handle, bool release_display) noexcept;
 

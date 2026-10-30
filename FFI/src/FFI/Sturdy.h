@@ -115,7 +115,7 @@ typedef uint8_t SturdyBool;
 /// changes when declarations are appended. Check it at load time with
 /// `sturdy_abi_version_major()` / `sturdy_abi_version_minor()` before calling anything else.
 #define STURDY_ABI_VERSION_MAJOR 0u
-#define STURDY_ABI_VERSION_MINOR 40u
+#define STURDY_ABI_VERSION_MINOR 42u
 
 // ---------------------------------------------------------------------------------------------
 // Results
@@ -3605,6 +3605,22 @@ typedef enum SturdyCursorIcon {
     STURDY_CURSOR_ICON_RESIZE_NWSE = 7,
     STURDY_CURSOR_ICON_RESIZE_NESW = 8,
     STURDY_CURSOR_ICON_NOT_ALLOWED = 9,
+    STURDY_CURSOR_ICON_CROSSHAIR = 10,
+    /// Four-way move / resize-all.
+    STURDY_CURSOR_ICON_MOVE = 11,
+    /// Busy, cannot take input. A provider without it reports `STURDY_ERROR_NOT_AVAILABLE` through the operation status.
+    STURDY_CURSOR_ICON_WAIT = 12,
+    /// Busy but still interactive.
+    STURDY_CURSOR_ICON_PROGRESS = 13,
+    /// Edge and corner resize arrows; a provider with only the axis cursors shows the matching axis one.
+    STURDY_CURSOR_ICON_RESIZE_N = 14,
+    STURDY_CURSOR_ICON_RESIZE_NE = 15,
+    STURDY_CURSOR_ICON_RESIZE_E = 16,
+    STURDY_CURSOR_ICON_RESIZE_SE = 17,
+    STURDY_CURSOR_ICON_RESIZE_S = 18,
+    STURDY_CURSOR_ICON_RESIZE_SW = 19,
+    STURDY_CURSOR_ICON_RESIZE_W = 20,
+    STURDY_CURSOR_ICON_RESIZE_NW = 21,
     STURDY_CURSOR_ICON_FORCE_U32 = 0x7fffffff
 } SturdyCursorIcon;
 
@@ -3630,8 +3646,146 @@ typedef enum SturdyWindowEffectKind {
     STURDY_WINDOW_EFFECT_CAPTION_COLOR = 7,
     STURDY_WINDOW_EFFECT_TEXT_COLOR = 8,
     STURDY_WINDOW_EFFECT_TRANSPARENT = 9,
+    /// Windows 11 22H2+: let DWM choose the system backdrop (`DWMSBT_AUTO`).
+    STURDY_WINDOW_EFFECT_BACKDROP_AUTO = 10,
+    /// Windows 11 22H2+: no system backdrop at all.
+    STURDY_WINDOW_EFFECT_BACKDROP_NONE = 11,
+    /// Windows 10+: accent-policy blur-behind. Tint colour in `SturdyWindowEffectOptions::tint_argb`.
+    STURDY_WINDOW_EFFECT_ACCENT_BLUR = 12,
+    /// Windows 10 1803+: accent-policy acrylic (tint and its opacity in `tint_argb`).
+    STURDY_WINDOW_EFFECT_ACCENT_ACRYLIC = 13,
+    /// Windows 11: window corner rounding (`SturdyWindowEffectOptions::corner_preference`).
+    STURDY_WINDOW_EFFECT_CORNER_PREFERENCE = 14,
+    /// macOS: an `NSVisualEffectView` behind the content (the `mac_*` options).
+    STURDY_WINDOW_EFFECT_VISUAL_EFFECT = 15,
+    /// Whole-window opacity (`SturdyWindowEffectOptions::opacity`) on every platform: Windows layered window, macOS
+    /// `alphaValue`, X11 `_NET_WM_WINDOW_OPACITY`, Wayland `wp_alpha_modifier_v1`.
+    STURDY_WINDOW_EFFECT_OPACITY = 16,
+    /// Windows: no minimise/maximise/restore animations (`DWMWA_TRANSITIONS_FORCEDISABLED`).
+    STURDY_WINDOW_EFFECT_TRANSITIONS_DISABLED = 17,
+    /// macOS: the title bar draws no background of its own.
+    STURDY_WINDOW_EFFECT_TITLEBAR_TRANSPARENT = 18,
+    /// macOS: the window casts a shadow (disable to remove it).
+    STURDY_WINDOW_EFFECT_WINDOW_SHADOW = 19,
+    /// macOS 26+: a Liquid Glass `NSGlassEffectView` (`mac_glass_style`, `tint_argb`, `mac_glass_corner_radius`).
+    STURDY_WINDOW_EFFECT_GLASS_EFFECT = 20,
+    /// Rounds the window outline (`SturdyWindowEffectOptions::window_corner_radius`), whatever its frame: a window
+    /// region on Windows, the content layer on macOS, the X Shape extension on X11. Not available on Wayland.
+    STURDY_WINDOW_EFFECT_CORNER_RADIUS = 21,
     STURDY_WINDOW_EFFECT_FORCE_U32 = 0x7fffffff
 } SturdyWindowEffectKind;
+
+/// Which Linux blur route a `STURDY_WINDOW_EFFECT_BLUR` request takes.
+typedef enum SturdyLinuxBlurProtocol {
+    /// `ext-background-effect-v1`, then KDE's `org_kde_kwin_blur`; on X11 the KDE blur property.
+    STURDY_LINUX_BLUR_AUTOMATIC = 0,
+    STURDY_LINUX_BLUR_EXT_BACKGROUND_EFFECT = 1,
+    STURDY_LINUX_BLUR_KDE_BLUR = 2,
+    /// X11 only: the `_KDE_NET_WM_BLUR_BEHIND_REGION` property.
+    STURDY_LINUX_BLUR_KDE_X11 = 3,
+    STURDY_LINUX_BLUR_PROTOCOL_FORCE_U32 = 0x7fffffff
+} SturdyLinuxBlurProtocol;
+
+/// Windows 11 `DWM_WINDOW_CORNER_PREFERENCE`.
+typedef enum SturdyWindowCornerPreference {
+    STURDY_WINDOW_CORNER_DEFAULT = 0,
+    STURDY_WINDOW_CORNER_DO_NOT_ROUND = 1,
+    STURDY_WINDOW_CORNER_ROUND = 2,
+    STURDY_WINDOW_CORNER_ROUND_SMALL = 3,
+    STURDY_WINDOW_CORNER_PREFERENCE_FORCE_U32 = 0x7fffffff
+} SturdyWindowCornerPreference;
+
+/// `NSVisualEffectMaterial` (macOS 10.14 semantic materials), in the engine's own order.
+typedef enum SturdyMacMaterial {
+    STURDY_MAC_MATERIAL_TITLEBAR = 0,
+    STURDY_MAC_MATERIAL_SELECTION = 1,
+    STURDY_MAC_MATERIAL_MENU = 2,
+    STURDY_MAC_MATERIAL_POPOVER = 3,
+    STURDY_MAC_MATERIAL_SIDEBAR = 4,
+    STURDY_MAC_MATERIAL_HEADER_VIEW = 5,
+    STURDY_MAC_MATERIAL_SHEET = 6,
+    STURDY_MAC_MATERIAL_WINDOW_BACKGROUND = 7,
+    STURDY_MAC_MATERIAL_HUD_WINDOW = 8,
+    STURDY_MAC_MATERIAL_FULL_SCREEN_UI = 9,
+    STURDY_MAC_MATERIAL_TOOL_TIP = 10,
+    STURDY_MAC_MATERIAL_CONTENT_BACKGROUND = 11,
+    STURDY_MAC_MATERIAL_UNDER_WINDOW_BACKGROUND = 12,
+    STURDY_MAC_MATERIAL_UNDER_PAGE_BACKGROUND = 13,
+    STURDY_MAC_MATERIAL_FORCE_U32 = 0x7fffffff
+} SturdyMacMaterial;
+
+/// `NSVisualEffectBlendingMode`.
+typedef enum SturdyMacBlendingMode {
+    STURDY_MAC_BLENDING_BEHIND_WINDOW = 0,
+    STURDY_MAC_BLENDING_WITHIN_WINDOW = 1,
+    STURDY_MAC_BLENDING_MODE_FORCE_U32 = 0x7fffffff
+} SturdyMacBlendingMode;
+
+/// `NSVisualEffectState`.
+typedef enum SturdyMacEffectState {
+    STURDY_MAC_STATE_FOLLOWS_WINDOW_ACTIVE_STATE = 0,
+    STURDY_MAC_STATE_ACTIVE = 1,
+    STURDY_MAC_STATE_INACTIVE = 2,
+    STURDY_MAC_EFFECT_STATE_FORCE_U32 = 0x7fffffff
+} SturdyMacEffectState;
+
+/// `NSAppearanceName` override for the effect view.
+typedef enum SturdyMacAppearance {
+    STURDY_MAC_APPEARANCE_INHERIT = 0,
+    STURDY_MAC_APPEARANCE_AQUA = 1,
+    STURDY_MAC_APPEARANCE_DARK_AQUA = 2,
+    STURDY_MAC_APPEARANCE_VIBRANT_LIGHT = 3,
+    STURDY_MAC_APPEARANCE_VIBRANT_DARK = 4,
+    STURDY_MAC_APPEARANCE_FORCE_U32 = 0x7fffffff
+} SturdyMacAppearance;
+
+/// `NSGlassEffectViewStyle` (macOS 26).
+typedef enum SturdyMacGlassStyle {
+    STURDY_MAC_GLASS_REGULAR = 0,
+    STURDY_MAC_GLASS_CLEAR = 1,
+    STURDY_MAC_GLASS_STYLE_FORCE_U32 = 0x7fffffff
+} SturdyMacGlassStyle;
+
+/// Everything beyond kind and on/off for `sturdy_window_set_effect_ex`. Populate with
+/// `sturdy_window_effect_options_init` first: that sets `struct_size` and the defaults (full opacity, all accent borders,
+/// the platform's own look). Each field applies to specific effects and is ignored by the rest.
+///
+/// Blur regions are not part of this struct: a blur covers the whole window (optionally with rounded corners).
+typedef struct SturdyWindowEffectOptions {
+    /// Set to `sizeof(SturdyWindowEffectOptions)` before the call.
+    uint32_t struct_size;
+    /// Linux `STURDY_WINDOW_EFFECT_BLUR`: which compositor protocol to use.
+    SturdyLinuxBlurProtocol linux_blur_protocol;
+    /// ARGB colour for `BORDER_COLOR`, `CAPTION_COLOR` and `TEXT_COLOR`.
+    uint32_t color_argb;
+    /// `BLUR` (Linux/Windows): round the blurred region's corners by this many logical pixels (0 = square).
+    float blur_corner_radius;
+    /// `ACCENT_BLUR`, `ACCENT_ACRYLIC` and `GLASS_EFFECT`: tint colour, ARGB. Acrylic and glass honour the alpha as tint
+    /// opacity; glass with alpha 0 is untinted.
+    uint32_t tint_argb;
+    /// Accent effects: draw the window border on these sides.
+    SturdyBool accent_border_left;
+    SturdyBool accent_border_top;
+    SturdyBool accent_border_right;
+    SturdyBool accent_border_bottom;
+    /// `BORDER_COLOR` (Windows 11): draw no border at all instead of using `color_argb`.
+    SturdyBool hide_border;
+    /// `CORNER_PREFERENCE` (Windows 11).
+    SturdyWindowCornerPreference corner_preference;
+    /// `VISUAL_EFFECT` (macOS).
+    SturdyMacMaterial mac_material;
+    SturdyMacBlendingMode mac_blending;
+    SturdyMacEffectState mac_state;
+    SturdyBool mac_emphasized;
+    SturdyMacAppearance mac_appearance;
+    /// `GLASS_EFFECT` (macOS 26): the glass variant and its corner radius in logical points (0 = square).
+    SturdyMacGlassStyle mac_glass_style;
+    float mac_glass_corner_radius;
+    /// `OPACITY`: 0 (invisible) to 1 (opaque).
+    float opacity;
+    /// `CORNER_RADIUS`: the window outline's corner radius in logical pixels (0 = square).
+    float window_corner_radius;
+} SturdyWindowEffectOptions;
 
 /// Screen-space hint for where an IME should draw its candidate/composition window, in window
 /// coordinates (the same units as `SturdyWindowSnapshot::width`/`height` and mouse positions). `cursor_offset_x` is the caret's
@@ -3856,6 +4010,783 @@ STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_effect(SturdyEngine en
                                                                  SturdySurface surface,
                                                                  SturdyWindowEffectKind kind,
                                                                  SturdyBool enabled);
+
+/// Fills `options` with the defaults and the correct `struct_size`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_effect_options_init(SturdyWindowEffectOptions *options);
+
+/// `sturdy_window_set_effect` with every per-effect setting: colours, tint, corner preference, opacity, the macOS
+/// material and glass options, and the Linux blur protocol. `options` may be null for the defaults. Queued the same way.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_effect_ex(SturdyEngine engine,
+                                                                    SturdySurface surface,
+                                                                    SturdyWindowEffectKind kind,
+                                                                    SturdyBool enabled,
+                                                                    const SturdyWindowEffectOptions *options);
+
+// ---------------------------------------------------------------------------------------------
+// Window control: the whole window abstraction
+// ---------------------------------------------------------------------------------------------
+//
+// The window layer is the union of what its providers (SDL3, GLFW) can do, the way an RHI is the union of its backends.
+// Every setter below queues a request, like the rest of this section, and returns at once: it reports only a bad engine
+// or argument. The platform's verdict arrives later through `sturdy_window_operation_status` for the matching
+// `SturdyWindowOperation`; `STURDY_WINDOW_ERROR_UNSUPPORTED` there means this provider or system cannot do it, which is
+// not a bug. Ask first with `sturdy_window_feature`. Queries (clipboard text, key names, ...) work the same way: queue
+// the call, then read the answer from the operation's output a frame later.
+
+/// An integer rectangle in window or desktop coordinates (origin top-left).
+typedef struct SturdyWindowRect {
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+} SturdyWindowRect;
+
+/// A capability a window may or may not have on this provider, OS and session type.
+typedef enum SturdyWindowFeature {
+    STURDY_WINDOW_FEATURE_ALWAYS_ON_TOP = 0,
+    STURDY_WINDOW_FEATURE_ASPECT_RATIO = 1,
+    STURDY_WINDOW_FEATURE_MOUSE_PASSTHROUGH = 2,
+    STURDY_WINDOW_FEATURE_FOCUSABLE = 3,
+    STURDY_WINDOW_FEATURE_AUTO_MINIMIZE_ON_FOCUS_LOSS = 4,
+    STURDY_WINDOW_FEATURE_PARENT_WINDOW = 5,
+    STURDY_WINDOW_FEATURE_MODAL_WINDOW = 6,
+    STURDY_WINDOW_FEATURE_KEYBOARD_GRAB = 7,
+    STURDY_WINDOW_FEATURE_MOUSE_CONFINE_RECT = 8,
+    STURDY_WINDOW_FEATURE_WARP_CURSOR = 9,
+    STURDY_WINDOW_FEATURE_CUSTOM_CURSOR = 10,
+    STURDY_WINDOW_FEATURE_FRAME_EXTENTS = 11,
+    STURDY_WINDOW_FEATURE_SAFE_AREA = 12,
+    STURDY_WINDOW_FEATURE_FULLSCREEN_TARGET = 13,
+    STURDY_WINDOW_FEATURE_TEXT_INPUT_OPTIONS = 14,
+    STURDY_WINDOW_FEATURE_SCREEN_KEYBOARD = 15,
+    STURDY_WINDOW_FEATURE_CLIPBOARD_MIME_TYPES = 16,
+    STURDY_WINDOW_FEATURE_TYPED_CLIPBOARD = 17,
+    STURDY_WINDOW_FEATURE_HIT_TEST_REGIONS = 18,
+    STURDY_WINDOW_FEATURE_SYSTEM_MENU = 19,
+    STURDY_WINDOW_FEATURE_WINDOW_ICON = 20,
+    STURDY_WINDOW_FEATURE_REQUEST_ATTENTION = 21,
+    STURDY_WINDOW_FEATURE_TASKBAR_PROGRESS = 22,
+    STURDY_WINDOW_FEATURE_SYSTEM_THEME = 23,
+    STURDY_WINDOW_FEATURE_DISPLAY_LIST = 24,
+    STURDY_WINDOW_FEATURE_DISPLAY_MODES = 25,
+    STURDY_WINDOW_FEATURE_DISPLAY_EVENTS = 26,
+    STURDY_WINDOW_FEATURE_LIVE_RESIZE_CALLBACK = 27,
+    STURDY_WINDOW_FEATURE_WAIT_FOR_EVENTS = 28,
+    STURDY_WINDOW_FEATURE_FILE_DROP = 29,
+    STURDY_WINDOW_FEATURE_TEXT_DROP = 30,
+    STURDY_WINDOW_FEATURE_WINDOW_TYPE_HINT = 31,
+    STURDY_WINDOW_FEATURE_WINDOW_SHAPE = 32,
+    STURDY_WINDOW_FEATURE_ANIMATED_CURSOR = 33,
+    STURDY_WINDOW_FEATURE_KEYBOARD_QUERY = 34,
+    STURDY_WINDOW_FEATURE_WARP_CURSOR_GLOBAL = 35,
+    STURDY_WINDOW_FEATURE_MOUSE_CAPTURE = 36,
+    STURDY_WINDOW_FEATURE_ICC_PROFILE = 37,
+    STURDY_WINDOW_FEATURE_SYSTEM_TRAY = 38,
+    STURDY_WINDOW_FEATURE_TOUCH_INPUT = 39,
+    STURDY_WINDOW_FEATURE_PEN_INPUT = 40,
+    STURDY_WINDOW_FEATURE_COUNT = 41,
+    STURDY_WINDOW_FEATURE_FORCE_U32 = 0x7fffffff
+} SturdyWindowFeature;
+
+/// Whether a feature is available, with the reason when it is not (or only partly). `note` is a static string owned by the
+/// engine: it stays valid for the life of the process; it is empty when the feature is fully supported.
+typedef struct SturdyFeatureSupport {
+    SturdyBool supported;
+    const char *note;
+} SturdyFeatureSupport;
+
+/// How the window manager should treat a window.
+typedef enum SturdyWindowType {
+    STURDY_WINDOW_TYPE_NORMAL = 0,
+    /// A tool palette: no taskbar entry, lighter frame.
+    STURDY_WINDOW_TYPE_UTILITY = 1,
+    STURDY_WINDOW_TYPE_TOOLTIP = 2,
+    STURDY_WINDOW_TYPE_POPUP_MENU = 3,
+    STURDY_WINDOW_TYPE_DROPDOWN_MENU = 4,
+    STURDY_WINDOW_TYPE_DIALOG = 5,
+    STURDY_WINDOW_TYPE_SPLASH = 6,
+    STURDY_WINDOW_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyWindowType;
+
+typedef enum SturdyAttentionRequest {
+    STURDY_ATTENTION_CANCEL = 0,
+    STURDY_ATTENTION_BRIEFLY = 1,
+    STURDY_ATTENTION_UNTIL_FOCUSED = 2,
+    STURDY_ATTENTION_REQUEST_FORCE_U32 = 0x7fffffff
+} SturdyAttentionRequest;
+
+typedef enum SturdyTaskbarProgress {
+    STURDY_TASKBAR_PROGRESS_NONE = 0,
+    STURDY_TASKBAR_PROGRESS_INDETERMINATE = 1,
+    STURDY_TASKBAR_PROGRESS_NORMAL = 2,
+    STURDY_TASKBAR_PROGRESS_PAUSED = 3,
+    STURDY_TASKBAR_PROGRESS_ERROR = 4,
+    STURDY_TASKBAR_PROGRESS_FORCE_U32 = 0x7fffffff
+} SturdyTaskbarProgress;
+
+typedef enum SturdyTextInputType {
+    STURDY_TEXT_INPUT_TEXT = 0,
+    STURDY_TEXT_INPUT_NAME = 1,
+    STURDY_TEXT_INPUT_EMAIL = 2,
+    STURDY_TEXT_INPUT_USERNAME = 3,
+    STURDY_TEXT_INPUT_PASSWORD_HIDDEN = 4,
+    STURDY_TEXT_INPUT_PASSWORD_VISIBLE = 5,
+    STURDY_TEXT_INPUT_NUMBER = 6,
+    STURDY_TEXT_INPUT_NUMBER_PASSWORD_HIDDEN = 7,
+    STURDY_TEXT_INPUT_NUMBER_PASSWORD_VISIBLE = 8,
+    STURDY_TEXT_INPUT_TYPE_FORCE_U32 = 0x7fffffff
+} SturdyTextInputType;
+
+typedef enum SturdyTextCapitalization {
+    STURDY_TEXT_CAPITALIZATION_NONE = 0,
+    STURDY_TEXT_CAPITALIZATION_SENTENCES = 1,
+    STURDY_TEXT_CAPITALIZATION_WORDS = 2,
+    STURDY_TEXT_CAPITALIZATION_LETTERS = 3,
+    STURDY_TEXT_CAPITALIZATION_FORCE_U32 = 0x7fffffff
+} SturdyTextCapitalization;
+
+/// What kind of text a field takes, for IMEs and on-screen keyboards. Populate with `sturdy_text_input_options_init`.
+typedef struct SturdyTextInputOptions {
+    /// Set to `sizeof(SturdyTextInputOptions)` before the call.
+    uint32_t struct_size;
+    SturdyTextInputType type;
+    SturdyTextCapitalization capitalization;
+    SturdyBool autocorrect;
+    SturdyBool multiline;
+} SturdyTextInputOptions;
+
+typedef enum SturdyDisplayOrientation {
+    STURDY_DISPLAY_ORIENTATION_UNKNOWN = 0,
+    STURDY_DISPLAY_ORIENTATION_LANDSCAPE = 1,
+    STURDY_DISPLAY_ORIENTATION_LANDSCAPE_FLIPPED = 2,
+    STURDY_DISPLAY_ORIENTATION_PORTRAIT = 3,
+    STURDY_DISPLAY_ORIENTATION_PORTRAIT_FLIPPED = 4,
+    STURDY_DISPLAY_ORIENTATION_FORCE_U32 = 0x7fffffff
+} SturdyDisplayOrientation;
+
+/// One video mode of a display.
+typedef struct SturdyDisplayMode {
+    uint32_t width;
+    uint32_t height;
+    float refresh_rate_hz;
+    float pixel_density;
+} SturdyDisplayMode;
+
+/// The display and mode a fullscreen window uses. Unset fields mean "the window's current display" / "the desktop mode".
+typedef struct SturdyFullscreenTarget {
+    SturdyBool has_display;
+    uint32_t display_id;
+    SturdyBool has_mode;
+    SturdyDisplayMode mode;
+} SturdyFullscreenTarget;
+
+/// The decoration thickness around the client area, in window units.
+typedef struct SturdyFrameExtents {
+    int32_t left;
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+} SturdyFrameExtents;
+
+/// One connected monitor. Read with `sturdy_display_get`; the name and the modes come from their own calls.
+typedef struct SturdyDisplayInfo {
+    /// Set to `sizeof(SturdyDisplayInfo)` before the call.
+    uint32_t struct_size;
+    /// Stable for as long as the monitor stays connected; pass it as a fullscreen target's `display_id`.
+    uint32_t id;
+    SturdyWindowRect bounds;
+    SturdyWindowRect usable_bounds;
+    float content_scale;
+    float refresh_rate_hz;
+    SturdyBool hdr_enabled;
+    SturdyBool primary;
+    SturdyDisplayMode current_mode;
+    /// How many modes `sturdy_display_mode` can read.
+    uint32_t mode_count;
+    /// Panel size in millimetres; 0 when the provider cannot tell.
+    uint32_t physical_width_mm;
+    uint32_t physical_height_mm;
+    SturdyDisplayOrientation orientation;
+} SturdyDisplayInfo;
+
+/// Each operation a window can be asked to run; the key to `sturdy_window_operation_status`.
+typedef enum SturdyWindowOperation {
+    STURDY_WINDOW_OP_TITLE = 0,
+    STURDY_WINDOW_OP_POSITION = 1,
+    STURDY_WINDOW_OP_SIZE = 2,
+    STURDY_WINDOW_OP_MINIMUM_SIZE = 3,
+    STURDY_WINDOW_OP_MAXIMUM_SIZE = 4,
+    STURDY_WINDOW_OP_RESIZABLE = 5,
+    STURDY_WINDOW_OP_OPACITY = 6,
+    STURDY_WINDOW_OP_MAXIMIZE = 7,
+    STURDY_WINDOW_OP_MINIMIZE = 8,
+    STURDY_WINDOW_OP_RESTORE = 9,
+    STURDY_WINDOW_OP_RAISE = 10,
+    STURDY_WINDOW_OP_FOCUS = 11,
+    STURDY_WINDOW_OP_SHOW = 12,
+    STURDY_WINDOW_OP_HIDE = 13,
+    STURDY_WINDOW_OP_ALWAYS_ON_TOP = 14,
+    STURDY_WINDOW_OP_ASPECT_RATIO = 15,
+    STURDY_WINDOW_OP_MOUSE_PASSTHROUGH = 16,
+    STURDY_WINDOW_OP_FOCUSABLE = 17,
+    STURDY_WINDOW_OP_AUTO_MINIMIZE = 18,
+    STURDY_WINDOW_OP_PARENT = 19,
+    STURDY_WINDOW_OP_KEYBOARD_GRAB = 20,
+    STURDY_WINDOW_OP_MOUSE_CONFINE_RECT = 21,
+    STURDY_WINDOW_OP_CURSOR_POSITION = 22,
+    STURDY_WINDOW_OP_GLOBAL_CURSOR_POSITION = 23,
+    STURDY_WINDOW_OP_MOUSE_CAPTURE = 24,
+    STURDY_WINDOW_OP_CUSTOM_CURSOR = 25,
+    STURDY_WINDOW_OP_ANIMATED_CURSOR = 26,
+    STURDY_WINDOW_OP_CLEAR_CUSTOM_CURSOR = 27,
+    STURDY_WINDOW_OP_TEXT_INPUT_OPTIONS = 28,
+    STURDY_WINDOW_OP_FULLSCREEN_TARGET = 29,
+    STURDY_WINDOW_OP_WINDOW_TYPE = 30,
+    STURDY_WINDOW_OP_SHAPE = 31,
+    STURDY_WINDOW_OP_DISPLAY_GAMMA = 32,
+    STURDY_WINDOW_OP_ICON = 33,
+    STURDY_WINDOW_OP_ATTENTION = 34,
+    STURDY_WINDOW_OP_TASKBAR_PROGRESS = 35,
+    STURDY_WINDOW_OP_HIT_TEST_REGIONS = 36,
+    STURDY_WINDOW_OP_SYSTEM_MENU = 37,
+    /// Query: the text is the clipboard's text.
+    STURDY_WINDOW_OP_CLIPBOARD_TEXT = 38,
+    STURDY_WINDOW_OP_SET_CLIPBOARD_TEXT = 39,
+    /// Query: the list is the MIME types on the clipboard.
+    STURDY_WINDOW_OP_CLIPBOARD_MIME_TYPES = 40,
+    /// Query: the bytes are the clipboard's data in the asked MIME type; the flag says whether it was there.
+    STURDY_WINDOW_OP_CLIPBOARD_DATA = 41,
+    STURDY_WINDOW_OP_SET_CLIPBOARD_DATA = 42,
+    /// Query: the text is the key's name on the current layout.
+    STURDY_WINDOW_OP_KEY_NAME = 43,
+    /// Query: the flag says whether the key is held.
+    STURDY_WINDOW_OP_KEY_DOWN = 44,
+    /// Query: the bytes are the display's ICC profile.
+    STURDY_WINDOW_OP_ICC_PROFILE = 45,
+    /// A file dialog parented to the window (`sturdy_window_show_file_dialog`); the answer comes through its callback.
+    STURDY_WINDOW_OP_FILE_DIALOG = 46,
+    /// A message box over the window (`sturdy_window_show_message_box`); the pressed button is the status's `number`.
+    STURDY_WINDOW_OP_MESSAGE_BOX = 47,
+    STURDY_WINDOW_OP_COUNT = 48,
+    STURDY_WINDOW_OP_FORCE_U32 = 0x7fffffff
+} SturdyWindowOperation;
+
+typedef enum SturdyWindowErrorKind {
+    STURDY_WINDOW_ERROR_NONE = 0,
+    /// The provider or system cannot do it. Not a bug: check `sturdy_window_feature` first.
+    STURDY_WINDOW_ERROR_UNSUPPORTED = 1,
+    STURDY_WINDOW_ERROR_INVALID_ARGUMENT = 2,
+    STURDY_WINDOW_ERROR_FAILED = 3,
+    STURDY_WINDOW_ERROR_KIND_FORCE_U32 = 0x7fffffff
+} SturdyWindowErrorKind;
+
+/// The outcome of the last run of one operation on one window.
+typedef struct SturdyWindowOperationStatus {
+    /// Set to `sizeof(SturdyWindowOperationStatus)` before the call.
+    uint32_t struct_size;
+    /// False until the operation has run once on that window.
+    SturdyBool completed;
+    SturdyBool ok;
+    SturdyWindowErrorKind error;
+    /// A query's boolean answer (`KEY_DOWN`, `CLIPBOARD_DATA`'s "was present").
+    SturdyBool flag;
+    /// Sizes of the query's outputs, for sizing the buffers passed to the `_output_` functions.
+    uint32_t text_length;
+    uint32_t bytes_size;
+    uint32_t list_count;
+    /// A numeric answer: the index of the button a message box returned (-1 when closed another way).
+    int32_t number;
+} SturdyWindowOperationStatus;
+
+/// Rectangles of a custom title bar; see `sturdy_window_set_hit_test_regions`.
+typedef struct SturdyHitTestRegions {
+    /// Set to `sizeof(SturdyHitTestRegions)` before the call.
+    uint32_t struct_size;
+    SturdyBool enabled;
+    /// Thickness of the invisible resize border, in window units.
+    uint32_t resize_border;
+    /// Areas that drag the window; `no_drag` areas inside them (buttons) do not.
+    const SturdyWindowRect *drag;
+    uint32_t drag_count;
+    const SturdyWindowRect *no_drag;
+    uint32_t no_drag_count;
+} SturdyHitTestRegions;
+
+/// One frame of an animated cursor: tightly packed RGBA8 (`width * height * 4` bytes, the size given to the call).
+typedef struct SturdyCursorFrame {
+    const uint8_t *rgba;
+    uint32_t duration_ms;
+} SturdyCursorFrame;
+
+/// Creation-time window behaviour, for `sturdy_window_spawn_ex`. Populate with `sturdy_window_creation_options_init`.
+typedef struct SturdyWindowCreationOptions {
+    /// Set to `sizeof(SturdyWindowCreationOptions)` before the call.
+    uint32_t struct_size;
+    SturdyBool always_on_top;
+    SturdyBool maximized;
+    SturdyBool minimized;
+    /// False creates a window that never takes keyboard focus.
+    SturdyBool focusable;
+    SturdyBool mouse_passthrough;
+    SturdyBool has_auto_minimize;
+    SturdyBool auto_minimize_on_focus_loss;
+    SturdyWindowType window_type;
+    /// Make the window a child of `parent` (a live window's surface).
+    SturdyBool has_parent;
+    SturdySurface parent;
+    SturdyBool modal;
+    /// 0 leaves a dimension unconstrained.
+    uint32_t min_width;
+    uint32_t min_height;
+    uint32_t max_width;
+    uint32_t max_height;
+    /// Width / height limits; 0 and 0 mean none.
+    float aspect_min;
+    float aspect_max;
+    SturdyFullscreenTarget fullscreen_target;
+} SturdyWindowCreationOptions;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_text_input_options_init(SturdyTextInputOptions *options);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_creation_options_init(SturdyWindowCreationOptions *options);
+
+/// `sturdy_window_spawn` with creation-time behaviour. `options` may be null for the defaults.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_spawn_ex(SturdyEngine engine,
+                                                               const SturdyWindowConfig *config,
+                                                               const SturdyWindowCreationOptions *options,
+                                                               uint64_t *out_request_id);
+
+/// Whether, and how fully, a window supports a feature. Reads the snapshot, so it is current as of the last frame.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_feature(SturdyEngine engine, SturdySurface surface, SturdyWindowFeature feature,
+                                                              SturdyFeatureSupport *out_support);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_frame_extents(SturdyEngine engine, SturdySurface surface, SturdyFrameExtents *out_extents);
+/// The part of the client area not under notches or system bars (the whole area on desktops).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_safe_area(SturdyEngine engine, SturdySurface surface, SturdyWindowRect *out_area);
+/// The display the window is mostly on; `*out_has_display` is false when the provider cannot say.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_display_id(SturdyEngine engine, SturdySurface surface, SturdyBool *out_has_display,
+                                                                 uint32_t *out_display_id);
+
+/// How many monitors are connected (refreshed when the window system reports a change).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_display_count(SturdyEngine engine, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_display_get(SturdyEngine engine, uint32_t index, SturdyDisplayInfo *out_info);
+/// The monitor's name. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_display_name(SturdyEngine engine, uint32_t index, char *buffer, size_t capacity, size_t *out_length);
+/// Mode `mode_index` (below `SturdyDisplayInfo::mode_count`) of monitor `index`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_display_mode(SturdyEngine engine, uint32_t index, uint32_t mode_index, SturdyDisplayMode *out_mode);
+
+/// The outcome of the last run of `operation` on a window. `completed` is false until it has run.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_operation_status(SturdyEngine engine, SturdySurface surface, SturdyWindowOperation operation,
+                                                                       SturdyWindowOperationStatus *out_status);
+/// The platform's message for a failed operation. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_operation_message(SturdyEngine engine, SturdySurface surface, SturdyWindowOperation operation,
+                                                                        char *buffer, size_t capacity, size_t *out_length);
+/// A query's text output. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_operation_text(SturdyEngine engine, SturdySurface surface, SturdyWindowOperation operation,
+                                                                     char *buffer, size_t capacity, size_t *out_length);
+/// A query's byte output: writes up to `capacity` bytes and sets `*out_size` to the full size.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_operation_bytes(SturdyEngine engine, SturdySurface surface, SturdyWindowOperation operation,
+                                                                      uint8_t *buffer, size_t capacity, size_t *out_size);
+/// Entry `index` of a query's list output. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_operation_list_item(SturdyEngine engine, SturdySurface surface, SturdyWindowOperation operation,
+                                                                          uint32_t index, char *buffer, size_t capacity, size_t *out_length);
+
+// -- Basics --
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_title(SturdyEngine engine, SturdySurface surface, const char *title);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_position(SturdyEngine engine, SturdySurface surface, int32_t x, int32_t y);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_size(SturdyEngine engine, SturdySurface surface, uint32_t width, uint32_t height);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_minimum_size(SturdyEngine engine, SturdySurface surface, uint32_t width, uint32_t height);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_maximum_size(SturdyEngine engine, SturdySurface surface, uint32_t width, uint32_t height);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_resizable(SturdyEngine engine, SturdySurface surface, SturdyBool resizable);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_opacity(SturdyEngine engine, SturdySurface surface, float opacity);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_maximize(SturdyEngine engine, SturdySurface surface);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_minimize(SturdyEngine engine, SturdySurface surface);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_restore(SturdyEngine engine, SturdySurface surface);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_raise(SturdyEngine engine, SturdySurface surface);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_focus(SturdyEngine engine, SturdySurface surface);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_show(SturdyEngine engine, SturdySurface surface);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_hide(SturdyEngine engine, SturdySurface surface);
+
+// -- Behaviour --
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_always_on_top(SturdyEngine engine, SturdySurface surface, SturdyBool enabled);
+/// Constrains resizing to width/height ratios in [min, max]; 0 and 0 remove the constraint. GLFW holds one exact ratio.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_aspect_ratio(SturdyEngine engine, SturdySurface surface, float min_ratio, float max_ratio);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_mouse_passthrough(SturdyEngine engine, SturdySurface surface, SturdyBool enabled);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_focusable(SturdyEngine engine, SturdySurface surface, SturdyBool enabled);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_auto_minimize_on_focus_loss(SturdyEngine engine, SturdySurface surface, SturdyBool enabled);
+/// Makes the window a child of `parent`; null detaches. A modal child blocks its parent where the system allows.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_parent(SturdyEngine engine, SturdySurface surface, const SturdySurface *parent, SturdyBool modal);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_keyboard_grab(SturdyEngine engine, SturdySurface surface, SturdyBool enabled);
+/// Confines the cursor to a client-area rectangle; null releases it.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_mouse_confine_rect(SturdyEngine engine, SturdySurface surface, const SturdyWindowRect *rect);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_cursor_position(SturdyEngine engine, SturdySurface surface, int32_t x, int32_t y);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_global_cursor_position(SturdyEngine engine, SturdySurface surface, int32_t x, int32_t y);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_mouse_capture(SturdyEngine engine, SturdySurface surface, SturdyBool enabled);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_fullscreen_target(SturdyEngine engine, SturdySurface surface, const SturdyFullscreenTarget *target);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_window_type(SturdyEngine engine, SturdySurface surface, SturdyWindowType type);
+/// Sets a display's gamma (1.0 = unchanged); `has_display` false uses the window's display.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_display_gamma(SturdyEngine engine, SturdySurface surface, SturdyBool has_display,
+                                                                        uint32_t display_id, float gamma);
+
+// -- Cursor, shape, icon --
+/// A cursor drawn from an RGBA8 image (`width * height * 4` bytes) with its hot spot in image pixels.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_custom_cursor(SturdyEngine engine, SturdySurface surface, uint32_t width, uint32_t height,
+                                                                        const uint8_t *rgba, int32_t hot_x, int32_t hot_y);
+/// A cursor cycling through `frame_count` same-sized frames; the hot spot is shared by every frame.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_animated_cursor(SturdyEngine engine, SturdySurface surface, uint32_t width, uint32_t height,
+                                                                          const SturdyCursorFrame *frames, uint32_t frame_count, int32_t hot_x,
+                                                                          int32_t hot_y);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_clear_custom_cursor(SturdyEngine engine, SturdySurface surface);
+/// A non-rectangular outline from `width * height` coverage bytes (above 127 = inside). Null `coverage` restores the rectangle.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_shape(SturdyEngine engine, SturdySurface surface, uint32_t width, uint32_t height,
+                                                                const uint8_t *coverage);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_icon(SturdyEngine engine, SturdySurface surface, uint32_t width, uint32_t height,
+                                                               const uint8_t *rgba);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_request_attention(SturdyEngine engine, SturdySurface surface, SturdyAttentionRequest request);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_taskbar_progress(SturdyEngine engine, SturdySurface surface, SturdyTaskbarProgress state,
+                                                                           float value);
+/// Installs (or, with `enabled` false, removes) the drag and resize regions of a custom title bar.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_hit_test_regions(SturdyEngine engine, SturdySurface surface, const SturdyHitTestRegions *regions);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_show_system_menu(SturdyEngine engine, SturdySurface surface, int32_t x, int32_t y);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_start_text_input_ex(SturdyEngine engine, SturdySurface surface, const SturdyTextInputOptions *options);
+
+// -- Clipboard and input queries --
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_query_clipboard_text(SturdyEngine engine, SturdySurface surface);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_clipboard_text(SturdyEngine engine, SturdySurface surface, const char *text);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_query_clipboard_mime_types(SturdyEngine engine, SturdySurface surface);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_query_clipboard_data(SturdyEngine engine, SturdySurface surface, const char *mime_type);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_set_clipboard_data(SturdyEngine engine, SturdySurface surface, const char *mime_type,
+                                                                         const uint8_t *bytes, size_t size);
+/// Asks for a key's name on the current layout. `key` is the `key_code` value input events report.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_query_key_name(SturdyEngine engine, SturdySurface surface, int32_t key);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_query_key_down(SturdyEngine engine, SturdySurface surface, int32_t key);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_query_icc_profile(SturdyEngine engine, SturdySurface surface);
+
+// ---------------------------------------------------------------------------------------------
+// Desktop services: process-wide, whatever the window provider
+// ---------------------------------------------------------------------------------------------
+
+typedef enum SturdyFileDialogKind {
+    STURDY_FILE_DIALOG_OPEN_FILE = 0,
+    STURDY_FILE_DIALOG_SAVE_FILE = 1,
+    STURDY_FILE_DIALOG_OPEN_FOLDER = 2,
+    STURDY_FILE_DIALOG_KIND_FORCE_U32 = 0x7fffffff
+} SturdyFileDialogKind;
+
+typedef struct SturdyFileFilter {
+    const char *name;
+    /// Extensions without the dot, separated by `;` ("png;jpg"), or "*".
+    const char *pattern;
+} SturdyFileFilter;
+
+typedef struct SturdyFileDialogOptions {
+    /// Set to `sizeof(SturdyFileDialogOptions)` before the call.
+    uint32_t struct_size;
+    SturdyFileDialogKind kind;
+    const char *title;
+    const char *accept_label;
+    const char *cancel_label;
+    const char *default_location;
+    const SturdyFileFilter *filters;
+    uint32_t filter_count;
+    SturdyBool allow_multiple;
+} SturdyFileDialogOptions;
+
+/// Called once when the dialog closes, possibly on another thread. `paths` holds `count` strings valid only during the
+/// call (none when `cancelled`); `filter_index` is the active filter or -1; `error` is null unless the dialog failed.
+typedef void(STURDY_ABI_CALL *SturdyFileDialogCallback)(void *user, const char *const *paths, uint32_t count, int32_t filter_index,
+                                                       SturdyBool cancelled, const char *error);
+
+/// Opens a file or folder dialog and returns at once; `callback` reports the outcome.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_desktop_show_file_dialog(SturdyEngine engine, const SturdyFileDialogOptions *options,
+                                                                        SturdyFileDialogCallback callback, void *user);
+
+typedef enum SturdyMessageBoxKind {
+    STURDY_MESSAGE_BOX_INFORMATION = 0,
+    STURDY_MESSAGE_BOX_WARNING = 1,
+    STURDY_MESSAGE_BOX_ERROR = 2,
+    STURDY_MESSAGE_BOX_KIND_FORCE_U32 = 0x7fffffff
+} SturdyMessageBoxKind;
+
+typedef struct SturdyMessageBoxOptions {
+    /// Set to `sizeof(SturdyMessageBoxOptions)` before the call.
+    uint32_t struct_size;
+    SturdyMessageBoxKind kind;
+    const char *title;
+    const char *message;
+    /// Button labels, left to right; none gives a single "OK".
+    const char *const *buttons;
+    uint32_t button_count;
+    /// Button chosen by Enter / Escape (an index), or -1.
+    int32_t default_button;
+    int32_t escape_button;
+} SturdyMessageBoxOptions;
+
+/// Shows a message box and blocks until it is dismissed; writes the pressed button's index (or -1). Main thread only.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_desktop_show_message_box(SturdyEngine engine, const SturdyMessageBoxOptions *options,
+                                                                        int32_t *out_button);
+/// `sturdy_desktop_show_file_dialog` as a child of a window: the dialog stays above it and is attached to it by the window
+/// system. Queued like every window request; `callback` is called once when the dialog closes.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_show_file_dialog(SturdyEngine engine, SturdySurface surface, const SturdyFileDialogOptions *options,
+                                                                       SturdyFileDialogCallback callback, void *user);
+/// `sturdy_desktop_show_message_box` over a window. Queued: it blocks that window's thread until dismissed, and the
+/// pressed button arrives as `sturdy_window_operation_status(..., STURDY_WINDOW_OP_MESSAGE_BOX, ...).number`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_window_show_message_box(SturdyEngine engine, SturdySurface surface, const SturdyMessageBoxOptions *options);
+/// Allows or inhibits the screen saver / display blanking (games turn it off).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_desktop_set_screensaver_enabled(SturdyBool enabled);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_desktop_screensaver_enabled(SturdyBool *out_enabled);
+/// Delivers tray clicks for a program whose windows are not pumping SDL. Cheap when no tray exists.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_desktop_pump_events(void);
+
+/// A notification-area / menu-bar icon. Owned: lives until `sturdy_tray_destroy`.
+typedef struct SturdyTray {
+    uint64_t token;
+} SturdyTray;
+
+/// Called on the main thread when a tray menu entry is clicked; `id` is the entry's `id`.
+typedef void(STURDY_ABI_CALL *SturdyTrayCallback)(void *user, uint32_t id);
+
+typedef struct SturdyTrayEntry {
+    /// Reported to the callback; unique within the menu.
+    uint32_t id;
+    const char *label;
+    SturdyBool separator;
+    SturdyBool checkable;
+    SturdyBool checked;
+    SturdyBool enabled;
+    /// A submenu of `submenu_count` entries; when non-zero the row opens it and `id` is not reported.
+    const struct SturdyTrayEntry *submenu;
+    uint32_t submenu_count;
+} SturdyTrayEntry;
+
+/// Creates a tray icon (RGBA8 `width * height * 4` bytes) with a menu. Fails with `STURDY_ERROR_NOT_AVAILABLE` when the system has no tray.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tray_create(SturdyEngine engine, uint32_t width, uint32_t height, const uint8_t *rgba, const char *tooltip,
+                                                           const SturdyTrayEntry *entries, uint32_t entry_count, SturdyTrayCallback callback, void *user,
+                                                           SturdyTray *out_tray);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tray_set_icon(SturdyTray tray, uint32_t width, uint32_t height, const uint8_t *rgba);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tray_set_tooltip(SturdyTray tray, const char *tooltip);
+/// Replaces the whole menu.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tray_set_menu(SturdyTray tray, const SturdyTrayEntry *entries, uint32_t entry_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_tray_destroy(SturdyTray tray);
+
+// ---------------------------------------------------------------------------------------------
+// Gamepads and joysticks: process-wide, whatever the window provider
+// ---------------------------------------------------------------------------------------------
+//
+// Pads keep reporting while no window has focus, and a program has the same pads whichever provider draws its windows.
+// A pad with a gamepad mapping (`mapped`) follows the standard layout read by `sturdy_gamepad_state`; any other joystick
+// (flight stick, wheel, pedals) is read raw with `sturdy_gamepad_raw_read`.
+
+typedef enum SturdyGamepadKind {
+    STURDY_GAMEPAD_KIND_UNKNOWN = 0,
+    STURDY_GAMEPAD_KIND_STANDARD = 1,
+    STURDY_GAMEPAD_KIND_XBOX360 = 2,
+    STURDY_GAMEPAD_KIND_XBOX_ONE = 3,
+    STURDY_GAMEPAD_KIND_PS3 = 4,
+    STURDY_GAMEPAD_KIND_PS4 = 5,
+    STURDY_GAMEPAD_KIND_PS5 = 6,
+    STURDY_GAMEPAD_KIND_SWITCH_PRO = 7,
+    STURDY_GAMEPAD_KIND_JOYCON_LEFT = 8,
+    STURDY_GAMEPAD_KIND_JOYCON_RIGHT = 9,
+    STURDY_GAMEPAD_KIND_JOYCON_PAIR = 10,
+    STURDY_GAMEPAD_KIND_GAMECUBE = 11,
+    STURDY_GAMEPAD_KIND_STEAM = 12,
+    STURDY_GAMEPAD_KIND_FORCE_U32 = 0x7fffffff
+} SturdyGamepadKind;
+
+typedef enum SturdyGamepadConnection {
+    STURDY_GAMEPAD_CONNECTION_UNKNOWN = 0,
+    STURDY_GAMEPAD_CONNECTION_WIRED = 1,
+    STURDY_GAMEPAD_CONNECTION_WIRELESS = 2,
+    STURDY_GAMEPAD_CONNECTION_FORCE_U32 = 0x7fffffff
+} SturdyGamepadConnection;
+
+/// The standard layout's buttons; bit `n` of `SturdyGamepadState::buttons` is the button with value `n`.
+typedef enum SturdyGamepadButton {
+    STURDY_GAMEPAD_BUTTON_SOUTH = 0,
+    STURDY_GAMEPAD_BUTTON_EAST = 1,
+    STURDY_GAMEPAD_BUTTON_WEST = 2,
+    STURDY_GAMEPAD_BUTTON_NORTH = 3,
+    STURDY_GAMEPAD_BUTTON_BACK = 4,
+    STURDY_GAMEPAD_BUTTON_GUIDE = 5,
+    STURDY_GAMEPAD_BUTTON_START = 6,
+    STURDY_GAMEPAD_BUTTON_LEFT_STICK = 7,
+    STURDY_GAMEPAD_BUTTON_RIGHT_STICK = 8,
+    STURDY_GAMEPAD_BUTTON_LEFT_SHOULDER = 9,
+    STURDY_GAMEPAD_BUTTON_RIGHT_SHOULDER = 10,
+    STURDY_GAMEPAD_BUTTON_DPAD_UP = 11,
+    STURDY_GAMEPAD_BUTTON_DPAD_DOWN = 12,
+    STURDY_GAMEPAD_BUTTON_DPAD_LEFT = 13,
+    STURDY_GAMEPAD_BUTTON_DPAD_RIGHT = 14,
+    STURDY_GAMEPAD_BUTTON_MISC1 = 15,
+    STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE1 = 16,
+    STURDY_GAMEPAD_BUTTON_LEFT_PADDLE1 = 17,
+    STURDY_GAMEPAD_BUTTON_RIGHT_PADDLE2 = 18,
+    STURDY_GAMEPAD_BUTTON_LEFT_PADDLE2 = 19,
+    STURDY_GAMEPAD_BUTTON_TOUCHPAD = 20,
+    STURDY_GAMEPAD_BUTTON_MISC2 = 21,
+    STURDY_GAMEPAD_BUTTON_MISC3 = 22,
+    STURDY_GAMEPAD_BUTTON_MISC4 = 23,
+    STURDY_GAMEPAD_BUTTON_MISC5 = 24,
+    STURDY_GAMEPAD_BUTTON_MISC6 = 25,
+    STURDY_GAMEPAD_BUTTON_FORCE_U32 = 0x7fffffff
+} SturdyGamepadButton;
+
+/// The standard layout's axes: the sticks run -1 to 1, the triggers 0 to 1.
+typedef enum SturdyGamepadAxis {
+    STURDY_GAMEPAD_AXIS_LEFT_X = 0,
+    STURDY_GAMEPAD_AXIS_LEFT_Y = 1,
+    STURDY_GAMEPAD_AXIS_RIGHT_X = 2,
+    STURDY_GAMEPAD_AXIS_RIGHT_Y = 3,
+    STURDY_GAMEPAD_AXIS_LEFT_TRIGGER = 4,
+    STURDY_GAMEPAD_AXIS_RIGHT_TRIGGER = 5,
+    STURDY_GAMEPAD_AXIS_FORCE_U32 = 0x7fffffff
+} SturdyGamepadAxis;
+
+typedef enum SturdyGamepadSensor {
+    STURDY_GAMEPAD_SENSOR_ACCELEROMETER = 0,
+    STURDY_GAMEPAD_SENSOR_GYROSCOPE = 1,
+    STURDY_GAMEPAD_SENSOR_FORCE_U32 = 0x7fffffff
+} SturdyGamepadSensor;
+
+/// One connected device. Read with `sturdy_gamepad_get`; the name comes from `sturdy_gamepad_name`.
+typedef struct SturdyGamepadInfo {
+    /// Set to `sizeof(SturdyGamepadInfo)` before the call.
+    uint32_t struct_size;
+    /// Stable while the device stays connected; pass it to the other gamepad functions.
+    uint32_t id;
+    SturdyGamepadKind kind;
+    uint16_t vendor;
+    uint16_t product;
+    SturdyGamepadConnection connection;
+    /// The player slot (0-based), or -1.
+    int32_t player_index;
+    /// True when the device follows the standard layout (`sturdy_gamepad_state`); false for a raw joystick.
+    SturdyBool mapped;
+    SturdyBool has_rumble;
+    SturdyBool has_trigger_rumble;
+    SturdyBool has_led;
+    SturdyBool has_accelerometer;
+    SturdyBool has_gyroscope;
+    SturdyBool has_touchpad;
+    /// -1 when unknown.
+    int32_t battery_percent;
+    SturdyBool charging;
+} SturdyGamepadInfo;
+
+typedef struct SturdyGamepadState {
+    /// Set to `sizeof(SturdyGamepadState)` before the call.
+    uint32_t struct_size;
+    /// Bit `n` is the `SturdyGamepadButton` with value `n`.
+    uint32_t buttons;
+    float axes[6];
+} SturdyGamepadState;
+
+typedef enum SturdyGamepadEventKind {
+    STURDY_GAMEPAD_EVENT_CONNECTED = 0,
+    STURDY_GAMEPAD_EVENT_DISCONNECTED = 1,
+    STURDY_GAMEPAD_EVENT_KIND_FORCE_U32 = 0x7fffffff
+} SturdyGamepadEventKind;
+
+typedef struct SturdyGamepadEvent {
+    SturdyGamepadEventKind kind;
+    uint32_t id;
+} SturdyGamepadEvent;
+
+/// How many devices are connected (also starts the joystick subsystem on first use).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_count(uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_get(uint32_t index, SturdyGamepadInfo *out_info);
+/// The device's name. See the string-output convention above.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_name(uint32_t index, char *buffer, size_t capacity, size_t *out_length);
+/// The current state of a mapped gamepad (`STURDY_ERROR_NOT_AVAILABLE` for an unknown or unmapped device).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_state(uint32_t id, SturdyGamepadState *out_state);
+/// How many axes, buttons and hats a device reports raw.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_raw_counts(uint32_t id, uint32_t *out_axes, uint32_t *out_buttons, uint32_t *out_hats);
+/// A device as the hardware reports it. Each buffer may be null; axes are -1 to 1, buttons 0/1, hats a bit set (1 up,
+/// 2 right, 4 down, 8 left).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_raw_read(uint32_t id, float *axes, uint32_t axes_capacity, uint8_t *buttons,
+                                                                uint32_t buttons_capacity, uint8_t *hats, uint32_t hats_capacity);
+/// Devices connected or disconnected since the last call: writes up to `capacity` events and sets `*out_count`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_take_events(SturdyGamepadEvent *events, uint32_t capacity, uint32_t *out_count);
+/// Motor strengths are 0..1; the rumble stops after `duration_ms`.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_rumble(uint32_t id, float low_frequency, float high_frequency, uint32_t duration_ms);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_rumble_triggers(uint32_t id, float left, float right, uint32_t duration_ms);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_set_led(uint32_t id, uint8_t red, uint8_t green, uint8_t blue);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_set_player_index(uint32_t id, int32_t player_index);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_set_sensor_enabled(uint32_t id, SturdyGamepadSensor sensor, SturdyBool enabled);
+/// x, y, z of an enabled sensor (m/s^2 for the accelerometer, rad/s for the gyroscope).
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_gamepad_sensor(uint32_t id, SturdyGamepadSensor sensor, float out_xyz[3]);
+
+// -- Per-tick input state for touch, pens and gamepads --
+//
+// The engine folds these into its input state each tick, like the keyboard and mouse. Touch and pen need nothing turned on
+// (a window delivers them when the hardware and provider have them: see `STURDY_WINDOW_FEATURE_TOUCH_INPUT` and
+// `..._PEN_INPUT`). Gamepads are sampled only after `sturdy_input_set_gamepads_enabled`, because sampling starts the joystick
+// subsystem.
+
+/// One finger on a touch screen or pad. A lifted finger is listed for the tick it lifted in, then disappears.
+typedef struct SturdyTouchPoint {
+    /// The window the finger is over (a `SturdySurface::id`).
+    uint64_t window;
+    uint64_t device;
+    uint64_t finger;
+    /// Window coordinates.
+    float x;
+    float y;
+    /// Movement since the previous tick.
+    float dx;
+    float dy;
+    float pressure;
+    SturdyBool down;
+    SturdyBool just_pressed;
+    SturdyBool just_released;
+    /// The system took the touch away (a palm, a gesture): treat it as released without activating anything.
+    SturdyBool cancelled;
+} SturdyTouchPoint;
+
+/// One pen. Listed while in range, and for the tick it left range in.
+typedef struct SturdyPenPoint {
+    uint64_t window;
+    uint32_t pen;
+    float x;
+    float y;
+    SturdyBool in_range;
+    /// The tip is on the surface.
+    SturdyBool down;
+    SturdyBool eraser;
+    SturdyBool just_down;
+    SturdyBool just_up;
+    /// Pressure 0..1, tilt in degrees, distance 0..1, rotation in degrees, slider 0..1, barrel pressure 0..1.
+    float pressure;
+    float x_tilt;
+    float y_tilt;
+    float distance;
+    float rotation;
+    float slider;
+    float tangential_pressure;
+    /// Bit `n` is barrel button `n + 1`.
+    uint32_t buttons;
+} SturdyPenPoint;
+
+/// One mapped gamepad as it is this tick; the masks hold the buttons that changed since the last tick.
+typedef struct SturdyGamepadFrame {
+    uint32_t id;
+    /// Bit `n` is the `SturdyGamepadButton` with value `n`.
+    uint32_t buttons;
+    uint32_t pressed_this_tick;
+    uint32_t released_this_tick;
+    float axes[6];
+} SturdyGamepadFrame;
+
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_touch_count(SturdyEngine engine, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_touch_get(SturdyEngine engine, uint32_t index, SturdyTouchPoint *out_point);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_pen_count(SturdyEngine engine, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_pen_get(SturdyEngine engine, uint32_t index, SturdyPenPoint *out_point);
+/// Starts (or stops) sampling gamepads every tick. Off by default.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_set_gamepads_enabled(SturdyEngine engine, SturdyBool enabled);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_gamepad_count(SturdyEngine engine, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_gamepad_get(SturdyEngine engine, uint32_t index, SturdyGamepadFrame *out_frame);
+/// Pads plugged or unplugged since the previous tick.
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_gamepad_event_count(SturdyEngine engine, uint32_t *out_count);
+STURDY_ABI SturdyResult STURDY_ABI_CALL sturdy_input_gamepad_event_get(SturdyEngine engine, uint32_t index, SturdyGamepadEvent *out_event);
 
 /// Requests that a window start or stop IME text composition (on-screen keyboards, CJK input
 /// methods, etc.). Most text fields need this active only while focused and editable.

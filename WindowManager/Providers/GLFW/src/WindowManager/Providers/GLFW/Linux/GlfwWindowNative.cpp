@@ -1,7 +1,10 @@
 #include <Foundation/Foundation.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <cwchar>
 #include <expected>
@@ -752,16 +755,224 @@ namespace SFT::WindowManager::GLFW::Detail {
 #endif
     }
 
+    namespace {
+
+        [[nodiscard]] bool is_x11_window(void *window_handle) noexcept {
+            return window_handle != nullptr && glfwGetPlatform() == GLFW_PLATFORM_X11 && glfwGetX11Display() != nullptr;
+        }
+
+        /// Sends a root-window client message the way EWMH asks window-manager requests to be sent.
+        void send_wm_client_message(void *window_handle, const char *type, long d0, long d1, long d2, long d3, long d4) noexcept {
+            auto *display = static_cast<Display *>(glfwGetX11Display());
+            const ::Window window = glfwGetX11Window(static_cast<GLFWwindow *>(window_handle));
+            XEvent event{};
+            event.xclient.type = ClientMessage;
+            event.xclient.window = window;
+            event.xclient.message_type = XInternAtom(display, type, False);
+            event.xclient.format = 32;
+            event.xclient.data.l[0] = d0;
+            event.xclient.data.l[1] = d1;
+            event.xclient.data.l[2] = d2;
+            event.xclient.data.l[3] = d3;
+            event.xclient.data.l[4] = d4;
+            XSendEvent(display, DefaultRootWindow(display), False, SubstructureNotifyMask | SubstructureRedirectMask, &event);
+            XFlush(display);
+        }
+
+        [[nodiscard]] std::string read_text_file(const std::string &path) noexcept {
+            std::string text;
+            if (FILE *file = std::fopen(path.c_str(), "rb")) {
+                char buffer[4096];
+                while (const size_t read = std::fread(buffer, 1, sizeof(buffer), file)) {
+                    text.append(buffer, read);
+                    if (text.size() > (1u << 20)) {
+                        break;
+                    }
+                }
+                std::fclose(file);
+            }
+            return text;
+        }
+
+        [[nodiscard]] std::string lowercase(std::string text) noexcept {
+            std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return text;
+        }
+
+        /// The value of `key=` on its own line in an ini-style file, or empty.
+        [[nodiscard]] std::string ini_value(const std::string &text, const char *key) noexcept {
+            const std::string needle = std::string(key) + "=";
+            size_t at = 0;
+            while ((at = text.find(needle, at)) != std::string::npos) {
+                if (at == 0 || text[at - 1] == '\n') {
+                    const size_t start = at + needle.size();
+                    const size_t end = text.find_first_of("\r\n", start);
+                    return text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+                }
+                at += needle.size();
+            }
+            return {};
+        }
+
+    } // namespace
+
+    bool install_hit_test_hook(void *window_handle, const HitTestRegions *regions) noexcept {
+        (void)regions;
+        // X11 is press-driven (the provider calls begin_interactive_drag from its mouse-button callback). GLFW does not
+        // expose a Wayland window's xdg_toplevel, which is what a compositor-side move or resize request needs.
+        return is_x11_window(window_handle);
+    }
+
+    void remove_hit_test_hook(void *window_handle) noexcept { (void)window_handle; }
+
+    bool hit_test_is_press_driven(void *window_handle) noexcept { return is_x11_window(window_handle); }
+
+    bool begin_interactive_drag(void *window_handle, HitTestResult edge) noexcept {
+        if (!is_x11_window(window_handle)) {
+            return false;
+        }
+        // _NET_WM_MOVERESIZE direction codes (EWMH).
+        long direction = 8; // _NET_WM_MOVERESIZE_MOVE
+        switch (edge) {
+            case HitTestResult::Normal: return false;
+            case HitTestResult::Draggable: direction = 8; break;
+            case HitTestResult::ResizeTopLeft: direction = 0; break;
+            case HitTestResult::ResizeTop: direction = 1; break;
+            case HitTestResult::ResizeTopRight: direction = 2; break;
+            case HitTestResult::ResizeRight: direction = 3; break;
+            case HitTestResult::ResizeBottomRight: direction = 4; break;
+            case HitTestResult::ResizeBottom: direction = 5; break;
+            case HitTestResult::ResizeBottomLeft: direction = 6; break;
+            case HitTestResult::ResizeLeft: direction = 7; break;
+        }
+        auto *display = static_cast<Display *>(glfwGetX11Display());
+        ::Window root_return = 0;
+        ::Window child_return = 0;
+        int root_x = 0;
+        int root_y = 0;
+        int window_x = 0;
+        int window_y = 0;
+        unsigned int mask = 0;
+        XQueryPointer(display, DefaultRootWindow(display), &root_return, &child_return, &root_x, &root_y, &window_x, &window_y, &mask);
+        // The window manager takes over the pointer; release the implicit grab the press started.
+        XUngrabPointer(display, CurrentTime);
+        send_wm_client_message(window_handle, "_NET_WM_MOVERESIZE", root_x, root_y, direction, 1 /* Button1 */, 1 /* normal application */);
+        return true;
+    }
+
+    bool show_native_system_menu(void *window_handle, int x, int y) noexcept {
+        if (!is_x11_window(window_handle)) {
+            return false;
+        }
+        auto *display = static_cast<Display *>(glfwGetX11Display());
+        const ::Window window = glfwGetX11Window(static_cast<GLFWwindow *>(window_handle));
+        ::Window child = 0;
+        int root_x = 0;
+        int root_y = 0;
+        XTranslateCoordinates(display, window, DefaultRootWindow(display), x, y, &root_x, &root_y, &child);
+        send_wm_client_message(window_handle, "_GTK_SHOW_WINDOW_MENU", 0 /* device */, root_x, root_y, 0, 0);
+        return true;
+    }
+
+    bool set_native_taskbar_progress(void *window_handle, TaskbarProgress state, float value) noexcept {
+        (void)window_handle;
+        (void)state;
+        (void)value;
+        return false; // the Unity launcher API needs a session-bus connection; no X11/Wayland-level equivalent
+    }
+
+    bool set_native_cursor_confine(void *window_handle, const WindowRect *rect) noexcept {
+        if (!is_x11_window(window_handle)) {
+            return false; // Wayland pointer-constraints need the wl_pointer GLFW keeps to itself
+        }
+        auto *display = static_cast<Display *>(glfwGetX11Display());
+        const ::Window window = glfwGetX11Window(static_cast<GLFWwindow *>(window_handle));
+        // The window each confinement uses: XGrabPointer can confine to a window, so an invisible InputOnly child
+        // placed over the wanted rectangle makes the rectangle the limit.
+        static unordered_map<::Window, ::Window> confine_windows;
+        if (const auto found = confine_windows.find(window); found != confine_windows.end()) {
+            XUngrabPointer(display, CurrentTime);
+            XDestroyWindow(display, found->second);
+            confine_windows.erase(found);
+        }
+        if (rect == nullptr) {
+            XFlush(display);
+            return true;
+        }
+        if (rect->width <= 0 || rect->height <= 0) {
+            return false;
+        }
+        const ::Window area = XCreateWindow(display, window, rect->x, rect->y, static_cast<unsigned>(rect->width),
+                                            static_cast<unsigned>(rect->height), 0, 0 /* CopyFromParent depth */, InputOnly,
+                                            nullptr /* CopyFromParent visual */, 0, nullptr);
+        XMapWindow(display, area);
+        const int status = XGrabPointer(display, window, True /* owner_events: our window still gets its clicks */,
+                                        ButtonPressMask | ButtonReleaseMask | PointerMotionMask, GrabModeAsync, GrabModeAsync, area,
+                                        0 /* keep the cursor */, CurrentTime);
+        XFlush(display);
+        if (status != 0 /* GrabSuccess */) {
+            XDestroyWindow(display, area);
+            return false;
+        }
+        confine_windows[window] = area;
+        return true;
+    }
+
+    bool set_native_mouse_capture(void *window_handle, bool enabled) noexcept {
+        if (!is_x11_window(window_handle)) {
+            return false; // Wayland compositors keep delivering to the pressed-in surface on their own
+        }
+        auto *display = static_cast<Display *>(glfwGetX11Display());
+        const ::Window window = glfwGetX11Window(static_cast<GLFWwindow *>(window_handle));
+        if (!enabled) {
+            XUngrabPointer(display, CurrentTime);
+            XFlush(display);
+            return true;
+        }
+        const int status = XGrabPointer(display, window, True, ButtonPressMask | ButtonReleaseMask | PointerMotionMask, GrabModeAsync,
+                                        GrabModeAsync, 0 /* no confinement */, 0 /* keep the cursor */, CurrentTime);
+        XFlush(display);
+        return status == 0 /* GrabSuccess */;
+    }
+
+    bool native_typed_clipboard_available() noexcept { return false; }
+    bool native_clipboard_has(std::string_view) noexcept { return false; }
+    std::vector<std::byte> native_clipboard_get(std::string_view) noexcept { return {}; }
+    bool native_clipboard_set(void *, std::string_view, std::span<const std::byte>) noexcept { return false; }
+    std::vector<std::string> native_clipboard_types() noexcept { return {}; }
+
+    SystemTheme native_system_theme() noexcept {
+        // Without a session-bus connection the portal's color-scheme setting is out of reach, so read what GTK and
+        // KDE write to disk. The desktop's own switch may not be reflected until it rewrites these files.
+        const char *home = std::getenv("HOME");
+        const char *config_home = std::getenv("XDG_CONFIG_HOME");
+        const std::string config = config_home != nullptr && config_home[0] != '\0' ? std::string(config_home)
+                                   : home != nullptr                                ? std::string(home) + "/.config"
+                                                                                    : std::string();
+        if (config.empty()) {
+            return SystemTheme::Unknown;
+        }
+        if (const char *gtk_theme = std::getenv("GTK_THEME"); gtk_theme != nullptr && gtk_theme[0] != '\0') {
+            return lowercase(gtk_theme).find("dark") != std::string::npos ? SystemTheme::Dark : SystemTheme::Light;
+        }
+        const std::string kde = read_text_file(config + "/kdeglobals");
+        if (const std::string scheme = ini_value(kde, "ColorScheme"); !scheme.empty()) {
+            return lowercase(scheme).find("dark") != std::string::npos ? SystemTheme::Dark : SystemTheme::Light;
+        }
+        for (const char *version : {"gtk-4.0", "gtk-3.0"}) {
+            const std::string gtk = read_text_file(config + "/" + version + "/settings.ini");
+            if (const std::string prefer = ini_value(gtk, "gtk-application-prefer-dark-theme"); !prefer.empty()) {
+                return prefer[0] == '1' || lowercase(prefer).rfind("true", 0) == 0 ? SystemTheme::Dark : SystemTheme::Light;
+            }
+            if (const std::string name = ini_value(gtk, "gtk-theme-name"); !name.empty()) {
+                return lowercase(name).find("dark") != std::string::npos ? SystemTheme::Dark : SystemTheme::Light;
+            }
+        }
+        return SystemTheme::Unknown;
+    }
+
 #else
 
-    /// Performs the install ime composition hook operation for `Detail` using the supplied arguments.
-    ///
-    /// @param window_handle Window used or affected by the operation.
-    /// @param callback Callable invoked by the operation.
-    /// @param user_data Data consumed or referenced by the operation.
-    ///
-    /// @return Returns the boolean result of the operation.
-    /// @note This function does not throw exceptions.
     bool install_ime_composition_hook(void *window_handle, ImePreeditCallback callback, void *user_data) noexcept {
         (void)window_handle;
         (void)callback;
@@ -769,22 +980,8 @@ namespace SFT::WindowManager::GLFW::Detail {
         return false;
     }
 
-    /// Removes the ime composition hook from its owning collection or system.
-    ///
-    /// @param window_handle Window used or affected by the operation.
-    ///
-    /// @note This function does not throw exceptions.
     void remove_ime_composition_hook(void *window_handle) noexcept { (void)window_handle; }
 
-    /// Sets the ime composition exclude rect for this `Detail`.
-    ///
-    /// @param window_handle Window used or affected by the operation.
-    /// @param x `x` value used by the operation.
-    /// @param y `y` value used by the operation.
-    /// @param width Width of the target extent.
-    /// @param height Height of the target extent.
-    ///
-    /// @note This function does not throw exceptions.
     void set_ime_composition_exclude_rect(void *window_handle, int x, int y, int width, int height) noexcept {
         (void)window_handle;
         (void)x;
@@ -793,16 +990,59 @@ namespace SFT::WindowManager::GLFW::Detail {
         (void)height;
     }
 
-    /// Sets the ime enabled for this `Detail`.
-    ///
-    /// @param window_handle Window used or affected by the operation.
-    /// @param enabled Whether the associated behavior is enabled.
-    ///
-    /// @note This function does not throw exceptions.
     void set_ime_enabled(void *window_handle, bool enabled) noexcept {
         (void)window_handle;
         (void)enabled;
     }
+
+    bool install_hit_test_hook(void *window_handle, const HitTestRegions *regions) noexcept {
+        (void)window_handle;
+        (void)regions;
+        return false;
+    }
+
+    void remove_hit_test_hook(void *window_handle) noexcept { (void)window_handle; }
+
+    bool hit_test_is_press_driven(void *window_handle) noexcept {
+        (void)window_handle;
+        return false;
+    }
+
+    bool begin_interactive_drag(void *window_handle, HitTestResult edge) noexcept {
+        (void)window_handle;
+        (void)edge;
+        return false;
+    }
+
+    bool show_native_system_menu(void *window_handle, int x, int y) noexcept {
+        (void)window_handle;
+        (void)x;
+        (void)y;
+        return false;
+    }
+
+    bool set_native_taskbar_progress(void *window_handle, TaskbarProgress state, float value) noexcept {
+        (void)window_handle;
+        (void)state;
+        (void)value;
+        return false;
+    }
+
+    bool set_native_cursor_confine(void *window_handle, const WindowRect *rect) noexcept {
+        (void)window_handle;
+        (void)rect;
+        return false;
+    }
+
+    bool set_native_mouse_capture(void *, bool) noexcept { return false; }
+
+    bool native_typed_clipboard_available() noexcept { return false; }
+    bool native_clipboard_has(std::string_view) noexcept { return false; }
+    std::vector<std::byte> native_clipboard_get(std::string_view) noexcept { return {}; }
+    bool native_clipboard_set(void *, std::string_view, std::span<const std::byte>) noexcept { return false; }
+    std::vector<std::string> native_clipboard_types() noexcept { return {}; }
+
+    SystemTheme native_system_theme() noexcept { return SystemTheme::Unknown; }
 
 #endif // defined(__linux__)
 

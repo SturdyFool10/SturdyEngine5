@@ -440,6 +440,23 @@ impl Default for MacVisualEffect {
     }
 }
 
+/// `NSGlassEffectViewStyle` (macOS 26).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MacGlassStyle {
+    #[default]
+    Regular,
+    Clear,
+}
+
+/// macOS 26 Liquid Glass settings, for [`WindowEffectKind::GlassEffect`]. The tint is
+/// [`WindowEffectOptions::tint_argb`] (alpha 0 = untinted).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct MacGlassEffect {
+    pub style: MacGlassStyle,
+    /// Corner radius in logical points; 0 = square.
+    pub corner_radius: f32,
+}
+
 /// An integer rectangle in window-local logical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EffectRect {
@@ -468,6 +485,15 @@ pub struct WindowEffectOptions {
     pub corner_preference: WindowCornerPreference,
     /// [`WindowEffectKind::VisualEffect`] (macOS).
     pub mac: MacVisualEffect,
+    /// [`WindowEffectKind::GlassEffect`] (macOS 26).
+    pub mac_glass: MacGlassEffect,
+    /// [`WindowEffectKind::Opacity`]: 0 (invisible) to 1 (opaque).
+    pub opacity: f32,
+    /// [`WindowEffectKind::BorderColor`] (Windows 11): draw no border instead of using the colour.
+    pub hide_border: bool,
+    /// [`WindowEffectKind::CornerRadius`]: the window outline's corner radius in logical pixels (0 = square). Works
+    /// on frameless windows; hard-edged on Windows and X11, unavailable on Wayland.
+    pub window_corner_radius: f32,
 }
 
 impl Default for WindowEffectOptions {
@@ -479,6 +505,10 @@ impl Default for WindowEffectOptions {
             accent_borders: [true; 4],
             corner_preference: WindowCornerPreference::Default,
             mac: MacVisualEffect::default(),
+            mac_glass: MacGlassEffect::default(),
+            opacity: 1.0,
+            hide_border: false,
+            window_corner_radius: 0.0,
         }
     }
 }
@@ -499,6 +529,11 @@ impl WindowEffectOptions {
             mac_state: self.mac.state as u8,
             mac_emphasized: self.mac.emphasized,
             mac_appearance: self.mac.appearance as u8,
+            mac_glass_style: self.mac_glass.style as u8,
+            mac_glass_corner_radius: self.mac_glass.corner_radius,
+            opacity: self.opacity,
+            hide_border: self.hide_border,
+            window_corner_radius: self.window_corner_radius,
         }
     }
 }
@@ -551,6 +586,7 @@ mirrored_enum!(
     WindowEffectKind => WindowEffectKind {
         Blur, Acrylic, Mica, MicaAlt, Tabbed, DarkMode, BorderColor, CaptionColor, TextColor,
         Transparent, BackdropAuto, BackdropNone, AccentBlur, AccentAcrylic, CornerPreference, VisualEffect,
+        Opacity, TransitionsDisabled, TitlebarTransparent, WindowShadow, GlassEffect, CornerRadius,
     }
 );
 
