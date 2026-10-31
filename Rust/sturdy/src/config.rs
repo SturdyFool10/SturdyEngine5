@@ -74,6 +74,7 @@ pub struct RuntimeConfig {
     pub(crate) title_update_interval_seconds: f64,
     pub(crate) runtime_window_management: bool,
     pub(crate) physical_device_id: String,
+    pub(crate) device_request: Option<crate::device::DeviceRequest>,
     pub(crate) shader_disk_cache: bool,
     pub(crate) prefer_async_compute: bool,
     pub(crate) frames_in_flight: u32,
@@ -111,6 +112,7 @@ impl RuntimeConfig {
             title_update_interval_seconds: 0.0,
             runtime_window_management: false,
             physical_device_id: String::new(),
+            device_request: None,
             shader_disk_cache: true,
             prefer_async_compute: false,
             frames_in_flight: 0,
@@ -210,6 +212,18 @@ impl RuntimeConfig {
 
     /// Forces a specific GPU by its Vulkan physical device id (see the GPU inventory in
     /// [`crate::diagnostics`]); by default the engine picks the best adapter.
+    /// The API and GPU to start on: the engine resolves the request against the machine's GPUs before it creates the
+    /// device, so it comes up once on the right one instead of starting on its default and calling
+    /// [`Engine::switch_device`](crate::Engine::switch_device) afterwards. A request, not a requirement: a saved adapter
+    /// that is gone falls back to the request's preference, and one nothing here can satisfy is logged and startup
+    /// proceeds as if it had not been made. Pair it with [`device::enumerate_adapters`](crate::device::enumerate_adapters)
+    /// to turn a stored adapter id into the request. Replaces [`physical_device_id`](Self::physical_device_id) when set.
+    #[must_use]
+    pub fn device_request(mut self, request: crate::device::DeviceRequest) -> Self {
+        self.device_request = Some(request);
+        self
+    }
+
     #[must_use]
     pub fn physical_device_id(mut self, id: impl Into<String>) -> Self {
         self.physical_device_id = id.into();
@@ -326,6 +340,10 @@ impl RuntimeConfig {
             title_update_interval_seconds: self.title_update_interval_seconds,
             runtime_window_management: self.runtime_window_management,
             graphics_physical_device_id: self.physical_device_id.clone(),
+            has_device_request: self.device_request.is_some(),
+            device_backend: self.device_request.as_ref().map_or(0, |r| r.to_runtime().0),
+            device_adapter_id: self.device_request.as_ref().map(|r| r.to_runtime().1).unwrap_or_default(),
+            device_preference: self.device_request.as_ref().map_or(0, |r| r.to_runtime().2),
             enable_shader_disk_cache: self.shader_disk_cache,
             prefer_async_compute: self.prefer_async_compute,
             desired_frames_in_flight: self.frames_in_flight,

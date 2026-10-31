@@ -85,6 +85,13 @@ namespace SFT::Engine {
     struct EngineConfig {
         RHI::BackendType graphics_backend = RHI::BackendType::Vulkan;
         string graphics_physical_device_id;
+        /// Which API and GPU to start on, resolved against the machine's GPU inventory before the device is created, so
+        /// the engine comes up once on the right device instead of starting on its default and switching. When set it
+        /// replaces `graphics_backend` / `graphics_physical_device_id`. It is a request, not a requirement: a saved
+        /// adapter that is gone falls back to the request's preference, and a request nothing on this machine can satisfy
+        /// (an API no GPU supports, `DiscreteOnly` with no discrete GPU) is logged and startup proceeds with the
+        /// two fields above, as if no request had been made.
+        std::optional<DeviceRequest> device_request;
         Core::RendererFeatureRequest features{};
         const char *app_name = "Sturdy Engine 5";
 

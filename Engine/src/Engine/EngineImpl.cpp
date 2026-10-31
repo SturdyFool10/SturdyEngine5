@@ -505,9 +505,27 @@ namespace SFT::Engine {
             Core::Slang::ShaderCompileOptions{},
             config.enable_shader_disk_cache);
 
+        RHI::BackendType start_backend = config.graphics_backend;
+        string start_physical_device_id = config.graphics_physical_device_id;
+#if !defined(STURDY_PLATFORM_WEB)
+        if (config.device_request.has_value()) {
+            const DeviceResolution resolved = resolve_device_request(gpu_inventory_, *config.device_request, start_backend);
+            if (resolved.ok) {
+                start_backend = resolved.backend;
+                start_physical_device_id = gpu_inventory_.gpus[resolved.gpu_index].physical_device_id;
+                if (!resolved.fallback_reason.empty()) {
+                    Foundation::log_warn("Requested graphics device not available exactly: {}", resolved.fallback_reason);
+                }
+            } else {
+                Foundation::log_warn("Requested graphics device cannot be used ({}); starting on the default device.",
+                                     resolved.error);
+            }
+        }
+#endif
+
         Core::RendererCreateInfo renderer_info{};
-        renderer_info.backend = config.graphics_backend;
-        renderer_info.physical_device_id = config.graphics_physical_device_id;
+        renderer_info.backend = start_backend;
+        renderer_info.physical_device_id = start_physical_device_id;
         renderer_info.features = config.features;
         renderer_info.app_name = config.app_name;
         renderer_info.window = &window;
@@ -523,6 +541,8 @@ namespace SFT::Engine {
 
         initialized_ = true;
         config_ = config;
+        config_.graphics_backend = start_backend;
+        config_.graphics_physical_device_id = start_physical_device_id;
         primary_window_ = &window;
         capabilities_ = renderer_.capabilities();
         renderer_.set_device_change_callback([this](const Core::DeviceChangeNotice &notice) { dispatch_device_change(notice); });

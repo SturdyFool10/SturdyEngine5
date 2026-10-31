@@ -101,6 +101,13 @@ pub mod ffi {
         /// Vulkan physical device id (as reported by the GPU inventory) to force; empty lets the
         /// engine pick the best adapter.
         graphics_physical_device_id: String,
+        /// A device request resolved against the GPU inventory before the device is created (see
+        /// `EngineConfig::device_request`). `device_backend`: 0 Auto, 1 Vulkan, 2 D3D12, 3 Metal, 4 WebGPU.
+        has_device_request: bool,
+        device_backend: u8,
+        device_adapter_id: String,
+        /// Ordinal of `DevicePreference`.
+        device_preference: u8,
         enable_shader_disk_cache: bool,
         prefer_async_compute: bool,
         /// 0 keeps the engine's default (2).

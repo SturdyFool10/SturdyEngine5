@@ -276,6 +276,21 @@ namespace sturdy_rs {
         app.engine.shaders_directory = std::string{options.shaders_directory};
         app.engine.features.raytracing = options.raytracing;
         app.engine.graphics_physical_device_id = std::string{options.graphics_physical_device_id};
+        if (options.has_device_request) {
+            SFT::Engine::DeviceRequest request;
+            switch (options.device_backend) {
+                case 1: request.backend = SFT::RHI::BackendType::Vulkan; break;
+                case 2: request.backend = SFT::RHI::BackendType::D3D12; break;
+                case 3: request.backend = SFT::RHI::BackendType::Metal; break;
+                case 4: request.backend = SFT::RHI::BackendType::WebGpu; break;
+                default: break; // 0 = Auto
+            }
+            if (!options.device_adapter_id.empty()) {
+                request.adapter_id = std::string{options.device_adapter_id};
+            }
+            request.preference = static_cast<SFT::Engine::DevicePreference>(options.device_preference);
+            app.engine.device_request = std::move(request);
+        }
         app.engine.enable_shader_disk_cache = options.enable_shader_disk_cache;
         app.engine.features.prefer_async_compute = options.prefer_async_compute;
         if (options.desired_frames_in_flight != 0) {

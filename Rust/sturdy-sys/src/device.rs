@@ -109,6 +109,9 @@ pub mod ffi {
         #[namespace = "sturdy_rs"]
         type EngineView = crate::ffi::EngineView;
 
+        /// The same lists as below, taken before any engine exists (no window, no device): the machine's GPUs, found
+        /// through a temporary headless instance per API. Not free; call once and keep the result.
+        fn enumerate_adapters() -> Vec<AdapterInfo>;
         fn available_backends(engine: &EngineView) -> Vec<DeviceBackend>;
         fn available_adapters(engine: Pin<&mut EngineView>) -> Vec<AdapterInfo>;
         fn switch_device(engine: Pin<&mut EngineView>, request: &DeviceRequestInfo) -> DeviceSwitchInfo;

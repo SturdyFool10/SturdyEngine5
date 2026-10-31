@@ -17,6 +17,7 @@ namespace sturdy_rs::device {
     struct DeviceSwitchInfo;
     struct DeviceChangeInfo;
 
+    rust::Vec<AdapterInfo> enumerate_adapters();
     rust::Vec<DeviceBackend> available_backends(const EngineView &engine);
     rust::Vec<AdapterInfo> available_adapters(EngineView &engine);
     DeviceSwitchInfo switch_device(EngineView &engine, const DeviceRequestInfo &request);

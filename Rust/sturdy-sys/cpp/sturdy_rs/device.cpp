@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 
+#include <Core/BackendInventory.hpp>
 #include <Engine/Engine.hpp>
 #include <RHI/RHI.hpp>
 
@@ -65,30 +66,40 @@ namespace sturdy_rs::device {
         return out;
     }
 
-    rust::Vec<AdapterInfo> available_adapters(EngineView &engine) {
-        rust::Vec<AdapterInfo> out;
-        for (const E::AdapterDescription &adapter : engine.available_adapters()) {
-            AdapterInfo info{};
-            info.stable_id = rs(adapter.stable_id);
-            info.physical_device_id = rs(adapter.physical_device_id);
-            info.name = rs(adapter.name);
-            info.vendor = rs(adapter.vendor);
-            info.vendor_id = adapter.vendor_id;
-            info.device_id = adapter.device_id;
-            info.device_type = rust::String(R::device_type_name(adapter.device_type));
-            for (const E::BackendOffer &offer : adapter.backends) {
-                BackendOfferInfo entry{};
-                entry.backend = to_bridge(offer.backend);
-                entry.driver_version = rs(offer.driver_version);
-                entry.api_version = rs(offer.api_version);
-                entry.presentable = static_cast<AdapterPresentability>(offer.presentable);
-                entry.active = offer.active;
-                info.backends.push_back(std::move(entry));
+    namespace {
+        rust::Vec<AdapterInfo> to_bridge(const std::vector<E::AdapterDescription> &adapters) {
+            rust::Vec<AdapterInfo> out;
+            for (const E::AdapterDescription &adapter : adapters) {
+                AdapterInfo info{};
+                info.stable_id = rs(adapter.stable_id);
+                info.physical_device_id = rs(adapter.physical_device_id);
+                info.name = rs(adapter.name);
+                info.vendor = rs(adapter.vendor);
+                info.vendor_id = adapter.vendor_id;
+                info.device_id = adapter.device_id;
+                info.device_type = rust::String(R::device_type_name(adapter.device_type));
+                for (const E::BackendOffer &offer : adapter.backends) {
+                    BackendOfferInfo entry{};
+                    entry.backend = to_bridge(offer.backend);
+                    entry.driver_version = rs(offer.driver_version);
+                    entry.api_version = rs(offer.api_version);
+                    entry.presentable = static_cast<AdapterPresentability>(offer.presentable);
+                    entry.active = offer.active;
+                    info.backends.push_back(std::move(entry));
+                }
+                out.push_back(std::move(info));
             }
-            out.push_back(std::move(info));
+            return out;
         }
-        return out;
+    } // namespace
+
+    rust::Vec<AdapterInfo> enumerate_adapters() {
+        const R::GpuInventory inventory = SFT::Core::enumerate_gpu_inventory(
+            R::InstanceDesc{.application_name = "Sturdy GPU enumeration", .engine_name = "SturdyEngine5", .headless = true});
+        return to_bridge(E::describe_adapters(inventory, std::nullopt, {}));
     }
+
+    rust::Vec<AdapterInfo> available_adapters(EngineView &engine) { return to_bridge(engine.available_adapters()); }
 
     DeviceSwitchInfo switch_device(EngineView &engine, const DeviceRequestInfo &request) {
         E::DeviceRequest native;

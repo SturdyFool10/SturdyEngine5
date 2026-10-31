@@ -240,6 +240,67 @@ pub struct DeviceChange {
     pub message: String,
 }
 
+fn adapters_from_ffi(adapters: Vec<ffi::AdapterInfo>) -> Vec<Adapter> {
+    adapters
+        .into_iter()
+        .map(|a| Adapter {
+            stable_id: a.stable_id,
+            physical_device_id: a.physical_device_id,
+            name: a.name,
+            vendor: a.vendor,
+            vendor_id: a.vendor_id,
+            device_id: a.device_id,
+            device_type: a.device_type,
+            backends: a
+                .backends
+                .into_iter()
+                .filter_map(|b| {
+                    Some(BackendOffer {
+                        backend: Backend::from_ffi(b.backend)?,
+                        driver_version: b.driver_version,
+                        api_version: b.api_version,
+                        presentable: match b.presentable {
+                            ffi::AdapterPresentability::Yes => Presentability::Yes,
+                            ffi::AdapterPresentability::No => Presentability::No,
+                            _ => Presentability::Unknown,
+                        },
+                        active: b.active,
+                    })
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+/// Every GPU on this machine with its APIs, drivers and stable ids, found **before** any engine exists: no window, no
+/// graphics device, so it can run ahead of [`run`](crate::run). Use it to resolve a saved choice into a
+/// [`DeviceRequest`] for [`RuntimeConfig::device_request`](crate::RuntimeConfig::device_request). It creates (and
+/// destroys) a temporary headless instance per API, so call it once and keep the result.
+pub fn enumerate_adapters() -> Vec<Adapter> {
+    adapters_from_ffi(ffi::enumerate_adapters())
+}
+
+impl DeviceRequest {
+    /// The request as the runtime config carries it: (has request, API ordinal, adapter id, preference ordinal).
+    pub(crate) fn to_runtime(&self) -> (u8, String, u8) {
+        let backend = match self.backend {
+            None => 0,
+            Some(Backend::Vulkan) => 1,
+            Some(Backend::D3D12) => 2,
+            Some(Backend::Metal) => 3,
+            Some(Backend::WebGpu) => 4,
+        };
+        let preference = match self.preference {
+            DevicePreference::Default => 0,
+            DevicePreference::HighPerformance => 1,
+            DevicePreference::LowPower => 2,
+            DevicePreference::DiscreteOnly => 3,
+            DevicePreference::IntegratedOnly => 4,
+        };
+        (backend, self.adapter_id.clone().unwrap_or_default(), preference)
+    }
+}
+
 impl Engine<'_> {
     /// The graphics APIs at least one discovered GPU supports. Creates no device.
     pub fn available_backends(&self) -> Vec<Backend> {
@@ -248,35 +309,7 @@ impl Engine<'_> {
 
     /// Every discovered GPU with its APIs, drivers and stable ids. Creates no device.
     pub fn available_adapters(&mut self) -> Vec<Adapter> {
-        ffi::available_adapters(self.view_mut())
-            .into_iter()
-            .map(|a| Adapter {
-                stable_id: a.stable_id,
-                physical_device_id: a.physical_device_id,
-                name: a.name,
-                vendor: a.vendor,
-                vendor_id: a.vendor_id,
-                device_id: a.device_id,
-                device_type: a.device_type,
-                backends: a
-                    .backends
-                    .into_iter()
-                    .filter_map(|b| {
-                        Some(BackendOffer {
-                            backend: Backend::from_ffi(b.backend)?,
-                            driver_version: b.driver_version,
-                            api_version: b.api_version,
-                            presentable: match b.presentable {
-                                ffi::AdapterPresentability::Yes => Presentability::Yes,
-                                ffi::AdapterPresentability::No => Presentability::No,
-                                _ => Presentability::Unknown,
-                            },
-                            active: b.active,
-                        })
-                    })
-                    .collect(),
-            })
-            .collect()
+        adapters_from_ffi(ffi::available_adapters(self.view_mut()))
     }
 
     /// Replaces the graphics device in place. See the [module docs](crate::device) for what survives.
