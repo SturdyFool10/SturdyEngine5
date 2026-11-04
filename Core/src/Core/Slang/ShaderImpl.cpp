@@ -1625,7 +1625,19 @@ namespace SFT::Core::Slang {
             diagnostics.writeRef());
 
         if (SLANG_FAILED(result) || !code.get()) {
-            return shader_error(ShaderErrorCode::CodeGenerationFailed, "Slang failed to generate entry point code.", blob_string(diagnostics));
+            // Callers log only `message`, so the compiler's own reason goes into it (a missing DXC on Windows, a rejected
+            // construct, ...); without it every code-generation failure reads the same.
+            string reason = blob_string(diagnostics);
+            constexpr usize max_reason = 600;
+            if (reason.size() > max_reason) {
+                reason.resize(max_reason);
+                reason += "...";
+            }
+            string message = "Slang failed to generate entry point code.";
+            if (!reason.empty()) {
+                message += " Compiler said: " + reason;
+            }
+            return shader_error(ShaderErrorCode::CodeGenerationFailed, std::move(message), blob_string(diagnostics));
         }
 
         ShaderBytecode bytecode{};
@@ -2019,6 +2031,34 @@ namespace SFT::Core::Slang {
         } catch (...) {
             return shader_error(ShaderErrorCode::OperationFailed, "Unexpected exception while compiling Slang shader.");
         }
+    }
+
+
+    /// Whether this process can turn Slang source into DXIL (the shader format D3D12 consumes). Slang hands DXIL to DXC, which it loads
+    /// at run time (`dxcompiler.dll`, plus `dxil.dll` to sign the result); a machine without them compiles SPIR-V fine and fails every
+    /// DXIL shader. Found out once, by compiling a one-line compute shader, and remembered.
+    bool dxil_generation_available() {
+        static const bool available = [] {
+            ShaderCompiler compiler;
+            ShaderCompileOptions options{};
+            options.targets = {ShaderTarget{.format = ShaderTargetFormat::Dxil, .profile = "sm_6_6"}};
+            auto shader = compiler.compile(
+                ShaderSource::from_source(
+                    "sturdy_dxil_probe",
+                    "[shader(\"compute\")] [numthreads(1, 1, 1)] void sturdyDxilProbe(uint3 id : SV_DispatchThreadID) {}"),
+                options);
+            if (!shader) {
+                Foundation::log_warn("DXIL probe: compile failed: {}", shader.error().message);
+                return false;
+            }
+            auto code = shader->entry_point_code(0, 0);
+            if (!code) {
+                Foundation::log_warn("DXIL probe: DXIL generation is unavailable: {}", code.error().message);
+                return false;
+            }
+            return true;
+        }();
+        return available;
     }
 
 } // namespace SFT::Core::Slang

@@ -232,4 +232,8 @@ namespace SFT::Core::Slang {
         shared_ptr<ShaderCompilerState> state_;
     };
 
+    /// Whether DXIL (what D3D12 consumes) can be generated in this process: it needs DXC (`dxcompiler.dll` and `dxil.dll`) next to the
+    /// program or on the path. Probed once by compiling a trivial shader; false on any platform where Slang was built without DXIL.
+    [[nodiscard]] bool dxil_generation_available();
+
 } // namespace SFT::Core::Slang

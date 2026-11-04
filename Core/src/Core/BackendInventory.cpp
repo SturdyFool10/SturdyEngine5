@@ -1,5 +1,13 @@
 #include <Core/BackendInventory.hpp>
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
+#include <Foundation/Foundation.hpp>
+
+#include <Core/Slang/Shader.hpp>
+
 #if !defined(STURDY_PLATFORM_WEB)
 #include <Core/Vulkan/VulkanInventory.hpp>
 #endif
@@ -26,7 +34,27 @@ namespace SFT::Core {
         // for explicitly or when nothing else is available.
         backends.register_backend(WebGpu::webgpu_backend_registration());
 #endif
-        return RHI::enumerate_gpu_inventory(backends, instance_desc);
+        RHI::GpuInventory inventory = RHI::enumerate_gpu_inventory(backends, instance_desc);
+#if defined(STURDY_PLATFORM_WINDOWS)
+        // D3D12 takes DXIL, which Slang can only make with DXC beside the program. Without it every shader fails to build and the window
+        // never draws, so D3D12 is not offered at all: an application asking for it falls back to another API (Vulkan) instead.
+        if (!SFT::Core::Slang::dxil_generation_available()) {
+            bool removed = false;
+            for (RHI::PhysicalGpu &gpu : inventory.gpus) {
+                removed |= std::erase_if(gpu.api_support, [](const RHI::GpuApiSupport &support) {
+                               return support.adapter.backend == RHI::BackendType::D3D12;
+                           }) > 0;
+            }
+            std::erase_if(inventory.gpus, [](const RHI::PhysicalGpu &gpu) { return gpu.api_support.empty(); });
+            if (removed) {
+                const std::string reason =
+                    "D3D12 is not offered: shaders cannot be compiled to DXIL here (dxcompiler.dll and dxil.dll are missing).";
+                Foundation::log_warn("{}", reason);
+                inventory.failures.push_back(RHI::BackendDiscoveryFailure{.backend = RHI::BackendType::D3D12, .message = reason});
+            }
+        }
+#endif
+        return inventory;
     }
 
 } // namespace SFT::Core
