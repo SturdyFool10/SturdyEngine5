@@ -467,6 +467,18 @@ namespace SFT::Core::WebGpu {
 
                     WGPURequestAdapterOptions options{};
                     options.powerPreference = preference;
+#ifndef STURDY_PLATFORM_WEB
+                    // Name the platform's native backend instead of leaving it to Dawn. A Dawn built from source here only has the explicit
+                    // APIs compiled in (see sturdy_fetch_dawn), but Google's prebuilt releases also carry the OpenGL and Null backends; without
+                    // this an unlucky machine could resolve to one of those weaker devices. On Windows this is what Dawn picks by default anyway.
+#if defined(_WIN32)
+                    options.backendType = WGPUBackendType_D3D12;
+#elif defined(__APPLE__)
+                    options.backendType = WGPUBackendType_Metal;
+#else
+                    options.backendType = WGPUBackendType_Vulkan;
+#endif
+#endif
 
                     WGPURequestAdapterCallbackInfo callback{};
                     callback.mode = WGPUCallbackMode_WaitAnyOnly;

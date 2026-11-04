@@ -27,7 +27,10 @@ if(STURDY_OS STREQUAL "Web")
     target_compile_definitions(Async PUBLIC STURDY_PLATFORM_WEB=1)
 else()
     find_package(Boost 1.74 CONFIG REQUIRED)
-    find_package(OpenSSL 3.0 REQUIRED)
+    # Already defined when a prebuilt OpenSSL was handed in (a Windows build made from another OS; see sturdy_use_prebuilt_openssl).
+    if(NOT TARGET OpenSSL::SSL)
+        find_package(OpenSSL 3.0 REQUIRED)
+    endif()
     target_link_libraries(Async PRIVATE Boost::headers OpenSSL::SSL OpenSSL::Crypto)
     # Optional: child processes (Boost.Process v2 is a compiled component in newer Boost).
     if(STURDY_ASYNC_WITH_PROCESS)

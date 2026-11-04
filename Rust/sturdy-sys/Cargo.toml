@@ -28,7 +28,12 @@ proc-macro2 = "1"
 # sturdy-sys/build.rs's `feature_cmake_args`) — cargo feature flags are how a downstream Rust
 # application reaches the engine's build-time configuration, since it never invokes CMake itself.
 [features]
-default = []
+default = ["prebuilt-deps"]
+## Downloads upstream's official static binaries (Dawn, GLFW, libwebp, OpenJPEG) for the platforms that have them instead of compiling those
+## dependencies from source (STURDY_PREFER_PREBUILT_DEPENDENCIES; see cmake/SturdyPrebuilt.cmake and plans/prebuilt-dependencies.md). Every
+## download is pinned by SHA-256; anything unavailable (platform, offline without a cache, hash mismatch) falls back to the source build. On by
+## default because Dawn is by far the longest part of the engine build; turn it off for a fully from-source build.
+prebuilt-deps = []
 ## Builds the engine with its executables exporting symbols (STURDY_EXPORT_SYMBOLS), and publishes `cargo:export_symbols=1` so a dependent's build
 ## script can apply the matching link flag. See `sturdy`'s feature of the same name.
 export-symbols = []

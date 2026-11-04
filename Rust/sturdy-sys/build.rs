@@ -235,6 +235,13 @@ fn feature_cmake_args() -> Vec<&'static str> {
     if env::var_os("CARGO_FEATURE_WEBGPU").is_some() {
         args.push("-DSTURDY_ENABLE_WEBGPU=ON");
     }
+    // Official upstream static binaries instead of source builds, where they exist (cmake/SturdyPrebuilt.cmake). Passed both ways so a
+    // build directory configured with one setting is reconfigured when the feature is flipped.
+    args.push(if env::var_os("CARGO_FEATURE_PREBUILT_DEPS").is_some() {
+        "-DSTURDY_PREFER_PREBUILT_DEPENDENCIES=ON"
+    } else {
+        "-DSTURDY_PREFER_PREBUILT_DEPENDENCIES=OFF"
+    });
     // The engine's own executables (its probes) follow the same choice as the Rust application's link.
     args.push(if env::var_os("CARGO_FEATURE_EXPORT_SYMBOLS").is_some() {
         "-DSTURDY_EXPORT_SYMBOLS=ON"
@@ -351,6 +358,12 @@ fn configure(
         .arg(format!("-DSTURDY_RS_SHIM_CMAKE={}", cmake_path(&manifest.join("cmake/shim.cmake"))))
         .arg(format!("-DSTURDY_RS_SHIM_SOURCES={shim_sources}"))
         .arg(format!("-DSTURDY_RS_SHIM_INCLUDE_DIRS={include_dirs}"));
+    // A Windows build made from another OS cannot build OpenSSL (no Visual Studio), so it takes a prebuilt static one; see
+    // `sturdy_use_prebuilt_openssl` in cmake/SturdyDependencies.cmake. CMake also reads the variable from the environment itself.
+    println!("cargo:rerun-if-env-changed=STURDY_OPENSSL_ROOT");
+    if let Some(root) = env::var_os("STURDY_OPENSSL_ROOT") {
+        cmd.arg(format!("-DSTURDY_OPENSSL_ROOT={}", cmake_path(Path::new(&root))));
+    }
     if env::var_os("STURDY_RS_OFFLINE").is_some_and(|v| v != "0") {
         // Never touch the network: every dependency must already be in the deps directory (see tools/prefetch-deps.sh).
         cmd.arg("-DFETCHCONTENT_FULLY_DISCONNECTED=ON");

@@ -15,7 +15,8 @@ keywords = ["gamedev", "engine", "vulkan", "rhi"]
 categories = ["game-engines", "api-bindings", "rendering::engine"]
 
 [dependencies]
-sturdy-sys = { path = "../sturdy-sys" }
+# Default features off so `sturdy`'s own feature list (below) is what decides them: `prebuilt-deps` is on by default there and forwarded here.
+sturdy-sys = { path = "../sturdy-sys", default-features = false }
 # Backs `#[derive(sturdy::Bundle)]` / `#[derive(Bundle)]` (via the prelude); see src/ecs.rs's
 # `Bundle` trait for what it generates.
 sturdy-macros = { path = "../sturdy-macros" }
@@ -47,7 +48,11 @@ raw-window-handle = { version = "0.6", optional = true }
 # Passthrough: an application picks its engine build configuration here instead of ever touching
 # sturdy-sys or CMake directly. See sturdy-sys/Cargo.toml for what each one maps to.
 [features]
-default = ["export-symbols"]
+default = ["export-symbols", "prebuilt-deps"]
+## Downloads upstream's official static binaries (Dawn, GLFW, libwebp, OpenJPEG) instead of compiling those dependencies from source, where they
+## exist for the platform; each is SHA-256 pinned and falls back to source on any problem. See `sturdy-sys`'s feature of the same name. Turn off
+## (`default-features = false`) for a fully from-source engine build.
+prebuilt-deps = ["sturdy-sys/prebuilt-deps"]
 ## Exports the executable's symbols to its dynamic symbol table (`-rdynamic` / `--export-dynamic`, `-export_dynamic` on macOS) so the engine's
 ## native stack traces (`sturdy::trace`, the crash handler, `sturdy::trace::install_panic_hook`) name functions at runtime, even in a release
 ## build with `strip = "symbols"`. Costs a larger dynamic symbol table and symbols the linker cannot drop as unused. The flag has to be on the

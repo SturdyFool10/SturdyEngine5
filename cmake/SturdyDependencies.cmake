@@ -398,8 +398,65 @@ endfunction()
 # OpenSSL for Async's TLS. OpenSSL has no CMake build of its own, so when no system copy is found it is built from source through
 # jimmy-park/openssl-cmake, which needs Perl (Windows: also NASM unless assembly is disabled, done below; Git for Windows ships a Perl).
 set(STURDY_OPENSSL_CMAKE_TAG "4.1.0" CACHE STRING "jimmy-park/openssl-cmake tag used to build OpenSSL when no system OpenSSL is found.")
+set(STURDY_OPENSSL_ROOT "" CACHE PATH "A prebuilt static Windows OpenSSL (include/ and lib/libssl.lib, lib/libcrypto.lib), used instead of building one; required when cross-compiling to Windows.")
 set(STURDY_OPENSSL_VERSION "3.5.4" CACHE STRING "OpenSSL release built when no system OpenSSL is found (3.5 is the current LTS; Async needs 3.0+).")
+# A Windows build made on a machine that is not Windows (clang-cl against an xwin SDK, say) cannot build OpenSSL from source:
+# openssl-cmake drives nmake through vcvarsall.bat, which only a real Visual Studio has. It uses a prebuilt static OpenSSL instead, from
+# STURDY_OPENSSL_ROOT (a CMake variable or an environment variable): a folder holding include/openssl/*.h and lib/libssl.lib +
+# lib/libcrypto.lib. Build it once on any Windows machine with Visual Studio, Perl and NASM:
+#     perl Configure VC-WIN64A no-shared no-tests no-docs --prefix=C:\openssl --openssldir=C:\openssl\ssl
+#     nmake && nmake install_sw
+# and copy C:\openssl over. (/MD is OpenSSL's default CRT, which is what the engine links.)
+function(sturdy_use_prebuilt_openssl root)
+    set(_include "${root}/include")
+    set(_ssl "${root}/lib/libssl.lib")
+    set(_crypto "${root}/lib/libcrypto.lib")
+    foreach(_needed "${_include}/openssl/ssl.h" "${_include}/openssl/opensslv.h" "${_ssl}" "${_crypto}")
+        if(NOT EXISTS "${_needed}")
+            message(FATAL_ERROR "STURDY_OPENSSL_ROOT=${root} is missing ${_needed}. It must hold include/openssl/*.h and the static "
+                                "lib/libssl.lib and lib/libcrypto.lib of a Windows (VC-WIN64A, no-shared) OpenSSL 3.x build.")
+        endif()
+    endforeach()
+    file(STRINGS "${_include}/openssl/opensslv.h" _major REGEX "^# *define OPENSSL_VERSION_MAJOR +[0-9]+")
+    file(STRINGS "${_include}/openssl/opensslv.h" _minor REGEX "^# *define OPENSSL_VERSION_MINOR +[0-9]+")
+    string(REGEX MATCH "[0-9]+$" _major "${_major}")
+    string(REGEX MATCH "[0-9]+$" _minor "${_minor}")
+    if(NOT _major VERSION_GREATER_EQUAL 3)
+        message(FATAL_ERROR "STURDY_OPENSSL_ROOT=${root} holds OpenSSL ${_major}.${_minor}; Async needs 3.0 or newer.")
+    endif()
+    # The names a find_package(OpenSSL) would have made, so Async links them the same way. A static OpenSSL on Windows needs these
+    # system libraries on top.
+    add_library(OpenSSL::Crypto STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::Crypto PROPERTIES
+        IMPORTED_LOCATION "${_crypto}"
+        INTERFACE_INCLUDE_DIRECTORIES "${_include}"
+        INTERFACE_LINK_LIBRARIES "ws2_32;crypt32;advapi32;user32;bcrypt")
+    add_library(OpenSSL::SSL STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::SSL PROPERTIES
+        IMPORTED_LOCATION "${_ssl}"
+        INTERFACE_INCLUDE_DIRECTORIES "${_include}"
+        INTERFACE_LINK_LIBRARIES OpenSSL::Crypto)
+    set(OPENSSL_VERSION "${_major}.${_minor}" CACHE STRING "" FORCE)
+    message(STATUS "OpenSSL ${_major}.${_minor} (prebuilt, ${root})")
+endfunction()
+
 function(sturdy_fetch_openssl)
+    if(STURDY_OS STREQUAL "Windows")
+        set(_prebuilt "${STURDY_OPENSSL_ROOT}")
+        if(NOT _prebuilt AND DEFINED ENV{STURDY_OPENSSL_ROOT})
+            set(_prebuilt "$ENV{STURDY_OPENSSL_ROOT}")
+        endif()
+        if(_prebuilt)
+            sturdy_use_prebuilt_openssl("${_prebuilt}")
+            return()
+        endif()
+        if(NOT CMAKE_HOST_WIN32)
+            message(FATAL_ERROR "Building for Windows from a non-Windows machine needs a prebuilt static OpenSSL: openssl-cmake cannot "
+                                "build one without Visual Studio. Set STURDY_OPENSSL_ROOT (CMake variable or environment variable) to a "
+                                "folder holding include/openssl/*.h, lib/libssl.lib and lib/libcrypto.lib; see sturdy_use_prebuilt_openssl "
+                                "in cmake/SturdyDependencies.cmake for how to make one.")
+        endif()
+    endif()
     # Probe only when a system copy is acceptable: a found system OpenSSL defines imported OpenSSL:: targets, which would clash with
     # the ones openssl-cmake defines if both ran.
     if(STURDY_PREFER_SYSTEM_DEPENDENCIES)
@@ -1406,6 +1463,12 @@ function(sturdy_preseed_sdl3_linux_checks)
 endfunction()
 
 function(sturdy_fetch_glfw)
+    # Upstream's official static binaries when this platform has them (cmake/SturdyPrebuilt.cmake); otherwise the source build below.
+    sturdy_prebuilt_glfw(_glfw_prebuilt)
+    if(_glfw_prebuilt)
+        return()
+    endif()
+
     set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -1993,6 +2056,13 @@ function(sturdy_fetch_bc7enc)
 endfunction()
 
 function(sturdy_fetch_dawn)
+    # Google's official static release binaries when this platform has them (cmake/SturdyPrebuilt.cmake): Dawn is by far the most expensive thing
+    # this project would otherwise compile. Otherwise the source build below, with the engine's patches.
+    sturdy_prebuilt_dawn(_dawn_prebuilt)
+    if(_dawn_prebuilt)
+        return()
+    endif()
+
     # Dawn is Chromium's WebGPU implementation: a native library that speaks the webgpu.h C API and
     # translates it onto a real driver. It is used here rather than wgpu-native because this is a
     # C++/CMake project and Dawn builds with CMake and no Rust toolchain.
@@ -2162,6 +2232,12 @@ function(sturdy_fetch_dawn)
 endfunction()
 
 function(sturdy_fetch_webp)
+    # Upstream's official static binaries when this platform has them (cmake/SturdyPrebuilt.cmake); otherwise the source build below.
+    sturdy_prebuilt_webp(_webp_prebuilt)
+    if(_webp_prebuilt)
+        return()
+    endif()
+
     # Unlike bc7enc above, libwebp's own CMakeLists.txt is well-behaved (no global flag mutation,
     # every option needed to trim it down to just the libraries this engine links), so this uses
     # the normal FetchContent_MakeAvailable + add_subdirectory path. Only decode is needed: the
@@ -2342,6 +2418,12 @@ function(sturdy_fetch_libjxl)
 endfunction()
 
 function(sturdy_fetch_openjpeg)
+    # Upstream's official static binaries when this platform has them (cmake/SturdyPrebuilt.cmake); otherwise the source build below.
+    sturdy_prebuilt_openjpeg(_openjpeg_prebuilt)
+    if(_openjpeg_prebuilt)
+        return()
+    endif()
+
     # Decode-only: no CLI tools (BUILD_CODEC also gates a thirdparty/ subdirectory this engine has
     # no use for), no JPIP streaming extension, no docs/tests. BUILD_SHARED_LIBS/BUILD_TESTING are
     # plain (non-CACHE) sets rather than CACHE FORCE deliberately: both are project-wide CMake/CTest

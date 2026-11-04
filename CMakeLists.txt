@@ -226,6 +226,7 @@ endfunction()
 sturdy_configure_compiler_launcher()
 
 include(SturdyDependencies)
+include(SturdyPrebuilt)
 include(SturdyLicenses)
 include(SturdyShaders)
 include(SturdyFonts)
