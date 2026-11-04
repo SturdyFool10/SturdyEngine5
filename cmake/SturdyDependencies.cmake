@@ -400,13 +400,146 @@ endfunction()
 set(STURDY_OPENSSL_CMAKE_TAG "4.1.0" CACHE STRING "jimmy-park/openssl-cmake tag used to build OpenSSL when no system OpenSSL is found.")
 set(STURDY_OPENSSL_ROOT "" CACHE PATH "A prebuilt static Windows OpenSSL (include/ and lib/libssl.lib, lib/libcrypto.lib), used instead of building one; required when cross-compiling to Windows.")
 set(STURDY_OPENSSL_VERSION "3.5.4" CACHE STRING "OpenSSL release built when no system OpenSSL is found (3.5 is the current LTS; Async needs 3.0+).")
-# A Windows build made on a machine that is not Windows (clang-cl against an xwin SDK, say) cannot build OpenSSL from source:
-# openssl-cmake drives nmake through vcvarsall.bat, which only a real Visual Studio has. It uses a prebuilt static OpenSSL instead, from
-# STURDY_OPENSSL_ROOT (a CMake variable or an environment variable): a folder holding include/openssl/*.h and lib/libssl.lib +
-# lib/libcrypto.lib. Build it once on any Windows machine with Visual Studio, Perl and NASM:
-#     perl Configure VC-WIN64A no-shared no-tests no-docs --prefix=C:\openssl --openssldir=C:\openssl\ssl
-#     nmake && nmake install_sw
-# and copy C:\openssl over. (/MD is OpenSSL's default CRT, which is what the engine links.)
+# A Windows build made on a machine that is not Windows (clang-cl against an xwin SDK, say) cannot build OpenSSL with openssl-cmake:
+# that drives nmake through vcvarsall.bat, which only a real Visual Studio has. Two ways around it, tried in this order:
+#   1. STURDY_OPENSSL_ROOT (a CMake variable or an environment variable) names a prebuilt static OpenSSL: a folder holding
+#      include/openssl/*.h and lib/libssl.lib + lib/libcrypto.lib. See sturdy_use_prebuilt_openssl.
+#   2. Otherwise OpenSSL is built here, once, with the toolchain that is already doing the cross build (sturdy_build_openssl_windows_cross):
+#      the same source and flags as VC-WIN64A, but driven by OpenSSL's unix Makefile (GNU make + perl) with clang-cl as the compiler,
+#      since the nmake makefile of the VC-WIN64A target needs Windows. The result is cached beside the other dependencies.
+set(STURDY_OPENSSL_SHA256_3.5.4 "967311f84955316969bdb1d8d4b983718ef42338639c621ec4c34fddef355e99")
+# Bump when the recipe below changes in a way that must invalidate an already built copy.
+set(STURDY_OPENSSL_CROSS_RECIPE "1")
+
+# Sets ${out_root} to a folder with a static OpenSSL for Windows x64 built through clang-cl, or to "" with a reason in ${out_reason}.
+function(sturdy_build_openssl_windows_cross out_root out_reason)
+    set(${out_root} "" PARENT_SCOPE)
+    if(NOT CMAKE_C_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
+        set(${out_reason} "the C compiler is not clang-cl" PARENT_SCOPE)
+        return()
+    endif()
+    set(_version "${STURDY_OPENSSL_VERSION}")
+    if(NOT DEFINED STURDY_OPENSSL_SHA256_${_version})
+        set(${out_reason} "no SHA-256 is pinned for OpenSSL ${_version} (set STURDY_OPENSSL_SHA256_${_version})" PARENT_SCOPE)
+        return()
+    endif()
+    find_program(_perl NAMES perl NO_CMAKE_FIND_ROOT_PATH)
+    find_program(_make NAMES gmake make NO_CMAKE_FIND_ROOT_PATH)
+    find_program(_llvm_ar NAMES llvm-ar NO_CMAKE_FIND_ROOT_PATH)
+    foreach(_tool _perl _make _llvm_ar)
+        if(NOT ${_tool})
+            string(SUBSTRING "${_tool}" 1 -1 _name)
+            set(${out_reason} "${_name} was not found on this machine" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+
+    # The Windows SDK / CRT header folders the toolchain gave clang-cl as /imsvc <dir>.
+    string(REGEX MATCHALL "/imsvc +[^ ]+" _imsvc "${CMAKE_C_FLAGS}")
+    set(_include_flags "")
+    foreach(_flag IN LISTS _imsvc)
+        string(REGEX REPLACE "^/imsvc +" "" _dir "${_flag}")
+        string(APPEND _include_flags " /imsvc ${_dir}")
+    endforeach()
+    if(NOT _include_flags)
+        set(${out_reason} "the toolchain gives clang-cl no /imsvc header folders to find the Windows SDK" PARENT_SCOPE)
+        return()
+    endif()
+
+    if(STURDY_DEPS_CACHE_DIR)
+        set(_base "${STURDY_DEPS_CACHE_DIR}")
+    else()
+        set(_base "${CMAKE_BINARY_DIR}/_deps")
+    endif()
+    set(_dir "${_base}/openssl-${_version}-windows-x64-r${STURDY_OPENSSL_CROSS_RECIPE}")
+    set(_root "${_dir}/root")
+    if(EXISTS "${_root}/lib/libssl.lib" AND EXISTS "${_root}/lib/libcrypto.lib" AND EXISTS "${_root}/include/openssl/ssl.h")
+        set(${out_root} "${_root}" PARENT_SCOPE)
+        return()
+    endif()
+
+    message(STATUS "Building OpenSSL ${_version} for Windows with clang-cl (once; cached in ${_dir})")
+    file(MAKE_DIRECTORY "${_dir}")
+    set(_tarball "${_dir}/openssl-${_version}.tar.gz")
+    if(NOT EXISTS "${_tarball}")
+        file(DOWNLOAD
+            "https://github.com/openssl/openssl/releases/download/openssl-${_version}/openssl-${_version}.tar.gz"
+            "${_tarball}"
+            EXPECTED_HASH SHA256=${STURDY_OPENSSL_SHA256_${_version}}
+            TLS_VERIFY ON
+            STATUS _status)
+        list(GET _status 0 _code)
+        if(NOT _code EQUAL 0)
+            file(REMOVE "${_tarball}")
+            set(${out_reason} "OpenSSL ${_version} could not be downloaded (${_status})" PARENT_SCOPE)
+            return()
+        endif()
+    endif()
+    set(_src "${_dir}/src")
+    file(REMOVE_RECURSE "${_src}")
+    file(ARCHIVE_EXTRACT INPUT "${_tarball}" DESTINATION "${_dir}")
+    file(RENAME "${_dir}/openssl-${_version}" "${_src}")
+
+    # The target: VC-WIN64A's flags and defines on the unix Makefile template, with clang-cl as the compiler.
+    set(_conf "${_dir}/xwin.conf")
+    file(WRITE "${_conf}" "## -*- mode: perl; -*-
+my %targets = (
+    \"VC-WIN64A-xwin\" => {
+        inherit_from     => [ \"BASE_unix\" ],
+        CC               => \"${CMAKE_C_COMPILER}\",
+        CFLAGS           => \"/W3 /wd4090 /nologo /O2 --target=x86_64-pc-windows-msvc -Wno-unused-command-line-argument -Wno-pragma-pack -Wno-ignored-attributes${_include_flags}\",
+        cflags           => \"/Gs0 /GF /Gy\",
+        lib_cflags       => \"/MT /Zl\",
+        bin_cflags       => \"/MT\",
+        AR               => \"${_llvm_ar}\",
+        ARFLAGS          => \"qc\",
+        RANLIB           => undef,
+        defines          => [ \"OPENSSL_SYS_WIN32\", \"WIN32_LEAN_AND_MEAN\", \"UNICODE\", \"_UNICODE\", \"_CRT_SECURE_NO_DEPRECATE\", \"_WINSOCK_DEPRECATED_NO_WARNINGS\" ],
+        lib_defines      => [ \"L_ENDIAN\" ],
+        bn_ops           => \"SIXTY_FOUR_BIT\",
+        sys_id           => \"WIN64A\",
+        thread_scheme    => \"winthreads\",
+        dso_scheme       => \"win32\",
+        shared_target    => \"\",
+        ex_libs          => \"ws2_32.lib gdi32.lib advapi32.lib crypt32.lib user32.lib\",
+        multilib         => \"-x64\",
+    },
+);
+")
+    # OpenSSL's Configure reads CFLAGS/CPPFLAGS/LDFLAGS from the environment and lets them replace the target's own, so none may leak in.
+    set(_clean_env ${CMAKE_COMMAND} -E env --unset=CFLAGS --unset=CXXFLAGS --unset=CPPFLAGS --unset=LDFLAGS --unset=CC --unset=AR)
+    execute_process(
+        COMMAND ${_clean_env} ${_perl} Configure VC-WIN64A-xwin --config=${_conf}
+                no-shared no-asm no-tests no-docs no-makedepend no-apps no-module --prefix=${_root}
+        WORKING_DIRECTORY "${_src}"
+        RESULT_VARIABLE _result
+        OUTPUT_FILE "${_dir}/configure.log" ERROR_FILE "${_dir}/configure.log")
+    if(NOT _result EQUAL 0)
+        set(${out_reason} "OpenSSL's Configure failed; see ${_dir}/configure.log" PARENT_SCOPE)
+        return()
+    endif()
+    cmake_host_system_information(RESULT _jobs QUERY NUMBER_OF_LOGICAL_CORES)
+    execute_process(
+        COMMAND ${_clean_env} ${_make} build_libs -j${_jobs}
+        WORKING_DIRECTORY "${_src}"
+        RESULT_VARIABLE _result
+        OUTPUT_FILE "${_dir}/build.log" ERROR_FILE "${_dir}/build.log")
+    if(NOT _result EQUAL 0)
+        set(${out_reason} "building OpenSSL failed; see ${_dir}/build.log" PARENT_SCOPE)
+        return()
+    endif()
+
+    # The layout sturdy_use_prebuilt_openssl wants: headers, and the archives under the names MSVC's linker looks for.
+    file(REMOVE_RECURSE "${_root}")
+    file(MAKE_DIRECTORY "${_root}/include" "${_root}/lib")
+    file(GLOB _headers "${_src}/include/openssl/*.h")
+    file(COPY ${_headers} DESTINATION "${_root}/include/openssl")
+    file(COPY_FILE "${_src}/libssl.a" "${_root}/lib/libssl.lib")
+    file(COPY_FILE "${_src}/libcrypto.a" "${_root}/lib/libcrypto.lib")
+    file(REMOVE_RECURSE "${_src}")
+    set(${out_root} "${_root}" PARENT_SCOPE)
+endfunction()
+
 function(sturdy_use_prebuilt_openssl root)
     set(_include "${root}/include")
     set(_ssl "${root}/lib/libssl.lib")
@@ -430,7 +563,7 @@ function(sturdy_use_prebuilt_openssl root)
     set_target_properties(OpenSSL::Crypto PROPERTIES
         IMPORTED_LOCATION "${_crypto}"
         INTERFACE_INCLUDE_DIRECTORIES "${_include}"
-        INTERFACE_LINK_LIBRARIES "ws2_32;crypt32;advapi32;user32;bcrypt")
+        INTERFACE_LINK_LIBRARIES "ws2_32;crypt32;advapi32;user32;gdi32;bcrypt")
     add_library(OpenSSL::SSL STATIC IMPORTED GLOBAL)
     set_target_properties(OpenSSL::SSL PROPERTIES
         IMPORTED_LOCATION "${_ssl}"
@@ -451,10 +584,15 @@ function(sturdy_fetch_openssl)
             return()
         endif()
         if(NOT CMAKE_HOST_WIN32)
-            message(FATAL_ERROR "Building for Windows from a non-Windows machine needs a prebuilt static OpenSSL: openssl-cmake cannot "
-                                "build one without Visual Studio. Set STURDY_OPENSSL_ROOT (CMake variable or environment variable) to a "
-                                "folder holding include/openssl/*.h, lib/libssl.lib and lib/libcrypto.lib; see sturdy_use_prebuilt_openssl "
-                                "in cmake/SturdyDependencies.cmake for how to make one.")
+            sturdy_build_openssl_windows_cross(_built _why)
+            if(_built)
+                sturdy_use_prebuilt_openssl("${_built}")
+                return()
+            endif()
+            message(FATAL_ERROR "OpenSSL for Windows could not be built here (${_why}), and openssl-cmake cannot build it without Visual "
+                                "Studio. Install perl, GNU make and llvm-ar and configure again, or set STURDY_OPENSSL_ROOT (CMake variable "
+                                "or environment variable) to a folder holding include/openssl/*.h, lib/libssl.lib and lib/libcrypto.lib "
+                                "(see .github/workflows/openssl-windows-static.yml for building one on Windows).")
         endif()
     endif()
     # Probe only when a system copy is acceptable: a found system OpenSSL defines imported OpenSSL:: targets, which would clash with

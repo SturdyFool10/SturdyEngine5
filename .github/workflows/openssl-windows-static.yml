@@ -1,0 +1,51 @@
+# Builds a static OpenSSL for Windows x64 and uploads it as an artifact, for building the engine for Windows from another OS
+# (cargo-xwin / clang-cl): that build cannot compile OpenSSL itself, because openssl-cmake needs Visual Studio's nmake. Run it by
+# hand (Actions -> "OpenSSL for Windows cross builds" -> Run workflow), download the artifact, unzip it somewhere, and build with
+#     STURDY_OPENSSL_ROOT=/path/to/unzipped/openssl
+# The folder holds include/openssl/*.h and lib/libssl.lib + lib/libcrypto.lib, which is what sturdy_use_prebuilt_openssl in
+# cmake/SturdyDependencies.cmake expects. /MD (OpenSSL's default CRT) is what the engine links.
+name: OpenSSL for Windows cross builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: OpenSSL release to build (Async needs 3.0 or newer)
+        default: "3.5.4"
+
+jobs:
+  openssl:
+    runs-on: windows-latest
+    steps:
+      - name: Visual Studio build environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Download OpenSSL ${{ inputs.version }}
+        shell: bash
+        run: |
+          curl -fsSL -o openssl.tar.gz "https://github.com/openssl/openssl/releases/download/openssl-${{ inputs.version }}/openssl-${{ inputs.version }}.tar.gz"
+          tar xf openssl.tar.gz
+
+      # no-asm matches what the engine's own openssl-cmake build uses on Windows (no NASM needed).
+      - name: Build and install
+        shell: cmd
+        working-directory: openssl-${{ inputs.version }}
+        run: |
+          perl Configure VC-WIN64A no-shared no-tests no-docs no-asm --prefix=%GITHUB_WORKSPACE%\openssl --openssldir=%GITHUB_WORKSPACE%\openssl\ssl
+          nmake
+          nmake install_sw
+
+      - name: Check the layout the engine expects
+        shell: bash
+        run: |
+          test -f openssl/include/openssl/ssl.h
+          test -f openssl/lib/libssl.lib
+          test -f openssl/lib/libcrypto.lib
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: openssl-${{ inputs.version }}-windows-x64-static
+          path: openssl
